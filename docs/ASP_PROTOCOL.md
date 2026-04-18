@@ -204,7 +204,7 @@ At `payload_len = 512`, max frame size is 522 bytes.
 
 Canonical byte/register contract: `ASP_SPI_REGISTER_MAP.md`.
 
-For the external Pi Zero 2W -> FPGA profile, the following command binding is normative:
+For the external Linux SPI host -> FPGA profile, the following command binding is normative (with a Pi Zero as a practical bring-up/test host):
 
 | Command | Name | Meaning |
 |---|---|---|
