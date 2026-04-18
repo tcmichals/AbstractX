@@ -1,138 +1,169 @@
 # AbstractX
 
-**Extensible Hardware-to-Linux Communication Framework**
+**Small. Fast. Real-time.**
 
-AbstractX is a professional-grade, protocol-agnostic framework for bridging FPGA fabric (AXI-Stream) with Linux userspace through standard virtual network interfaces (TUN/TAP).
+AbstractX is a compact hardware-to-Linux streaming and control framework for FPGA systems.
 
-By abstracting the physical transport layer—5 Mbps SPI, high-speed serial, internal AXI mailboxes, and more—AbstractX lets hardware accelerators behave like standard network-connected devices.
+It gives you one clean path for:
 
-Protocol direction: AbstractX uses **ASP (AbstractX Switch Protocol)** as its canonical runtime protocol. ASP is the next-generation AbstractX protocol family with a transport-agnostic switch-fabric model.
+- **register access**,
+- **high-rate streaming data**,
+- **timestamped transport**, and
+- **real-time mixed workloads**
 
-Normative protocol spec: `docs/ASP_PROTOCOL.md`.
+over a simple external link such as **SPI**.
 
-Normative SPI transport profile: `docs/ASP_SPI_TRANSPORT.md`.
+The core idea is straightforward: AbstractX translates protocol fields into **AXIS tags** for internal switching, moves data through a lightweight switch fabric, then reconstructs protocol-visible traffic at the edge. That means **control-plane traffic and streaming traffic can live together in one design** without adding unnecessary complexity.
 
-SPI command/register wire contract: `docs/ASP_SPI_REGISTER_MAP.md`.
+## Why use AbstractX?
 
-SPI-slave stream-seam update notes: `docs/ASP_SPI_TRANSPORT.md` ("SPI slave stream-interface profile").
+AbstractX is built for projects that need FPGA performance without a giant software stack.
 
-Requirements and quality gates: `docs/ASP_REQUIREMENTS.md`.
+Use it when you want:
 
-Validation matrix and evidence gates: `docs/ASP_VALIDATION_MATRIX.md`.
+- a **small codebase** that is easy to reason about,
+- **fast real-time behavior** with deterministic transport flow,
+- **mixed register + stream access** in one protocol,
+- **autonomous streaming** from peripherals without per-frame host polling,
+- **timestamped data paths** for measurement and correlation,
+- a clean bridge from hardware pipelines into **Linux userspace**.
 
-Release checkpoints and sign-off flow: `docs/ASP_RELEASE_PROCESS.md`.
+In short: it is designed to feel like a practical embedded data plane rather than a heavyweight research stack.
 
-Direction and migration notes: `docs/ASP_SPEC_DIRECTION.md`.
+## What it does
 
-Documentation index/map: `docs/README.md`.
+AbstractX turns an FPGA endpoint into a small virtual hardware device that a Linux host can talk to efficiently.
 
-Switch fabric architecture (translator->fabric->DMA/Wishbone): `docs/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`.
+It supports:
 
-## 🔄 Key differences and updates
+- **register reads/writes** through a generic fabric-to-Wishbone path,
+- **streaming payload transport** for sensor, telemetry, serial, or data-capture flows,
+- **shared transport** where control operations and stream data coexist,
+- **IRQ + length-first reads** for deterministic host-side receive behavior,
+- **AXIS tag propagation** for routing and metadata handling,
+- **dual timestamp support** with optional ingress and egress markers.
 
-- The SPI slave path is aligned to a **stream interface seam** (ready/valid style) between pin-level SPI logic and protocol parser logic.
-- External host profile is **Pi Zero 2W native SPI master -> FPGA SPI slave** with **no USB data path**.
-- ASP transport remains byte-stream based over SPI, with framing and integrity enforced at protocol layer.
-- FPGA-to-host async receive path uses a **chip ISR doorbell (`INT_REQ`)** plus a **length-first read flow** so the Pi clocks exactly the required bytes.
-- DMA paths are designed for **auto-trigger operation** (threshold/event driven) so stream capture/drain proceeds without per-transfer host polling.
-- SPI command-phase profile is defined for deterministic operation: `0x80` (WRITE_DATA), `0x01` (READ_STATUS), `0x02` (READ_DATA).
-- Baseline deterministic operating point is 5 Mbps SPI (scalable higher when signal integrity/timing closure allow).
-- After Wishbone configuration, peripherals may enter **autonomous streaming mode** (chip-side start), feeding DMA without per-frame host trigger traffic.
+## Simple block diagram
 
-### AbstractX naming for the "wireless-chip-like" SPI model
+```text
++----------------------+    SPI    +---------------------------+    +---------------------------+
+| Linux Host           | <-------> | SPI to/from AbstractX     | <->| AbstractX Switch Fabric   |
+| Control + Apps       |           | Transport Translator      |    | route + switch + tags     |
++----------------------+           +---------------------------+    +-------------+-------------+
+        ^                                                                         ^
+        | IRQ / INT_REQ                                                           |
+        +-------------------------------------------------------------------------+
 
-- Treat the FPGA endpoint as an **AbstractX virtual network chip (vChip)** on SPI.
-- SPI transport is a **translator** into internal **AbstractX fabric packets**.
-- Fabric routing uses **target/command/sub-id** semantics; ASP remains the external protocol family.
-- Core AbstractX idea: selected protocol fields are converted into internal **AXIS tag metadata** for switching/routing, then reconstructed back into protocol-visible fields at transport egress.
-- Wishbone register access is reached through a **generic AbstractX-to-Wishbone gateway conversion** (standard bus transactions), not transport-specific glue logic.
-- The Linux bridge acts as the **AbstractX host driver** between SPI and `tun0`.
-- Timestamping follows the same **AXIS tag propagation model** as other sideband tags (e.g., route/context metadata), with optional dual markers: **ingress timestamp** (capture time) and **egress timestamp** (emit time).
+                                                                              /   \
+                                                                             v     v
 
-## ✨ Key Features
+   control path <--> +----------------------+                      +----------------------+ <--> stream path
+                     | Wishbone Gateway     |                      | DMA / Stream         |
+                     | Register Access      |                      | Endpoints            |
+                     +----------+-----------+                      +----------+-----------+
+                                |                                             |
+                                v                                             v
+                     +----------------------+                      +----------------------+
+                     | Control Peripherals  |                      | Streaming Sources    |
+                     | GPIO / status / ADC  |                      | gyro / accel / IO   |
+                     +----------------------+                      +----------------------+
 
-- **Protocol-agnostic transport**: Decouples hardware logic from the physical link layer.
-- **AXI-Stream-native design**: Encapsulates and routes AXIS packets using AbstractX IDs (**AXIDs**).
-- **High-throughput architecture**: Optimized for low-latency, large-frame transfer workloads.
-- **Deterministic SPI slave support**: Includes IRQ-based hardware flow control for reliable timing.
-- **Linux TUN/TAP integration**: Exposes FPGA packet streams through familiar Linux networking paths.
-
-## 🧩 System Architecture
-
-AbstractX functions as a virtual NIC (**vNIC**) for FPGA-attached hardware pipelines.
-
-### Hardware Side (FPGA)
-
-The AbstractX RTL gateway receives transport bytes, translates them into internal fabric packets, and routes payloads through the AbstractX switch fabric.
-
-| Component | Responsibility |
-|---|---|
-| SPI Slave Translator | Physical SPI to internal AbstractX packet translation |
-| AbstractX Switch Fabric | Packet routing to endpoint targets |
-| Wishbone Gateway | Fabric-targeted control/register bus operations |
-| DMA RX/TX Endpoints | Looping stream buffers and burst transfer endpoints |
-
-### Software Side (Linux)
-
-The AbstractX bridge daemon runs on the host (for example, Raspberry Pi Zero 2W or Zynq MPSoC A53).
-
-- **Read path**: Triggered by GPIO IRQ, reads exact packet length over SPI, then injects payload into `/dev/net/tun`.
-- **Write path**: Reads packets from TUN and streams them to FPGA through the Linux SPI master.
-
-## 📦 ASP Wire Profiles
-
-ASP currently defines two wire profiles:
-
-- **`asp-compat-v1` (default)**: compatibility profile for low-risk migration from legacy wire behavior.
-- **`asp-native` (future)**: reserved for a fully native AbstractX envelope once migration gates and tooling readiness are complete.
-
-Default (`asp-compat-v1`) frame fields:
-
-| Field | Size | Description |
-|---|---|---|
-| Sync | 8-bit | `0xA5` start-of-frame marker |
-| Version | 8-bit | Protocol version (`0x01`) |
-| Flags | 8-bit | Metadata/ACK behavior |
-| AXID | 8-bit | Routing tag (e.g., `0x01` control, `0x05` stream tunnel) |
-| Sequence | 16-bit | Request/response correlation |
-| Length | 16-bit | Payload byte length (project profile cap currently 512) |
-| Payload | N bytes | Stream payload |
-| CRC-16 | 16-bit | CRC16/XMODEM over `Version..Payload` |
-
-Transport note: over SPI, ASP is a **byte-stream protocol**. SPI burst boundaries do not define packet boundaries.
-
-## 🛠️ Getting Started
-
-### 1) Hardware Wiring (SPI Example)
-
-Connect Linux host (e.g., Pi Zero 2W) to FPGA (e.g., Tang Nano 9K):
-
-- `MOSI`, `MISO`, `SCLK`, `CS`
-- `IRQ` (FPGA output → host GPIO input) for asynchronous receive notification
-
-### 2) FPGA Integration
-
-Instantiate `abstractx_slave_top.v` and connect your internal AXIS master/slave ports to the AbstractX switch fabric.
-
-### 3) Linux Bridge Build/Run
-
-Build and launch the bridge daemon:
-
-```bash
-gcc abstractx_bridge.c -o abstractx_bridge -lpthread
-sudo ./abstractx_bridge --interface tun0 --speed 5000000
+                                 metadata / AXIS tags: route + ts_in + ts_out
 ```
 
-## 📘 Typical Use Cases
+## Key features
 
-- **Real-time hardware offload**: Move CPU-intensive pipelines into FPGA logic.
-- **High-speed telemetry**: Stream sensor/system data into Linux applications via UDP/TCP stacks.
-- **Edge acceleration**: Feed inference or DSP engines via a network-like software API.
+- **Small and focused**  
+	The design is intentionally compact and understandable.
 
-## 🤝 Contributing
+- **Fast real-time transport**  
+	Built for deterministic data movement, low overhead, and hardware-friendly flow control.
 
-Contributions are welcome. If you extend transport backends, add AXID mappings, or improve bridge reliability/performance, feel free to open a PR.
+- **Register access + streaming in one path**  
+	Control transactions and continuous stream traffic use the same overall framework.
 
-## 📄 License
+- **Autonomous streaming**  
+	Peripherals can be configured once, then stream on their own through DMA-style paths.
+
+- **Great for sensors and converters**  
+        A good fit for **gyro/accel devices**, **ADC capture**, telemetry sources, and other periodic producers.
+
+- **Timestamping built in**  
+	Metadata can include **ingress** and **egress** timestamps for correlation, timing analysis, and tracing.
+
+- **AXIS-native internal model**  
+	Protocol fields become switching metadata, making internal routing clean and scalable.
+
+- **Linux-friendly**  
+	Designed to bridge hardware data into Linux software cleanly, including TUN/TAP-oriented flows.
+
+## Example use cases
+
+### Sensor streaming
+
+Configure a gyro, accelerometer, or ADC once over registers, then let it stream continuously into looped buffers while the host reads bursts when needed.
+
+### Mixed control + data systems
+
+Send register writes for setup and control while streaming real-time samples over the same transport.
+
+### Timestamped measurement pipelines
+
+Attach ingress and egress timing metadata to stream traffic for latency measurement, synchronization, and debug.
+
+### Lightweight FPGA-to-Linux offload
+
+Expose FPGA-side functions to Linux userspace without needing a giant control framework.
+
+## Testing and quality
+
+AbstractX is intended to be **tested, not guessed at**.
+
+The project documentation and scaffolding are built around:
+
+- **Python-based validation**,
+- **cocotb simulation**,
+- block-level and subsystem-level verification,
+- protocol validation for register and stream behavior,
+- validation of timestamp/tag handling and deterministic transport behavior.
+
+## Bring-up model
+
+The current reference bring-up path is:
+
+- **Linux SPI master -> FPGA SPI slave**
+- **Pi Zero** as a practical bring-up and test host
+- IRQ-assisted host reads with exact-length transfers
+
+This keeps the external setup simple while preserving the internal AbstractX model.
+
+## Documentation
+
+The README is the front door. The detailed specification lives in `docs/`:
+
+- `docs/ASP_PROTOCOL.md` — normative protocol behavior
+- `docs/ASP_SPI_TRANSPORT.md` — SPI transport profile
+- `docs/ASP_SPI_REGISTER_MAP.md` — byte/register wire contract
+- `docs/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md` — translator, fabric, DMA, Wishbone architecture
+- `docs/ASP_REQUIREMENTS.md` — requirements and quality gates
+- `docs/ASP_VALIDATION_MATRIX.md` — verification gates and evidence
+- `docs/ASP_RELEASE_PROCESS.md` — release and sign-off flow
+- `docs/ASP_SPEC_DIRECTION.md` — protocol direction and compatibility profile notes
+- `docs/README.md` — docs map
+
+## Protocol direction
+
+AbstractX uses **ASP (AbstractX Switch Protocol)** as its runtime protocol family.
+
+Today the repository defines:
+
+- **`asp-compat-v1`** as the default compatibility profile
+- **`asp-native`** as the future fully native AbstractX profile
+
+## Contributing
+
+If you want to extend transport adapters, add endpoints, improve validation, or tighten the RTL/software bridge, contributions are welcome.
+
+## License
 
 This project is licensed under the terms in `LICENSE`.

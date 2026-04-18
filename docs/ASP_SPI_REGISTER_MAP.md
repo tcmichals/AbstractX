@@ -6,9 +6,13 @@ This document defines the byte-level command/register contract for the AbstractX
 
 Applies to the external profile:
 
-- Host: Pi Zero 2W native SPI master
-- Device: FPGA SPI slave (Tang Nano 9K class)
+- Host: Linux SPI master
+- Device: FPGA SPI slave
 - Data path: SPI-only (no USB data path)
+
+Bring-up/testing note:
+
+- A Pi Zero is a practical SPI host for validation and bench testing.
 
 This contract complements:
 

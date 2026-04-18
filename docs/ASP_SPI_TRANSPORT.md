@@ -12,13 +12,17 @@ ASP therefore treats SPI as a byte stream and provides packet framing at the pro
 
 Current target profile is:
 
-- Host: **Pi Zero 2W native SPI master**
-- Device: **Tang Nano 9K FPGA SPI slave**
+- Host: **Linux SPI master**
+- Device: **FPGA SPI slave**
 - Data path: **SPI only (no USB data path)**
+
+Bring-up note:
+
+- A **Pi Zero** is a practical host for testing and early bring-up.
 
 Typical physical mapping:
 
-| Pi Zero 2W | Signal | FPGA side |
+| Example Linux SPI host | Signal | FPGA side |
 |---|---|---|
 | GPIO10 | MOSI | SPI slave data-in |
 | GPIO9 | MISO | SPI slave data-out |
