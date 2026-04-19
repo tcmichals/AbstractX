@@ -1,0 +1,40 @@
+// Tang Nano 9K Pins
+
+IO_LOC "i_clk" 52;
+IO_PORT "i_clk" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "i_reset_n" 4;
+IO_PORT "i_reset_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// SPI Interface (PMOD or Header)
+// Based on SPIQuadCopter example
+IO_LOC "i_spi_sclk" 25;
+IO_PORT "i_spi_sclk" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+IO_LOC "i_spi_cs_n" 26;
+IO_PORT "i_spi_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "i_spi_mosi" 27;
+IO_PORT "i_spi_mosi" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+IO_LOC "o_spi_miso" 28;
+IO_PORT "o_spi_miso" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// LEDs
+IO_LOC "o_led[0]" 10;
+IO_PORT "o_led[0]" DRIVE=8 IO_TYPE=LVCMOS18;
+
+IO_LOC "o_led[1]" 11;
+IO_PORT "o_led[1]" DRIVE=8 IO_TYPE=LVCMOS18;
+
+IO_LOC "o_led[2]" 13;
+IO_PORT "o_led[2]" DRIVE=8 IO_TYPE=LVCMOS18;
+
+IO_LOC "o_led[3]" 14;
+IO_PORT "o_led[3]" DRIVE=8 IO_TYPE=LVCMOS18;
+
+IO_LOC "o_led[4]" 15;
+IO_PORT "o_led[4]" DRIVE=8 IO_TYPE=LVCMOS18;
+
+IO_LOC "o_led[5]" 16;
+IO_PORT "o_led[5]" DRIVE=8 IO_TYPE=LVCMOS18;

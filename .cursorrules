@@ -1,0 +1,34 @@
+# AbstractX AI System Rules
+
+You are an AI assistant helping develop AbstractX, a compact, real-time hardware-to-Linux streaming and control framework for FPGA systems. 
+
+When you suggest, modify, or create code in this repository, you MUST adhere to the following strict guidelines:
+
+## 1. Context Prerequisites
+- Before executing large architectural shifts, always read `docs/DESIGN_RULES.md` and `engineering_log.md` to map the current context.
+- The project primarily uses SPI physically, mapped into AXI-Stream internally using the AbstractX Switch Protocol (ASP).
+
+## 2. Naming & Syntax
+- SystemVerilog files and their top-level modules MUST use the `asp_` prefix (e.g., `asp_foo.sv` contains `module asp_foo`).
+- Use SystemVerilog (`.sv`) with `default_nettype wire`.
+
+## 3. The Strict Test-Bench Rule
+- If you write or modify a `.sv` module, you MUST write or modify a corresponding `cocotb` testbench in `sim/cocotb/test_asp_<module>_cocotb.py`.
+- No code is complete without an isolated test environment.
+- Ensure the testbench is targeted for **Verilator** execution (`SIM ?= verilator`).
+- **AXIS Methodology:** When generating testbenches for AXI-Stream modules, you MUST implement randomized backpressure (toggling `tready`) and verify framing integrity (`tlast` bounds) to satisfy the AbstractX testing standard.
+
+## 4. Hardware Interfaces
+- **External:** Do not spread physical SPI pin logic through the codebase. It belongs isolated in MAC layers (e.g., `asp_spi_frontend.sv`).
+- **Data plane:** Interconnects use native AXI-Stream primitives (`tdata`, `tvalid`, `tready`, `tlast`).
+- **Control plane:** Memory-mapped register logic uses standard Wishbone protocol (`cyc`, `stb`, `we`, `adr`, `dat_i/o`, `ack`).
+
+## 5. Linux / Host Code
+- Host-side driver stubs and tools are written in Python.
+- Do not use complex kernel-level abstractions unless necessary. Model host communication using user-space `/dev/spidev` and TUN network interfaces via `pytun` or raw ioctl calls (`/dev/net/tun`).
+
+## 6. Build Systems
+- **Self-Documenting CMakes:** Any time you generate or modify a `CMakeLists.txt` file, you MUST include a custom `info` target or explicit comments that outputs a human-readable list of available execution targets when the user requests it.
+
+## 7. Licensing
+- The repository operates under a Dual-License model (GPLv3 & Commercial). Under no circumstances should you generate code that plagiarizes restrictively licensed software which would violate these terms.

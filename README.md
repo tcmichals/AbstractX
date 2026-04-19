@@ -119,6 +119,8 @@ Expose FPGA-side functions to Linux userspace without needing a giant control fr
 
 AbstractX is intended to be **tested, not guessed at**.
 
+**Strict Design Rule:** *Each SystemVerilog (`.sv`) module MUST have a corresponding test bench.* No code is considered "complete" without isolated validation.
+
 The project documentation and scaffolding are built around:
 
 - **Python-based validation**,
@@ -139,8 +141,14 @@ This keeps the external setup simple while preserving the internal AbstractX mod
 
 ## Documentation
 
-The README is the front door. The detailed specification lives in `docs/`:
+The README is the front door. We actively document our architectural decisions, daily progress, and the "why" behind our designs in our **[Engineering Log](engineering_log.md)**.
 
+The detailed specifications live in `docs/`:
+
+- `docs/E2E_VERIFICATION.md` — Host Verification IP (VIP) framework and tunneling instructions
+- `docs/AXIS_TESTING_FRAMEWORK.md` — AXIS IP testing methodology, classes, and developer checklists
+- `docs/BUILD.md` — build system, source directory layout, and test manifest
+- `docs/DESIGN_RULES.md` — strict engineering invariants and testing mandates
 - `docs/ASP_PROTOCOL.md` — normative protocol behavior
 - `docs/ASP_SPI_TRANSPORT.md` — SPI transport profile
 - `docs/ASP_SPI_REGISTER_MAP.md` — byte/register wire contract
@@ -166,4 +174,10 @@ If you want to extend transport adapters, add endpoints, improve validation, or 
 
 ## License
 
-This project is licensed under the terms in `LICENSE`.
+AbstractX operates under a **Dual-License Model**:
+
+1. **Open Source (GPLv3)**  
+   This project is released under the GNU General Public License v3 (`LICENSE`). It is free to use, modify, and distribute for open-source projects, academic research, and personal use, provided you comply with the GPLv3 terms.
+
+2. **Commercial License**  
+   For use in proprietary, closed-source commercial products where GPLv3 compliance is not desirable or feasible, a commercial license is available. Please contact the maintainer for commercial licensing details.
