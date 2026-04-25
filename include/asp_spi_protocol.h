@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tim Michals
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #ifndef ASP_SPI_PROTOCOL_H_
 #define ASP_SPI_PROTOCOL_H_
 

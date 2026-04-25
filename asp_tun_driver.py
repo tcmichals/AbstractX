@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (C) 2026 Tim Michals
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 AbstractX Linux TUN over SPI Bridge (asp_tun_driver.py)
 Implements testing bridge for the ASP protocol using spidev and /dev/net/tun.

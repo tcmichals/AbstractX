@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Tim Michals
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 module asp_spi_reg_bank #(
     parameter logic [7:0] P_ASP_VERSION = 8'h01
 ) (
