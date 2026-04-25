@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Tim Michals
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Yosys synthesis script for Gowin FPAGs
 # Usage: yosys -v 2 -p "tcl hw/common/gowin_synth.tcl" -D TOP=top_tang9k ...
 

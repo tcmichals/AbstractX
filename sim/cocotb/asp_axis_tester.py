@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Tim Michals
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 import cocotb
 from cocotb.triggers import RisingEdge, ReadOnly
 import random
