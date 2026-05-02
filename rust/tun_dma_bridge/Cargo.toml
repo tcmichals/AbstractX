@@ -1,0 +1,12 @@
+# Copyright (C) 2026 Tim Michals
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "tun_dma_bridge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+libc = "0.2"

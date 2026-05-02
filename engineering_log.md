@@ -43,3 +43,63 @@ This log chronicles the development, technical decisions, and architecture miles
 ## Next Steps
 *   **Wishbone Burst Support**: Implement CTI/BTE support in the master to optimize block transfers.
 *   **Hardware-in-the-loop (HIL)**: Run the Python driver against a physical Tang board.
+
+## [2026-05-02] - QMTECH Zynq-7020 Bring-up Pivot, Buildroot Conventions, and TUN/DMA Path
+
+### What was done
+*   Established **QMTECH Zynq-7020** as the next major integration focus, while treating `primer20k` and `tang9k` as already-working reference platforms for existing RT offloader work.
+*   Added and documented a dedicated hardware scaffold under `hw/qmtech_zynq7020/` for board-specific notes and bring-up conventions.
+*   Recorded the known-good **Pico JTAG/XVC** flow for low-cost Zynq bring-up, specifically referencing:
+	*   `https://github.com/kholia/xvc-pico/`
+	*   Adam Taylor / Adiuvo article: `https://www.adiuvoengineering.com/post/microzed-chronicles-jtag-using-a-raspberry-pi-pico`
+*   Captured the practical decision to keep **Buildroot outputs** in `hw/qmtech_zynq7020/bld/` and **Pico/XVC local build outputs** in `hw/qmtech_zynq7020/pico_bld/`, with both treated as generated artifacts that should not be committed.
+*   Added a new **unified Python userspace bridge** at `python/asp_tun_bridge.py` supporting:
+	*   SPI backend
+	*   DMA backend
+	*   auto backend selection
+	*   optional CRC policy (`auto|on|off`)
+*   Documented the Python TUN/DMA usage model in `python/TUN_FRAMEWORK.md`.
+*   Added a **Rust userspace scaffold** at `rust/tun_dma_bridge/` with separated modules for:
+	*   ASP frame handling
+	*   DMA character-device transport
+	*   TUN device setup / packet IO
+*   Documented the Rust cross-compilation assumptions for Zynq-7020, including the likely target triple:
+	*   `armv7-unknown-linux-gnueabihf`
+*   Captured the Zynq-specific practical note that the SoC is **Cortex-A9 / ARMv7-A**, not legacy ARM9.
+*   Recorded the device-tree/USB bring-up guidance that external ULPI PHY boards may require:
+	*   `compatible = "usb-nop-xceiv";`
+	*   proper PHY reset GPIO handling
+	*   matching kernel config such as `CONFIG_NOP_USB_XCEIV`
+
+### Why it was done
+*   **Focus on the riskiest unknowns first:** The Gowin boards are already delivering value for RT offloader work. The Zynq-7020 path introduces the more complex system problems—PS/PL integration, DMA plumbing, Buildroot/BSP management, Linux device-tree issues, USB, and low-jitter host interfaces—so it has the highest leverage as the next development target.
+*   **Preserve a fast iteration loop:** Python remains the quickest path for bring-up, inspection, and protocol iteration. A single userspace bridge that can talk SPI now and DMA next avoids fragmenting the workflow across multiple scripts.
+*   **Create a low-jitter migration path:** Rust userspace is a good next step for TUN + DMA because it improves safety and maintainability over long-running data-plane code while remaining much easier to iterate than immediate kernel work.
+*   **Avoid overcommitting too early to in-kernel Rust:** Rust-for-Linux on ARMv7 is promising but not the best first milestone for this board. Userspace Rust gives most of the development benefits early, while leaving room for a kernel move later if p99 latency requires it.
+*   **Keep protocol compatibility without unnecessary overhead:** CRC was made policy-based rather than removed outright. SPI/serial-style links should keep CRC enabled; DMA paths inside the box can reasonably disable CRC while preserving the frame field for compatibility.
+*   **Keep generated outputs out of version control:** The Buildroot `bld` tree and Pico/XVC local build output are large, host-specific, and not appropriate for git. Explicit directory conventions reduce repo noise and accidental commits.
+*   **Leverage low-cost tooling:** `xvc-pico` provides a practical path for Zynq bring-up without requiring a dedicated Xilinx cable, lowering friction for experimentation and board recovery.
+*   **Use the existing QMTECH BSP as the board source of truth:** The separate `QMTECH` repository already contains the Buildroot external-tree baseline, so this repo should integrate with it rather than duplicate and drift.
+
+### Practical decisions captured
+*   Prioritize **QMTECH Zynq-7020** over new Gowin work for the next phase.
+*   Keep **Buildroot baseline bring-up** as the first milestone; do not block early progress on a bleeding-edge kernel jump.
+*   Use:
+	*   `bld` for Buildroot output
+	*   `pico_bld` for Pico/XVC local build output
+*   Use Python for near-term TUN/DMA bring-up.
+*   Use Rust userspace as the long-term primary software path for TUN + DMA hardening.
+*   Treat in-kernel Rust as conditional / later, not the first dependency for success.
+
+### Short design rationale summary
+*   **CRC off for DMA** because DMA is an in-box trusted path; keep CRC on for SPI.
+*   **Python now** for speed of bring-up and debugging.
+*   **Rust next** for a safer, more durable userspace TUN + DMA bridge.
+*   **Kernel later** only if measured latency/jitter requires it.
+
+### Updated next steps
+*   Boot the QMTECH Zynq-7020 using the existing Buildroot external-tree baseline.
+*   Verify USB host bring-up with the `usb-nop-xceiv` DT pattern and reset GPIO if required.
+*   Confirm DMA device nodes appear and are usable from Linux.
+*   Exercise `python/asp_tun_bridge.py` over DMA with CRC disabled.
+*   Cross-compile and package `rust/tun_dma_bridge` against the Buildroot ABI once the basic board bring-up is stable.
