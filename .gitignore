@@ -2,6 +2,8 @@
 build/
 build_hw/
 sim_build/
+hw/qmtech_zynq7020/bld/
+hw/qmtech_zynq7020/pico_bld/
 
 # Python artifacts
 __pycache__/

@@ -30,6 +30,14 @@ Use this page as the entry point for ASP protocol and governance documentation.
    C constants/helpers for SPI command bytes, status bits, and `READ_STATUS` parsing.
 - **`../rtl/spi/asp_spi_reg_bank.sv`**  
    RTL command-decode/state-machine skeleton for SPI seam integration (`WRITE_DATA`, `READ_STATUS`, `READ_DATA`).
+- **`../python/asp_tun_bridge.py`**  
+   Unified Python userspace TUN bridge with SPI and DMA backend selection.
+- **`../python/TUN_FRAMEWORK.md`**  
+   Operational notes and rationale for the Python-first / Rust-next TUN + DMA path.
+- **`../rust/tun_dma_bridge/README.md`**  
+   Rust userspace scaffold notes for the long-term hardened TUN + DMA bridge.
+- **`../hw/qmtech_zynq7020/README.md`**  
+   QMTECH Zynq-7020 bring-up notes, Pico/XVC references, and build-output conventions.
 
 ## Testbench assets
 

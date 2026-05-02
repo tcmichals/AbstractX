@@ -11,6 +11,12 @@ To execute the test suite, your environment requires the following open-source t
 - **Cocotb** (`pip install cocotb`)
 - **Make**
 
+For the active QMTECH Zynq-7020 direction, also expect:
+
+- an external Buildroot/BSP baseline from `https://github.com/tcmichals/QMTECH`,
+- an out-of-tree Buildroot output directory such as `hw/qmtech_zynq7020/bld/`, and
+- optional Pico/XVC local build output in `hw/qmtech_zynq7020/pico_bld/`.
+
 ## 2. Running Simulations
 
 AbstractX uses a CMake-wrapped regression suite that executes Cocotb + Verilator. 
@@ -39,6 +45,9 @@ Simulation trace files resulting from `--trace-structs` will be generated inside
 | `/rtl/` | Core AbstractX routing and interconnect logic. |
 | `/rtl/spi/` | Physical SPI interfaces (MAC layers and protocol boundary shims). |
 | `/sim/cocotb/` | Python-based testbenches and Cocotb Makefiles. |
+| `/hw/qmtech_zynq7020/` | QMTECH Zynq-7020 bring-up notes and board-specific integration guidance. |
+| `/python/` | Python host-side bridges, including the unified SPI/DMA TUN path. |
+| `/rust/tun_dma_bridge/` | Rust userspace TUN + DMA bridge scaffold for Zynq hardening. |
 | `/` (Root) | CMake scaffolding and host utilities (e.g., `asp_tun_driver.py`). |
 
 ### Key RTL Modules

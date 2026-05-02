@@ -119,8 +119,6 @@ Expose FPGA-side functions to Linux userspace without needing a giant control fr
 
 AbstractX is intended to be **tested, not guessed at**.
 
-**Strict Design Rule:** *Each SystemVerilog (`.sv`) module MUST have a corresponding test bench.* No code is considered "complete" without isolated validation.
-
 The project documentation and scaffolding are built around:
 
 - **Python-based validation**,
@@ -139,16 +137,21 @@ The current reference bring-up path is:
 
 This keeps the external setup simple while preserving the internal AbstractX model.
 
+## Current development direction
+
+The active integration focus is now **QMTECH Zynq-7020** with:
+
+- Buildroot-based Linux bring-up,
+- Python userspace TUN bridge for fast iteration,
+- DMA as the preferred in-box transport target, and
+- Rust userspace TUN + DMA bridge as the long-term hardened path.
+
+Existing Gowin targets (`tang9k`, `primer20k`) remain valuable working references, but the Zynq path is the current system-integration priority.
+
 ## Documentation
 
-The README is the front door. We actively document our architectural decisions, daily progress, and the "why" behind our designs in our **[Engineering Log](engineering_log.md)**.
+The README is the front door. The detailed specification lives in `docs/`:
 
-The detailed specifications live in `docs/`:
-
-- `docs/E2E_VERIFICATION.md` — Host Verification IP (VIP) framework and tunneling instructions
-- `docs/AXIS_TESTING_FRAMEWORK.md` — AXIS IP testing methodology, classes, and developer checklists
-- `docs/BUILD.md` — build system, source directory layout, and test manifest
-- `docs/DESIGN_RULES.md` — strict engineering invariants and testing mandates
 - `docs/ASP_PROTOCOL.md` — normative protocol behavior
 - `docs/ASP_SPI_TRANSPORT.md` — SPI transport profile
 - `docs/ASP_SPI_REGISTER_MAP.md` — byte/register wire contract
@@ -158,6 +161,13 @@ The detailed specifications live in `docs/`:
 - `docs/ASP_RELEASE_PROCESS.md` — release and sign-off flow
 - `docs/ASP_SPEC_DIRECTION.md` — protocol direction and compatibility profile notes
 - `docs/README.md` — docs map
+
+Useful implementation entry points for the current Zynq work:
+
+- `python/asp_tun_bridge.py` — unified Python SPI/DMA TUN bridge
+- `python/TUN_FRAMEWORK.md` — short Python-now / Rust-next rationale
+- `rust/tun_dma_bridge/README.md` — Rust userspace TUN + DMA scaffold notes
+- `hw/qmtech_zynq7020/README.md` — QMTECH board notes, Pico/XVC, and build conventions
 
 ## Protocol direction
 
@@ -174,10 +184,4 @@ If you want to extend transport adapters, add endpoints, improve validation, or 
 
 ## License
 
-AbstractX operates under a **Dual-License Model**:
-
-1. **Open Source (GPLv3)**  
-   This project is released under the GNU General Public License v3 (`LICENSE`). It is free to use, modify, and distribute for open-source projects, academic research, and personal use, provided you comply with the GPLv3 terms.
-
-2. **Commercial License**  
-   For use in proprietary, closed-source commercial products where GPLv3 compliance is not desirable or feasible, a commercial license is available. Please contact the maintainer for commercial licensing details.
+This project is licensed under the terms in `LICENSE`.

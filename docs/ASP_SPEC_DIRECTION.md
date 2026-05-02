@@ -34,6 +34,12 @@ This profile is wire-compatible with legacy v1 behavior and is the recommended d
 | `payload` | N | Transported bytes |
 | `crc16` | 2 | CRC16/XMODEM over `version..payload` |
 
+Compatibility note:
+
+- The `crc16` field remains part of the compat frame format.
+- For trusted in-box DMA bring-up paths, CRC generation/checking may be disabled by policy while preserving the field value for compatibility.
+- For SPI/serial-style links, CRC should remain enabled.
+
 ### B) `asp-native` (future profile)
 
 A future profile for an AbstractX-specific envelope (for example, an explicit magic field such as `0xAB1X`) is allowed, but it is **not** the default until migration gates pass and host adapters support it.
