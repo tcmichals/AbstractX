@@ -14,6 +14,8 @@ read_verilog -sv rtl/asp_sys_regs.sv
 read_verilog -sv rtl/asp_wishbone_master.sv
 read_verilog -sv rtl/spi/asp_spi_frontend.sv
 read_verilog -sv rtl/spi/asp_spi_reg_bank.sv
+read_verilog -sv rtl/imu/asp_imu_auto_dma.sv
+
 
 # Read Board Top
 read_verilog -sv $::env(BOARD_TOP_FILE)
