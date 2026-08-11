@@ -14,14 +14,16 @@ This document defines the physical hardware pin assignments for the **Tang Nano 
 
 ---
 
-## 2. Host Dual-SPI Slave Bus (Connection to Allwinner A55 / E907 / Host MCU)
+## 2. Host SPI / Dual-SPI Slave Bus (Connection to Allwinner A55 / E907 / Host MCU)
 
-| Signal | Package Pin | Direction | Pull Mode | Description |
-|---|---|---|---|---|
-| **`i_spi_sclk`** | Pin 25 | Input | PULL_DOWN | Dual-SPI Clock Input (Up to 50 MHz) |
-| **`i_spi_cs_n`** | Pin 26 | Input | PULL_UP | Active-Low Chip Select |
-| **`io_spi_io0`** | Pin 27 | Inout | PULL_DOWN | Dual-SPI Data Line 0 (MOSI / SDIO0) |
-| **`io_spi_io1`** | Pin 28 | Inout | PULL_DOWN | Dual-SPI Data Line 1 (MISO / SDIO1) |
+| Signal | Package Pin | Direction | Pull Mode | Standard 4-Wire SPI | Dual-SPI Mode | Description |
+|---|---|---|---|---|---|---|
+| **`i_spi_sclk`** | Pin 25 | Input | PULL_DOWN | **SCLK** | **SCLK** | SPI Clock Input (Up to 50 MHz) |
+| **`i_spi_cs_n`** | Pin 26 | Input | PULL_UP | **CS_N** | **CS_N** | Active-Low Chip Select |
+| **`io_spi_io0`** | Pin 27 | Inout | PULL_DOWN | **MOSI** | **SDIO0** | SPI Data Line 0 (Host OUT / FPGA IN) |
+| **`io_spi_io1`** | Pin 28 | Inout | PULL_DOWN | **MISO** | **SDIO1** | SPI Data Line 1 (Host IN / FPGA OUT) |
+
+> **Universal SPI Compatibility**: Standard 4-wire SPI (SCLK, CS_N, MOSI, MISO) and Dual-SPI use the exact same physical header pins! Any standard SPI master (RP2350, STM32, ESP32, Linux `/dev/spidev`) communicates without hardware wiring changes.
 
 ---
 
