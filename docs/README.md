@@ -24,7 +24,10 @@ Welcome to the AbstractX documentation hub. This repository defines the PCIe-lik
 6. **[`LINUX_DEVICE_TREE_GUIDE.md`](LINUX_DEVICE_TREE_GUIDE.md)**  
    *Why*: Linux Device Tree node (`.dts`) and Overlay (`.dtbo`) reference for enabling Dual-SPI 2x mode (`spi-tx-bus-width = <2>`, `spi-rx-bus-width = <2>`).
 
-6. **[`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
+7. **[`FCPROTOCOL_SPECIFICATION.md`](FCPROTOCOL_SPECIFICATION.md)**  
+   *Why*: Normative FCProtocol (Flight Controller Protocol) specification for Betaflight, ArduPilot, and iNav integration over TLP memory-mapped BAR bus (`pcie_reg_api.h`).
+
+8. **[`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
    *Why*: Parallel vector router fabric and Wishbone master gateway architecture.
 
 7. **[`IMU_AUTO_DMA_IP_SPEC.md`](IMU_AUTO_DMA_IP_SPEC.md)**  
@@ -62,6 +65,18 @@ Welcome to the AbstractX documentation hub. This repository defines the PCIe-lik
 | **`0x4000000C`** | `REG_SYS_LED_CTRL` | R/W | `0x0000003E` | **Linux-Controllable Onboard LEDs 2..6** (Bits 1..5). |
 | **`0x40000010`** | `REG_SYS_TIME_LOW` | RO | Monotonic Counter | **Master Timestamp Nanoseconds [31:0]**; latches high 32 bits into shadow. |
 | **`0x40000014`** | `REG_SYS_TIME_HIGH` | RO | Monotonic Counter | **Atomic Shadow Master Timestamp Nanoseconds [63:32]** for tear-free 64-bit reads. |
+
+---
+
+## PWM Receiver Decoder & Input Capture Core (`0x40000300..0x40000310`)
+
+| Register Address | Name | Type | Description |
+|---|---|---|---|
+| **`0x40000300`** | `REG_PWM_DEC_CTRL` | RO | **CTRL & Status**: `[31:16]`=ID (`0x0001`), `[15:8]`=`NUM_CHANNELS` (4), `[7:0]`=Channel Ready Flags |
+| **`0x40000304`** | `REG_PWM_DEC_CH1`  | RO | **Channel 1 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
+| **`0x40000308`** | `REG_PWM_DEC_CH2`  | RO | **Channel 2 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
+| **`0x4000030C`** | `REG_PWM_DEC_CH3`  | RO | **Channel 3 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
+| **`0x40000310`** | `REG_PWM_DEC_CH4`  | RO | **Channel 4 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
 
 ---
 

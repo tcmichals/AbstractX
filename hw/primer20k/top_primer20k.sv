@@ -23,6 +23,7 @@ module top_primer20k (
     // Host Doorbell IRQ & LEDs
     output wire  o_int_req,
     output wire [3:0] o_motor_pins,
+    input  wire [3:0] i_pwm_pins,    // PWM Receiver Input Capture Channels 1..4
     output wire  o_neopixel_pin,
     output wire [5:0] o_led,   // LEDs
     output wire [3:0] o_debug_pins // Hardware Logic Analyzer Debug Pins
@@ -64,6 +65,7 @@ module top_primer20k (
         .imu_int_i  (i_imu_int),
 
         .o_motor_pins(o_motor_pins),
+        .i_pwm_pins (i_pwm_pins),
         .o_neopixel_pin(o_neopixel_pin),
         .o_led      (asp_led_bits),
         .o_debug_pins(o_debug_pins),

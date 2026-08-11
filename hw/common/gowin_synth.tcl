@@ -16,6 +16,7 @@ read_verilog -sv rtl/spi/asp_spi_frontend.sv
 read_verilog -sv rtl/spi/asp_spi_reg_bank.sv
 read_verilog -sv rtl/imu/asp_imu_auto_dma.sv
 read_verilog -sv rtl/motor/asp_dshot_core.sv
+read_verilog -sv rtl/pwm/asp_pwm_decoder.sv
 read_verilog -sv rtl/led/asp_neopixel_core.sv
 
 
