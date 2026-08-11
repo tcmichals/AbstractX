@@ -73,7 +73,8 @@ Welcome to the AbstractX documentation hub. This repository defines the PCIe-lik
 
 ---
 
-## Governance & Quality Gates
+## Governance, Verification & Engineering Logs
 
-11. **[`ASP_REQUIREMENTS.md`](ASP_REQUIREMENTS.md)**: Requirements, quality gates, and definition-of-done.
-12. **[`ASP_VALIDATION_MATRIX.md`](ASP_VALIDATION_MATRIX.md)**: Verification test matrix across synthesis, timing closure, and TLP protocol tests.
+11. **[`ENGINEERING_LOG.md`](ENGINEERING_LOG.md)**: Chronological history of engineering milestones, commit hashes, bitstream results, and git archive branches.
+12. **[`ASP_REQUIREMENTS.md`](ASP_REQUIREMENTS.md)**: Requirements, quality gates, and definition-of-done.
+13. **[`ASP_VALIDATION_MATRIX.md`](ASP_VALIDATION_MATRIX.md)**: Verification test matrix across synthesis, timing closure, and TLP protocol tests.
