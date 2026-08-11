@@ -30,12 +30,19 @@ AbstractX supports two physical transport configurations between the Linux/RTOS 
 
 ---
 
-## 2. Fixed 64-Byte Burst Mechanics
+## 2. Fixed 64-Byte Burst & Dual-SPI 2x Speed Mechanics
 
 Unlike variable-length protocols, `asp-tlp-64b` operates exclusively on **fixed 64-byte (512-bit) transfer units**:
 
-- Under **Dual-SPI Mode**: Every packet transfer requires exactly **256 SCLK clock pulses**.
-- Under **Single-SPI Mode**: Every packet transfer requires exactly **512 SCLK clock pulses**.
+### 2.1 Dual-SPI 2x Speed & Parallel Bit Mechanics
+- **Standard Single-SPI Mode**: Data is transferred 1 bit per SCLK clock pulse over `MOSI`/`MISO`. Transmitting a 64-byte (512-bit) TLP requires **512 SCLK clock cycles**.
+- **Dual-SPI Mode (2x Throughput)**: Data is transferred **2 bits in parallel per SCLK clock pulse** over `SDIO0` and `SDIO1` simultaneously:
+  - SCLK Pulse 1: Bit 7 on `SDIO1`, Bit 6 on `SDIO0`.
+  - SCLK Pulse 2: Bit 5 on `SDIO1`, Bit 4 on `SDIO0`.
+  - SCLK Pulse 3: Bit 3 on `SDIO1`, Bit 2 on `SDIO0`.
+  - SCLK Pulse 4: Bit 1 on `SDIO1`, Bit 0 on `SDIO0`.
+- **200% Bandwidth**: Transmitting a 64-byte TLP takes **only 256 SCLK clock cycles** (exactly half the clock pulses of standard SPI). At a 50 MHz SPI clock, Dual-SPI delivers **100 Megabits per second (12.5 MB/s)** of real PCIe-like register throughput!
+
 - **`CS_N` Framing**: Deassertion of `CS_N` resets the internal 512-bit bit-counter and shift register state machine, ensuring hardware synchronization across packet bursts.
 
 ---
