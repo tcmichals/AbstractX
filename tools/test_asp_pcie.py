@@ -55,8 +55,9 @@ REG_NEO_LED0      = 0x40000604  # Color 24-bit 0x00RRGGBB
 # ASP PCIe TLP Transport Driver Class
 # -----------------------------------------------------------------------------
 class AspPcieTransport:
-    def __init__(self, spidev_path=None, mock=False):
+    def __init__(self, spidev_path=None, mock=False, use_dual_spi=False):
         self.mock = mock
+        self.use_dual_spi = use_dual_spi
         self.mock_regs = {
             REG_SYS_ID_REV:    0xABF10164,
             REG_SYS_VENDOR_ID: 0x19981ACC,
@@ -72,8 +73,20 @@ class AspPcieTransport:
                 bus, dev = map(int, spidev_path.replace('/dev/spidev', '').split('.'))
                 self.spi.open(bus, dev)
                 self.spi.max_speed_hz = 25000000  # 25 MHz
-                self.spi.mode = 0
-                print(f"[+] Opened {spidev_path} at 25 MHz (Dual-SPI TLP mode)")
+                
+                if use_dual_spi:
+                    try:
+                        # Linux kernel spidev Dual-SPI mode flags
+                        SPI_TX_DUAL = getattr(spidev, 'SPI_TX_DUAL', 0x100)
+                        SPI_RX_DUAL = getattr(spidev, 'SPI_RX_DUAL', 0x400)
+                        self.spi.mode = SPI_TX_DUAL | SPI_RX_DUAL
+                        print(f"[+] Opened {spidev_path} in Dual-SPI Mode (2x Throughput, SDIO0/SDIO1)")
+                    except Exception as dual_err:
+                        print(f"[!] Kernel Dual-SPI flag unsupported: {dual_err}. Falling back to Standard SPI.")
+                        self.spi.mode = 0
+                else:
+                    self.spi.mode = 0  # Standard Single-SPI (MOSI/MISO)
+                    print(f"[+] Opened {spidev_path} in Standard Single-SPI Mode (MOSI/MISO)")
             except Exception as e:
                 print(f"[!] Hardware spidev error: {e}. Falling back to --mock mode.")
                 self.mock = True
@@ -225,11 +238,12 @@ def run_interactive_cli(dev):
 def main():
     parser = argparse.ArgumentParser(description="AbstractX ASP Hardware Test Suite")
     parser.add_argument("--spidev", default="/dev/spidev0.0", help="Linux SPI device path")
+    parser.add_argument("--dual-spi", action="store_true", help="Enable Dual-SPI 2x throughput mode (SPI_TX_DUAL | SPI_RX_DUAL)")
     parser.add_argument("--mock", action="store_true", help="Run in software mock mode")
     parser.add_argument("--mode", choices=["all", "rainbow", "pwm_sweep", "led_chase", "cli"], default="all")
     args = parser.parse_args()
 
-    dev = AspPcieTransport(spidev_path=args.spidev, mock=args.mock)
+    dev = AspPcieTransport(spidev_path=args.spidev, mock=args.mock, use_dual_spi=args.dual_spi)
 
     if args.mode == "rainbow":
         run_rainbow_neopixel(dev)
