@@ -1,52 +1,31 @@
 # AbstractX Documentation Map
 
-Use this page as the entry point for ASP protocol and governance documentation.
+Use this page as the entry point for AbstractX ASP protocol, hardware architecture, and governance documentation.
 
-## Canonical protocol stack
+## Canonical Protocol Stack (`asp-tlp-64b`)
 
-1. **`ASP_PROTOCOL.md`**  
-   Normative ASP wire/protocol behavior.
-2. **`ASP_SPI_TRANSPORT.md`**  
-   Normative SPI transport profile for ASP framing and stream handling.
-3. **`ASP_SPI_REGISTER_MAP.md`**  
-   Concrete SPI command/status/register byte-level contract.
-4. **`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`**  
-   Translator->fabric topology, internal packet routing, DMA/Wishbone endpoint model.
-5. **`ASP_REQUIREMENTS.md`**  
+1. **`ASP_SPEC_DIRECTION.md`**  
+   Protocol direction specifying the PCIe-like 64-byte TLP (`asp-tlp-64b`) architecture.
+2. **`ASP_PROTOCOL.md`**  
+   Normative 64-byte TLP frame format, PCIe-style operations (`MemRd`, `MemWr`, `CplD`, `DMA_Stream`), and payload specifications.
+3. **`ASP_SPI_TRANSPORT.md`**  
+   Dual-SPI and Single-SPI physical layer transport profile, 256-clock cycle burst mechanics, and hardware shift register seams.
+4. **`ASP_SPI_REGISTER_MAP.md`**  
+   Dual-SPI command byte set (`0xA1 TLP_WRITE_BURST`, `0xA2 TLP_READ_BURST`, `0xA0 TLP_READ_STATUS`) and Wishbone register address map.
+5. **`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`**  
+   Switch fabric topology, 512-bit parallel vector routing, Wishbone master gateway, and channel routing.
+6. **`IMU_AUTO_DMA_IP_SPEC.md`**  
+   Dedicated hardware IMU SPI Master & Auto-DMA IP Core specification, `IMU_INT` trigger workflow, and timestamped telemetry stream generation.
+7. **`PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`** (**NEW**)  
+   Architecture specification for porting Betaflight / iNav flight control code to a decoupled PCIe-like Register BAR API (`pcie_reg_api.h`), removing microcontroller HAL driver crud.
+8. **`ASP_REQUIREMENTS.md`**  
    Mission, must-have requirements, quality gates, and definition-of-done.
-6. **`ASP_VALIDATION_MATRIX.md`**  
-   Gate-by-gate validation matrix and evidence expectations.
-7. **`ASP_RELEASE_PROCESS.md`**  
-   Candidate, sign-off, and release decision workflow.
+9. **`ASP_VALIDATION_MATRIX.md`**  
+   Gate-by-gate validation matrix and verification test plan.
 
-## Strategy and migration context
+## Suggested Reading Order
 
-- **`ASP_SPEC_DIRECTION.md`**  
-   Protocol direction and legacy-to-ASP migration policy.
-
-## Implementation scaffolding
-
-- **`../include/asp_spi_protocol.h`**  
-   C constants/helpers for SPI command bytes, status bits, and `READ_STATUS` parsing.
-- **`../rtl/spi/asp_spi_reg_bank.sv`**  
-   RTL command-decode/state-machine skeleton for SPI seam integration (`WRITE_DATA`, `READ_STATUS`, `READ_DATA`).
-- **`../python/asp_tun_bridge.py`**  
-   Unified Python userspace TUN bridge with SPI and DMA backend selection.
-- **`../python/TUN_FRAMEWORK.md`**  
-   Operational notes and rationale for the Python-first / Rust-next TUN + DMA path.
-- **`../rust/tun_dma_bridge/README.md`**  
-   Rust userspace scaffold notes for the long-term hardened TUN + DMA bridge.
-- **`../hw/qmtech_zynq7020/README.md`**  
-   QMTECH Zynq-7020 bring-up notes, Pico/XVC references, and build-output conventions.
-
-## Testbench assets
-
-- **`../sim/cocotb/test_abstractx_axis_cocotb.py`**  
-   Initial AbstractX AXIS seam cocotb testbench for SPI reg-bank ingress/egress valid-ready behavior.
-
-## Suggested reading order
-
-- New implementers: `ASP_PROTOCOL.md` → `ASP_SPI_TRANSPORT.md` → `ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`
-- Verification owners: `ASP_REQUIREMENTS.md` → `ASP_VALIDATION_MATRIX.md`
-- Release owners: `ASP_RELEASE_PROCESS.md`
-- Architecture/migration reviewers: `ASP_SPEC_DIRECTION.md`
+- **Flight Stack & Software Architects**: `PORTABLE_FLIGHT_STACK_ARCHITECTURE.md` $\rightarrow$ `IMU_AUTO_DMA_IP_SPEC.md`
+- **Protocol & Hardware Designers**: `ASP_SPEC_DIRECTION.md` $\rightarrow$ `ASP_PROTOCOL.md` $\rightarrow$ `ASP_SPI_TRANSPORT.md` $\rightarrow$ `IMU_AUTO_DMA_IP_SPEC.md`
+- **Fabric & RTL Engineers**: `ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md` $\rightarrow$ `ASP_SPI_REGISTER_MAP.md`
+- **Verification Owners**: `ASP_REQUIREMENTS.md` $\rightarrow$ `ASP_VALIDATION_MATRIX.md`

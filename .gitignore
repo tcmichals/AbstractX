@@ -16,6 +16,8 @@ results.xml
 *.ghw
 *.lst
 waveform.vcd
+sim/test_asp_top_sim
+
 
 # Tool artifacts
 .Xil/

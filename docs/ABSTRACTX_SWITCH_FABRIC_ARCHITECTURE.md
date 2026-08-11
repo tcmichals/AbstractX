@@ -1,153 +1,80 @@
-# AbstractX Switch Fabric Architecture
+# AbstractX Switch Fabric Architecture (`asp-tlp-64b`)
 
-This document defines the internal AbstractX fabric model where physical transports are translators, and routing is performed on internal fabric packets.
-
-## 1) Topology and data flow
-
-Core principle:
-
-- External transport (SPI here) is a **translator**.
-- Translator converts transport bytes into **AbstractX fabric packets**.
-- Fabric routes packets to endpoints (Wishbone gateway, DMA RX/TX, etc.).
-
-### Logical pipeline
-
-1. Host sends/receives over SPI.
-2. SPI Slave Translator converts to/from internal fabric packets.
-3. Switch Fabric routes by target/command fields.
-4. Endpoints execute operation (Wishbone transaction, DMA burst, status query).
-
-## 2) Internal AbstractX fabric packet format
-
-Internal fabric routing header (baseline):
-
-| Field | Size | Description |
-|---|---:|---|
-| `target_id` | 4 bits | endpoint class (e.g., WB gateway, DMA TX, DMA RX) |
-| `command` | 4 bits | op type (read/write/burst/status) |
-| `sub_id_or_addr` | 16 bits | endpoint sub-channel or address/window |
-| `payload` | N bytes | operation data |
-
-Suggested baseline target mapping:
-
-| Target ID | Endpoint |
-|---:|---|
-| `0x0` | Wishbone master gateway |
-| `0x1` | DMA TX endpoint |
-| `0x2` | DMA RX endpoint |
-| `0x3` | Status/diagnostics endpoint |
-
-Implementations may extend these IDs but should keep capability reporting in sync.
-
-## 3) Endpoint roles
-
-### A) SPI Slave Translator
-
-- Terminates SPI timing/protocol details.
-- Emits normalized fabric packets.
-- Receives routed response packets and serializes to SPI MISO.
-
-### B) Switch Fabric Hub
-
-- Routes by `target_id` and `command`.
-- Applies arbitration when multiple endpoints compete for shared paths.
-- Preserves deterministic ordering rules within a transaction class.
-
-### C) Wishbone Master Gateway
-
-- Fabric-to-Wishbone bridge.
-- Fabric remains bus-agnostic: forwards request/response without endpoint-specific semantics.
-- AbstractX packets targeting Wishbone are converted into **standard Wishbone transactions** (adr/dat/we/sel/cyc/stb/ack semantics).
-- This conversion path is intentionally generic so any transport translator (SPI/I2C/I3C/etc.) can reach Wishbone registers via the same fabric contract.
-
-### D) DMA RX/TX Endpoints
-
-- Connect streaming producers/consumers to circular buffers.
-- Support loop/ring mode for continuous acquisition/streaming.
-- Expose fill level / availability to fabric status path and IRQ policy.
-
-### E) Global timebase and timestamp propagation
-
-- A global monotonic timebase may be implemented in fabric clock domain.
-- Stream producers may stamp samples/frames at ingress using this timebase.
-- Implementations may also stamp frames at transport egress, yielding two distinct timestamp markers:
-	- `ts_ingress`: capture/arrival time at ingress translator or source endpoint.
-	- `ts_egress`: emission time at transport-facing egress boundary.
-- Timestamp metadata is carried as sideband through AXIS/fabric seams and preserved through DMA paths when enabled.
-- At transport egress, timestamp metadata may be injected into protocol-visible payload metadata according to profile policy.
-
-AXIS tag bundle note:
-
-- Timestamp fields (including optional `ts_ingress` and `ts_egress`) are part of the broader AXIS tag bundle (alongside route/context tags such as `TID`, `TDEST`, `TUSER`, `TLAST` semantics).
-- Fabric components should propagate the full tag bundle coherently per frame/beat according to interface contract.
-
-## 4) DMA looping and trigger model
-
-### Looping mode
-
-- DMA engines should support circular buffer operation in internal memory/BSRAM.
-- Write/read pointers wrap at configured region boundaries.
-
-### Trigger model
-
-- DMA can be armed by control packets and/or external ISR-like events.
-- Fabric can raise host IRQ (`INT_REQ`) from DMA threshold events.
-
-### Autonomous streaming mode (post-configuration)
-
-- Peripherals may start streaming autonomously once configured via Wishbone (no per-frame host start command required).
-- Typical sequence:
-	1. Host configures peripheral and DMA policy through Wishbone target.
-	2. Peripheral enters stream-enabled state.
-	3. Samples/events are pushed into DMA loop buffers.
-	4. Fabric/IRQ policy notifies host when readable data thresholds are met.
-
-This is especially useful for gyro/accel periodic data capture.
-
-Normative policy:
-
-- Chip ISR signaling (`INT_REQ`) is a recommended host notification mechanism when provided by the selected peripheral/profile.
-- DMA endpoints may support auto-trigger behavior from threshold/event conditions so streaming operation is autonomous between host bursts.
-
-Timer-trigger capability:
-
-- Peripherals may include local timer triggers for periodic auto-stream generation (e.g., sample every N fabric clocks).
-
-Threshold examples:
-
-- egress fill level >= watermark,
-- loop wrap event,
-- overflow/underrun faults.
-
-## 5) Streaming sensor workloads
-
-Designed workload examples:
-
-- Gyro/accel sample streams into DMA looping buffers.
-- Host burst-reads DMA windows through fabric packet routes.
-- Control path configures sample rate, ranges, filters via Wishbone target.
-
-## 6) Backpressure and arbitration requirements
-
-- Fabric/endpoint seams should use valid-ready semantics.
-- Endpoints must exert backpressure when resources are full.
-- Arbitration should be deterministic (fixed priority or round-robin policy documented by profile).
-
-Timestamp integrity requirement:
-
-- Fabric routing/arbitration must preserve per-frame timestamp association (no cross-frame timestamp/data mismatch).
-- Fabric routing/arbitration should preserve coherent association for all AXIS sideband tags, including timestamp fields carried in tag metadata.
-
-## 7) Extensibility targets
-
-The same translator->fabric model can front-end additional interfaces:
-
-- I2C / I3C translators,
-- ADC / DAC stream/control bridges,
-- additional serial or parallel sensor links.
-
-External link type should not require changing internal fabric packet routing semantics.
+This document defines the internal hardware architecture for the AbstractX switch fabric operating under the **PCIe-like 64-Byte TLP Profile (`asp-tlp-64b`)**.
 
 ---
 
-*Revision: 1.0 (Apr 2026)*
+## 1. Top-Level Topology & Data Flow
+
+External transports (Dual-SPI, Single-SPI, DMA) act as **Translators** that serialize/deserialize fixed 64-byte TLPs between physical pins and the internal AXI-Stream / Wishbone switch fabric.
+
+```
+ +-------------------------------------------------------------------------+
+ |                         ABSTRACTX SWITCH FABRIC                         |
+ |                                                                         |
+ |  External Transport             Fabric Hub / Router       Endpoints     |
+ |  +------------------+           +------------------+   +--------------+ |
+ |  | Dual-SPI / SPI   |  64B TLP  | AXI-Stream Hub   |   | Wishbone     | |
+ |  | Translator Core  | --------> | (Channel/AXID    | ->| Master Gateway| |
+ |  +------------------+  AXIS     |  Router)         |   +--------------+ |
+ |                                 +------------------+   | IMU Auto-DMA | |
+ |                                          |             | Core         | |
+ |                                          |             +--------------+ |
+ |                                          |             | UART ESC     | |
+ |                                          v             | DMA Tunnel   | |
+ |                                   Egress TLP FIFO      +--------------+ |
+ +-------------------------------------------------------------------------+
+```
+
+---
+
+## 2. Internal TLP Packet Routing Model
+
+All endpoints and translators exchange data as **512-bit (64-byte) parallel vectors** accompanied by standard AXI-Stream control signals (`tvalid`, `tready`, `tlast`):
+
+```
+AXI-Stream TLP Seam:
+- tdata[511:0]  : 64-Byte TLP Container Vector
+- tvalid        : Valid TLP Beat
+- tready        : Endpoint Backpressure
+- tuser[63:0]   : Hardware Nanosecond Ingress Timestamp
+```
+
+### Channel Routing Mapping (`tdata[23:16]` - `Channel/AXID` Field)
+
+| Channel ID | Endpoint Name | Description |
+|---:|---|---|
+| `0x01` | `CONTROL` / Wishbone Gateway | Transmits `MemRd` & `MemWr` TLPs to on-chip Wishbone bus targets |
+| `0x02` | `TELEMETRY` / IMU Auto-DMA IP | Egress path for timestamped IMU telemetry stream TLPs |
+| `0x03` | `FC_LOG` | High-rate flight log stream |
+| `0x04` | `DEBUG_TRACE` | Logic analyzer trace stream |
+| `0x05` | `ESC_SERIAL` | UART ESC tunnel (2-character idle / 40B full buffer flush) |
+
+---
+
+## 3. Core Endpoints & Gateways
+
+### A. Dual-SPI Slave Translator
+- Converts pin-level Dual-SPI clock and data signals into 64-byte parallel vectors.
+- Enforces IEEE 802.3 CRC32 checking on incoming TLPs before forwarding to fabric.
+- Drives FPGA `INT_REQ` pin high when the egress TLP FIFO contains ready responses (`CplD`, `DMA_Stream`).
+
+### B. Wishbone Master Gateway
+- Converts incoming `MemRd` and `MemWr` TLPs into standard Wishbone cycles (`CYC`, `STB`, `WE`, `ADR`, `DAT_I`, `DAT_O`, `ACK`).
+- For `MemRd`: Performs Wishbone read cycle(s), builds a matching `CplD` TLP carrying the request's `Tag`, and routes it back to the egress TLP FIFO.
+
+### C. IMU SPI Master & Auto-DMA Core
+- Contains a dedicated SPI Master for external IMU sensor ICs.
+- Triggered by external hardware interrupt line (`IMU_INT`).
+- Instantly captures 64-bit nanosecond timer (`tuser`), executes pre-configured SPI burst read, packages sample into 64-byte `DMA_Stream` TLP, and emits to `Channel = 0x02`.
+
+### D. UART ESC DMA Tunnel Engine
+- Implements 2-character idle timeout (~20 bit times) + 40-byte full buffer trigger logic.
+- Packages serial RX payload into 64-byte `DMA_Stream` TLP targeting `Channel = 0x05`.
+
+---
+
+## 4. Backpressure & Priority Arbitration
+
+- **Control Priority**: `MemRd` / `MemWr` control TLPs (`Channel = 0x01`) receive highest priority in fabric crossbars to prevent register lockups during heavy telemetry streaming.
+- **Valid-Ready Handshaking**: Every internal seam uses standard `tvalid`/`tready` backpressure to prevent packet loss under high host contention.
