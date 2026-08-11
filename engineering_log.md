@@ -103,3 +103,33 @@ This log chronicles the development, technical decisions, and architecture miles
 *   Confirm DMA device nodes appear and are usable from Linux.
 *   Exercise `python/asp_tun_bridge.py` over DMA with CRC disabled.
 *   Cross-compile and package `rust/tun_dma_bridge` against the Buildroot ABI once the basic board bring-up is stable.
+
+## [2026-08-11] - Architectural Pivot: PCIe-like 64-Byte Fixed TLP Protocol & IMU Auto-DMA IP Core
+
+### What was done
+*   **Architecture Pivot (`asp-tlp-64b`)**: Formally transitioned AbstractX from legacy variable-length framing (`asp-compat-v1`) to a **PCIe-like 64-byte Transaction Layer Packet (TLP)** specification (`asp-tlp-64b`).
+*   **TLP Operations Defined**: Established normative definitions for `MemRd` (0x01), `MemWr` (0x02), `CplD` (0x03), `Cpl` (0x04), and `DMA_Stream` (0x10) operations targeting Wishbone registers and streaming channels.
+*   **Dual-SPI Physical Layer**: Standardized on Dual-SPI SDR mode (256 SCLK cycles per 64-byte TLP) as the primary external link layer.
+*   **UART ESC DMA Engine Optimization**: Formally specified the dual-trigger flush policy (40-byte full buffer trigger OR 2-character idle timeout trigger).
+*   **IMU SPI Master & Auto-DMA Core Specification**: Created [`docs/IMU_AUTO_DMA_IP_SPEC.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/IMU_AUTO_DMA_IP_SPEC.md) detailing the hardware SPI master, `IMU_INT` hardware interrupt trigger, 64-bit hardware timestamp latching, and 64B TLP packetization.
+*   **Documentation Suite Updated**: Updated all canonical spec docs (`ASP_SPEC_DIRECTION.md`, `ASP_PROTOCOL.md`, `ASP_SPI_TRANSPORT.md`, `ASP_SPI_REGISTER_MAP.md`, `ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`, `README.md`).
+
+### Why it was done
+*   **FPGA Core Logic Savings**: Dynamic byte-stream parsers and dynamic framing state machines consume excessive LUT/FF resources. Fixed 64-byte (512-bit) vectors allow ultra-compact shift registers and word-aligned FIFOs, maximizing $f_{MAX}$ and lowering gate count on Gowin and Zynq target FPGAs.
+*   **Pipelined Split Transactions**: PCIe-style `Tag` correlation allows the host CPU to issue non-blocking `MemRd` requests without stalling the Dual-SPI interface.
+*   **Sub-Microsecond Telemetry Jitter**: Capturing a 64-bit hardware timestamp at the exact clock cycle of the `IMU_INT` trigger eliminates software interrupt latency and jitter.
+*   **UART ESC Efficiency**: The 2-character idle timeout guarantees low latency for short serial frames while the 40-byte threshold maintains maximum link efficiency during active streaming.
+
+## [2026-08-11] - InvenSense ICM-42688-P iNav Driver Alignment & Pure Python Cocotb VIP
+
+### What was done
+*   **iNav Driver Cross-Reference**: Analyzed the official iNav flight controller driver ([`accgyro_icm42605.c`](file:///home/tcmichals/ssdData/projects/home/flightcode/inav/src/main/drivers/accgyro/accgyro_icm42605.c)) from `/home/tcmichals/ssdData/projects/home/flightcode/inav`.
+*   **Python Cocotb VIP (`sim/cocotb/icm42688p_cocotb_vip.py`)**: Implemented a pure Python hardware emulator for the InvenSense / TDK ICM-42688-P IMU matching iNav register configurations (`WHO_AM_I = 0x47`, `PWR_MGMT0 = 0x0F`, `GYRO_CONFIG0 = 0x06`, `ACCEL_CONFIG0 = 0x06`, `INT_CONFIG = 0x03`, `INT_SOURCE0 = 0x08`, 14-byte continuous read starting at `TEMP_DATA1 0x1D`).
+*   **Cocotb Verification Testbench (`sim/cocotb/test_asp_tlp_64b_cocotb.py`)**: Implemented a test sequence executing the iNav driver initialization, DRDY interrupt generation, 14-byte hardware SPI burst read, and `o_int_req` doorbell IRQ assertion. Passed 100%.
+*   **Documentation Suite Updated**: Added Section 5 ("iNav Flight Controller Driver Integration & Alignment Review") to [`docs/IMU_AUTO_DMA_IP_SPEC.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/IMU_AUTO_DMA_IP_SPEC.md) and updated [`walkthrough.md`](file:///home/tcmichals/.gemini/antigravity-ide/brain/99f37398-c760-4741-a219-52c473d36ea7/walkthrough.md).
+
+### Why it was done
+*   **Synthesizable RTL Isolation**: Using pure Python Cocotb coroutines for external device pin driving eliminates the need for testbench Verilog files, keeping the RTL codebase 100% synthesizable.
+*   **Flight Code Compatibility**: Aligning the FPGA hardware Auto-DMA registers and Python VIP directly with iNav ensures zero friction when porting flight controller software to the Cubie A5E target.
+
+

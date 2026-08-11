@@ -1,213 +1,86 @@
-# ASP SPI Transport Profile (ASP/1)
+# ASP SPI & Dual-SPI Transport Specification (`asp-tlp-64b`)
 
-This document defines how ASP frames are carried over SPI for the AbstractX host↔fabric link.
-
-## Why this exists
-
-SPI is synchronous: bytes are clocked in/out with no native packet boundaries.
-
-ASP therefore treats SPI as a byte stream and provides packet framing at the protocol layer.
-
-## Pro Performance deployment profile (current target)
-
-Current target profile is:
-
-- Host: **Linux SPI master**
-- Device: **FPGA SPI slave**
-- Data path: **SPI only (no USB data path)**
-
-Bring-up note:
-
-- A **Pi Zero** is a practical host for testing and early bring-up.
-
-Typical physical mapping:
-
-| Example Linux SPI host | Signal | FPGA side |
-|---|---|---|
-| GPIO10 | MOSI | SPI slave data-in |
-| GPIO9 | MISO | SPI slave data-out |
-| GPIO11 | SCLK | SPI clock |
-| GPIO8 | CE0 (CSn) | SPI chip select |
-| Any input GPIO | `INT_REQ` | FPGA IRQ/doorbell output |
-
-Operating guidance:
-
-- Baseline deterministic operating point: **5 Mbps**.
-- Higher rates are allowed with validated timing/signal integrity.
-- Keep interconnect short and provide robust shared ground references.
-
-## Transport model
-
-- Link type: SPI slave/device receives bursts from SPI master/host.
-- Unit on wire: bytes clocked synchronously with SCLK.
-- ASP framing: independent of SPI burst boundaries.
-
-Meaning:
-
-- one SPI burst may contain a partial ASP frame,
-- one burst may contain exactly one frame,
-- one burst may contain multiple concatenated frames,
-- command and background traffic (telemetry/log/debug) may be interleaved in the same stream.
-
-ASP-over-SPI is therefore **streaming/multiplexed**, not send-one-wait-one:
-
-- do not assume a request must be immediately followed by its reply on wire,
-- use AXID/sequence/context to correlate transactions,
-- continue parsing and routing all frames as they arrive.
-
-## SPI slave stream-interface profile
-
-The SPI slave is treated as a transport shim that converts pin-level signaling into stream-seam transactions.
-
-### Interface seam
-
-Implementations **SHOULD** expose a stream-style seam between SPI pins and protocol parser/framer logic, for example:
-
-- RX seam (SPI -> protocol):
-	- `rx_data[7:0]`
-	- `rx_valid`
-	- `rx_ready`
-- TX seam (protocol -> SPI):
-	- `tx_data[7:0]`
-	- `tx_valid`
-	- `tx_ready`
-
-Equivalent AXIS-style byte-stream signals are acceptable if behavior is equivalent.
-
-### Behavioral rules
-
-- Pin-level SPI details **MUST** be isolated from protocol parser logic through this seam.
-- RX data **MUST** preserve byte order from wire to parser input.
-- TX path **MUST** respect backpressure (`tx_ready`) without corrupting frame byte order.
-- If TX data is unavailable while SPI clocks continue, the transport layer **MAY** emit pad bytes as defined in this profile.
-- Pad-byte behavior **MUST NOT** modify ASP frame semantics.
-
-## AbstractX vChip SPI control profile
-
-This profile models the FPGA as an AbstractX virtual network chip on SPI.
-
-Concrete byte/register layout is defined in `ASP_SPI_REGISTER_MAP.md`.
-
-### Required external signaling
-
-- `INT_REQ` (FPGA -> host GPIO interrupt line) **SHOULD** be implemented for asynchronous RX readiness when provided by the selected peripheral/profile.
-- SPI data plane uses host-driven clocks; the FPGA cannot transmit unless clocked by the host.
-
-DMA autonomy note:
-
-- Streaming DMA paths may support auto-trigger operation from internal thresholds/events (for example, fill watermark, wrap, fault) independent of per-transfer host polling, depending on peripheral capabilities.
-
-### Command byte set (host -> FPGA)
-
-| Command | Name | Purpose |
-|---|---|---|
-| `0x80` | `ASP_CMD_WRITE_DATA` | Host writes one ASP frame payload into FPGA ingress path |
-| `0x01` | `ASP_CMD_READ_STATUS` | Host reads status/length metadata |
-| `0x02` | `ASP_CMD_READ_DATA` | Host clocks out ASP payload bytes from FPGA egress buffer |
-
-### Status/register semantics (logical profile)
-
-| Field/Register | Purpose |
-|---|---|
-| `ASP_REG_VERSION` | protocol/profile version reporting |
-| `ASP_REG_RX_LEN` | number of bytes ready for host read in egress buffer |
-| `ASP_REG_STATUS` | ready/error bits (implementation-specific layout) |
-
-Equivalent implementations may encode these fields in fixed status response bytes as long as behavior is equivalent.
-
-### Two-phase read flow (IRQ + length-first)
-
-Phase 1 (status):
-
-1. FPGA asserts `INT_REQ` when egress payload is available.
-2. Host issues `ASP_CMD_READ_STATUS`.
-3. FPGA returns readiness + `ASP_REG_RX_LEN`.
-
-Phase 2 (payload):
-
-1. Host issues `ASP_CMD_READ_DATA`.
-2. Host clocks exactly `RX_LEN` bytes.
-3. FPGA de-queues those bytes from egress buffer.
-4. FPGA deasserts `INT_REQ` when buffer is empty (or below implementation threshold).
-
-Normative behavior:
-
-- Host **MUST** bound read length by returned `RX_LEN`.
-- FPGA **MUST** keep `RX_LEN` coherent with bytes available to `READ_DATA`.
-- SPI chip-select edges **SHOULD** reset command/bit alignment state for deterministic transaction framing.
-- ASP CRC/version checks **SHOULD** be validated before forwarding to the Linux network stack.
-
-## RX behavior requirements
-
-Receiver/parser behavior:
-
-1. **MUST** scan byte stream for sync (`0xA5` in `asp-compat-v1`).
-2. **MUST** parse fixed header (`version, flags, axid, seq, payload_len`).
-3. **MUST** enforce implementation payload cap (current profile cap: 512).
-4. **MUST** wait for full `payload + crc16` before validation.
-5. **MUST** verify CRC16/XMODEM over `version..payload`.
-6. On failure, **MUST** advance and resynchronize.
-
-## TX behavior requirements
-
-- TX path **MUST** emit complete ASP frames as byte stream.
-- Bursting policy **SHOULD** prefer complete-frame batching for efficiency.
-- CONTROL traffic (`axid=0x01`) **SHOULD** receive highest scheduler/mux priority where applicable.
-
-## Dummy/pad byte behavior (implementation detail)
-
-Because SPI is full-duplex and synchronous, the master must keep clocking bytes to receive reply bytes.
-
-Implementations **MAY** use dummy/pad bytes during SPI bursts to:
-
-- prime internal bus transactions,
-- continue clocking while waiting for response bytes,
-- flush/align transport-shim FIFOs.
-
-Scope rule:
-
-- Dummy/pad bytes are transport-shim behavior, not ASP wire semantics.
-- ASP frame definition remains unchanged and **MUST NOT** require any fixed pad-byte value.
-
-## Framing and buffering profile limits
-
-For `asp-compat-v1`:
-
-- `payload_len` field: `u16` wire capability,
-- project profile cap: 512 bytes payload,
-- frame length:
-
-$$
-\text{frame\_len} = 1 + 1 + 1 + 1 + 2 + 2 + \text{payload\_len} + 2
-$$
-
-With `payload_len=512`, max frame size is 522 bytes.
-
-## Mode and signal expectations
-
-Unless board-specific constraints require otherwise, endpoints **SHOULD** use one fixed SPI mode consistently (recommended: Mode 0).
-
-Regardless of chosen mode, ASP semantics do not change.
-
-## Error/accounting guidance
-
-Implementations **SHOULD** maintain counters for:
-
-- CRC failures,
-- length-limit rejects,
-- sync-loss/resync events,
-- FIFO overflow/drop events,
-- unknown-AXID drops.
-
-Counters **SHOULD** be exposed through CONTROL diagnostics and/or capability status responses.
-
-## Ownership split reminder
-
-- RTL fast path: SPI byte ingest, parser, CRC, routing, FIFO handling.
-- Control plane software/firmware: validated frame handling, op dispatch, policy/result codes.
-
-Control-plane code **SHOULD NOT** parse raw SPI bytes in the hot path.
+This document defines the physical and link layer transport specification for carrying 64-byte AbstractX TLPs over SPI and Dual-SPI interfaces.
 
 ---
 
-*Revision: 1.0 (Apr 2026)*
+## 1. Physical Layer Wiring & Pinouts
+
+AbstractX supports two physical transport configurations between the Linux/RTOS host and the FPGA slave fabric:
+
+### A) Dual-SPI SDR Profile (Primary High-Throughput Target)
+
+| Host Signal | FPGA Signal | Direction | Description |
+|---|---|---|---|
+| `SCLK` | `SPI_SCLK` | Host $\rightarrow$ FPGA | Serial SPI Clock (up to 50 MHz) |
+| `CSn` | `SPI_CS_N` | Host $\rightarrow$ FPGA | Active-Low Chip Select |
+| `IO0` | `SPI_IO0` | Bidirectional | Data Bit 0 (MOSI during host write / MISO 0 during read) |
+| `IO1` | `SPI_IO1` | Bidirectional | Data Bit 1 (MISO 1 during read / NC during write) |
+| `GPIO_IRQ` | `INT_REQ` | FPGA $\rightarrow$ Host | Egress TLP Ready Doorbell Interrupt |
+
+### B) Single-SPI Standard Profile (Fallback Target)
+
+| Host Signal | FPGA Signal | Direction | Description |
+|---|---|---|---|
+| `SCLK` | `SPI_SCLK` | Host $\rightarrow$ FPGA | Serial SPI Clock |
+| `CSn` | `SPI_CS_N` | Host $\rightarrow$ FPGA | Active-Low Chip Select |
+| `MOSI` | `SPI_MOSI` | Host $\rightarrow$ FPGA | Master Output Slave Input |
+| `MISO` | `SPI_MISO` | FPGA $\rightarrow$ Host | Master Input Slave Output |
+| `GPIO_IRQ` | `INT_REQ` | FPGA $\rightarrow$ Host | Egress TLP Ready Doorbell Interrupt |
+
+---
+
+## 2. Fixed 64-Byte Burst Mechanics
+
+Unlike variable-length protocols, `asp-tlp-64b` operates exclusively on **fixed 64-byte (512-bit) transfer units**:
+
+- Under **Dual-SPI Mode**: Every packet transfer requires exactly **256 SCLK clock pulses**.
+- Under **Single-SPI Mode**: Every packet transfer requires exactly **512 SCLK clock pulses**.
+- **`CS_N` Framing**: Deassertion of `CS_N` resets the internal 512-bit bit-counter and shift register state machine, ensuring hardware synchronization across packet bursts.
+
+---
+
+## 3. Host-FPGA Command Protocol
+
+Every Dual-SPI burst begins with a 1-byte command phase issued by the host while driving `CS_N` low:
+
+| Command | Name | Description |
+|---|---|---|
+| `0xA1` | `TLP_WRITE_BURST` | Host transmits a 64-byte TLP (`MemRd`, `MemWr`, or `DMA_Cfg`) to FPGA ingress |
+| `0xA2` | `TLP_READ_BURST` | Host reads a 64-byte TLP (`CplD`, `Cpl`, or `DMA_Stream`) from FPGA egress buffer |
+| `0xA0` | `TLP_READ_STATUS` | Host queries ingress/egress FIFO watermarks and diagnostic bitfield |
+
+### 3.1 Write Burst Sequence (`TLP_WRITE_BURST` - `0xA1`)
+1. Host asserts `CS_N` low.
+2. Host outputs command byte `0xA1`.
+3. Host clocks out 64 TLP bytes (256 Dual-SPI clock cycles or 512 SPI clock cycles).
+4. FPGA shift register ingests TLP, calculates CRC32, and pushes valid TLP to Wishbone/routing gateway.
+5. Host deasserts `CS_N` high.
+
+### 3.2 Read Burst Sequence (`TLP_READ_BURST` - `0xA2`)
+1. FPGA asserts `INT_REQ` pin high when egress FIFO has $\ge 1$ 64-byte TLP ready.
+2. Host asserts `CS_N` low.
+3. Host outputs command byte `0xA2`.
+4. FPGA clocks out 64 TLP bytes from egress FIFO.
+5. Host deasserts `CS_N` high.
+6. If egress FIFO becomes empty, FPGA deasserts `INT_REQ` low.
+
+---
+
+## 4. Hardware Shift Register Seam Architecture
+
+The SPI slave module presents a clean 512-bit parallel interface seam to internal fabric routers:
+
+```
+                  +-------------------------------+
+  SPI Pins        |       asp_spi_frontend        |     AXIS / Wishbone Seam
+  --------------> |                               | ----------------------------->
+  SCLK, CS_N,     |  512-Bit Fixed Shift Register | tdata[511:0] (64-Byte TLP)
+  IO0, IO1        |  Parallel CRC32 Engine        | tvalid, tready, tlast
+                  +-------------------------------+
+```
+
+### RTL Interface Seam Signals:
+- `tdata[511:0]`: Complete 64-byte TLP parallel vector.
+- `tvalid`: High when a complete 64-byte packet is received with valid CRC32.
+- `tready`: Backpressure signal from Wishbone/router gateway.

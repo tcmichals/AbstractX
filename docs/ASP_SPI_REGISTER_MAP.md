@@ -1,200 +1,72 @@
-# ASP SPI Register Map and Wire Contract (vChip Profile)
+# ASP SPI & Dual-SPI Register Map and Wire Contract (`asp-tlp-64b`)
 
-This document defines the byte-level command/register contract for the AbstractX vChip SPI profile.
-
-## Scope
-
-Applies to the external profile:
-
-- Host: Linux SPI master
-- Device: FPGA SPI slave
-- Data path: SPI-only (no USB data path)
-
-Bring-up/testing note:
-
-- A Pi Zero is a practical SPI host for validation and bench testing.
-
-This contract complements:
-
-- `ASP_PROTOCOL.md` (ASP frame semantics)
-- `ASP_SPI_TRANSPORT.md` (transport and flow requirements)
+This document defines the physical command, status byte map, and register interface for the **PCIe-like 64-Byte TLP Profile (`asp-tlp-64b`)**.
 
 ---
 
-## 1) Command byte map
+## 1. Command Byte Map (Dual-SPI & SPI Mode)
 
-| Command | Symbol | Direction | Purpose |
+Every SPI transfer begins with a 1-byte command phase issued by the host while asserting `CS_N` low:
+
+| Command Byte | Symbol | Direction | Function |
 |---|---|---|---|
-| `0x80` | `ASP_CMD_WRITE_DATA` | Host -> FPGA | Write one ASP payload/frame into FPGA ingress path |
-| `0x01` | `ASP_CMD_READ_STATUS` | Host <- FPGA | Read status/length metadata |
-| `0x02` | `ASP_CMD_READ_DATA` | Host <- FPGA | Read queued ASP payload bytes from FPGA egress |
-
-Command interpretation rule:
-
-- First command byte after CS assert **MUST** define transaction mode.
-- CS deassert **SHOULD** reset command/bit-alignment state.
+| `0xA1` | `TLP_WRITE_BURST` | Host $\rightarrow$ FPGA | Clock in 64-byte TLP (`MemRd`, `MemWr`, or `DMA_Cfg`) to FPGA ingress |
+| `0xA2` | `TLP_READ_BURST` | Host $\leftarrow$ FPGA | Clock out 64-byte TLP (`CplD`, `Cpl`, or `DMA_Stream`) from FPGA egress buffer |
+| `0xA0` | `TLP_READ_STATUS` | Host $\leftarrow$ FPGA | Query 4-byte status vector (FIFO levels & diagnostic flags) |
 
 ---
 
-## 2) Logical status/register fields
+## 2. `TLP_READ_STATUS` Response Vector (4 Bytes)
 
-| Field | Width | Description |
-|---|---:|---|
-| `ASP_REG_VERSION` | 8 | SPI profile/interface revision |
-| `ASP_REG_STATUS` | 8 | Ready/error/flow flags |
-| `ASP_REG_RX_LEN` | 16 | Number of bytes available for `READ_DATA` |
+When the host issues `0xA0`, the FPGA returns a 4-byte status payload:
 
-### `ASP_REG_STATUS` bit assignment (recommended baseline)
-
-| Bit | Name | Meaning |
+| Response Byte | Field Name | Description |
 |---:|---|---|
-| 0 | `RX_READY` | 1 when at least one payload byte is available |
-| 1 | `RX_OVERFLOW` | Sticky overflow indication in egress staging/FIFO |
-| 2 | `CRC_ERR` | Sticky indication of recently dropped bad-CRC frame |
-| 3 | `LEN_ERR` | Sticky indication of recently dropped bad-length frame |
-| 4 | `TX_ACCEPT` | 1 when ingress path can accept `WRITE_DATA` payload bytes |
-| 5 | `RESYNC_EVT` | Sticky indication of parser resync event |
-| 6 | Reserved | Read as 0 |
-| 7 | Reserved | Read as 0 |
-
-Status bits are implementation-defined beyond this baseline; if changed, the capability payload **MUST** advertise updated layout/version.
-
-### Optional status extensions (peripheral streaming profiles)
-
-Implementations may expose additional status bits/registers such as:
-
-- `STREAM_ACTIVE`: peripheral currently emitting autonomous stream payloads.
-- `AUTO_TRIGGER_ACTIVE`: timer/threshold/event trigger path armed.
-- `TRIGGER_MISSED`: trigger occurred while destination path was backpressured/full.
-
-These are profile/peripheral-specific and should be advertised through capabilities.
-
-Optional timestamp capability notes:
-
-- `TS_INGRESS_VALID`: latest egress payload metadata includes ingress timestamp field.
-- `TS_EGRESS_VALID`: latest egress payload metadata includes egress timestamp field.
-
-When dual-timestamp mode is enabled by profile, metadata consumers should interpret:
-
-- `ts_ingress` as frame/sample capture-arrival marker,
-- `ts_egress` as transport emission marker.
+| Byte 0 | `VERSION` | Protocol revision (`0x64` for 64B TLP profile) |
+| Byte 1 | `STATUS_FLAGS` | Bit 0: `EGRESS_READY` ($\ge 1$ 64B TLP ready)<br>Bit 1: `INGRESS_ACCEPT` (Ingress FIFO can accept write)<br>Bit 2: `CRC_ERROR` (Sticky CRC failure flag)<br>Bit 3: `IMU_AUTO_DMA_ACTIVE` (IMU telemetry active) |
+| Byte 2 | `EGRESS_COUNT` | Number of 64-byte TLPs currently queued in egress FIFO |
+| Byte 3 | `INGRESS_SPACE` | Free 64-byte TLP slot count in ingress FIFO |
 
 ---
 
-## 3) `READ_STATUS` response layout
+## 3. Wishbone Base Address Map (Target Address Field in TLP)
 
-### Transaction form
+All Wishbone registers are targeted by `MemRd` (Type `0x01`) and `MemWr` (Type `0x02`) TLPs using the 32-bit `Target Address` field in the TLP header:
 
-- MOSI: command byte + dummy bytes
-- MISO: status packet bytes
+```
++------------------+-----------------------------------------------+
+| Address Range    | Peripheral Target                             |
++------------------+-----------------------------------------------+
+| 0x40000000       | WHO_AM_I System ID & Capability Signature     |
+| 0x40000100       | IMU SPI Master & Auto-DMA IP Core Registers   |
+| 0x40000300       | DShot Motor Controller                        |
+| 0x40000500       | UART ESC Engine & 2-Char Timeout Register     |
+| 0x40000900       | UART ESC Raw Serial Tunnel FIFO               |
+| 0x40000C00       | GPIO & LED Controller                         |
++------------------+-----------------------------------------------+
+```
 
-### Baseline fixed response (4 bytes after command)
+### Detailed Peripheral Registers
 
-| Response Byte | Field |
-|---:|---|
-| B0 | `ASP_REG_VERSION` |
-| B1 | `ASP_REG_STATUS` |
-| B2 | `ASP_REG_RX_LEN[15:8]` |
-| B3 | `ASP_REG_RX_LEN[7:0]` |
+#### A. System Identification (`0x40000000`)
+- `0x40000000`: `WHO_AM_I` (Read-Only: returns `0xAB1X6401` - AbstractX 64B TLP Core v1)
 
-Normative behavior:
+#### B. IMU Auto-DMA Core (`0x40000100` - `0x40000118`)
+- `0x40000100`: `IMU_CTRL` (Control register: `AUTO_DMA_EN`, `MANUAL_START`, `SPI_MODE`)
+- `0x40000104`: `IMU_BURST_ADDR` (Target IMU SPI register address, e.g. `0x1F`)
+- `0x40000108`: `IMU_BURST_LEN` (Burst byte count, e.g. 14 bytes)
+- `0x4000010C`: `IMU_MAN_DATA` (Manual SPI data transmit/receive buffer)
+- `0x40000110`: `IMU_STATUS` (Status register: sample counter, busy flag)
+- `0x40000114`: `IMU_LATCH_TS_H` (High 32 bits of latched 64-bit timestamp)
+- `0x40000118`: `IMU_LATCH_TS_L` (Low 32 bits of latched 64-bit timestamp)
 
-- Host **MUST** treat `RX_LEN` as authoritative upper bound for immediate `READ_DATA`.
-- FPGA **MUST** present coherent `RX_LEN` for bytes readable in the next `READ_DATA` transaction.
-
----
-
-## 4) `READ_DATA` transaction
-
-### Request
-
-- Host issues `ASP_CMD_READ_DATA` then clocks N dummy bytes.
-
-### Response
-
-- FPGA returns N data bytes dequeued from egress buffer.
-
-Normative behavior:
-
-- Host **MUST** set `N <= RX_LEN` from the latest successful `READ_STATUS`.
-- FPGA **MUST NOT** reorder bytes within a queued ASP frame.
-- If host clocks beyond available bytes (protocol misuse), FPGA **MAY** return pad bytes and set error/status indication.
+#### C. UART ESC Engine (`0x40000500` - `0x40000508`)
+- `0x40000500`: `UART_ESC_CTRL` (Bit 0: Enable, Bit 1: 2-Char Idle Timer Enable)
+- `0x40000504`: `UART_BAUD_DIV` (Baud rate clock prescaler divisor)
+- `0x40000508`: `UART_IDLE_CYCLES` (Bit-time idle counter limit for flush trigger, default 20)
 
 ---
 
-## 5) `WRITE_DATA` transaction
+## 4. Doorbell Interrupt Signalling (`INT_REQ`)
 
-### Request
-
-- Host issues `ASP_CMD_WRITE_DATA` followed by payload bytes.
-
-### Effect
-
-- FPGA enqueues bytes into ingress staging/FIFO for ASP parser path.
-
-Normative behavior:
-
-- Host **SHOULD** only write when `TX_ACCEPT=1`.
-- FPGA **SHOULD** provide backpressure-safe staging and set overflow/error indicators on violation.
-
----
-
-## 6) IRQ (`INT_REQ`) behavior
-
-`INT_REQ` is the asynchronous doorbell from FPGA to host.
-
-Recommended behavior:
-
-1. Assert when `RX_LEN > 0`.
-2. Keep asserted while readable payload remains.
-3. Deassert when egress queue is empty (or below configured threshold).
-
-Normative behavior:
-
-- Host IRQ handler **SHOULD** issue `READ_STATUS` first, then `READ_DATA` for exact length.
-- IRQ signaling **MUST** not be required to parse framing; it is readiness signaling only.
-
----
-
-## 7) Example host flows
-
-### FPGA -> Host (read path)
-
-1. `INT_REQ` rises.
-2. Host sends `ASP_CMD_READ_STATUS` and receives `[VER, STATUS, LEN_H, LEN_L]`.
-3. Host computes `N = RX_LEN`.
-4. Host sends `ASP_CMD_READ_DATA` and clocks exactly `N` bytes.
-5. Host validates ASP version/length/CRC before writing to `tun0`.
-
-### Host -> FPGA (write path)
-
-1. Host checks status (`TX_ACCEPT`).
-2. Host sends `ASP_CMD_WRITE_DATA` + ASP bytes.
-3. FPGA ingests bytes into parser ingress path.
-
----
-
-## 8) 4K packet profile note
-
-A practical profile for large packets may set payload targets around 4096 bytes at transport level while preserving ASP framing semantics.
-
-For deterministic behavior:
-
-- status/length phase **SHOULD** always precede large reads,
-- host **SHOULD** avoid overclocking beyond validated signal-integrity limits,
-- software **SHOULD** discard payloads failing ASP CRC/version/length checks.
-
-## 9) Suggested Wishbone-side stream trigger controls (peripheral profile)
-
-Although this SPI register-map focuses on host transport commands, autonomous peripheral streaming is typically configured through Wishbone registers routed by the AbstractX fabric.
-
-Suggested control fields:
-
-- `STREAM_ENABLE` (RW): master enable for autonomous streaming.
-- `AUTO_TRIGGER_ENABLE` (RW): enable timer/event threshold triggered emission.
-- `TRIGGER_PERIOD` (RW): periodic trigger interval (implementation clock domain units).
-- `STREAM_STATUS` (RO): active/backpressure/missed-trigger indicators.
-
----
-
-*Revision: 1.0 (Apr 2026)*
+The FPGA asserts `INT_REQ` high whenever `EGRESS_COUNT > 0`. Host IRQ handler responds by reading 64-byte `CplD` or `DMA_Stream` TLPs using `0xA2 (TLP_READ_BURST)`.
