@@ -74,19 +74,23 @@ class AspPcieTransport:
                 self.spi.open(bus, dev)
                 self.spi.max_speed_hz = 25000000  # 25 MHz
                 
-                if use_dual_spi:
+                SPI_TX_DUAL = getattr(spidev, 'SPI_TX_DUAL', 0x100)
+                SPI_RX_DUAL = getattr(spidev, 'SPI_RX_DUAL', 0x400)
+
+                # Query Linux Kernel / Device Tree configured mode
+                dt_mode = self.spi.mode
+                is_dt_dual = bool(dt_mode & (SPI_TX_DUAL | SPI_RX_DUAL))
+
+                if use_dual_spi or is_dt_dual:
                     try:
-                        # Linux kernel spidev Dual-SPI mode flags
-                        SPI_TX_DUAL = getattr(spidev, 'SPI_TX_DUAL', 0x100)
-                        SPI_RX_DUAL = getattr(spidev, 'SPI_RX_DUAL', 0x400)
-                        self.spi.mode = SPI_TX_DUAL | SPI_RX_DUAL
-                        print(f"[+] Opened {spidev_path} in Dual-SPI Mode (2x Throughput, SDIO0/SDIO1)")
+                        self.spi.mode = dt_mode | SPI_TX_DUAL | SPI_RX_DUAL
+                        print(f"[+] Auto-detected Dual-SPI 2x Mode on {spidev_path} (Device Tree Enabled, SDIO0/SDIO1)")
                     except Exception as dual_err:
                         print(f"[!] Kernel Dual-SPI flag unsupported: {dual_err}. Falling back to Standard SPI.")
                         self.spi.mode = 0
                 else:
                     self.spi.mode = 0  # Standard Single-SPI (MOSI/MISO)
-                    print(f"[+] Opened {spidev_path} in Standard Single-SPI Mode (MOSI/MISO)")
+                    print(f"[+] Operating on {spidev_path} in Standard Single-SPI Mode (1-bit MOSI/MISO)")
             except Exception as e:
                 print(f"[!] Hardware spidev error: {e}. Falling back to --mock mode.")
                 self.mock = True
