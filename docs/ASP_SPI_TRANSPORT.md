@@ -28,6 +28,12 @@ AbstractX supports two physical transport configurations between the Linux/RTOS 
 | `MISO` | `SPI_MISO` | FPGA $\rightarrow$ Host | Master Input Slave Output |
 | `GPIO_IRQ` | `INT_REQ` | FPGA $\rightarrow$ Host | Egress TLP Ready Doorbell Interrupt |
 
+### C) SPI Clock Frequency Flexibility (100 kHz to 50 MHz)
+
+The AbstractX FPGA over-samples incoming `SCLK` and `CS_N` using its internal master clock. The host SPI clock (`SCLK`) can run at **ANY frequency from 100 kHz up to 50 MHz** (e.g. **10 MHz**, 12 MHz, 25 MHz, 50 MHz):
+- **At 10 MHz SCLK (Standard Single-SPI)**: Transferring a 64-byte TLP packet takes **$5.12\ \mu\text{s}$** ($1.25\text{ MB/s}$ throughput).
+- **At 10 MHz SCLK (Dual-SPI Mode)**: Transferring a 64-byte TLP packet takes **$2.56\ \mu\text{s}$** ($2.50\text{ MB/s}$ throughput).
+
 ---
 
 ## 2. Fixed 64-Byte Burst & Dual-SPI 2x Speed Mechanics
