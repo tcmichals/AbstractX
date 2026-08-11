@@ -37,14 +37,16 @@ This document defines the physical hardware pin assignments for the **Tang Nano 
 
 ---
 
-## 4. DShot 150/300/600 & PWM Motor Outputs (Quadcopter 4 Channels)
+## 4. DShot 150/300/600 & ESC Serial Passthrough Pins (4 Motor Channels)
 
-| Signal | Package Pin | Direction | Target ESC / Motor Channel |
-|---|---|---|---|
-| **`o_motor_pins[0]`** | Pin 38 | Output | Motor Channel 1 (DShot / Servo PWM) |
-| **`o_motor_pins[1]`** | Pin 39 | Output | Motor Channel 2 (DShot / Servo PWM) |
-| **`o_motor_pins[2]`** | Pin 40 | Output | Motor Channel 3 (DShot / Servo PWM) |
-| **`o_motor_pins[3]`** | Pin 41 | Output | Motor Channel 4 (DShot / Servo PWM) |
+| Signal | Package Pin | Direction | Normal Flight Mode | ESC Passthrough Mode (`serial_4way.c`) |
+|---|---|---|---|---|
+| **`o_motor_pins[0]`** | **Pin 38** | Bidirectional | DShot150/300/600 Output Ch 1 | 1-Wire Software UART (BLHeli / AM32 ESC 1) |
+| **`o_motor_pins[1]`** | **Pin 39** | Bidirectional | DShot150/300/600 Output Ch 2 | 1-Wire Software UART (BLHeli / AM32 ESC 2) |
+| **`o_motor_pins[2]`** | **Pin 40** | Bidirectional | DShot150/300/600 Output Ch 3 | 1-Wire Software UART (BLHeli / AM32 ESC 3) |
+| **`o_motor_pins[3]`** | **Pin 41** | Bidirectional | DShot150/300/600 Output Ch 4 | 1-Wire Software UART (BLHeli / AM32 ESC 4) |
+
+> **Note on Serial Passthrough**: When BLHeliSuite or AM32 Configurator connects over USB to flash or configure ESCs, the FPGA reconfigures motor pins 38..41 as 1-wire half-duplex Software UART pins. Serial bytes are tunneled back and forth over **64-byte TLP Stream Channel 0x05**.
 
 ---
 
@@ -56,7 +58,18 @@ This document defines the physical hardware pin assignments for the **Tang Nano 
 
 ---
 
-## 6. Onboard LED Diagnostics & Linux Dynamic Control
+## 6. Dedicated Hardware Logic Analyzer Debug Pins (`o_debug_pins[3:0]`)
+
+| Signal | Package Pin | Direction | Logic Analyzer Signal Assignment | Description |
+|---|---|---|---|---|
+| **`o_debug_pins[0]`** | **Pin 42** | Output | **Host SPI CS Active (`~spi_cs_n`)** | Pulses High when Host SPI bus is active |
+| **`o_debug_pins[1]`** | **Pin 48** | Output | **IMU Stream Valid (`imu_stream_tvalid`)** | Pulses High when IMU Auto-DMA emits 64B TLP |
+| **`o_debug_pins[2]`** | **Pin 49** | Output | **FPGA TLP Egress Valid (`tlp_tx_valid`)** | Pulses High when FPGA outputs 64B TLP to Host |
+| **`o_debug_pins[3]`** | **Pin 50** | Output | **Doorbell IRQ Pulse (`o_int_req`)** | Pulses High on Host Doorbell Interrupt Trigger |
+
+---
+
+## 7. Onboard LED Diagnostics & Linux Dynamic Control
 
 | Signal | Package Pin | Drive Strength | Control Source | Description |
 |---|---|---|---|---|

@@ -37,9 +37,10 @@ TLP_HDR_MEM_RD = 0x00
 TLP_HDR_MEM_WR = 0x01
 TLP_HDR_CPLD   = 0x0A
 
-REG_SYS_VERSION   = 0x40000000  # Expects 0xA1B2C3D4
-REG_SYS_SCRATCH   = 0x40000004  # R/W Loopback
-REG_SYS_LED_CTRL  = 0x40000008  # R/W Onboard LEDs (Bits 1..5)
+REG_SYS_ID_REV    = 0x40000000  # Expects 0xABF10164 (Device: 0xABF1, Rev: 0x01, Arch: 0x64)
+REG_SYS_VENDOR_ID = 0x40000004  # Expects 0x19981ACC (Subsys: 0x1998, Vendor: 0x1ACC)
+REG_SYS_SCRATCH   = 0x40000008  # R/W Host Loopback Scratchpad
+REG_SYS_LED_CTRL  = 0x4000000C  # R/W Onboard LEDs (Bits 1..5)
 
 REG_MOTOR_CTRL    = 0x40000200  # Bit 0..1 Protocol (00=DShot600, 01=DShot300, 10=DShot150, 11=PWM)
 REG_MOTOR_CH1     = 0x40000204  # Throttle Ch 1 (0..2047)
@@ -57,9 +58,10 @@ class AspPcieTransport:
     def __init__(self, spidev_path=None, mock=False):
         self.mock = mock
         self.mock_regs = {
-            REG_SYS_VERSION: 0xA1B2C3D4,
-            REG_SYS_SCRATCH: 0x00000000,
-            REG_SYS_LED_CTRL: 0x0000003E,
+            REG_SYS_ID_REV:    0xABF10164,
+            REG_SYS_VENDOR_ID: 0x19981ACC,
+            REG_SYS_SCRATCH:   0xCAFEBABE,
+            REG_SYS_LED_CTRL:  0x0000003E,
         }
         self.spi = None
 
@@ -182,6 +184,23 @@ def run_interactive_cli(dev):
                 addr = int(parts[1], 16)
                 val = dev.reg_read32(addr)
                 print(f"Read [0x{addr:08X}] => 0x{val:08X} ({val})")
+            elif cmd == "test_version_and_scratch":
+                print("\n=== Test 1: PCIe ID, Rev, Scratch Loopback & 64-bit Timestamp ===")
+                id_rev = dev.reg_read32(REG_SYS_ID_REV)
+                vendor = dev.reg_read32(REG_SYS_VENDOR_ID)
+                print(f"[*] Read REG_SYS_ID_REV:    0x{id_rev:08X} (Device: 0x{id_rev>>16:04X}, Rev: 0x{(id_rev>>8)&0xFF:02X}, Arch: 0x{id_rev&0xFF:02X})")
+                print(f"[*] Read REG_SYS_VENDOR_ID: 0x{vendor:08X} (Vendor: 0x{vendor&0xFFFF:04X})")
+                assert id_rev == 0xABF10164 or dev.mock, "Device ID/Rev mismatch!"
+
+                pattern = 0xCAFEBABE
+                dev.reg_write32(REG_SYS_SCRATCH, pattern)
+                rb = dev.reg_read32(REG_SYS_SCRATCH)
+                print(f"[*] Scratch Register Loopback: Wrote 0x{pattern:08X}, Read 0x{rb:08X}")
+
+                t_low  = dev.reg_read32(0x40000010)
+                t_high = dev.reg_read32(0x40000014)
+                ts_ns  = (t_high << 32) | t_low
+                print(f"[*] Master System Hardware Timestamp: {ts_ns} ns (0x{ts_ns:016X})")
             elif cmd == "write" and len(parts) >= 3:
                 addr = int(parts[1], 16)
                 val = int(parts[2], 16)

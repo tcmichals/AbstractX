@@ -24,7 +24,8 @@ module top_primer20k (
     output wire  o_int_req,
     output wire [3:0] o_motor_pins,
     output wire  o_neopixel_pin,
-    output wire [5:0] o_led   // LEDs
+    output wire [5:0] o_led,   // LEDs
+    output wire [3:0] o_debug_pins // Hardware Logic Analyzer Debug Pins
 );
 
     wire clk_logic = i_clk;
@@ -65,6 +66,7 @@ module top_primer20k (
         .o_motor_pins(o_motor_pins),
         .o_neopixel_pin(o_neopixel_pin),
         .o_led      (asp_led_bits),
+        .o_debug_pins(o_debug_pins),
 
         .o_int_req  (o_int_req)
     );
