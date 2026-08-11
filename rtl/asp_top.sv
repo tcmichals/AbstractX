@@ -38,6 +38,9 @@ module asp_top #(
     // Linux-Controllable Onboard LEDs (0..5)
     output logic [5:0] o_led,
 
+    // Hardware Logic Analyzer Debug Pins (0..3)
+    output logic [3:0] o_debug_pins,
+
     // Host CPU Interrupt Request Doorbell Pin
     output logic       o_int_req
 );
@@ -48,6 +51,16 @@ module asp_top #(
         if (!rst_n) sys_timestamp <= 64'd0;
         else        sys_timestamp <= sys_timestamp + 64'd1;
     end
+
+    // Logic Analyzer Debug Signals:
+    // Debug 0: Host SPI CS Active
+    // Debug 1: IMU Auto-DMA Stream Valid
+    // Debug 2: FPGA TLP Egress Valid
+    // Debug 3: Host Doorbell IRQ Asserted
+    assign o_debug_pins[0] = ~spi_cs_n;
+    assign o_debug_pins[1] = imu_stream_tvalid;
+    assign o_debug_pins[2] = tlp_tx_valid;
+    assign o_debug_pins[3] = o_int_req;
 
     // ------------------------------------------------------------------------
     // SPI Frontend <-> Router Signals (512-bit Vectors)
@@ -180,19 +193,20 @@ module asp_top #(
                       dshot_sel    ? dshot_wb_dat_r :
                       neopixel_sel ? neopixel_wb_dat_r : 32'd0;
 
-    // System Control & Linux LED Registers (Base: 0x40000000)
+    // System Control, PCIe ID & Master Timestamp Registers (Base: 0x40000000)
     asp_sys_regs u_sys_regs (
-        .clk        (clk),
-        .rst        (!rst_n),
-        .wb_adr_i   (wb_adr),
-        .wb_dat_i   (wb_dat_w),
-        .wb_sel_i   (wb_sel),
-        .wb_we_i    (wb_we),
-        .wb_cyc_i   (wb_cyc && sys_sel),
-        .wb_stb_i   (wb_stb && sys_sel),
-        .wb_ack_o   (sys_wb_ack),
-        .wb_dat_o   (sys_wb_dat_r),
-        .o_led_bits (o_led)
+        .clk             (clk),
+        .rst             (!rst_n),
+        .i_sys_timestamp (sys_timestamp),
+        .wb_adr_i        (wb_adr),
+        .wb_dat_i        (wb_dat_w),
+        .wb_sel_i        (wb_sel),
+        .wb_we_i         (wb_we),
+        .wb_cyc_i        (wb_cyc && sys_sel),
+        .wb_stb_i        (wb_stb && sys_sel),
+        .wb_ack_o        (sys_wb_ack),
+        .wb_dat_o        (sys_wb_dat_r),
+        .o_led_bits      (o_led)
     );
 
     // IMU SPI Master & Auto-DMA IP Core (Base: 0x40000100)

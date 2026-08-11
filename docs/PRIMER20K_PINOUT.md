@@ -56,7 +56,18 @@ This document defines the physical hardware pin assignments for the **Tang Prime
 
 ---
 
-## 6. Onboard LED Diagnostics & Linux Dynamic Control
+## 6. Dedicated Hardware Logic Analyzer Debug Pins (`o_debug_pins[3:0]`)
+
+| Signal | Package Pin | Direction | Logic Analyzer Signal Assignment | Description |
+|---|---|---|---|---|
+| **`o_debug_pins[0]`** | **Pin P8** | Output | **Host SPI CS Active (`~spi_cs_n`)** | Pulses High when Host SPI bus is active |
+| **`o_debug_pins[1]`** | **Pin R8** | Output | **IMU Stream Valid (`imu_stream_tvalid`)** | Pulses High when IMU Auto-DMA emits 64B TLP |
+| **`o_debug_pins[2]`** | **Pin T8** | Output | **FPGA TLP Egress Valid (`tlp_tx_valid`)** | Pulses High when FPGA outputs 64B TLP to Host |
+| **`o_debug_pins[3]`** | **Pin T9** | Output | **Doorbell IRQ Pulse (`o_int_req`)** | Pulses High on Host Doorbell Interrupt Trigger |
+
+---
+
+## 7. Onboard LED Diagnostics & Linux Dynamic Control
 
 | Signal | Package Pin | Drive Strength | Control Source | Description |
 |---|---|---|---|---|
