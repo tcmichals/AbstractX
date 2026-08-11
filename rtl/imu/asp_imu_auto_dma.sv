@@ -46,9 +46,13 @@ module asp_imu_auto_dma (
 
     // Registers
     logic        auto_dma_en;
-    logic        int_polarity; // 0 = Active Low, 1 = Active High
-    logic [7:0]  burst_addr;   // IMU SPI start read register (e.g. 0x1F)
-    logic [5:0]  burst_len;    // Byte count to read (e.g. 14 bytes)
+    logic        int_polarity;    // 0 = Active Low, 1 = Active High
+    logic        direct_spi_trig; // Self-clearing manual SPI trigger
+    logic        direct_spi_rw;   // 0 = Read, 1 = Write
+    logic [7:0]  burst_addr;      // IMU SPI start read register (e.g. 0x1F)
+    logic [5:0]  burst_len;       // Byte count to read/write (e.g. 1 to 14 bytes)
+    logic [31:0] direct_write_data;
+    logic [31:0] direct_read_data;
     logic [15:0] sample_count;
     logic [63:0] latched_timestamp;
 
@@ -69,33 +73,41 @@ module asp_imu_auto_dma (
     // Wishbone Register Read/Write Logic
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            auto_dma_en  <= 1'b0;
-            int_polarity <= 1'b1;
-            burst_addr   <= 8'h1F; // Default ICM-42688 Accel X1 start register
-            burst_len    <= 6'd14; // Default 14 bytes (Accel + Gyro + Temp)
-            wb_ack_o     <= 1'b0;
-            wb_dat_o     <= 32'd0;
+            auto_dma_en       <= 1'b0;
+            int_polarity      <= 1'b1;
+            direct_spi_trig   <= 1'b0;
+            direct_spi_rw     <= 1'b0;
+            burst_addr        <= 8'h1F; // Default ICM-42688 Accel X1 start register
+            burst_len         <= 6'd14; // Default 14 bytes (Accel + Gyro + Temp)
+            direct_write_data <= 32'h0;
+            wb_ack_o          <= 1'b0;
+            wb_dat_o          <= 32'd0;
         end else begin
-            wb_ack_o <= 1'b0;
+            wb_ack_o        <= 1'b0;
+            direct_spi_trig <= 1'b0; // Self-clearing trigger pulse
 
             if (wb_cyc_i && wb_stb_i && !wb_ack_o) begin
                 wb_ack_o <= 1'b1;
                 if (wb_we_i) begin
                     case (wb_adr_i)
                         32'h40000100: begin
-                            auto_dma_en  <= wb_dat_i[0];
-                            int_polarity <= wb_dat_i[2];
+                            auto_dma_en     <= wb_dat_i[0];
+                            direct_spi_trig <= wb_dat_i[1];
+                            int_polarity    <= wb_dat_i[2];
+                            direct_spi_rw   <= wb_dat_i[3];
                         end
-                        32'h40000104: burst_addr <= wb_dat_i[7:0];
-                        32'h40000108: burst_len  <= wb_dat_i[5:0];
+                        32'h40000104: burst_addr        <= wb_dat_i[7:0];
+                        32'h40000108: burst_len         <= wb_dat_i[5:0];
+                        32'h4000010C: direct_write_data <= wb_dat_i;
                         default: ;
                     endcase
                 end else begin
                     case (wb_adr_i)
-                        32'h40000100: wb_dat_o <= {29'b0, int_polarity, 1'b0, auto_dma_en};
+                        32'h40000100: wb_dat_o <= {28'b0, direct_spi_rw, int_polarity, 1'b0, auto_dma_en};
                         32'h40000104: wb_dat_o <= {24'b0, burst_addr};
                         32'h40000108: wb_dat_o <= {26'b0, burst_len};
-                        32'h40000110: wb_dat_o <= {sample_count, 16'b0};
+                        32'h4000010C: wb_dat_o <= direct_write_data;
+                        32'h40000110: wb_dat_o <= direct_read_data;
                         32'h40000114: wb_dat_o <= latched_timestamp[63:32];
                         32'h40000118: wb_dat_o <= latched_timestamp[31:0];
                         default:      wb_dat_o <= 32'h00000000;
@@ -118,15 +130,20 @@ module asp_imu_auto_dma (
     imu_state_t imu_state;
 
     logic [7:0]   spi_cmd_shift;
-    logic [111:0] captured_sensor_data; // 14 Bytes x 8 Bits = 112 Bits
+    logic [111:0] captured_sensor_data; // Up to 14 Bytes x 8 Bits = 112 Bits
     logic [7:0]   bit_cnt;
+    logic [7:0]   target_bit_cnt;
     logic [2:0]   sclk_div;
+
+    // Dynamic bit counter limit: (burst_len * 8) - 1
+    assign target_bit_cnt = (burst_len > 6'd0) ? (({2'b0, burst_len} << 3) - 8'd1) : 8'd7;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             imu_state           <= ST_IMU_IDLE;
             sample_count        <= 16'd0;
             latched_timestamp   <= 64'd0;
+            direct_read_data    <= 32'd0;
             o_imu_sclk          <= 1'b0;
             o_imu_cs_n          <= 1'b1;
             o_imu_mosi          <= 1'b0;
@@ -143,8 +160,14 @@ module asp_imu_auto_dma (
                     o_imu_cs_n <= 1'b1;
                     o_imu_sclk <= 1'b0;
                     if (auto_dma_en && imu_int_trig) begin
+                        // Mode B: Hardware DRDY Interrupt Auto-DMA Sequence Replay
                         latched_timestamp <= i_sys_timestamp;
                         spi_cmd_shift     <= burst_addr | 8'h80; // SPI Read Command
+                        imu_state         <= ST_IMU_START_BURST;
+                    end else if (direct_spi_trig) begin
+                        // Mode A: Direct Host Transparent SPI Passthrough Read/Write
+                        latched_timestamp <= i_sys_timestamp;
+                        spi_cmd_shift     <= direct_spi_rw ? (burst_addr & 8'h7F) : (burst_addr | 8'h80);
                         imu_state         <= ST_IMU_START_BURST;
                     end
                 end
@@ -156,7 +179,7 @@ module asp_imu_auto_dma (
                     imu_state  <= ST_IMU_SEND_CMD;
                 end
 
-                // Send 8-bit Read Command Byte over MOSI
+                // Send 8-bit Command Byte over MOSI
                 ST_IMU_SEND_CMD: begin
                     sclk_div <= sclk_div + 3'd1;
                     if (sclk_div == 3'd3) begin
@@ -174,7 +197,7 @@ module asp_imu_auto_dma (
                     end
                 end
 
-                // Read 112 Bits (14 Bytes) over MISO
+                // Read / Write Data Bits over SPI (Dynamic target_bit_cnt)
                 ST_IMU_READ_DATA: begin
                     sclk_div <= sclk_div + 3'd1;
                     if (sclk_div == 3'd3) begin
@@ -182,10 +205,11 @@ module asp_imu_auto_dma (
                         captured_sensor_data <= {captured_sensor_data[110:0], i_imu_miso};
                     end else if (sclk_div == 3'd7) begin
                         o_imu_sclk <= 1'b0;
-                        if (bit_cnt == 8'd111) begin
-                            o_imu_cs_n   <= 1'b1; // Deassert CS
-                            sample_count <= sample_count + 16'd1;
-                            imu_state    <= ST_IMU_BUILD_TLP;
+                        if (bit_cnt == target_bit_cnt) begin
+                            o_imu_cs_n       <= 1'b1; // Deassert CS
+                            sample_count     <= sample_count + 16'd1;
+                            direct_read_data <= captured_sensor_data[31:0];
+                            imu_state        <= ST_IMU_BUILD_TLP;
                         end else begin
                             bit_cnt <= bit_cnt + 8'd1;
                         end
