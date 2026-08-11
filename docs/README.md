@@ -21,6 +21,9 @@ Welcome to the AbstractX documentation hub. This repository defines the PCIe-lik
 5. **[`ASP_SPI_REGISTER_MAP.md`](ASP_SPI_REGISTER_MAP.md)**  
    *Why*: Command byte mapping (`0xA1 TLP_WRITE_BURST`, `0xA2 TLP_READ_BURST`) and Wishbone register space.
 
+6. **[`LINUX_DEVICE_TREE_GUIDE.md`](LINUX_DEVICE_TREE_GUIDE.md)**  
+   *Why*: Linux Device Tree node (`.dts`) and Overlay (`.dtbo`) reference for enabling Dual-SPI 2x mode (`spi-tx-bus-width = <2>`, `spi-rx-bus-width = <2>`).
+
 6. **[`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
    *Why*: Parallel vector router fabric and Wishbone master gateway architecture.
 
