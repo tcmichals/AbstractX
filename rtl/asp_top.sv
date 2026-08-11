@@ -35,6 +35,9 @@ module asp_top #(
     output logic [3:0] o_motor_pins,
     output logic       o_neopixel_pin,
 
+    // PWM Receiver / Input Capture Pins (4 channels)
+    input  wire  [3:0] i_pwm_pins,
+
     // Linux-Controllable Onboard LEDs (0..5)
     output logic [5:0] o_led,
 
@@ -176,21 +179,24 @@ module asp_top #(
     // SYS:      0x400000xx (SYS_VERSION, SCRATCH, LED_CTRL)
     // IMU:      0x400001xx (IMU Auto-DMA & Timestamping Engine)
     // DShot:    0x400002xx (Motor Channel 1..4 Control)
+    // PWM Dec:  0x400003xx (PWM Receiver Decoder / Input Capture)
     // NeoPixel: 0x400006xx (WS2812B RGB Status LED)
     // ------------------------------------------------------------------------
-    logic sys_sel, imu_sel, dshot_sel, neopixel_sel;
+    logic sys_sel, imu_sel, dshot_sel, pwm_dec_sel, neopixel_sel;
     assign sys_sel      = (wb_adr[31:8] == 24'h400000);
     assign imu_sel      = (wb_adr[31:8] == 24'h400001);
     assign dshot_sel    = (wb_adr[31:8] == 24'h400002);
+    assign pwm_dec_sel  = (wb_adr[31:8] == 24'h400003);
     assign neopixel_sel = (wb_adr[31:8] == 24'h400006);
 
-    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, neopixel_wb_dat_r;
-    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   neopixel_wb_ack;
+    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, pwm_dec_wb_dat_r, neopixel_wb_dat_r;
+    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   pwm_dec_wb_ack,   neopixel_wb_ack;
 
-    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | neopixel_wb_ack;
+    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | pwm_dec_wb_ack | neopixel_wb_ack;
     assign wb_dat_r = sys_sel      ? sys_wb_dat_r :
                       imu_sel      ? imu_wb_dat_r :
                       dshot_sel    ? dshot_wb_dat_r :
+                      pwm_dec_sel  ? pwm_dec_wb_dat_r :
                       neopixel_sel ? neopixel_wb_dat_r : 32'd0;
 
     // System Control, PCIe ID & Master Timestamp Registers (Base: 0x40000000)
@@ -245,6 +251,23 @@ module asp_top #(
         .wb_data_o     (dshot_wb_dat_r),
         .wb_ack        (dshot_wb_ack),
         .o_motor_pins  (o_motor_pins)
+    );
+
+    // PWM Receiver Decoder / Input Capture Core (Base: 0x40000300, 4 Channels)
+    asp_pwm_decoder #(
+        .CLK_FREQ_HZ (27_000_000),
+        .NUM_CHANNELS(4)
+    ) u_pwm_decoder (
+        .clk        (clk),
+        .rst_n      (rst_n),
+        .i_pwm_pins (i_pwm_pins),
+        .wb_cyc_i   (wb_cyc && pwm_dec_sel),
+        .wb_stb_i   (wb_stb && pwm_dec_sel),
+        .wb_we_i    (wb_we),
+        .wb_adr_i   (wb_adr),
+        .wb_dat_i   (wb_dat_w),
+        .wb_dat_o   (pwm_dec_wb_dat_r),
+        .wb_ack_o   (pwm_dec_wb_ack)
     );
 
     // NeoPixel WS2812B Status LED Core (Base: 0x40000600)

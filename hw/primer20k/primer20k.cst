@@ -49,6 +49,19 @@ IO_PORT "o_motor_pins[2]" DRIVE=8 IO_TYPE=LVCMOS33;
 IO_LOC "o_motor_pins[3]" R7;
 IO_PORT "o_motor_pins[3]" DRIVE=8 IO_TYPE=LVCMOS33;
 
+// PWM Receiver / Input Capture Pins (Channels 0..3)
+IO_LOC "i_pwm_pins[0]" P11;
+IO_PORT "i_pwm_pins[0]" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "i_pwm_pins[1]" N11;
+IO_PORT "i_pwm_pins[1]" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "i_pwm_pins[2]" N10;
+IO_PORT "i_pwm_pins[2]" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "i_pwm_pins[3]" M11;
+IO_PORT "i_pwm_pins[3]" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
 // NeoPixel RGB Status LED Pin
 IO_LOC "o_neopixel_pin" A15;
 IO_PORT "o_neopixel_pin" DRIVE=8 IO_TYPE=LVCMOS33;

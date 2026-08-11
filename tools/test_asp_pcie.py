@@ -48,6 +48,12 @@ REG_MOTOR_CH2     = 0x40000208  # Throttle Ch 2 (0..2047)
 REG_MOTOR_CH3     = 0x4000020C  # Throttle Ch 3 (0..2047)
 REG_MOTOR_CH4     = 0x40000210  # Throttle Ch 4 (0..2047)
 
+REG_PWM_DEC_CTRL  = 0x40000300  # [31:16]=ID (0x0001), [15:8]=NUM_CH (4), [7:0]=Ready Flags
+REG_PWM_DEC_CH1   = 0x40000304  # Measured pulse width in us (e.g. 1500)
+REG_PWM_DEC_CH2   = 0x40000308  # Measured pulse width in us
+REG_PWM_DEC_CH3   = 0x4000030C  # Measured pulse width in us
+REG_PWM_DEC_CH4   = 0x40000310  # Measured pulse width in us
+
 REG_NEO_CTRL      = 0x40000600  # Bit 0 = Enable, Bits 7..0 = Num LEDs
 REG_NEO_LED0      = 0x40000604  # Color 24-bit 0x00RRGGBB
 
@@ -63,6 +69,11 @@ class AspPcieTransport:
             REG_SYS_VENDOR_ID: 0x19981ACC,
             REG_SYS_SCRATCH:   0xCAFEBABE,
             REG_SYS_LED_CTRL:  0x0000003E,
+            REG_PWM_DEC_CTRL:  0x0001040F,
+            REG_PWM_DEC_CH1:   0x000005DC,  # 1500 us (Mid-throttle)
+            REG_PWM_DEC_CH2:   0x000003E8,  # 1000 us (Low)
+            REG_PWM_DEC_CH3:   0x000007D0,  # 2000 us (High)
+            REG_PWM_DEC_CH4:   0x000005DC,  # 1500 us
         }
         self.spi = None
 

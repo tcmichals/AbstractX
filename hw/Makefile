@@ -19,7 +19,7 @@ T9_DEVICE = GW1NR-LV9QN88PC6/I5
 
 tang9k: $(BUILD_DIR)/tang9k.fs
 
-$(BUILD_DIR)/tang9k.json: hw/tang9k/top_tang9k.sv rtl/asp_top.sv
+$(BUILD_DIR)/tang9k.json: hw/tang9k/top_tang9k.sv rtl/asp_top.sv rtl/pwm/asp_pwm_decoder.sv
 	mkdir -p $(BUILD_DIR)
 	TOP_MODULE=top_tang9k \
 	BOARD_TOP_FILE=hw/tang9k/top_tang9k.sv \
@@ -42,7 +42,7 @@ TP20_DEVICE = GW2A-LV18PG256C8/I7
 
 primer20k: $(BUILD_DIR)/primer20k.fs
 
-$(BUILD_DIR)/primer20k.json: hw/primer20k/top_primer20k.sv rtl/asp_top.sv
+$(BUILD_DIR)/primer20k.json: hw/primer20k/top_primer20k.sv rtl/asp_top.sv rtl/pwm/asp_pwm_decoder.sv
 	mkdir -p $(BUILD_DIR)
 	TOP_MODULE=top_primer20k \
 	BOARD_TOP_FILE=hw/primer20k/top_primer20k.sv \
