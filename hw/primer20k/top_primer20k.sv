@@ -22,12 +22,31 @@ module top_primer20k (
 
     // Host Doorbell IRQ & LEDs
     output wire  o_int_req,
+    output wire [3:0] o_motor_pins,
+    output wire  o_neopixel_pin,
     output wire [5:0] o_led   // LEDs
 );
 
     wire clk_logic = i_clk;
     wire lock = 1'b1;
     wire rst_n = i_reset_n & lock;
+
+    // 1 Hz FPGA Hardware Heartbeat Blinker for LED 0
+    logic [24:0] hb_cnt;
+    logic        hb_led;
+    always_ff @(posedge clk_logic or negedge rst_n) begin
+        if (!rst_n) begin
+            hb_cnt <= 25'd0;
+            hb_led <= 1'b0;
+        end else if (hb_cnt >= 25'd13_499_999) begin
+            hb_cnt <= 25'd0;
+            hb_led <= ~hb_led;
+        end else begin
+            hb_cnt <= hb_cnt + 25'd1;
+        end
+    end
+
+    wire [5:0] asp_led_bits;
 
     asp_top u_asp_top (
         .clk        (clk_logic),
@@ -43,15 +62,16 @@ module top_primer20k (
         .imu_miso   (i_imu_miso),
         .imu_int_i  (i_imu_int),
 
+        .o_motor_pins(o_motor_pins),
+        .o_neopixel_pin(o_neopixel_pin),
+        .o_led      (asp_led_bits),
+
         .o_int_req  (o_int_req)
     );
 
-    // Map internal state to LEDs
-    assign o_led[0] = ~rst_n; 
-    assign o_led[1] = i_spi_cs_n;
-    assign o_led[2] = i_spi_sclk;
-    assign o_led[3] = o_int_req;
-    assign o_led[4] = 1'b0;
-    assign o_led[5] = 1'b0;
+    // LED 0 = FPGA Heartbeat Blinker (1 Hz)
+    // LEDs 1..5 = Free & Linux-Controllable over PCIe TLP register 0x40000008
+    assign o_led[0]   = hb_led;
+    assign o_led[5:1] = asp_led_bits[5:1];
 
 endmodule

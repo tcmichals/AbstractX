@@ -31,6 +31,13 @@ module asp_top #(
     input  wire        imu_miso,
     input  wire        imu_int_i,
 
+    // Motor Outputs (4 channels) & Status NeoPixel Pin
+    output logic [3:0] o_motor_pins,
+    output logic       o_neopixel_pin,
+
+    // Linux-Controllable Onboard LEDs (0..5)
+    output logic [5:0] o_led,
+
     // Host CPU Interrupt Request Doorbell Pin
     output logic       o_int_req
 );
@@ -152,8 +159,43 @@ module asp_top #(
     );
 
     // ------------------------------------------------------------------------
-    // IMU SPI Master & Auto-DMA IP Core
+    // Wishbone Slave Address Decoding:
+    // SYS:      0x400000xx (SYS_VERSION, SCRATCH, LED_CTRL)
+    // IMU:      0x400001xx (IMU Auto-DMA & Timestamping Engine)
+    // DShot:    0x400002xx (Motor Channel 1..4 Control)
+    // NeoPixel: 0x400006xx (WS2812B RGB Status LED)
     // ------------------------------------------------------------------------
+    logic sys_sel, imu_sel, dshot_sel, neopixel_sel;
+    assign sys_sel      = (wb_adr[31:8] == 24'h400000);
+    assign imu_sel      = (wb_adr[31:8] == 24'h400001);
+    assign dshot_sel    = (wb_adr[31:8] == 24'h400002);
+    assign neopixel_sel = (wb_adr[31:8] == 24'h400006);
+
+    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, neopixel_wb_dat_r;
+    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   neopixel_wb_ack;
+
+    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | neopixel_wb_ack;
+    assign wb_dat_r = sys_sel      ? sys_wb_dat_r :
+                      imu_sel      ? imu_wb_dat_r :
+                      dshot_sel    ? dshot_wb_dat_r :
+                      neopixel_sel ? neopixel_wb_dat_r : 32'd0;
+
+    // System Control & Linux LED Registers (Base: 0x40000000)
+    asp_sys_regs u_sys_regs (
+        .clk        (clk),
+        .rst        (!rst_n),
+        .wb_adr_i   (wb_adr),
+        .wb_dat_i   (wb_dat_w),
+        .wb_sel_i   (wb_sel),
+        .wb_we_i    (wb_we),
+        .wb_cyc_i   (wb_cyc && sys_sel),
+        .wb_stb_i   (wb_stb && sys_sel),
+        .wb_ack_o   (sys_wb_ack),
+        .wb_dat_o   (sys_wb_dat_r),
+        .o_led_bits (o_led)
+    );
+
+    // IMU SPI Master & Auto-DMA IP Core (Base: 0x40000100)
     asp_imu_auto_dma u_imu_core (
         .clk                 (clk),
         .rst_n               (rst_n),
@@ -163,16 +205,46 @@ module asp_top #(
         .o_imu_mosi          (imu_mosi),
         .i_imu_miso          (imu_miso),
         .i_imu_int           (imu_int_i),
-        .wb_cyc_i            (wb_cyc),
-        .wb_stb_i            (wb_stb),
+        .wb_cyc_i            (wb_cyc && imu_sel),
+        .wb_stb_i            (wb_stb && imu_sel),
         .wb_we_i             (wb_we),
         .wb_adr_i            (wb_adr),
         .wb_dat_i            (wb_dat_w),
-        .wb_dat_o            (wb_dat_r),
-        .wb_ack_o            (wb_ack),
+        .wb_dat_o            (imu_wb_dat_r),
+        .wb_ack_o            (imu_wb_ack),
         .m_imu_stream_tdata  (imu_stream_tdata),
         .m_imu_stream_tvalid (imu_stream_tvalid),
         .m_imu_stream_tready (imu_stream_tready)
+    );
+
+    // DShot / PWM Motor Control IP Core (Base: 0x40000200, 4 Channels)
+    asp_dshot_core #(
+        .NUM_CHANNELS(4)
+    ) u_dshot_core (
+        .clk           (clk),
+        .rst_n         (rst_n),
+        .wb_cyc        (wb_cyc && dshot_sel),
+        .wb_stb        (wb_stb && dshot_sel),
+        .wb_we         (wb_we),
+        .wb_addr       (wb_adr),
+        .wb_data_i     (wb_dat_w),
+        .wb_data_o     (dshot_wb_dat_r),
+        .wb_ack        (dshot_wb_ack),
+        .o_motor_pins  (o_motor_pins)
+    );
+
+    // NeoPixel WS2812B Status LED Core (Base: 0x40000600)
+    asp_neopixel_core u_neopixel_core (
+        .clk            (clk),
+        .rst_n          (rst_n),
+        .wb_cyc         (wb_cyc && neopixel_sel),
+        .wb_stb         (wb_stb && neopixel_sel),
+        .wb_we          (wb_we),
+        .wb_addr        (wb_adr),
+        .wb_data_i      (wb_dat_w),
+        .wb_data_o      (neopixel_wb_dat_r),
+        .wb_ack         (neopixel_wb_ack),
+        .o_neopixel_pin (o_neopixel_pin)
     );
 
 endmodule

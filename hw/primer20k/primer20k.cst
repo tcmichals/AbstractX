@@ -36,11 +36,28 @@ IO_PORT "i_imu_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 IO_LOC "i_imu_int" L9;
 IO_PORT "i_imu_int" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
+// Motor DShot / PWM Pins (Channels 0..3)
+IO_LOC "o_motor_pins[0]" T6;
+IO_PORT "o_motor_pins[0]" DRIVE=8 IO_TYPE=LVCMOS33;
+
+IO_LOC "o_motor_pins[1]" T7;
+IO_PORT "o_motor_pins[1]" DRIVE=8 IO_TYPE=LVCMOS33;
+
+IO_LOC "o_motor_pins[2]" P6;
+IO_PORT "o_motor_pins[2]" DRIVE=8 IO_TYPE=LVCMOS33;
+
+IO_LOC "o_motor_pins[3]" R7;
+IO_PORT "o_motor_pins[3]" DRIVE=8 IO_TYPE=LVCMOS33;
+
+// NeoPixel RGB Status LED Pin
+IO_LOC "o_neopixel_pin" A15;
+IO_PORT "o_neopixel_pin" DRIVE=8 IO_TYPE=LVCMOS33;
+
 // Host Interrupt Request Doorbell Pin
 IO_LOC "o_int_req" D10;
 IO_PORT "o_int_req" IO_TYPE=LVCMOS33;
 
-// LEDs
+// Board LEDs
 IO_LOC "o_led[0]" L14;
 IO_PORT "o_led[0]" DRIVE=8 IO_TYPE=LVCMOS33;
 
