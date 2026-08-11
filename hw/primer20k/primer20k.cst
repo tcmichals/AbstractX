@@ -7,18 +7,38 @@ IO_PORT "i_clk" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 IO_LOC "i_reset_n" T10;
 IO_PORT "i_reset_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-// SPI Interface (Assuming PMOD or similar)
+// Host Dual-SPI Interface
 IO_LOC "i_spi_sclk" C13;
 IO_PORT "i_spi_sclk" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
 
 IO_LOC "i_spi_cs_n" B13;
 IO_PORT "i_spi_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
 
-IO_LOC "i_spi_mosi" B14;
-IO_PORT "i_spi_mosi" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC "io_spi_io0" B14;
+IO_PORT "io_spi_io0" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
 
-IO_LOC "o_spi_miso" A14;
-IO_PORT "o_spi_miso" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+IO_LOC "io_spi_io1" A14;
+IO_PORT "io_spi_io1" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// External IMU Interface
+IO_LOC "o_imu_sclk" D11;
+IO_PORT "o_imu_sclk" IO_TYPE=LVCMOS33;
+
+IO_LOC "o_imu_cs_n" N7;
+IO_PORT "o_imu_cs_n" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "o_imu_mosi" N8;
+IO_PORT "o_imu_mosi" IO_TYPE=LVCMOS33;
+
+IO_LOC "i_imu_miso" N9;
+IO_PORT "i_imu_miso" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+IO_LOC "i_imu_int" L9;
+IO_PORT "i_imu_int" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+
+// Host Interrupt Request Doorbell Pin
+IO_LOC "o_int_req" D10;
+IO_PORT "o_int_req" IO_TYPE=LVCMOS33;
 
 // LEDs
 IO_LOC "o_led[0]" L14;
