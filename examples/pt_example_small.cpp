@@ -7,19 +7,17 @@
  * Translates Adam Dunkels' canonical 'example-small.c' from the official pt-1.4
  * distribution directly into modern AbstractX C++20 Coroutines.
  *
- * Demonstrates:
- * 1. Classic C Protothreads version (Duff's device PT_BEGIN / PT_WAIT_UNTIL)
- * 2. AbstractX C++20 Coroutine version (Task<void>, co_await AsyncSleepAwaiter)
+ * Uses the official AbstractX coroutine engine (include/asp_coro.hpp).
  */
 
+#include "asp_coro.hpp"
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#include <atomic>
-#include <coroutine>
-#include <optional>
-#include <utility>
 #include <vector>
+
+using namespace abstractx;
+using namespace abstractx::coro;
 
 // =============================================================================
 // 1. ORIGINAL ADAM DUNKELS C PROTOTHREADS CODE (pt-1.4 / example-small.c)
@@ -86,155 +84,26 @@ double run_classic_example_small() {
 }
 
 // =============================================================================
-// 2. ABSTRACTX C++20 COROUTINES VERSION
+// 2. ABSTRACTX C++20 COROUTINES VERSION (Clean, Standard, Unified Header)
 // =============================================================================
-alignas(64) static uint8_t g_coro_frame_pool[16 * 1024];
-static std::atomic<size_t> g_pool_offset{0};
-
-template <typename T = void>
-class Task {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::optional<T> result_{};
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_value(T val) noexcept { result_ = val; }
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-template <>
-class Task<void> {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_void() noexcept {}
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-struct AsyncTimerAwaiter {
-    uint64_t resume_at_ms_{0};
-    uint64_t current_time_ms_{0};
-    uint64_t* timer_comparator_{nullptr};
-
-    bool await_ready() const noexcept { return current_time_ms_ >= resume_at_ms_; }
-    void await_suspend(std::coroutine_handle<>) noexcept {
-        if (timer_comparator_) *timer_comparator_ = resume_at_ms_;
-    }
-    void await_resume() noexcept {}
-};
 
 Task<void> modern_timer1_coroutine(uint64_t& current_time_ms, uint64_t& timer_reg, uint32_t& fired_count) {
     for (int i = 0; i < 5; ++i) {
-        co_await AsyncTimerAwaiter{current_time_ms + 1000, current_time_ms, &timer_reg};
+        co_await AsyncSleepAwaiter{current_time_ms + 1000, current_time_ms, &timer_reg};
         fired_count++;
     }
 }
 
 Task<void> modern_timer2_coroutine(uint64_t& current_time_ms, uint64_t& timer_reg, uint32_t& fired_count) {
     for (int i = 0; i < 2; ++i) {
-        co_await AsyncTimerAwaiter{current_time_ms + 2500, current_time_ms, &timer_reg};
+        co_await AsyncSleepAwaiter{current_time_ms + 2500, current_time_ms, &timer_reg};
         fired_count++;
     }
 }
 
 double run_modern_example_small() {
     std::cout << "------------------------------------------------------------------------------------\n";
-    std::cout << " [2] ABSTRACTX C++20 COROUTINES: Modernized example-small\n";
+    std::cout << " [2] ABSTRACTX C++20 COROUTINES: Modernized example-small (asp_coro.hpp)\n";
     std::cout << "------------------------------------------------------------------------------------\n";
 
     uint64_t sim_time_ms = 0;

@@ -28,8 +28,12 @@ namespace abstractx {
 namespace coro {
 
 // ============================================================================
-// 1. Lightweight C++20 Coroutine Task<T>
+// 1. Static Frame Allocator & Lightweight C++20 Coroutine Task<T>
 // ============================================================================
+
+// Freestanding MCU Static Frame Pool (Guarantees 0 B Dynamic Heap Allocation)
+alignas(64) inline uint8_t g_coro_static_frame_pool[64 * 1024];
+inline std::atomic<size_t> g_coro_static_pool_offset{0};
 
 template <typename T = void>
 class Task {
@@ -41,14 +45,14 @@ public:
         std::optional<T> result_{};
         std::coroutine_handle<> continuation_{nullptr};
         std::exception_ptr exception_{nullptr};
-        // Optional completion callback — set by when_all / when_any awaiters
-        // to receive notification when this sub-task finishes. Called from
-        // FinalAwaiter before resuming any continuation. Plain pointer on
-        // freestanding builds; std::function here for hosted/SITL.
         std::function<void()> on_complete_{nullptr};
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
+        }
+
+        static Task get_return_object_on_allocation_failure() noexcept {
+            return Task{nullptr};
         }
 
         std::suspend_always initial_suspend() noexcept { return {}; }
@@ -56,9 +60,6 @@ public:
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
             std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                // Fire the combinator callback FIRST (before resuming continuation)
-                // so the parent awaiter can decrement its counter and potentially
-                // resume the root caller.
                 if (h.promise().on_complete_) {
                     h.promise().on_complete_();
                 }
@@ -80,6 +81,18 @@ public:
         void unhandled_exception() noexcept {
             exception_ = std::current_exception();
         }
+
+        static void* operator new(size_t sz) noexcept {
+            size_t aligned_sz = (sz + 15u) & ~15u;
+            size_t old_offset = g_coro_static_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
+            if (old_offset + aligned_sz > sizeof(g_coro_static_frame_pool)) {
+                g_coro_static_pool_offset.store(aligned_sz, std::memory_order_release);
+                return g_coro_static_frame_pool;
+            }
+            return &g_coro_static_frame_pool[old_offset];
+        }
+
+        static void operator delete(void*, size_t) noexcept {}
     };
 
     explicit Task(handle_type handle) noexcept : handle_(handle) {}
@@ -120,16 +133,40 @@ public:
         return std::move(*handle_.promise().result_);
     }
 
+    const T& get_result() const { return *handle_.promise().result_; }
+    T& get_result() { return *handle_.promise().result_; }
+
     handle_type handle() const noexcept { return handle_; }
 
-    void resume() {
+    bool resume() {
         if (handle_ && !handle_.done()) {
             handle_.resume();
+            return !handle_.done();
         }
+        return false;
     }
 
     bool done() const noexcept {
         return !handle_ || handle_.done();
+    }
+
+    bool is_ready() const noexcept {
+        return done();
+    }
+
+    auto operator co_await() const noexcept {
+        struct Awaiter {
+            handle_type handle_;
+            bool await_ready() const noexcept { return !handle_ || handle_.done(); }
+            std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept {
+                handle_.promise().continuation_ = caller;
+                return handle_;
+            }
+            T await_resume() const {
+                return *handle_.promise().result_;
+            }
+        };
+        return Awaiter{handle_};
     }
 
 private:
@@ -146,11 +183,14 @@ public:
     struct promise_type {
         std::coroutine_handle<> continuation_{nullptr};
         std::exception_ptr exception_{nullptr};
-        // Optional completion callback — set by when_all / when_any awaiters.
         std::function<void()> on_complete_{nullptr};
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
+        }
+
+        static Task get_return_object_on_allocation_failure() noexcept {
+            return Task{nullptr};
         }
 
         std::suspend_always initial_suspend() noexcept { return {}; }
@@ -177,6 +217,18 @@ public:
         void unhandled_exception() noexcept {
             exception_ = std::current_exception();
         }
+
+        static void* operator new(size_t sz) noexcept {
+            size_t aligned_sz = (sz + 15u) & ~15u;
+            size_t old_offset = g_coro_static_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
+            if (old_offset + aligned_sz > sizeof(g_coro_static_frame_pool)) {
+                g_coro_static_pool_offset.store(aligned_sz, std::memory_order_release);
+                return g_coro_static_frame_pool;
+            }
+            return &g_coro_static_frame_pool[old_offset];
+        }
+
+        static void operator delete(void*, size_t) noexcept {}
     };
 
     explicit Task(handle_type handle) noexcept : handle_(handle) {}
@@ -218,18 +270,61 @@ public:
 
     handle_type handle() const noexcept { return handle_; }
 
-    void resume() {
+    bool resume() {
         if (handle_ && !handle_.done()) {
             handle_.resume();
+            return !handle_.done();
         }
+        return false;
     }
 
     bool done() const noexcept {
         return !handle_ || handle_.done();
     }
 
+    bool is_ready() const noexcept {
+        return done();
+    }
+
+    auto operator co_await() const noexcept {
+        struct Awaiter {
+            handle_type handle_;
+            bool await_ready() const noexcept { return !handle_ || handle_.done(); }
+            std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept {
+                handle_.promise().continuation_ = caller;
+                return handle_;
+            }
+            void await_resume() const noexcept {}
+        };
+        return Awaiter{handle_};
+    }
+
 private:
     handle_type handle_{nullptr};
+};
+
+// Standard Asynchronous Yield Awaiter (Yields to let other coroutines run)
+struct YieldAwaiter {
+    bool await_ready() const noexcept { return false; }
+    void await_suspend(std::coroutine_handle<>) noexcept {}
+    void await_resume() noexcept {}
+};
+
+// Standard Asynchronous Hardware Timer Comparator Awaiter
+struct AsyncSleepAwaiter {
+    uint64_t resume_at_us_{0};
+    uint64_t current_time_us_{0};
+    uint64_t* timer_comparator_reg_{nullptr};
+
+    bool await_ready() const noexcept { return current_time_us_ >= resume_at_us_; }
+
+    void await_suspend(std::coroutine_handle<>) noexcept {
+        if (timer_comparator_reg_) {
+            *timer_comparator_reg_ = resume_at_us_;
+        }
+    }
+
+    void await_resume() noexcept {}
 };
 
 // ============================================================================

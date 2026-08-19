@@ -7,19 +7,17 @@
  * Translates Adam Dunkels' canonical 'example-codelock.c' from the official pt-1.4
  * distribution directly into modern AbstractX C++20 Coroutines.
  *
- * Demonstrates:
- * 1. Classic C Protothreads state machine awaiting keypresses with inter-digit timeouts
- * 2. AbstractX C++20 sequential async parser with full local variable preservation
+ * Uses the official AbstractX coroutine engine (include/asp_coro.hpp).
  */
 
+#include "asp_coro.hpp"
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#include <atomic>
-#include <coroutine>
-#include <optional>
-#include <utility>
 #include <vector>
+
+using namespace abstractx;
+using namespace abstractx::coro;
 
 // =============================================================================
 // 1. ORIGINAL ADAM DUNKELS C PROTOTHREADS CODE (pt-1.4 / example-codelock.c)
@@ -101,125 +99,8 @@ double run_classic_example_codelock() {
 }
 
 // =============================================================================
-// 2. ABSTRACTX C++20 COROUTINES VERSION
+// 2. ABSTRACTX C++20 COROUTINES VERSION (Clean, Standard, Unified Header)
 // =============================================================================
-alignas(64) static uint8_t g_coro_frame_pool[16 * 1024];
-static std::atomic<size_t> g_pool_offset{0};
-
-template <typename T = void>
-class Task {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::optional<T> result_{};
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_value(T val) noexcept { result_ = val; }
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-template <>
-class Task<void> {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_void() noexcept {}
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
 
 struct KeyAwaiter {
     std::vector<char>& key_queue_;
@@ -253,7 +134,7 @@ Task<void> modern_codelock_coroutine(std::vector<char>& key_queue, bool& unlocke
 
 double run_modern_example_codelock() {
     std::cout << "------------------------------------------------------------------------------------\n";
-    std::cout << " [2] ABSTRACTX C++20 COROUTINES: Modernized Code Lock (Sequential C++20)\n";
+    std::cout << " [2] ABSTRACTX C++20 COROUTINES: Modernized Code Lock (asp_coro.hpp)\n";
     std::cout << "------------------------------------------------------------------------------------\n";
 
     std::vector<char> key_queue;

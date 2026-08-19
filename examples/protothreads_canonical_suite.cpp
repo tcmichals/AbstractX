@@ -8,163 +8,20 @@
  * distribution (Contiki OS / pt-1.4) and translates them into modern, type-safe,
  * zero-allocation C++20 stackless coroutines.
  *
- * Canonical Protothreads Examples Converted:
- * 1. Multi-Rate Concurrent Timers (example-small.c):
- *    Multiple independent tasks yielding at different microsecond intervals on a single thread.
- * 2. Producer-Consumer Ring Buffer (example-buffer.c / pt-sem.h):
- *    Asynchronous producer/consumer synchronization using lock-free SPSC queues (zero mutexes).
- * 3. Serial Packet / Code Lock State Machine (example-codelock.c):
- *    Sequential character stream parsing with asynchronous inter-character timeouts.
- * 4. Sliding Window Packet Transport:
- *    Asynchronous packet dispatch, completion tag matching, and non-blocking retry watchdog.
+ * Uses the official AbstractX coroutine engine (include/asp_coro.hpp).
  */
 
+#include "asp_coro.hpp"
 #include "spsc_tlp_ring.hpp"
 #include "asp_tlp64.hpp"
 
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#include <atomic>
-#include <coroutine>
-#include <optional>
-#include <utility>
 #include <vector>
-#include <string>
 
 using namespace abstractx;
-
-// Static Frame Allocator (Freestanding MCU Safe / 0 Dynamic Heap Bytes)
-alignas(64) static uint8_t g_coro_pool[64 * 1024];
-static std::atomic<size_t> g_pool_offset{0};
-
-template <typename T = void>
-class Task {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::optional<T> result_{};
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_value(T val) noexcept { result_ = val; }
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_pool;
-            }
-            return &g_coro_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-template <>
-class Task<void> {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_void() noexcept {}
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_pool;
-            }
-            return &g_coro_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-// Generic Asynchronous Timer Delay Awaiter
-struct AsyncSleepAwaiter {
-    uint64_t resume_at_us_{0};
-    uint64_t current_time_us_{0};
-    uint64_t* timer_comparator_reg_{nullptr};
-
-    bool await_ready() const noexcept { return current_time_us_ >= resume_at_us_; }
-    void await_suspend(std::coroutine_handle<>) noexcept {
-        if (timer_comparator_reg_) *timer_comparator_reg_ = resume_at_us_;
-    }
-    void await_resume() noexcept {}
-};
+using namespace abstractx::coro;
 
 // Generic 64-Byte PCIe TLP Bus Awaiter
 struct AsyncTlpAwaiter {
@@ -186,7 +43,6 @@ struct AsyncTlpAwaiter {
 // =============================================================================
 Task<void> timer_task_a(uint64_t& current_time_us, uint64_t& timer_reg, uint32_t& toggle_count) {
     for (int i = 0; i < 5; ++i) {
-        // Yield for 100 us
         co_await AsyncSleepAwaiter{current_time_us + 100, current_time_us, &timer_reg};
         toggle_count++;
     }
@@ -194,7 +50,6 @@ Task<void> timer_task_a(uint64_t& current_time_us, uint64_t& timer_reg, uint32_t
 
 Task<void> timer_task_b(uint64_t& current_time_us, uint64_t& timer_reg, uint32_t& toggle_count) {
     for (int i = 0; i < 3; ++i) {
-        // Yield for 250 us
         co_await AsyncSleepAwaiter{current_time_us + 250, current_time_us, &timer_reg};
         toggle_count++;
     }
@@ -207,10 +62,8 @@ Task<void> producer_task(SpscTlpRing<64>& ring, uint32_t count, uint64_t& curren
     for (uint32_t i = 1; i <= count; ++i) {
         Tlp64 item = Tlp64::make_mem_write(0x40000700, i * 10, static_cast<uint8_t>(i));
         while (!ring.push(item)) {
-            // Buffer full -> yield 10 us
             co_await AsyncSleepAwaiter{current_time_us + 10, current_time_us, &timer_reg};
         }
-        // Produce next item every 50 us
         co_await AsyncSleepAwaiter{current_time_us + 50, current_time_us, &timer_reg};
     }
 }
@@ -227,7 +80,6 @@ Task<void> consumer_task(SpscTlpRing<64>& ring, uint32_t expected_count, uint32_
             consumed_sum += val;
             items_received++;
         } else {
-            // Buffer empty -> yield 10 us
             co_await AsyncSleepAwaiter{current_time_us + 10, current_time_us, &timer_reg};
         }
     }
@@ -242,12 +94,10 @@ Task<void> codelock_security_task(
     uint64_t& timer_reg,
     bool& lock_unlocked)
 {
-    // Await PIN sequence: '1' -> '9' -> '8' -> '4' (Each within 500 us timeout)
     const char code[4] = {'1', '9', '8', '4'};
     size_t code_idx = 0;
 
     for (char key : key_stream) {
-        // Asynchronously wait for character arrival
         co_await AsyncSleepAwaiter{current_time_us + 100, current_time_us, &timer_reg};
 
         if (key == code[code_idx]) {
@@ -257,7 +107,7 @@ Task<void> codelock_security_task(
                 break;
             }
         } else {
-            code_idx = 0; // Reset on wrong digit
+            code_idx = 0;
         }
     }
 }
@@ -273,10 +123,7 @@ Task<void> packet_slinger_task(
     uint32_t& acks_received)
 {
     for (uint32_t seq = 1; seq <= num_packets; ++seq) {
-        // Dispatch 64B packet
         co_await AsyncTlpAwaiter{tx, 0x40000900, seq, static_cast<uint8_t>(seq)};
-
-        // Asynchronously await ACK (150 us transmission round-trip)
         co_await AsyncSleepAwaiter{current_time_us + 150, current_time_us, &timer_reg};
         acks_received++;
     }
@@ -289,7 +136,7 @@ int main() {
     std::cout << "====================================================================================\n";
     std::cout << " CANONICAL PROTOTHREADS SUITE MODERNIZED TO ABSTRACTX C++20 COROUTINES              \n";
     std::cout << "====================================================================================\n";
-    std::cout << " Executing all 4 classic Protothreads examples re-implemented in pure C++20:\n";
+    std::cout << " Executing all 4 classic Protothreads examples using unified include/asp_coro.hpp:\n";
     std::cout << " 1. Concurrent Multi-Rate Timers (example-small.c)\n";
     std::cout << " 2. Producer-Consumer Lock-Free SPSC Synchronization (example-buffer.c)\n";
     std::cout << " 3. Asynchronous Code Lock Serial Parser (example-codelock.c)\n";
@@ -359,7 +206,7 @@ int main() {
     std::cout << "====================================================================================\n\n";
 
     std::cout << "ARCHITECTURAL CONCLUSIONS:\n";
-    std::cout << "All 4 classic Protothreads idioms run with cleaner, type-safe C++20 coroutine syntax,\n";
+    std::cout << "All 4 classic Protothreads idioms run cleanly with unified include/asp_coro.hpp\n";
     std::cout << "without Duff's device macro hacks, with local variables preserved, and with 0 heap bytes.\n";
     std::cout << "====================================================================================\n";
 

@@ -7,24 +7,20 @@
  * Translates Adam Dunkels' canonical 'example-buffer.c' from the official pt-1.4
  * distribution directly into modern AbstractX C++20 Coroutines.
  *
- * Demonstrates:
- * 1. Classic C Protothreads Producer/Consumer using pt-sem.h semaphores
- * 2. AbstractX C++20 Producer/Consumer using lock-free SPSC Queues & co_await
+ * Uses the official AbstractX coroutine engine (include/asp_coro.hpp).
  */
 
+#include "asp_coro.hpp"
 #include "spsc_tlp_ring.hpp"
 #include "asp_tlp64.hpp"
 
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#include <atomic>
-#include <coroutine>
-#include <optional>
-#include <utility>
 #include <vector>
 
 using namespace abstractx;
+using namespace abstractx::coro;
 
 // =============================================================================
 // 1. ORIGINAL ADAM DUNKELS C PROTOTHREADS CODE (pt-1.4 / example-buffer.c)
@@ -113,131 +109,8 @@ double run_classic_example_buffer() {
 }
 
 // =============================================================================
-// 2. ABSTRACTX C++20 COROUTINES VERSION
+// 2. ABSTRACTX C++20 COROUTINES VERSION (Clean, Standard, Unified Header)
 // =============================================================================
-alignas(64) static uint8_t g_coro_frame_pool[16 * 1024];
-static std::atomic<size_t> g_pool_offset{0};
-
-template <typename T = void>
-class Task {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::optional<T> result_{};
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_value(T val) noexcept { result_ = val; }
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-template <>
-class Task<void> {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::coroutine_handle<> continuation_{nullptr};
-
-        Task get_return_object() noexcept { return Task{handle_type::from_promise(*this)}; }
-        static Task get_return_object_on_allocation_failure() noexcept { return Task{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_void() noexcept {}
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit Task(handle_type h) noexcept : handle_(h) {}
-    ~Task() { if (handle_) handle_.destroy(); }
-    Task(Task&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-struct YieldAwaiter {
-    bool await_ready() const noexcept { return false; }
-    void await_suspend(std::coroutine_handle<>) noexcept {}
-    void await_resume() noexcept {}
-};
 
 Task<void> modern_producer_coroutine(SpscTlpRing<64>& ring, uint32_t num_items) {
     for (uint32_t i = 1; i <= num_items; ++i) {
@@ -268,7 +141,7 @@ Task<void> modern_consumer_coroutine(SpscTlpRing<64>& ring, uint32_t num_items, 
 
 double run_modern_example_buffer() {
     std::cout << "------------------------------------------------------------------------------------\n";
-    std::cout << " [2] ABSTRACTX C++20 COROUTINES: Modernized Bounded Buffer (Lock-Free SPSC)\n";
+    std::cout << " [2] ABSTRACTX C++20 COROUTINES: Modernized Bounded Buffer (asp_coro.hpp)\n";
     std::cout << "------------------------------------------------------------------------------------\n";
 
     SpscTlpRing<64> ring;
