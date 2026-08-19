@@ -28,6 +28,7 @@ examples/generic_io_messaging_demo
 examples/redundant_imu_failover
 examples/robotics_multi_axis_motion
 examples/protothreads_evolution_comparison
+examples/protothreads_canonical_suite
 
 
 # Tool artifacts
