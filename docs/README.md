@@ -1,36 +1,39 @@
 # AbstractX Protocol, Hardware & Pinout Documentation
 
-Welcome to the AbstractX documentation hub. This repository defines the PCIe-like register BAR architecture (`asp-tlp-64b`), SystemVerilog RTL cores, FPGA pinout maps, and Python test tooling.
+Welcome to the AbstractX documentation hub. This repository defines the universal asynchronous hardware offloader and heterogeneous interconnect framework across FPGAs (Gowin / Zynq), Microcontrollers (RP2350, ESP32-P4, STM32), and Linux Hosts.
 
 ---
 
 ## Architecture Specifications & Protocol Stack
 
-1. **[`PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
-   *Why*: Specification for porting Betaflight, iNav, and ArduPilot to a decoupled PCIe-like Register BAR API (`pcie_reg_api.h`). Eliminates microcontroller HAL driver complexity and enables chip-specific hardware offload engines (RP2350 PIO, STM32 MDMA, Gowin FPGA fabric).
+1. **[`ABSTRACTX_SOFTWARE_ENVIRONMENTS.md`](ABSTRACTX_SOFTWARE_ENVIRONMENTS.md)**  
+   *Why*: Foundational guide to the **3 Execution Environments**: (1) Linux Multi-Threaded I/O Workers (SITL), (2) Multi-Core MCU Interrupt/DMA Offloading (RP2350 / ESP32-P4), and (3) FPGA Hardware Offloader.
 
-2. **[`ASP_SPEC_DIRECTION.md`](ASP_SPEC_DIRECTION.md)**  
+2. **[`COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md`](COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md)**  
+   *Why*: Comprehensive guide to the C++20 Coroutine execution engine (`asp_coro.hpp`), split-transaction dispatchers, concurrency combinators (`when_all` / `when_any`), multi-rate I/O interleaving, and Linux SITL architecture.
+
+3. **[`PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
+   *Why*: Target offloader architecture detailing hardware offload mechanisms across silicon targets (FPGA fixed 64B, RP2350 compact 24B, ESP32-P4 variable, STM32 DMA, Linux zero-copy).
+
+3. **[`ASP_SPEC_DIRECTION.md`](ASP_SPEC_DIRECTION.md)**  
    *Why*: Protocol direction specifying the 64-byte TLP (`asp-tlp-64b`) frame architecture.
 
-3. **[`ASP_PROTOCOL.md`](ASP_PROTOCOL.md)**  
+4. **[`ASP_PROTOCOL.md`](ASP_PROTOCOL.md)**  
    *Why*: Normative specifications for 64-byte TLP headers, PCIe operations (`MemRd`, `MemWr`, `CplD`, `DMA_Stream`), and packet structures.
 
-4. **[`ASP_SPI_TRANSPORT.md`](ASP_SPI_TRANSPORT.md)**  
+5. **[`ASP_SPI_TRANSPORT.md`](ASP_SPI_TRANSPORT.md)**  
    *Why*: Physical layer transport specifications for Dual-SPI and Single-SPI modes up to 50 MHz.
 
-5. **[`ASP_SPI_REGISTER_MAP.md`](ASP_SPI_REGISTER_MAP.md)**  
+6. **[`ASP_SPI_REGISTER_MAP.md`](ASP_SPI_REGISTER_MAP.md)**  
    *Why*: Command byte mapping (`0xA1 TLP_WRITE_BURST`, `0xA2 TLP_READ_BURST`) and Wishbone register space.
 
-6. **[`LINUX_DEVICE_TREE_GUIDE.md`](LINUX_DEVICE_TREE_GUIDE.md)**  
+7. **[`LINUX_DEVICE_TREE_GUIDE.md`](LINUX_DEVICE_TREE_GUIDE.md)**  
    *Why*: Linux Device Tree node (`.dts`) and Overlay (`.dtbo`) reference for enabling Dual-SPI 2x mode (`spi-tx-bus-width = <2>`, `spi-rx-bus-width = <2>`).
-
-7. **[`FCPROTOCOL_SPECIFICATION.md`](FCPROTOCOL_SPECIFICATION.md)**  
-   *Why*: Normative FCProtocol (Flight Controller Protocol) specification for Betaflight, ArduPilot, and iNav integration over TLP memory-mapped BAR bus (`pcie_reg_api.h`).
 
 8. **[`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
    *Why*: Parallel vector router fabric and Wishbone master gateway architecture.
 
-7. **[`IMU_AUTO_DMA_IP_SPEC.md`](IMU_AUTO_DMA_IP_SPEC.md)**  
+9. **[`IMU_AUTO_DMA_IP_SPEC.md`](IMU_AUTO_DMA_IP_SPEC.md)**  
    *Why*: Hardware IMU SPI Master & Auto-DMA IP core for zero-CPU-overhead timestamped sensor telemetry streams.
 
 ---

@@ -132,4 +132,44 @@ This log chronicles the development, technical decisions, and architecture miles
 *   **Synthesizable RTL Isolation**: Using pure Python Cocotb coroutines for external device pin driving eliminates the need for testbench Verilog files, keeping the RTL codebase 100% synthesizable.
 *   **Flight Code Compatibility**: Aligning the FPGA hardware Auto-DMA registers and Python VIP directly with iNav ensures zero friction when porting flight controller software to the Cubie A5E target.
 
+## [2026-08-19] - C++20 Coroutine Flight Controller Architecture & SITL Simulator Proof
+
+### What was done
+*   **C++20 Coroutine Header Core (`include/asp_coro.hpp`)**: Implemented stackless `Task<T>`, `TlpAwaiter` split-transaction dispatchers, `CoroutineIoEngine`, and combinators (`when_all` / `&&` and `when_any` / `||`) designed specifically for embedded flight loops and 64B TLPs.
+*   **SITL Simulator Benchmark (`sim/sitl_coro_sim.cpp`)**: Created a Software-in-the-Loop simulator modeling background hardware coprocessor/bus latencies (8 kHz IMU stream, 50 Hz I2C Barometer @ 1.5 ms latency, 100 Hz I2C Magnetometer @ 800 µs latency).
+*   **Multi-Rate Interleaving Verified**: Proved that a single-threaded flight loop executing C++20 coroutines seamlessly runs ~12 IMU rate loop iterations while a 1.5 ms I2C Barometer read is pending in hardware, with zero CPU blocking, zero OS context switches, and zero mutex locks.
+*   **Combinator Verification (`sim/test_coro_combinators.cpp`)**: Verified concurrent `when_all` joins and `when_any` timeout/race mechanisms.
+*   **Architecture Guide**: Published [`docs/COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md).
+
+### Why it was done
+*   **Decouples Flight Code from I/O Latencies**: Solves the historical flight controller dilemma between bare-metal state machine spaghetti (iNav/Betaflight) and high-overhead multi-threaded mutex contention (ArduPilot Linux).
+*   **Addresses Linux I/O Blocking**: Overcomes the lack of `epoll` support for `/dev/spidev` and `/dev/i2c-dev` by running background bus worker threads while the top-level flight loop runs on a single deterministic coroutine thread.
+
+## [2026-08-19] - General Framework Shift & The 3 Software Execution Environments
+
+### What was done
+*   **3 Execution Environments Specified**: Formally published [`docs/ABSTRACTX_SOFTWARE_ENVIRONMENTS.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/ABSTRACTX_SOFTWARE_ENVIRONMENTS.md) detailing:
+    1. **Environment 1 (Linux Host / SITL)**: Single C++20 coroutine thread + dedicated POSIX I/O worker threads per blocking bus (`/dev/spidev`, `/dev/i2c-dev`).
+    2. **Environment 2 (Multi-Core MCU / AMP)**: Core 1 application coroutines + Core 0 interrupt/DMA/PIO coprocessor (RP2350 Pico 2W, ESP32-P4, STM32).
+    3. **Environment 3 (FPGA Hardware Offloader)**: Host CPU coroutines + synthesizable RTL state machines & 512-bit vector router (Gowin Tang 9K/20K, Zynq-7020).
+*   **Multi-Target TLP Header (`include/asp_tlp_msg.hpp`)**: Standardized universal 20B `TlpHeader`, fixed 64B `Tlp64` (FPGA), compact 24B `TlpShort` (MCU Reg R/W), variable `TlpVar<N>`, and 48B `TlpDescriptor` (Linux zero-copy).
+*   **Top-Level Rebranding (`README.md`)**: Elevated AbstractX to a **Universal Asynchronous Hardware Offloader & Heterogeneous Interconnect Framework**, covering Robotics (ROS2), Industrial DAQ, Battery Management (BMS), and Aviation.
+
+### Why it was done
+*   **100% Application Portability**: Developers can write C++20 coroutine control logic once and run it unchanged across PC simulation, low-cost microcontrollers, and high-performance FPGA platforms.
+*   **Silicon-Optimal Messaging**: Uses fixed 64B on FPGA to minimize gate count, while using compact 24B/variable/zero-copy on MCUs/Linux to conserve memory and preserve CPU cache locality.
+
+## [2026-08-19] - Freestanding Bare-Metal Microcontroller SPSC Architecture & ISR Safety
+
+### What was done
+*   **Freestanding C++20 Headers**: Audited and stripped all OS headers (`<mutex>`, `<thread>`, `<condition_variable>`, `<iostream>`, `<queue>`, `<vector>`) from `include/`, ensuring 100% portability to bare-metal ARM GCC and RISC-V GCC toolchains.
+*   **Single-Core ISR Safety Verified (`sim/test_baremetal_isr_spsc.cpp`)**: Proved that SPSC queues are 100% lock-free, wait-free, and re-entrant between a hardware ISR (Producer) and the main flight loop coroutine (Consumer) with zero critical sections (`__disable_irq`).
+*   **Dual-Core AMP Shared SRAM**: Verified lock-free atomic release/acquire memory barriers (`DMB` / `FENCE`) across Core 0 (I/O coprocessor) and Core 1 (Coroutine engine) on RP2350 Pico 2W and ESP32-P4.
+*   **Dedicated Lock-Free SPSC Channel Array (`sim/test_spsc_channel_array.cpp`)**: Implemented `SpscChannelArray<T, NumChannels>` with zero mutexes and zero runtime heap allocations.
+*   **Documentation Suite Updated**: Added Section 10 to [`docs/ABSTRACTX_SOFTWARE_ENVIRONMENTS.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/ABSTRACTX_SOFTWARE_ENVIRONMENTS.md) and updated [`README.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/README.md).
+
+### Why it was done
+*   **Zero OS Footprint**: Microcontrollers in avionics, robotics, and industrial DAQ do not run an OS. Core data structures must execute safely in raw silicon with zero runtime heap dependencies.
+*   **Interrupt & Inter-Core Determinism**: Lock-free SPSC guarantees that neither hardware interrupts on single-core MCUs nor parallel coprocessor execution on dual-core MCUs can corrupt the coroutine scheduler state.
+
 

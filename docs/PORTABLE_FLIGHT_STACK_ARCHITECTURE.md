@@ -89,26 +89,33 @@ ArduPilot's **EKF3 (Extended Kalman Filter 3)** estimates 24+ vehicle state vari
 
 ## 4. Hardware Offload Execution Engines Across Targets
 
-### 4.1 FPGA Offloader (Allwinner Cubie A5E + Gowin FPGA)
-- Uses dedicated FPGA hardware state machines (`asp_imu_auto_dma.sv`, `asp_spi_frontend.sv`).
+### 4.1 FPGA Offloader (Allwinner Cubie A5E + Gowin / Zynq FPGA)
+- **Transport Strategy**: **Fixed 64-Byte TLPs (`Tlp64` / 512-bit vectors)**.
+- **Why Fixed**: FPGA RTL synthesis benefits enormously from static 64-byte framing. It eliminates dynamic state machines, variable length counters, and non-aligned FIFOs, maximizing $f_{MAX}$ and minimizing LUT/FF resource utilization.
 - Sub-microsecond timestamping latched on exact FPGA clock cycle.
-- Dual-SPI transport to CPU over 64B TLPs.
+- Dual-SPI transport to CPU over 64B TLPs (exact 256 SCLK cycles per packet).
 
-### 4.2 PIO Offloader (Raspberry Pi RP2350 / Pico 2)
-- Uses RP2350 PIO state machines (`dshot.pio`, `uart_pio.c`) and Core 0.
+### 4.2 PIO & Inter-Core Offloader (Raspberry Pi RP2350 / Pico 2 / Pico 2W)
+- **Transport Strategy**: **Compact 24-Byte TLPs (`TlpShort`) & Variable Containers (`TlpVar<N>`)**.
+- **Why Variable/Compact**: RP2350 Core 0 and Core 1 share 520 KB SRAM. Passing compact 24-byte messages for register R/W (or 34 bytes for 14B IMU bursts) eliminates copying 40 bytes of zero-padding, conserving SRAM and maximizing inter-core SIO / SPSC ring buffer throughput.
 - Hardware timestamping latched via PIO timer counter.
-- Inter-core SRAM ring buffer transport to Core 1 over 64B TLPs.
 
-### 4.3 Internal Processor Timers & DMA Offloader (STM32 H7 / F7 / G4 / AT32)
-- Uses **STM32 Timer Input Capture (TIM IC)** directly triggered by the IMU `DRDY` GPIO pin to latch nanosecond hardware timestamps.
-- Uses **STM32 Hardware DMA (BDMA / MDMA)** to autonomously fetch 14-byte SPI sensor bursts directly into 64-byte TLP structs in STM32 SRAM.
-- Uses **STM32 HRTIM / Advanced Timers** to output DShot motor signals.
-- The flight software CPU core receives ready 64-byte TLPs with zero software polling stalls!
+### 4.3 High-Performance RISC-V & Microcontroller Offloader (Espressif ESP32-P4 & STM32 H7/G4)
+- **Transport Strategy**: **Variable Length + Hardware Mailboxes / PSRAM Streams**.
+- **ESP32-P4**: Dual 400 MHz RISC-V HP cores + LP core utilize hardware mailboxes and direct DMA. Small register transactions use 24B `TlpShort`, while high-bandwidth flight logging / camera streams utilize 128B–256B variable bursts in PSRAM.
+- **STM32 H7 / F7 / G4 / AT32**: Uses **STM32 Timer Input Capture (TIM IC)** directly triggered by the IMU `DRDY` GPIO pin to latch nanosecond hardware timestamps, and **STM32 Hardware DMA (BDMA / MDMA)** to autonomously fetch 14-byte SPI sensor bursts directly into `TlpVar<14>` structs in SRAM.
+
+### 4.4 Linux SMP & Companion Computer (Raspberry Pi 5 / Jetson / SITL Simulator)
+- **Transport Strategy**: **Zero-Copy Pointer Descriptors (`TlpDescriptor`) & Lock-Free SPSC Rings**.
+- Dedicated background POSIX worker threads handle synchronous Linux `/dev/spidev` and `/dev/i2c-dev` `ioctl` transfers.
+- Top-level flight core runs on a **single real-time thread** executing C++20 coroutines.
+- Inter-thread messaging uses 48-byte `TlpDescriptor` structs (passing buffer pointers with zero data copying), keeping CPU L1/L2 caches hot and eliminating OS context switching.
 
 ---
 
 ## 5. Architectural Summary
 
 1. **100% Backward Compatibility**: Keeps Betaflight / iNav / ArduPilot `AP_HAL` APIs intact so all configurator tools, MAVLink telemetry, and ROS2 companion computer features work out of the box.
-2. **Chip-Specific Acceleration Unlocked**: Each silicon target deploys its specialized hardware (Pico 2 PIO, STM32 Timer Input Capture + MDMA, Gowin FPGA) without changing flight software code.
-3. **Zero Inter-Processor Friction**: All inter-core communication is standardized on 64-byte PCIe TLPs in lock-free ring buffers.
+2. **Chip-Specific Acceleration Unlocked**: Each silicon target deploys its specialized hardware (Pico 2 PIO, STM32 Timer Input Capture + MDMA, Gowin FPGA, ESP32-P4 Mailboxes) without changing flight software code.
+3. **Optimized Message Density**: Fixed 64B on FPGA for ultra-low gate count; compact 24B/variable/zero-copy descriptors on processors (Pico 2W, ESP32-P4, Linux) for maximum cache efficiency and memory conservation.
+4. **Zero Inter-Processor Friction**: All targets share the identical 20-byte `TlpHeader` specification and split-transaction `Tag` correlation semantics.
