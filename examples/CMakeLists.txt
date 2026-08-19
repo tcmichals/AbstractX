@@ -20,3 +20,4 @@ add_abstractx_example(pt_example_buffer                     pt_example_buffer.cp
 add_abstractx_example(pt_example_codelock                   pt_example_codelock.cpp)
 add_abstractx_example(pt_example_socket                     pt_example_socket.cpp)
 add_abstractx_example(generic_protothread_replacements      generic_protothread_replacements.cpp)
+add_abstractx_example(dual_processor_io_and_processing     dual_processor_io_and_processing.cpp)
