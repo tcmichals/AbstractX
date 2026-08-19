@@ -27,6 +27,7 @@ examples/simple_proof_benchmark
 examples/generic_io_messaging_demo
 examples/redundant_imu_failover
 examples/robotics_multi_axis_motion
+examples/protothreads_evolution_comparison
 
 
 # Tool artifacts
