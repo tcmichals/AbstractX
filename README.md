@@ -5,7 +5,7 @@
 *The Modern C++20 Evolution of Protothreads with Smart I/O Dispatching.*
 
 > **Read the Technical Whitepaper:** [**`docs/PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md`**](docs/PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md)  
-> *How C++20 Stackless Coroutines + PCIe TLP Dispatchers complete the 20-year evolution of embedded concurrency (from Adam Dunkels' 2005 Protothreads to modern zero-heap real-time systems).*
+> *Abstract: Embedded systems development has long been divided between the heavy memory/jitter overhead of preemptive RTOS threads and the unmaintainable callback spaghetti of superloop state machines. Adam Dunkels' 2005 Protothreads demonstrated the promise of stackless cooperative concurrency, but remained constrained by Duff's Device macro limitations and lack of hardware integration. AbstractX modernizes embedded concurrency by uniting compiler-native C++20 stackless coroutines with a split-transaction, lock-free SPSC I/O dispatcher. By isolating slow physical bus clocking (I2C, SPI, DMA) into autonomous background transports while resuming suspended coroutine handles on the main thread in nanoseconds, AbstractX achieves deterministic, single-threaded execution with guaranteed zero dynamic heap allocations (via static atomic frame pools) and sub-64-byte frame footprints across Linux SBCs, MCUs, and FPGAs.*
 
 ---
 
@@ -15,11 +15,11 @@ Modern real-time systems—whether in **Robotics (ROS2)**, **Industrial Automati
 
 High-frequency control and telemetry algorithms cannot afford to block while slow physical peripheral buses (400 kHz I2C, 100 kHz Modbus, slow SPI ADC/DACs, UART serial) clock out data:
 - In **bare-metal firmware**, developers are forced to write fragile, fragmented **callback state machines** across global tick timers.
-- In **Linux systems**, `/dev/spidev` and `/dev/i2c-dev` use synchronous blocking `ioctl()` calls without `epoll` support, forcing multi-threading that causes **OS scheduling jitter ($20\text{--}50\ \mu\text{s}$), cache thrashing, and mutex lock contention**.
+- In **RTOS and Linux systems**, synchronous blocking I/O calls force multi-threading that causes **$1\text{--}50\ \mu\text{s}$ context-switch and lock-contention jitter, cache thrashing, and priority inversions**.
 
 **AbstractX solves this permanently** by introducing a unified, multi-platform architecture:
-1. **The Modern Evolution of Protothreads**: Replaces fragile macro hacks (Duff's Device) with native **C++20 Stackless Coroutines (`asp_coro`)** that preserve local variables across yields with **0 dynamic heap memory (`0 B`)** and **0 mutexes**.
-2. **PCIe-like Split-Transaction TLPs (`asp-tlp`)**: Request operations (`MemRd`, `MemWr`) are tagged and dispatched asynchronously; completions (`CplD`, `DMA_Stream`) are posted into lock-free rings when hardware finishes.
+1. **The Modern Evolution of Protothreads**: Replaces fragile macro hacks (Duff's Device) with native **C++20 Stackless Coroutines (`asp_coro`)** that preserve local variables across yields with **guaranteed 0 dynamic heap memory (`0 B`)** via static atomic frame pools and **0 mutexes**.
+2. **PCIe TLP-Inspired Split-Transaction Protocol (`asp-tlp`)**: Request operations (`MemRd`, `MemWr`) are tagged and dispatched asynchronously; completions (`CplD`, `DMA_Stream`) are posted into lock-free rings when hardware finishes (mapping to physical PCIe BARs on FPGA, and lock-free shared SRAM on MCUs).
 3. **Smart Hardware I/O Dispatcher**: FPGAs (Gowin / Zynq), Microcontrollers (RP2350 Pico 2W, ESP32-P4, STM32), and Linux hosts execute I/O autonomously with **sub-20ns hardware timestamping**.
 
 ```
