@@ -18,7 +18,6 @@ Validation run artifacts are stored here per release candidate.
 | SPI transport & Dual-SPI (T-1 to T-5) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
 | Integration & Top-Level SoC (I-1 to I-7) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
 | C++ Sim Harnesses (MCU / Linux / SITL) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
-| iNav-AbstractX Flight Engine Parity & Benchmarks | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
 
 ## Evidence Artifacts
 
