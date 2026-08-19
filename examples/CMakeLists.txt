@@ -15,3 +15,7 @@ add_abstractx_example(protothreads_canonical_suite          protothreads_canonic
 add_abstractx_example(generic_io_dispatcher_pattern         generic_io_dispatcher_pattern.cpp)
 add_abstractx_example(protothreads_walkthrough_async_serial protothreads_walkthrough_async_serial.cpp)
 add_abstractx_example(serial_packet_parser_coroutine        serial_packet_parser_coroutine.cpp)
+add_abstractx_example(pt_example_small                      pt_example_small.cpp)
+add_abstractx_example(pt_example_buffer                     pt_example_buffer.cpp)
+add_abstractx_example(pt_example_codelock                   pt_example_codelock.cpp)
+add_abstractx_example(pt_example_socket                     pt_example_socket.cpp)
