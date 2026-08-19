@@ -32,6 +32,10 @@ examples/protothreads_canonical_suite
 examples/generic_io_dispatcher_pattern
 examples/protothreads_walkthrough_async_serial
 examples/serial_packet_parser_coroutine
+examples/pt_example_small
+examples/pt_example_buffer
+examples/pt_example_codelock
+examples/pt_example_socket
 
 
 # Tool artifacts
