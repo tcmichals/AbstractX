@@ -27,8 +27,12 @@ namespace abstractx {
     // Export standard coroutine primitives to top-level abstractx namespace for clean client usage
     using coro::Task;
     using coro::YieldAwaiter;
+    using coro::AsyncDelayAwaiter;
     using coro::AsyncSleepAwaiter;
     using coro::yield;
+    using coro::delay_us;
+    using coro::delay_ms;
+    using coro::delay_until;
     using coro::sleep_for;
     using coro::sleep_until;
     using coro::wait_until;
