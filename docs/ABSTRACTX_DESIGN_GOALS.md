@@ -130,6 +130,7 @@ ABSTRACTX_DESIGN_GOALS.md   <- YOU ARE HERE (top authority)
 ├── DESIGN_RULES.md           <- Engineering rules
 ├── ABSTRACTX_SOFTWARE_ENVIRONMENTS.md <- 3-environment architecture
 ├── COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md <- C++20 layer design
+├── SCHEDULER_VS_COROUTINE_ANALYSIS.md <- Technical case study vs C schedulers
 ├── ASP_REQUIREMENTS.md       <- Feature requirements
 └── ASP_VALIDATION_MATRIX.md  <- Test gates & evidence
 ```

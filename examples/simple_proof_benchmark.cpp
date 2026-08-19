@@ -4,21 +4,24 @@
  *
  * AbstractX Production MS5611 Barometer & 8 kHz IMU Flight Loop Proof
  * -------------------------------------------------------------------
- * Models the EXACT physical hardware behavior of the InvenSense ICM-42688-P (8 kHz IMU)
- * and Measurement Specialties MS5611 Barometer (Dual-Phase 9.04 ms ADC conversion).
+ * Reference Documentation: docs/SCHEDULER_VS_COROUTINE_ANALYSIS.md
+ * Source Comparisons:
+ * - Betaflight: external/betaflight/src/main/sensors/barometer.c (barometerState_e)
+ * - Betaflight: external/betaflight/src/main/scheduler/scheduler.c (schedulerSetNextStateTime)
+ * - AbstractX:  include/asp_coro.hpp & include/spsc_tlp_ring.hpp
  *
- * Physical Sensor Hardware Reality:
- * 1. Fast 8 kHz IMU (125 us period): 8000 samples/sec attitude rate loop.
+ * Physical Sensor Hardware Profile:
+ * 1. Fast 8 kHz IMU (125 us period): 8,000 samples/sec rate loop.
  * 2. MS5611 Barometer 2-Phase Conversion Cycle (OSR 4096):
  *    - Phase 1: Send D1 Pressure Convert (0x48) -> Physical Silicon takes 9,040 us.
  *    - Phase 2: Read 24-bit Pressure ADC (0x00) -> 100 us I2C bus transfer.
  *    - Phase 3: Send D2 Temperature Convert (0x58) -> Physical Silicon takes 9,040 us.
  *    - Phase 4: Read 24-bit Temperature ADC (0x00) -> 100 us I2C bus transfer.
  *    - Phase 5: Calibrate & compute pressure (Pa) and altitude (m).
- *    - Total Baro Cycle: ~18.28 ms = Exactly 146 IMU cycles per Barometer reading!
+ *    - Total Baro Cycle: ~20.28 ms = ~49.3 Hz = Exactly 146 IMU cycles per Barometer reading!
  *
  * Comparisons Demonstrated:
- * - Method A (Old INAV / Betaflight C State Machine):
+ * - Method A (Betaflight / INAV C State Machine):
  *   State machine with global timestamps, polling every tick (currentTimeUs < nextStateTimeUs),
  *   and synchronous I2C read stalls (100 us CPU drop per read).
  * - Method B (AbstractX C++20 Coroutine + PCIe TLPs + SPSC):
