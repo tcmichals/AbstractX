@@ -30,6 +30,7 @@ examples/robotics_multi_axis_motion
 examples/protothreads_evolution_comparison
 examples/protothreads_canonical_suite
 examples/generic_io_dispatcher_pattern
+examples/protothreads_walkthrough_async_serial
 
 
 # Tool artifacts
