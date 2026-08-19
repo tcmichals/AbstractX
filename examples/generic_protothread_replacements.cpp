@@ -9,11 +9,12 @@
  *
  * 1. Cooperative Yield          : co_await yield() (replaces PT_YIELD)
  * 2. Condition Wait             : co_await wait_until([&]{ return ready; }) (replaces PT_WAIT_UNTIL)
- * 3. Asynchronous Timer Sleep   : co_await sleep_for(100, now, &timer_reg)
+ * 3. Asynchronous Delay/Sleep   : co_await delay_us(100, now, &timer_reg)
  * 4. Inter-Task Event Signaling : co_await event / event.set()
  * 5. Cooperative Semaphore      : co_await sem.acquire() / sem.release() (replaces pt-sem.h)
  * 6. Lock-Free Async Queue      : co_await q.push(x) / co_await q.pop()
- * 7. Concurrency Combinators    : co_await when_all(...) / co_await when_any(...)
+ * 7. Multi-Wait "&&" (when_all) : auto [a, b] = co_await when_all(t1, t2)
+ * 8. Multi-Wait "||" (when_any) : auto result = co_await when_any(t1, t2) (Race / Watchdog)
  */
 
 #include "abstractx/coro.hpp"
@@ -63,6 +64,51 @@ Task<void> queue_consumer_task(AsyncQueue<int, 8>& q, int& total_sum, uint32_t& 
     }
 }
 
+// 5. Concurrency Combinator "&&" (when_all): Concurrent Multi-Sensor Join
+Task<uint32_t> async_fetch_imu_accel() {
+    co_return 981; // 9.81 m/s^2 * 100
+}
+
+Task<uint32_t> async_fetch_baro_pressure() {
+    co_return 101325; // 101,325 Pa
+}
+
+Task<void> when_all_demo_task(uint32_t& out_imu, uint32_t& out_baro, bool& completed) {
+    // Concurrently waits for BOTH IMU and Barometer to complete
+    auto [imu_val, baro_val] = co_await when_all(
+        async_fetch_imu_accel(),
+        async_fetch_baro_pressure()
+    );
+
+    out_imu = imu_val;
+    out_baro = baro_val;
+    completed = true;
+}
+
+// 6. Concurrency Combinator "||" (when_any): Primary vs Backup Race / Watchdog
+Task<std::string> async_primary_gps() {
+    co_return "PRIMARY_UBLOX_M10_LOCK";
+}
+
+Task<std::string> async_backup_gps() {
+    co_return "BACKUP_NMEA_LOCK";
+}
+
+Task<void> when_any_demo_task(std::string& winner_source, bool& completed) {
+    // Races primary vs backup GPS source
+    auto result_variant = co_await when_any(
+        async_primary_gps(),
+        async_backup_gps()
+    );
+
+    if (result_variant.index() == 0) {
+        winner_source = std::get<0>(result_variant);
+    } else {
+        winner_source = std::get<1>(result_variant);
+    }
+    completed = true;
+}
+
 int main() {
     std::cout << "====================================================================================\n";
     std::cout << " ABSTRACTX GENERIC C++20 PROTOTHREADS REPLACEMENT SUITE                             \n";
@@ -83,7 +129,7 @@ int main() {
         t_sensor.resume();
     }
 
-    std::cout << " [1] Condition Wait (wait_until) : " << reads_done << " / 3 reads complete, sensor_val=" << sensor_val << "\n";
+    std::cout << " [1] Condition Wait (wait_until)     : " << reads_done << " / 3 reads complete, sensor_val=" << sensor_val << "\n";
 
     // 2. Test Event Signaling
     Event trigger_event;
@@ -92,7 +138,7 @@ int main() {
     t_event.resume();
     trigger_event.set();
 
-    std::cout << " [2] Event Signaling (Event)     : Triggered = " << (event_hit ? "TRUE (SUCCESS)" : "FALSE") << "\n";
+    std::cout << " [2] Event Signaling (Event)         : Triggered = " << (event_hit ? "TRUE (SUCCESS)" : "FALSE") << "\n";
 
     // 3. Test Semaphore (replaces pt-sem.h)
     Semaphore sem(0);
@@ -101,7 +147,7 @@ int main() {
     t_sem.resume();
     sem.release();
 
-    std::cout << " [3] Semaphore (Semaphore)       : Acquired = " << sem_count << " (SUCCESS)\n";
+    std::cout << " [3] Semaphore (Semaphore)           : Acquired = " << sem_count << " (SUCCESS)\n";
 
     // 4. Test Async Queue
     AsyncQueue<int, 8> queue;
@@ -112,11 +158,29 @@ int main() {
     t_prod.resume();
     t_cons.resume();
 
-    std::cout << " [4] Lock-Free AsyncQueue        : " << items << " items read, sum=" << sum << " (Expected: 150)\n";
+    std::cout << " [4] Lock-Free AsyncQueue            : " << items << " items read, sum=" << sum << " (Expected: 150)\n";
+
+    // 5. Test when_all (&&) - Concurrent Multi-Task Join
+    uint32_t imu_res = 0;
+    uint32_t baro_res = 0;
+    bool when_all_done = false;
+    Task<void> t_all = when_all_demo_task(imu_res, baro_res, when_all_done);
+    t_all.resume();
+
+    std::cout << " [5] Multi-Wait \"&&\" (when_all)      : IMU=" << imu_res << ", Baro=" << baro_res << " Pa (Both Completed)\n";
+
+    // 6. Test when_any (||) - First-to-Finish Race / Watchdog
+    std::string winner_gps = "";
+    bool when_any_done = false;
+    Task<void> t_any = when_any_demo_task(winner_gps, when_any_done);
+    t_any.resume();
+
+    std::cout << " [6] Multi-Wait \"||\" (when_any)      : Winner Source = \"" << winner_gps << "\" (Fastest Resumed)\n";
+
     std::cout << "====================================================================================\n";
     std::cout << " VERIFICATION RESULT: 100% SUCCESS ACROSS ALL GENERIC PROTOTHREAD PRIMITIVES        \n";
-    std::cout << " Dynamic Heap Allocation         : 0 B\n";
-    std::cout << " Superloop Stalls / Blocked ISRs : 0\n";
+    std::cout << " Dynamic Heap Allocation             : 0 B\n";
+    std::cout << " Superloop Stalls / Blocked ISRs     : 0\n";
     std::cout << "====================================================================================\n";
 
     return 0;

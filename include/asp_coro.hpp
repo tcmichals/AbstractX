@@ -689,9 +689,6 @@ private:
 // ============================================================================
 
 // --- when_all (&&) Implementation ---
-// Suspends the caller until ALL sub-tasks complete, then resumes with a tuple
-// of all results. Sub-tasks are started sequentially but each may suspend and
-// complete asynchronously (e.g. different I/O bus completions).
 template <typename... Tasks>
 class WhenAllAwaiter {
 public:
@@ -699,15 +696,15 @@ public:
         : tasks_(std::forward<Tasks>(tasks)...), remaining_(sizeof...(Tasks)) {}
 
     bool await_ready() const noexcept {
-        // Zero-task when_all is immediately ready.
         return sizeof...(Tasks) == 0;
     }
 
-    // Returns void — we will never resume the caller synchronously here.
-    // The last completing sub-task's on_complete_ callback resumes caller_.
-    void await_suspend(std::coroutine_handle<> caller) noexcept {
+    bool await_suspend(std::coroutine_handle<> caller) noexcept {
         caller_ = caller;
+        starting_ = true;
         start_all(std::index_sequence_for<Tasks...>{});
+        starting_ = false;
+        return remaining_ > 0;
     }
 
     auto await_resume() {
@@ -717,8 +714,6 @@ public:
 private:
     template <size_t... Is>
     void start_all(std::index_sequence<Is...>) {
-        // Inject all callbacks BEFORE starting any task, so a synchronously
-        // completing task can still call notify_done() safely.
         (inject_callback<Is>(), ...);
         (start_one<Is>(), ...);
     }
@@ -733,17 +728,15 @@ private:
     void start_one() {
         auto& task = std::get<Index>(tasks_);
         task.resume();
-        // If the task completed synchronously (no I/O suspension needed),
-        // on_complete_ was already called by FinalAwaiter. Do not double-count.
     }
 
     void notify_done() noexcept {
-        // remaining_ counts down from N to 0. Only the last sub-task to finish
-        // (remaining_ hits 0) resumes the caller — guards against double-resume.
-        if (--remaining_ == 0 && caller_) {
-            auto caller = caller_;
-            caller_ = nullptr;
-            caller.resume();
+        if (--remaining_ == 0) {
+            if (!starting_ && caller_) {
+                auto caller = caller_;
+                caller_ = nullptr;
+                caller.resume();
+            }
         }
     }
 
@@ -754,6 +747,7 @@ private:
 
     std::tuple<Tasks...> tasks_;
     size_t remaining_;
+    bool starting_{false};
     std::coroutine_handle<> caller_{nullptr};
 };
 
@@ -763,13 +757,6 @@ auto when_all(Tasks&&... tasks) {
 }
 
 // --- when_any (||) / Race Combinator ---
-// Races two tasks; resumes the caller with the index and result of whichever
-// finishes first. The loser task is kept alive (Task<T> RAII) until the
-// WhenAnyAwaiter is destroyed — the loser handle is then destroyed cleanly.
-//
-// await_suspend uses symmetric transfer (return coroutine_handle<>) so that
-// if a winner is found synchronously we hop back to the caller without adding
-// an extra frame to the call stack.
 template <typename T1, typename T2>
 class WhenAnyAwaiter {
 public:
@@ -780,10 +767,9 @@ public:
         return t1_.done() || t2_.done();
     }
 
-    // SYMMETRIC TRANSFER: return coroutine_handle<> so the compiler performs
-    // a tail-call resume instead of a nested .resume() call.
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<> caller) noexcept {
+    bool await_suspend(std::coroutine_handle<> caller) noexcept {
         caller_ = caller;
+        starting_ = true;
 
         // Register callbacks BEFORE starting either task.
         t1_.handle().promise().on_complete_ = [this]() noexcept { notify_winner(0); };
@@ -792,22 +778,19 @@ public:
         // Start t1.
         t1_.resume();
         if (ready_index_ != -1) {
-            // t1 won synchronously — symmetric transfer back to caller.
-            caller_ = nullptr;
-            return caller;
+            starting_ = false;
+            return false;
         }
 
         // Start t2.
         t2_.resume();
         if (ready_index_ != -1) {
-            // t2 won synchronously — symmetric transfer back to caller.
-            caller_ = nullptr;
-            return caller;
+            starting_ = false;
+            return false;
         }
 
-        // Both suspended — stay suspended. The first on_complete_ to fire
-        // will call notify_winner() which resumes caller_.
-        return std::noop_coroutine();
+        starting_ = false;
+        return true;
     }
 
     std::variant<T1, T2> await_resume() {
@@ -820,11 +803,9 @@ public:
 
 private:
     void notify_winner(int idx) noexcept {
-        // Guard: only the FIRST completing task wins. ready_index_ == -1 means
-        // no winner yet. CAS-like: once set, the second task's callback is ignored.
         if (ready_index_ == -1) {
             ready_index_ = idx;
-            if (caller_) {
+            if (!starting_ && caller_) {
                 auto caller = caller_;
                 caller_ = nullptr;
                 caller.resume();
@@ -835,6 +816,7 @@ private:
     Task<T1> t1_;
     Task<T2> t2_;
     int ready_index_{-1};
+    bool starting_{false};
     std::coroutine_handle<> caller_{nullptr};
 };
 
