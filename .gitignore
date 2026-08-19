@@ -24,6 +24,9 @@ sim/test_halo_worker_pool
 sim/test_spsc_channel_array
 sim/test_tlp_msg
 examples/simple_proof_benchmark
+examples/generic_io_messaging_demo
+examples/redundant_imu_failover
+examples/robotics_multi_axis_motion
 
 
 # Tool artifacts
