@@ -11,8 +11,8 @@
  * 4. Main flight core safely processes completions sequentially.
  */
 
+#include "abstractx/coro.hpp"
 #include "spsc_tlp_ring.hpp"
-#include <coroutine>
 #include <iostream>
 #include <atomic>
 #include <vector>
@@ -22,6 +22,7 @@
 #include <cstdint>
 
 using namespace abstractx;
+using namespace abstractx::coro;
 
 // ============================================================================
 // 1. DATA STRUCTURES & SPSC EVENT DEFINITION
@@ -44,7 +45,7 @@ struct SpscEvent {
     InavSensorData data{};
 };
 
-// 4 Dedicated Lock-Free SPSC Ingress Queues (Worker -> Main Core) - ZERO MUTEXES!
+// Global Lock-Free SPSC Array (Thread-safe ingress: Workers -> Main Core)
 static SpscChannelArray<SpscEvent, 4, 16> g_hardware_channels;
 
 // 4 Dedicated Lock-Free SPSC Egress Request Queues (Main Core -> Worker)
@@ -59,44 +60,6 @@ static SpscChannelArray<SpscRequest, 4, 16> g_request_channels;
 // ============================================================================
 alignas(64) static uint8_t g_coro_frame_pool[4096];
 static std::atomic<size_t> g_frame_pool_offset{0};
-
-struct InavTask {
-    struct promise_type {
-        InavTask get_return_object() noexcept {
-            return InavTask{std::coroutine_handle<promise_type>::from_promise(*this)};
-        }
-        static InavTask get_return_object_on_allocation_failure() noexcept {
-            return InavTask{nullptr};
-        }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-        std::suspend_always final_suspend() noexcept { return {}; }
-        void return_void() noexcept {}
-        void unhandled_exception() noexcept { std::terminate(); }
-
-        // Embedded static frame allocation - zero heap / malloc calls!
-        void* operator new(std::size_t size) noexcept {
-            size_t offset = g_frame_pool_offset.fetch_add((size + 63) & ~63);
-            if (offset + size > sizeof(g_coro_frame_pool)) return nullptr;
-            return &g_coro_frame_pool[offset];
-        }
-        void operator delete(void*, std::size_t) noexcept {}
-    };
-
-    std::coroutine_handle<promise_type> handle{nullptr};
-    explicit InavTask(std::coroutine_handle<promise_type> h) noexcept : handle(h) {}
-    InavTask(InavTask&& other) noexcept : handle(other.handle) { other.handle = nullptr; }
-    InavTask& operator=(InavTask&& other) noexcept {
-        if (this != &other) {
-            if (handle) handle.destroy();
-            handle = other.handle;
-            other.handle = nullptr;
-        }
-        return *this;
-    }
-    ~InavTask() {
-        if (handle) handle.destroy();
-    }
-};
 
 // ============================================================================
 // 3. ZERO-ALLOCATION LOCK-FREE SENSOR AWAITER
@@ -183,7 +146,7 @@ private:
 // ============================================================================
 // 5. ASYNCHRONOUS NAVIGATION & FLIGHT PIPELINE
 // ============================================================================
-InavTask run_inav_sensor_pipeline(std::atomic<int>& count) {
+Task<void> run_inav_sensor_pipeline(std::atomic<int>& count) {
     std::cout << "[Pipeline] Launching async navigation loops...\n";
 
     for (int i = 1; i <= 2; ++i) {
@@ -237,8 +200,8 @@ int main() {
     g_audit_active = true;
 
     // 3. Initialize tracking coroutine frame
-    InavTask flight_core = run_inav_sensor_pipeline(handoffs_completed);
-    flight_core.handle.resume(); // Advance past the initial suspend boundary
+    Task<void> flight_core = run_inav_sensor_pipeline(handoffs_completed);
+    flight_core.resume(); // Advance past the initial suspend boundary
 
     const int total_expected_handoffs = 6; // 3 sensors x 2 iterations
     int events_drained = 0;
