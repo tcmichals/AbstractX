@@ -23,6 +23,7 @@ sim/test_coro_combinators
 sim/test_halo_worker_pool
 sim/test_spsc_channel_array
 sim/test_tlp_msg
+examples/simple_proof_benchmark
 
 
 # Tool artifacts
