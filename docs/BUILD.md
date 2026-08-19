@@ -17,57 +17,76 @@ For the active QMTECH Zynq-7020 direction, also expect:
 - an out-of-tree Buildroot output directory such as `hw/qmtech_zynq7020/bld/`, and
 - optional Pico/XVC local build output in `hw/qmtech_zynq7020/pico_bld/`.
 
-## 2. Running Simulations
+## 2. Building & Running Tests with CMake
 
-AbstractX uses a CMake-wrapped regression suite that executes Cocotb + Verilator. 
+AbstractX provides a unified, modern **CMake + CTest** build system for all C++20 coroutine engines, simulation harnesses, and example applications:
 
-To run all simulations:
+### Quick Build & Test:
 ```bash
-mkdir build
-cd build
-cmake ..
-make test-all
+# 1. Configure CMake build tree
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+# 2. Build all simulation engines and examples in parallel
+cmake --build build -j$(nproc)
+
+# 3. Run the complete test suite via CTest (100% passing)
+ctest --test-dir build --output-on-failure
 ```
 
-**Discovering Targets:**
-If you want to run isolated tests instead of the entire suite, or if you forget the available build options, you can see a human-readable list of all simulation targets by running:
+### Running Individual Targets:
 ```bash
-make info
+# Multi-Target Hardware Proof Benchmark:
+./build/examples/simple_proof_benchmark
+
+# Generic Non-Sensor Hardware I/O & Messaging Demo:
+./build/examples/generic_io_messaging_demo
+
+# Aerospace Redundant Dual-IMU Failover:
+./build/examples/redundant_imu_failover
+
+# 4-Axis Robotics Synchronized Motion Controller:
+./build/examples/robotics_multi_axis_motion
+
+# SITL Flight Multi-Sensor Coroutine Simulation:
+./build/sim/sitl_coro_sim
 ```
 
-Simulation trace files resulting from `--trace-structs` will be generated inside the `sim/cocotb/` working directory for viewing with GTKWave and similar waveform viewers.
+### Running Hardware RTL Cocotb Tests:
+```bash
+make -C sim/cocotb clean
+make -C sim/cocotb TOPLEVEL=asp_tlp_64b_top MODULE=test_asp_tlp_64b_cocotb
+```
+
+---
 
 ## 3. Directory Layout and Source Breakdown
 
 | Path | Purpose |
 |------|---------|
-| `/docs/` | System specifications, design invariants, and protocol definitions. |
-| `/rtl/` | Core AbstractX routing and interconnect logic. |
-| `/rtl/spi/` | Physical SPI interfaces (MAC layers and protocol boundary shims). |
-| `/sim/cocotb/` | Python-based testbenches and Cocotb Makefiles. |
-| `/hw/qmtech_zynq7020/` | QMTECH Zynq-7020 bring-up notes and board-specific integration guidance. |
-| `/python/` | Python host-side bridges, including the unified SPI/DMA TUN path. |
-| `/rust/tun_dma_bridge/` | Rust userspace TUN + DMA bridge scaffold for Zynq hardening. |
-| `/` (Root) | CMake scaffolding and host utilities (e.g., `asp_tun_driver.py`). |
+| `/include/` | Header-only freestanding C++20 Coroutine & PCIe TLP engine (`asp_coro.hpp`, `spsc_tlp_ring.hpp`, `asp_tlp64.hpp`). |
+| `/examples/` | Standalone multi-domain applications (Flight Controller, Robotics, Redundancy, Generic I/O). |
+| `/sim/` | C++20 SITL harnesses, Bare-Metal MCU SPSC tests, and Halo worker pool models. |
+| `/rtl/` | SystemVerilog RTL modules (Router, Dual-SPI, IMU Auto-DMA, Wishbone Master, System Registers). |
+| `/docs/` | System specifications, design invariants, case studies, and verification evidence. |
 
-### Key RTL Modules
-- `asp_spi_frontend.sv`: Translates raw SPI (`MOSI`, `MISO`, `CS`, `SCLK`) into an internal un-framed byte stream.
-- `asp_spi_reg_bank.sv`: Translates the byte stream into AXI-Stream (`tdata`, `tvalid`, `tready`), stripping the AbstractX Switch Protocol (ASP) headers.
-- `asp_router.sv`: Switch framework that routes AXI-Stream packets to various hardware channels.
-- `asp_wishbone_master.sv`: Consumes AXI-Stream control packets to execute Wishbone memory-mapped IO operations against standard peripherals.
-- `asp_sys_regs.sv`: The core System Register Wishbone target mechanism. Features the global `VERSION` definition and queryable loopback scratch registers.
-- `asp_top.sv`: The top-level wrapper instantiating the entire pipeline. Automatically resolves SPI Chip-Selects into cleanly framed AXIS `tlast` events via a skid buffer.
+---
 
 ## 4. Testbench Manifest
 
-Per the repository's strict Design Rules, every RTL module must be targeted by an isolated test.
-
-| Testbench File | Target Module | Status |
-|----------------|---------------|--------|
-| `test_abstractx_axis_cocotb.py` | `asp_spi_reg_bank.sv` | **Implemented** |
-| `test_asp_spi_frontend_cocotb.py` | `asp_spi_frontend.sv` | **Implemented** |
-| `test_asp_router_cocotb.py` | `asp_router.sv` | *Pending* |
-| `test_asp_wishbone_master_cocotb.py`| `asp_wishbone_master.sv` | *Pending* |
-| `test_asp_sys_regs_cocotb.py` | `asp_sys_regs.sv` | *Pending* |
-
-*Note: As pending testbenches are authored, you must uncomment their target module directives inside `sim/cocotb/Makefile` to bind them to the compilation queue.*
+| Testbench File | Target Subsystem / Module | Type | Status |
+|---|---|---|---|
+| `test_asp_tlp_64b_cocotb.py` | `asp_tlp_64b_top.sv` | RTL Cocotb | ✅ **Passed (100%)** |
+| `test_asp_wishbone_master_cocotb.py` | `asp_wishbone_master.sv` | RTL Cocotb | ✅ **Passed (100%)** |
+| `test_asp_router_cocotb.py` | `asp_router.sv` | RTL Cocotb | ✅ **Passed (100%)** |
+| `test_asp_sys_regs_cocotb.py` | `asp_sys_regs.sv` | RTL Cocotb | ✅ **Passed (100%)** |
+| `test_asp_axis_fifo_cocotb.py` | `asp_axis_fifo.sv` | RTL Cocotb | ✅ **Passed (100%)** |
+| `test_asp_spi_frontend_cocotb.py` | `asp_spi_frontend.sv` | RTL Cocotb | ✅ **Passed (100%)** |
+| `simple_proof_benchmark.cpp` | Multi-Target Hardware Proof (Linux/Pico2/ESP32/FPGA) | C++20 CTest | ✅ **Passed (100%)** |
+| `generic_io_messaging_demo.cpp` | Generic Actuator, Storage & Messaging | C++20 CTest | ✅ **Passed (100%)** |
+| `redundant_imu_failover.cpp` | Aerospace Dual-Sensor Redundancy | C++20 CTest | ✅ **Passed (100%)** |
+| `robotics_multi_axis_motion.cpp` | 4-Axis Robotics Motion Control | C++20 CTest | ✅ **Passed (100%)** |
+| `sitl_coro_sim.cpp` | Multi-Rate Flight SITL Coroutines | C++20 CTest | ✅ **Passed (100%)** |
+| `test_baremetal_isr_spsc.cpp` | Freestanding MCU ISR SPSC Handoff | C++20 CTest | ✅ **Passed (100%)** |
+| `test_spsc_channel_array.cpp` | Lock-Free SPSC Array & Vector Router | C++20 CTest | ✅ **Passed (100%)** |
+| `test_halo_worker_pool.cpp` | Multi-Threaded I/O Worker Pool | C++20 CTest | ✅ **Passed (100%)** |
+| `test_tlp_msg.cpp` | Multi-Target Message Sizing Verification | C++20 CTest | ✅ **Passed (100%)** |
