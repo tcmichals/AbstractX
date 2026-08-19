@@ -1,7 +1,7 @@
 {
   "date": "2026-08-19",
   "branch": "feature/universal-async-framework",
-  "short_sha": "4d0ddd2",
+  "short_sha": "57e01eb",
   "status": "PASS",
   "gates": {
     "rtl_cocotb": {
@@ -58,46 +58,6 @@
         "sim/sitl_coro_sim",
         "sim/test_coro_combinators",
         "sim/test_tlp_msg"
-      ]
-    },
-    "inav_flight_engine": {
-      "status": "PASS",
-      "ctest_targets_passed": 5,
-      "ctest_targets_failed": 0,
-      "targets": [
-        {
-          "name": "UnitTests",
-          "status": "PASS",
-          "suites": 20
-        },
-        {
-          "name": "HardwareTest",
-          "status": "PASS"
-        },
-        {
-          "name": "SubmoduleDifferentialTest",
-          "status": "PASS",
-          "differential_suites": 8,
-          "math_parity": "100% BIT-EXACT"
-        },
-        {
-          "name": "SchedulerBenchmark",
-          "status": "PASS",
-          "iterations": 100000,
-          "throughput_iters_per_sec": 835210.406,
-          "avg_latency_us": 1.146,
-          "wcet_reduction_factor": 5.43,
-          "heap_bytes_allocated": 0
-        },
-        {
-          "name": "FullStackParityTest",
-          "status": "PASS",
-          "simulated_seconds": 60.0,
-          "iterations": 60000,
-          "max_attitude_error_deg": 0.0,
-          "max_position_error_m": 0.0,
-          "motor_mismatches": 0
-        }
       ]
     }
   }
