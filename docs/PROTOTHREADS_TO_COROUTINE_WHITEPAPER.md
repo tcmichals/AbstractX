@@ -59,6 +59,17 @@ On microcontrollers (such as the Raspberry Pi RP2350 or Espressif ESP32-P4) that
 - **Memory-Mapped Decoupling**: Application coroutines target virtual addresses (e.g. `bar::BaroBase = 0x40000400`), remaining completely agnostic to whether the physical transport is I2C, SPI, UART, shared SRAM, or FPGA register logic.
 - **Hardware Portability**: On FPGAs (Gowin Tang 9K/20K, Zynq-7020), this maps directly to physical Dual-SPI/PCIe BAR registers; on microcontrollers, it passes over lock-free single-producer single-consumer (`SpscTlpRing`) ring buffers in SRAM.
 
+### 3.3 The Unified 5-Flow Async Runtime (Beyond Just Code Flow)
+In classic Protothreads, the programmer was left on their own to manually implement queues, manage timer ticks, synchronize tasks, and handle hardware. 
+
+**AbstractX provides a complete, unified 5-flow asynchronous runtime:**
+
+1. **Control Flow**: Stackless, type-safe C++20 coroutines (`Task<T>`) that preserve local state with **0 dynamic heap bytes**.
+2. **Data Flow**: High-throughput, lock-free SPSC ring buffers (`SpscTlpRing`) for zero-copy message handoff between cores and threads with **0 mutexes**.
+3. **Time Flow**: Asynchronous hardware timer comparators (`co_await timer.async_sleep_us(...)`) that suspend tasks in 2–5 ns and resume them directly upon interrupt without CPU polling.
+4. **Coordination Flow**: Coroutine-to-coroutine signaling, wakeups, and composable combinators (`co_await when_all(...)`, `co_await when_any(...)`).
+5. **Hardware Flow**: Split-transaction I/O dispatching that offloads slow physical bus clocking (I2C, SPI, UART, CAN, DMA) to background workers, secondary MCU cores, or FPGA RTL.
+
 ---
 
 ## 4. How the Smart I/O Dispatcher Works
