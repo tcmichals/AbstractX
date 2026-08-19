@@ -7,19 +7,10 @@
  * Demonstrates how AbstractX C++20 Coroutines are the modern, type-safe,
  * compiler-guaranteed realization of Adam Dunkels' 2005 "Protothreads" concept.
  *
- * Comparative Analysis:
- * 1. Classic C Protothreads (Adam Dunkels / Contiki OS):
- *    - Uses Duff's Device switch/case macro hacks (__LINE__).
- *    - CRITICAL FLAW: Cannot preserve local variables across yields (forces 'static',
- *      which destroys re-entrancy when running multiple instances).
- *    - CRITICAL FLAW: Cannot yield inside a switch statement.
- *    - CRITICAL FLAW: No type-safe return values or composable awaitables.
- *
- * 2. AbstractX C++20 Stackless Coroutines:
- *    - Realizes the Protothread dream: Stackless, lightweight, 0 heap allocations.
- *    - Compiler automatically allocates local variables into deterministic static frame.
- *    - Fully re-entrant (unlimited concurrent instances running the same task).
- *    - Native integration with 64-byte PCIe TLPs and hardware timer interrupts.
+ * Modular Organization:
+ * 1. run_classic_protothreads_demonstration() : Isolated execution of 2005 C Protothreads
+ * 2. run_modern_cpp20_coroutines_demonstration(): Isolated execution of AbstractX C++20 Coroutines
+ * 3. main()                                  : Master orchestrator & comparative reporting
  */
 
 #include "spsc_tlp_ring.hpp"
@@ -37,7 +28,7 @@
 using namespace abstractx;
 
 // =============================================================================
-// 1. CLASSIC C PROTOTHREAD IMPLEMENTATION (Adam Dunkels' Macro System)
+// 1. CLASSIC C PROTOTHREADS ENGINE (Adam Dunkels' 2005 Macro System)
 // =============================================================================
 struct pt {
     uint16_t lc; // Local continuation line counter
@@ -49,18 +40,18 @@ struct pt {
                                        if (!(cond)) return 0; } while (0)
 #define PT_END(pt)                } (pt)->lc = 0; return 1;
 
-// Classic Protothread Example: Blinking LED + Sensor Read
-// NOTE: Notice how local variables CANNOT be used across PT_WAIT_UNTIL!
-// They must be stored in struct or global static, which causes bugs when sharing!
+// Classic Protothread Context:
+// CRITICAL FLAW: Because PT_WAIT_UNTIL returns from the C function, local stack
+// variables are destroyed on every yield. Developers MUST manually declare context structs!
 struct ClassicProtothreadContext {
     pt pt_state;
     uint32_t instance_id;
-    uint32_t step_counter; // Must be placed in context struct!
+    uint32_t step_counter; // Must be stored in struct, not as local variable!
     uint64_t wake_time_us;
     bool completed;
 };
 
-int run_classic_protothread(ClassicProtothreadContext* ctx, uint64_t current_time_us) {
+int run_classic_protothread_step(ClassicProtothreadContext* ctx, uint64_t current_time_us) {
     PT_BEGIN(&ctx->pt_state);
 
     ctx->step_counter = 0;
@@ -78,8 +69,46 @@ int run_classic_protothread(ClassicProtothreadContext* ctx, uint64_t current_tim
     PT_END(&ctx->pt_state);
 }
 
+// Isolated function demonstrating the classic C Protothreads workflow
+double run_classic_protothreads_demonstration() {
+    std::cout << "------------------------------------------------------------------------------------\n";
+    std::cout << " [1] EXECUTING CLASSIC C PROTOTHREADS (2005 Duff's Device Macros)\n";
+    std::cout << "------------------------------------------------------------------------------------\n";
+    std::cout << " - Architecture : Switch-case line counter macro (__LINE__)\n";
+    std::cout << " - Context State: Manual struct packing (ClassicProtothreadContext)\n";
+    std::cout << " - Task Count   : 10 concurrent protothreads\n";
+
+    std::vector<ClassicProtothreadContext> pt_contexts(10);
+    for (uint32_t i = 0; i < 10; ++i) {
+        PT_INIT(&pt_contexts[i].pt_state);
+        pt_contexts[i].instance_id = i;
+        pt_contexts[i].completed = false;
+    }
+
+    uint64_t pt_sim_time = 0;
+    uint32_t pt_completed_count = 0;
+    auto t0 = std::chrono::high_resolution_clock::now();
+
+    while (pt_completed_count < 10 && pt_sim_time < 5000) {
+        for (auto& ctx : pt_contexts) {
+            if (!ctx.completed) {
+                if (run_classic_protothread_step(&ctx, pt_sim_time)) {
+                    pt_completed_count++;
+                }
+            }
+        }
+        pt_sim_time += 10;
+    }
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+    std::cout << " -> Result      : " << pt_completed_count << " / 10 protothreads completed in " 
+              << std::fixed << std::setprecision(4) << elapsed_ms << " ms\n\n";
+    return elapsed_ms;
+}
+
 // =============================================================================
-// 2. ABSTRACTX C++20 STACKLESS COROUTINE (Modern Protothreads Evolution)
+// 2. ABSTRACTX C++20 STACKLESS COROUTINES ENGINE (Modern Protothreads Evolution)
 // =============================================================================
 alignas(64) static uint8_t g_coro_pool[32 * 1024];
 static std::atomic<size_t> g_pool_offset{0};
@@ -227,41 +256,15 @@ CoroTask<void> modern_coroutine_worker(
     completed_count++;
 }
 
-// =============================================================================
-// MAIN COMPARISON HARNESS
-// =============================================================================
-int main() {
-    std::cout << "====================================================================================\n";
-    std::cout << " PROTOTHREADS VS ABSTRACTX C++20 COROUTINES: ARCHITECTURAL COMPARISON               \n";
-    std::cout << "====================================================================================\n";
-    std::cout << " Comparing Adam Dunkels' 2005 C Protothreads with modern AbstractX C++20 Coroutines:\n\n";
+// Isolated function demonstrating the modern AbstractX C++20 Coroutines workflow
+double run_modern_cpp20_coroutines_demonstration() {
+    std::cout << "------------------------------------------------------------------------------------\n";
+    std::cout << " [2] EXECUTING ABSTRACTX C++20 COROUTINES (Native Compiler Frame Graph)\n";
+    std::cout << "------------------------------------------------------------------------------------\n";
+    std::cout << " - Architecture : Native C++20 stackless coroutine (co_await)\n";
+    std::cout << " - Context State: Automatic static frame allocation (0 B dynamic heap)\n";
+    std::cout << " - Task Count   : 10 concurrent coroutines\n";
 
-    // 1. Run 10 Concurrent Classic Protothreads
-    std::vector<ClassicProtothreadContext> pt_contexts(10);
-    for (uint32_t i = 0; i < 10; ++i) {
-        PT_INIT(&pt_contexts[i].pt_state);
-        pt_contexts[i].instance_id = i;
-        pt_contexts[i].completed = false;
-    }
-
-    uint64_t pt_sim_time = 0;
-    uint32_t pt_completed_count = 0;
-    auto t0 = std::chrono::high_resolution_clock::now();
-
-    while (pt_completed_count < 10 && pt_sim_time < 5000) {
-        for (auto& ctx : pt_contexts) {
-            if (!ctx.completed) {
-                if (run_classic_protothread(&ctx, pt_sim_time)) {
-                    pt_completed_count++;
-                }
-            }
-        }
-        pt_sim_time += 10;
-    }
-    auto t1 = std::chrono::high_resolution_clock::now();
-    double pt_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-
-    // 2. Run 10 Concurrent AbstractX C++20 Coroutines
     uint64_t coro_sim_time = 0;
     uint64_t coro_timer_reg = 0;
     uint32_t coro_completed_count = 0;
@@ -273,7 +276,7 @@ int main() {
         coro_tasks.back().resume();
     }
 
-    auto t2 = std::chrono::high_resolution_clock::now();
+    auto t0 = std::chrono::high_resolution_clock::now();
     while (coro_completed_count < 10 && coro_sim_time < 5000) {
         if (coro_sim_time >= coro_timer_reg) {
             for (auto& task : coro_tasks) {
@@ -282,12 +285,32 @@ int main() {
         }
         coro_sim_time += 10;
     }
-    auto t3 = std::chrono::high_resolution_clock::now();
-    double coro_ms = std::chrono::duration<double, std::milli>(t3 - t2).count();
+    auto t1 = std::chrono::high_resolution_clock::now();
+    double elapsed_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-    // 3. Print Comparison Table
+    std::cout << " -> Result      : " << coro_completed_count << " / 10 coroutines completed in " 
+              << std::fixed << std::setprecision(4) << elapsed_ms << " ms\n\n";
+    return elapsed_ms;
+}
+
+// =============================================================================
+// 3. MAIN ORCHESTRATOR & COMPARATIVE REPORTING
+// =============================================================================
+int main() {
     std::cout << "====================================================================================\n";
-    std::cout << " DETAILED ARCHITECTURAL COMPARISON                                                  \n";
+    std::cout << " PROTOTHREADS VS ABSTRACTX C++20 COROUTINES: ARCHITECTURAL COMPARISON               \n";
+    std::cout << "====================================================================================\n";
+    std::cout << " Comparing Adam Dunkels' 2005 C Protothreads with modern AbstractX C++20 Coroutines:\n\n";
+
+    // 1. Run Classic Protothreads Demonstration
+    double pt_ms = run_classic_protothreads_demonstration();
+
+    // 2. Run Modern C++20 Coroutines Demonstration
+    double coro_ms = run_modern_cpp20_coroutines_demonstration();
+
+    // 3. Print Side-by-Side Comparison Matrix
+    std::cout << "====================================================================================\n";
+    std::cout << " DETAILED ARCHITECTURAL COMPARISON MATRIX                                           \n";
     std::cout << "====================================================================================\n";
     std::cout << " Feature / Capability            | Classic C Protothreads (2005) | AbstractX C++20 Coroutines\n";
     std::cout << "---------------------------------+-------------------------------+---------------------------\n";
