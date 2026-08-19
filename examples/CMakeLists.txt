@@ -14,3 +14,4 @@ add_abstractx_example(protothreads_evolution_comparison protothreads_evolution_c
 add_abstractx_example(protothreads_canonical_suite          protothreads_canonical_suite.cpp)
 add_abstractx_example(generic_io_dispatcher_pattern         generic_io_dispatcher_pattern.cpp)
 add_abstractx_example(protothreads_walkthrough_async_serial protothreads_walkthrough_async_serial.cpp)
+add_abstractx_example(serial_packet_parser_coroutine        serial_packet_parser_coroutine.cpp)
