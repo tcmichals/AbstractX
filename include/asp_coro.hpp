@@ -328,7 +328,159 @@ struct AsyncSleepAwaiter {
 };
 
 // ============================================================================
-// 2. Coroutine I/O Engine & TLP Split-Transaction Dispatcher
+// 2. Generic Protothread Replacement Primitives (Zero-Heap Embedded Primitives)
+// ============================================================================
+
+// Standard Cooperative Yield (replaces PT_YIELD)
+inline YieldAwaiter yield() noexcept { return {}; }
+
+// Standard Asynchronous Timer Delay
+inline AsyncSleepAwaiter sleep_until(uint64_t target_time_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
+    return AsyncSleepAwaiter{target_time_us, current_time_us, timer_comparator};
+}
+
+inline AsyncSleepAwaiter sleep_for(uint64_t delta_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
+    return AsyncSleepAwaiter{current_time_us + delta_us, current_time_us, timer_comparator};
+}
+
+// Type-Safe Condition Awaiter (replaces PT_WAIT_UNTIL)
+template <typename Predicate>
+struct WaitUntilAwaiter {
+    Predicate pred_;
+    bool await_ready() const noexcept { return pred_(); }
+    void await_suspend(std::coroutine_handle<>) noexcept {}
+    void await_resume() noexcept {}
+};
+
+template <typename Predicate>
+auto wait_until(Predicate pred) noexcept {
+    return WaitUntilAwaiter<Predicate>{pred};
+}
+
+// Cooperative Event Signaling (replaces global flag synchronization)
+class Event {
+public:
+    constexpr Event(bool initial_state = false) noexcept : state_(initial_state) {}
+
+    void set() noexcept {
+        state_ = true;
+        if (waiter_) {
+            auto h = waiter_;
+            waiter_ = nullptr;
+            h.resume();
+        }
+    }
+
+    void reset() noexcept { state_ = false; }
+    bool is_set() const noexcept { return state_; }
+
+    struct Awaiter {
+        Event& event_;
+        bool await_ready() const noexcept { return event_.state_; }
+        void await_suspend(std::coroutine_handle<> h) noexcept { event_.waiter_ = h; }
+        void await_resume() noexcept {}
+    };
+
+    Awaiter operator co_await() noexcept { return Awaiter{*this}; }
+
+private:
+    bool state_{false};
+    std::coroutine_handle<> waiter_{nullptr};
+};
+
+// Cooperative Counting Semaphore (replaces pt-sem.h PT_SEM_WAIT / PT_SEM_SIGNAL)
+class Semaphore {
+public:
+    explicit constexpr Semaphore(size_t initial_count = 0) noexcept : count_(initial_count) {}
+
+    void release() noexcept {
+        ++count_;
+        if (waiter_ && count_ > 0) {
+            auto h = waiter_;
+            waiter_ = nullptr;
+            --count_;
+            h.resume();
+        }
+    }
+
+    struct AcquireAwaiter {
+        Semaphore& sem_;
+        bool await_ready() const noexcept { return sem_.count_ > 0; }
+        void await_suspend(std::coroutine_handle<> h) noexcept {
+            sem_.waiter_ = h;
+        }
+        void await_resume() noexcept {
+            if (sem_.count_ > 0) --sem_.count_;
+        }
+    };
+
+    AcquireAwaiter acquire() noexcept { return AcquireAwaiter{*this}; }
+
+    size_t count() const noexcept { return count_; }
+
+private:
+    size_t count_{0};
+    std::coroutine_handle<> waiter_{nullptr};
+};
+
+// Cooperative Lock-Free SPSC Queue (replaces raw circular buffers)
+template <typename T, size_t Capacity = 16>
+class AsyncQueue {
+public:
+    struct PushAwaiter {
+        AsyncQueue& q_;
+        T item_;
+        bool await_ready() const noexcept { return !q_.is_full(); }
+        void await_suspend(std::coroutine_handle<> h) noexcept { q_.push_waiter_ = h; }
+        void await_resume() noexcept { q_.try_push(std::move(item_)); }
+    };
+
+    struct PopAwaiter {
+        AsyncQueue& q_;
+        bool await_ready() const noexcept { return !q_.is_empty(); }
+        void await_suspend(std::coroutine_handle<> h) noexcept { q_.pop_waiter_ = h; }
+        T await_resume() noexcept { return q_.try_pop(); }
+    };
+
+    PushAwaiter push(T val) noexcept { return PushAwaiter{*this, std::move(val)}; }
+    PopAwaiter pop() noexcept { return PopAwaiter{*this}; }
+
+    bool is_empty() const noexcept { return head_ == tail_; }
+    bool is_full() const noexcept { return ((head_ + 1) % (Capacity + 1)) == tail_; }
+
+    bool try_push(T val) noexcept {
+        if (is_full()) return false;
+        buffer_[head_] = std::move(val);
+        head_ = (head_ + 1) % (Capacity + 1);
+        if (pop_waiter_) {
+            auto h = pop_waiter_;
+            pop_waiter_ = nullptr;
+            h.resume();
+        }
+        return true;
+    }
+
+    T try_pop() noexcept {
+        T item = std::move(buffer_[tail_]);
+        tail_ = (tail_ + 1) % (Capacity + 1);
+        if (push_waiter_) {
+            auto h = push_waiter_;
+            push_waiter_ = nullptr;
+            h.resume();
+        }
+        return item;
+    }
+
+private:
+    std::array<T, Capacity + 1> buffer_{};
+    size_t head_{0};
+    size_t tail_{0};
+    std::coroutine_handle<> push_waiter_{nullptr};
+    std::coroutine_handle<> pop_waiter_{nullptr};
+};
+
+// ============================================================================
+// 3. Coroutine I/O Engine & TLP Split-Transaction Dispatcher
 // ============================================================================
 
 class CoroutineIoEngine {

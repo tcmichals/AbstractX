@@ -36,6 +36,7 @@ examples/pt_example_small
 examples/pt_example_buffer
 examples/pt_example_codelock
 examples/pt_example_socket
+examples/generic_protothread_replacements
 
 
 # Tool artifacts
