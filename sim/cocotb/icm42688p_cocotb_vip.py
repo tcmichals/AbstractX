@@ -69,10 +69,10 @@ class CocotbICM42688P:
     async def _drdy_generator(self):
         """Generates DRDY interrupt pulses when enabled in INT_SOURCE0 (0x65)."""
         while self._running:
-            await Timer(self.sample_period_ns, units="ns")
+            await Timer(self.sample_period_ns, unit="ns")
             if self.registers[0x65] & 0x08:  # DRDY_INT1_EN
                 self.dut.imu_int_i.value = 1
-                await Timer(100, units="ns")
+                await Timer(100, unit="ns")
                 self.dut.imu_int_i.value = 0
 
     async def _spi_slave_loop(self):

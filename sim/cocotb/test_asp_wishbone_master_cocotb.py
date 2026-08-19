@@ -1,76 +1,74 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import struct
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge
-import struct
+from cocotb.triggers import RisingEdge, ClockCycles
 
-# Opcodes (must match asp_wishbone_master.sv)
-OP_PING        = 0x06
-OP_READ_BLOCK  = 0x10
-OP_WRITE_BLOCK = 0x11
-OP_GET_CAPS    = 0x12
-OP_HELLO       = 0x13
-
-RES_OK            = 0x00
-RES_NOT_SUPPORTED = 0x04
+# TLP Types matching asp_wishbone_master.sv
+TYPE_MEM_RD = 0x01
+TYPE_MEM_WR = 0x02
+TYPE_CPL_D  = 0x03
 
 SYS_VERSION = 0xA1B2C3D4
 
 
+def pack_tlp_int(tlp_type: int, flags: int, tag: int, channel: int, addr: int, len_dw: int, seq: int, ts: int, write_data: int = 0) -> int:
+    """Packs fields into a 512-bit integer representing a 64-byte TLP vector."""
+    dw0 = (tlp_type << 24) | (flags << 16) | (tag << 8) | channel
+    dw1 = addr & 0xFFFFFFFF
+    dw2 = ((len_dw & 0xFFFF) << 16) | (seq & 0xFFFF)
+    dw3_4 = ts & 0xFFFFFFFFFFFFFFFF
+    dw5 = write_data & 0xFFFFFFFF
+
+    tlp_val = (dw0 << 480) | (dw1 << 448) | (dw2 << 416) | (dw3_4 << 352) | (dw5 << 320) | 0xDEADBEEF
+    return tlp_val
+
+
+def unpack_cpl_tlp(tlp_val: int):
+    """Extracts fields from 512-bit integer CplD TLP."""
+    tlp_type = (tlp_val >> 504) & 0xFF
+    tag      = (tlp_val >> 488) & 0xFF
+    channel  = (tlp_val >> 480) & 0xFF
+    addr     = (tlp_val >> 448) & 0xFFFFFFFF
+    len_dw   = (tlp_val >> 432) & 0xFFFF
+    seq      = (tlp_val >> 416) & 0xFFFF
+    ts       = (tlp_val >> 352) & 0xFFFFFFFFFFFFFFFF
+    read_data = (tlp_val >> 320) & 0xFFFFFFFF
+    return tlp_type, tag, channel, addr, len_dw, seq, ts, read_data
+
+
 async def reset(dut):
-    dut.rst.value = 1
-    dut.s_cmd_tvalid.value = 0
-    dut.s_cmd_tdata.value = 0
-    dut.s_cmd_tlast.value = 0
-    dut.s_tid.value = 0
-    dut.m_rsp_tready.value = 1
-    dut.m_dbg_tready.value = 1
+    dut.rst_n.value = 0
+    dut.s_tlp_tvalid.value = 0
+    dut.s_tlp_tdata.value = 0
+    dut.m_cpl_tready.value = 1
     dut.wb_ack_i.value = 0
     dut.wb_dat_i.value = 0
-    for _ in range(5):
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 5)
+
+
+async def send_tlp(dut, tlp_val: int):
+    """Drives a 512-bit TLP into s_tlp with standard ready/valid handshake."""
+    dut.s_tlp_tdata.value = tlp_val
+    dut.s_tlp_tvalid.value = 1
+    while True:
         await RisingEdge(dut.clk)
-    dut.rst.value = 0
-    await RisingEdge(dut.clk)
+        if dut.s_tlp_tready.value == 1:
+            break
+    dut.s_tlp_tvalid.value = 0
+    dut.s_tlp_tdata.value = 0
 
 
-async def send_cmd_stream(dut, payload_bytes):
-    """Drive a command byte stream into the AXIS ingress with tlast on last byte."""
-    for i, b in enumerate(payload_bytes):
-        dut.s_cmd_tdata.value = b
-        dut.s_cmd_tvalid.value = 1
-        dut.s_cmd_tlast.value = 1 if i == len(payload_bytes) - 1 else 0
-        # Wait for tready handshake
-        while True:
-            await RisingEdge(dut.clk)
-            if dut.s_cmd_tready.value == 1:
-                break
-    dut.s_cmd_tvalid.value = 0
-    dut.s_cmd_tlast.value = 0
-
-
-async def collect_response(dut, max_cycles=200):
-    """Collect response bytes from m_rsp egress until tlast or timeout."""
-    response = []
-    dut.m_rsp_tready.value = 1
+async def wb_slave_responder(dut, read_data_map=None, max_cycles=500):
+    """Simulates Wishbone slave responding with single-cycle ack."""
+    if read_data_map is None:
+        read_data_map = {}
     for _ in range(max_cycles):
         await RisingEdge(dut.clk)
-        if dut.m_rsp_tvalid.value == 1 and dut.m_rsp_tready.value == 1:
-            response.append(int(dut.m_rsp_tdata.value))
-            if dut.m_rsp_tlast.value == 1:
-                break
-    return response
-
-
-async def wb_auto_responder(dut, read_data_map, max_cycles=200):
-    """
-    Simulate a Wishbone slave for the master to talk to.
-    read_data_map: dict of addr -> 32-bit value
-    """
-    for _ in range(max_cycles):
-        await RisingEdge(dut.clk)
-        # Sample outputs after the rising edge (before ReadOnly)
         if dut.wb_cyc_o.value == 1 and dut.wb_stb_o.value == 1 and dut.wb_ack_i.value == 0:
             addr = int(dut.wb_adr_o.value)
             if dut.wb_we_o.value == 0:
@@ -81,131 +79,117 @@ async def wb_auto_responder(dut, read_data_map, max_cycles=200):
 
 
 @cocotb.test()
-async def test_ping_response(dut):
-    """Single-byte PING command should return RES_OK."""
+async def test_mem_rd_cpld_generation(dut):
+    """MemRd TLP should execute Wishbone read and return a valid CplD completion TLP."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
 
-    # PING is a zero-payload opcode (sent with tlast=1 on first byte)
-    await send_cmd_stream(dut, [OP_PING])
+    wb_map = {0x40000000: SYS_VERSION}
+    cocotb.start_soon(wb_slave_responder(dut, wb_map))
 
-    resp = await collect_response(dut)
-    dut._log.info(f"PING response: {[hex(b) for b in resp]}")
-    assert len(resp) >= 1, "No response to PING!"
-    assert resp[0] == RES_OK, f"Expected RES_OK, got 0x{resp[0]:02X}"
+    rd_tlp = pack_tlp_int(
+        tlp_type=TYPE_MEM_RD,
+        flags=0,
+        tag=0x42,
+        channel=0x01,
+        addr=0x40000000,
+        len_dw=1,
+        seq=100,
+        ts=12345678,
+    )
+    await send_tlp(dut, rd_tlp)
+
+    # Wait for CplD output
+    while dut.m_cpl_tvalid.value == 0:
+        await RisingEdge(dut.clk)
+
+    cpl_val = int(dut.m_cpl_tdata.value)
+    tlp_type, tag, channel, addr, len_dw, seq, ts, read_data = unpack_cpl_tlp(cpl_val)
+
+    dut._log.info(f"CplD TLP Received: Type=0x{tlp_type:02X} Tag=0x{tag:02X} Addr=0x{addr:08X} Data=0x{read_data:08X}")
+    assert tlp_type == TYPE_CPL_D, f"Expected CplD type (0x03), got 0x{tlp_type:02X}"
+    assert tag == 0x42, f"Tag mismatch: expected 0x42, got 0x{tag:02X}"
+    assert channel == 0x01, f"Channel mismatch: expected 0x01, got 0x{channel:02X}"
+    assert addr == 0x40000000, f"Addr mismatch: expected 0x40000000, got 0x{addr:08X}"
+    assert read_data == SYS_VERSION, f"Data mismatch: expected 0x{SYS_VERSION:08X}, got 0x{read_data:08X}"
+    dut._log.info("[SUCCESS] MemRd -> CplD cycle verified with exact tag matching!")
 
 
 @cocotb.test()
-async def test_hello_response(dut):
-    """HELLO command should return RES_OK."""
+async def test_mem_wr_execution(dut):
+    """MemWr TLP should execute Wishbone write cycle with latched data."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
 
-    await send_cmd_stream(dut, [OP_HELLO])
+    cocotb.start_soon(wb_slave_responder(dut, {}))
 
-    resp = await collect_response(dut)
-    dut._log.info(f"HELLO response: {[hex(b) for b in resp]}")
-    assert resp[0] == RES_OK
+    wr_tlp = pack_tlp_int(
+        tlp_type=TYPE_MEM_WR,
+        flags=0,
+        tag=0x11,
+        channel=0x01,
+        addr=0x40000200,
+        len_dw=1,
+        seq=101,
+        ts=23456789,
+        write_data=0xCAFEBABE,
+    )
+    await send_tlp(dut, wr_tlp)
+
+    # Wait for Wishbone cycle to complete
+    for _ in range(20):
+        await RisingEdge(dut.clk)
+        if dut.wb_cyc_o.value == 1 and dut.wb_we_o.value == 1:
+            assert int(dut.wb_adr_o.value) == 0x40000200, f"Wrong WB write addr: 0x{int(dut.wb_adr_o.value):08X}"
+            assert int(dut.wb_dat_o.value) == 0xCAFEBABE, f"Wrong WB write data: 0x{int(dut.wb_dat_o.value):08X}"
+            dut._log.info("[SUCCESS] Wishbone write executed with exact address 0x40000200 and data 0xCAFEBABE!")
+            break
 
 
 @cocotb.test()
-async def test_get_caps_response(dut):
-    """GET_CAPS command should return RES_OK."""
+async def test_cpld_backpressure(dut):
+    """Wishbone Master must hold CplD output when m_cpl_tready is stalled."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
 
-    await send_cmd_stream(dut, [OP_GET_CAPS])
+    wb_map = {0x40000010: 0x55AA55AA}
+    cocotb.start_soon(wb_slave_responder(dut, wb_map))
 
-    resp = await collect_response(dut)
-    dut._log.info(f"GET_CAPS response: {[hex(b) for b in resp]}")
-    assert resp[0] == RES_OK
+    # Stall egress port
+    dut.m_cpl_tready.value = 0
 
+    rd_tlp = pack_tlp_int(
+        tlp_type=TYPE_MEM_RD,
+        flags=0,
+        tag=0x99,
+        channel=0x01,
+        addr=0x40000010,
+        len_dw=1,
+        seq=102,
+        ts=34567890,
+    )
+    await send_tlp(dut, rd_tlp)
 
-@cocotb.test()
-async def test_read_block(dut):
-    """READ_BLOCK should execute a Wishbone read and return the data."""
-    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
-    await reset(dut)
-
-    # Start WB slave responder in background
-    wb_map = {0x00000000: SYS_VERSION}
-    cocotb.start_soon(wb_auto_responder(dut, wb_map, max_cycles=500))
-
-    # READ_BLOCK: [OP] [Space] [Addr3..Addr0] [LenH] [LenL]
-    cmd = struct.pack(">BBBBBBBB", OP_READ_BLOCK, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04)
-    await send_cmd_stream(dut, list(cmd))
-
-    resp = await collect_response(dut, max_cycles=500)
-    dut._log.info(f"READ_BLOCK response: {[hex(b) for b in resp]}")
-
-    assert len(resp) == 7, f"Expected 7-byte response, got {len(resp)}"
-    assert resp[0] == RES_OK, f"Expected RES_OK, got 0x{resp[0]:02X}"
-
-    # Extract 32-bit data from response bytes [3..6]
-    read_val = (resp[3] << 24) | (resp[4] << 16) | (resp[5] << 8) | resp[6]
-    assert read_val == SYS_VERSION, f"WB read returned 0x{read_val:08X}, expected 0x{SYS_VERSION:08X}"
-    dut._log.info(f"READ_BLOCK returned 0x{read_val:08X} — correct!")
-
-
-@cocotb.test()
-async def test_write_block(dut):
-    """WRITE_BLOCK should execute a Wishbone write cycle."""
-    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
-    await reset(dut)
-
-    # WB slave auto-ack (we don't need a read map for writes)
-    cocotb.start_soon(wb_auto_responder(dut, {}, max_cycles=500))
-
-    # WRITE_BLOCK: [OP] [Space] [Addr3..Addr0] [LenH] [LenL] [D0..D3]
-    write_val = 0xCAFEBABE
-    cmd = struct.pack(">BBBBBBBBBBBB", OP_WRITE_BLOCK, 0x00,
-                      0x00, 0x00, 0x00, 0x04,  # addr=0x04
-                      0x00, 0x04,               # len=4
-                      (write_val >> 24) & 0xFF,
-                      (write_val >> 16) & 0xFF,
-                      (write_val >>  8) & 0xFF,
-                      (write_val >>  0) & 0xFF)
-    await send_cmd_stream(dut, list(cmd))
-
-    resp = await collect_response(dut, max_cycles=500)
-    dut._log.info(f"WRITE_BLOCK response: {[hex(b) for b in resp]}")
-
-    assert len(resp) >= 1, "No response to WRITE_BLOCK!"
-    assert resp[0] == RES_OK, f"Expected RES_OK, got 0x{resp[0]:02X}"
-
-
-@cocotb.test()
-async def test_response_backpressure(dut):
-    """Stall m_rsp_tready to verify the WB master holds response data."""
-    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
-    await reset(dut)
-
-    cocotb.start_soon(wb_auto_responder(dut, {0: SYS_VERSION}, max_cycles=500))
-
-    # Send READ_BLOCK
-    cmd = struct.pack(">BBBBBBBB", OP_READ_BLOCK, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04)
-    await send_cmd_stream(dut, list(cmd))
-
-    # Stall the response port for 50 cycles
-    dut.m_rsp_tready.value = 0
+    # Wait until m_cpl_tvalid asserts
     for _ in range(50):
         await RisingEdge(dut.clk)
+        if dut.m_cpl_tvalid.value == 1:
+            break
 
-    # Now collect with random backpressure
-    response = []
-    import random
-    for _ in range(300):
-        dut.m_rsp_tready.value = 1 if random.random() > 0.3 else 0
+    assert dut.m_cpl_tvalid.value == 1, "CplD valid did not assert under backpressure!"
+
+    # Hold backpressure for 20 more cycles and verify CplD remains valid
+    for _ in range(20):
         await RisingEdge(dut.clk)
-        if dut.m_rsp_tvalid.value == 1 and dut.m_rsp_tready.value == 1:
-            response.append(int(dut.m_rsp_tdata.value))
-            if dut.m_rsp_tlast.value == 1:
-                break
+        assert dut.m_cpl_tvalid.value == 1, "CplD valid dropped while stalled!"
 
-    dut._log.info(f"Backpressure response: {[hex(b) for b in response]}")
-    assert len(response) == 7, f"Expected 7-byte response under backpressure, got {len(response)}"
-    assert response[0] == RES_OK
+    # Release backpressure and capture CplD
+    dut.m_cpl_tready.value = 1
+    await RisingEdge(dut.clk)
 
-    read_val = (response[3] << 24) | (response[4] << 16) | (response[5] << 8) | response[6]
-    assert read_val == SYS_VERSION, f"Data corrupted under backpressure! Got 0x{read_val:08X}"
-    dut._log.info("Response integrity verified under hostile backpressure!")
+    cpl_val = int(dut.m_cpl_tdata.value)
+    _, tag, _, _, _, _, _, read_data = unpack_cpl_tlp(cpl_val)
+    assert tag == 0x99
+    assert read_data == 0x55AA55AA
+    dut._log.info("[SUCCESS] CplD backpressure held data cleanly until ready asserted!")
+

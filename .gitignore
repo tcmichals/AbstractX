@@ -26,6 +26,7 @@ sim/test_asp_top_sim
 *.pds
 *.fs
 *.json
+!docs/evidence/**/*.json
 !**/*.lushay.json
 !**/*.cst
 !**/*.sv

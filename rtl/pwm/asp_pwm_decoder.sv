@@ -165,7 +165,7 @@ module asp_pwm_decoder #(
                 end else if (reg_offset >= 5'h01 && reg_offset <= 5'h04) begin
                     // Read Channel 1..4 Measured Pulse Width
                     int ch_idx;
-                    ch_idx = reg_offset - 1;
+                    ch_idx = int'(reg_offset) - 1;
                     if (ch_idx < NUM_CHANNELS) begin
                         wb_dat_o <= pwm_values[ch_idx];
                     end else begin

@@ -1,0 +1,104 @@
+{
+  "date": "2026-08-19",
+  "branch": "feature/universal-async-framework",
+  "short_sha": "4d0ddd2",
+  "status": "PASS",
+  "gates": {
+    "rtl_cocotb": {
+      "status": "PASS",
+      "tests_passed": 12,
+      "tests_failed": 0,
+      "testbenches": [
+        {
+          "name": "test_asp_tlp_64b_cocotb",
+          "toplevel": "asp_top",
+          "status": "PASS",
+          "sim_time_ns": 1031380.0
+        },
+        {
+          "name": "test_asp_wishbone_master_cocotb",
+          "toplevel": "asp_wishbone_master",
+          "status": "PASS",
+          "sim_time_ns": 670.0
+        },
+        {
+          "name": "test_asp_router_cocotb",
+          "toplevel": "asp_router",
+          "status": "PASS",
+          "sim_time_ns": 510.0
+        },
+        {
+          "name": "test_asp_sys_regs_cocotb",
+          "toplevel": "asp_sys_regs",
+          "status": "PASS",
+          "sim_time_ns": 890.0
+        },
+        {
+          "name": "test_asp_axis_fifo_cocotb",
+          "toplevel": "asp_axis_fifo",
+          "status": "PASS",
+          "sim_time_ns": 2350.0
+        },
+        {
+          "name": "test_asp_spi_frontend_cocotb",
+          "toplevel": "asp_spi_frontend",
+          "status": "PASS",
+          "sim_time_ns": 45090.0
+        }
+      ]
+    },
+    "cpp_sim_harnesses": {
+      "status": "PASS",
+      "harnesses_passed": 6,
+      "harnesses_failed": 0,
+      "binaries": [
+        "sim/test_baremetal_isr_spsc",
+        "sim/test_halo_worker_pool",
+        "sim/test_spsc_channel_array",
+        "sim/sitl_coro_sim",
+        "sim/test_coro_combinators",
+        "sim/test_tlp_msg"
+      ]
+    },
+    "inav_flight_engine": {
+      "status": "PASS",
+      "ctest_targets_passed": 5,
+      "ctest_targets_failed": 0,
+      "targets": [
+        {
+          "name": "UnitTests",
+          "status": "PASS",
+          "suites": 20
+        },
+        {
+          "name": "HardwareTest",
+          "status": "PASS"
+        },
+        {
+          "name": "SubmoduleDifferentialTest",
+          "status": "PASS",
+          "differential_suites": 8,
+          "math_parity": "100% BIT-EXACT"
+        },
+        {
+          "name": "SchedulerBenchmark",
+          "status": "PASS",
+          "iterations": 100000,
+          "throughput_iters_per_sec": 835210.406,
+          "avg_latency_us": 1.146,
+          "wcet_reduction_factor": 5.43,
+          "heap_bytes_allocated": 0
+        },
+        {
+          "name": "FullStackParityTest",
+          "status": "PASS",
+          "simulated_seconds": 60.0,
+          "iterations": 60000,
+          "max_attitude_error_deg": 0.0,
+          "max_position_error_m": 0.0,
+          "motor_mismatches": 0
+        }
+      ]
+    }
+  }
+}

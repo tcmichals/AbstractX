@@ -14,13 +14,29 @@
 namespace abstractx {
 
 namespace bar {
-    constexpr uint32_t SystemBase   = PCIE_BAR_SYS_BASE;    // 0x40000000
-    constexpr uint32_t ImuBase      = PCIE_BAR_IMU_BASE;    // 0x40000100
-    constexpr uint32_t EscBase      = PCIE_BAR_ESC_BASE;    // 0x40000200
-    constexpr uint32_t BaroBase     = PCIE_BAR_BARO_BASE;   // 0x40000300
-    constexpr uint32_t MagBase      = PCIE_BAR_MAG_BASE;    // 0x40000400
-    constexpr uint32_t SerialBase   = PCIE_BAR_SERIAL_BASE; // 0x40000500
+    constexpr uint32_t SystemBase    = 0x0000u; // 0x0000
+    constexpr uint32_t ImuBase       = 0x1000u; // 0x1000
+    constexpr uint32_t EscBase       = 0x2000u; // 0x2000
+    constexpr uint32_t BaroBase      = 0x3000u; // 0x3000
+    constexpr uint32_t MagBase       = 0x4000u; // 0x4000
+    constexpr uint32_t SerialBase    = 0x5000u; // 0x5000
+    constexpr uint32_t GpsBase       = 0x5000u;
+    constexpr uint32_t RcBase        = 0x6000u;
+    constexpr uint32_t DisplayBase   = 0x7000u;
+    constexpr uint32_t LedBase       = 0x8000u;
+    constexpr uint32_t PowerBase     = 0x9000u;
+    constexpr uint32_t PitotBase     = 0xA000u;
+    constexpr uint32_t TelemetryBase = 0xB000u;
 } // namespace bar
+
+namespace phys_bar {
+    constexpr uint32_t SystemBase    = PCIE_BAR_SYS_BASE;    // 0x40000000
+    constexpr uint32_t ImuBase       = PCIE_BAR_IMU_BASE;    // 0x40000100
+    constexpr uint32_t EscBase       = PCIE_BAR_ESC_BASE;    // 0x40000200
+    constexpr uint32_t BaroBase      = PCIE_BAR_BARO_BASE;   // 0x40000300
+    constexpr uint32_t MagBase       = PCIE_BAR_MAG_BASE;    // 0x40000400
+    constexpr uint32_t SerialBase    = PCIE_BAR_SERIAL_BASE; // 0x40000500
+} // namespace phys_bar
 
 // System BAR Register Offsets
 namespace reg::sys {

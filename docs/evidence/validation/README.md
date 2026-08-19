@@ -11,14 +11,16 @@ Validation run artifacts are stored here per release candidate.
 
 ## Current Status
 
-| Gate Group | Status |
-|---|---|
-| Block-level RTL (B-1 to B-10) | NOT-RUN (no evidence artifact yet) |
-| Control/Stream operations (O-1 to O-4) | NOT-RUN |
-| SPI transport (T-1 to T-5) | NOT-RUN |
-| Integration (I-1 to I-7) | NOT-RUN |
-| C++ sim harnesses | PASS (all 4 harnesses pass on `feature/universal-async-framework`) |
+| Gate Group | Status | Evidence Document |
+|---|---|---|
+| Block-level RTL & Cocotb (B-1 to B-10) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
+| Control/Stream TLP operations (O-1 to O-4) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
+| SPI transport & Dual-SPI (T-1 to T-5) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
+| Integration & Top-Level SoC (I-1 to I-7) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
+| C++ Sim Harnesses (MCU / Linux / SITL) | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
+| iNav-AbstractX Flight Engine Parity & Benchmarks | **PASS** | [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md) |
 
-## Next Step
+## Evidence Artifacts
 
-Run cocotb testbenches and generate a dated evidence artifact here before any release candidate.
+- [2026-08-19-validation-summary.md](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-validation-summary.md)
+- [2026-08-19-results.json](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/evidence/validation/2026-08-19-results.json)

@@ -39,17 +39,25 @@ def unpack_tlp(data: bytes):
 
 
 async def send_dual_spi_burst(dut, cmd_byte: int, payload_bytes: bytes = b""):
-    """Drives Dual-SPI SDR transactions to the FPGA DUT."""
+    """Drives Dual-SPI SDR transactions to the FPGA DUT with proper multi-cycle SCLK timing."""
     dut.spi_cs_n.value = 0
-    await ClockCycles(dut.clk, 4)
+    await ClockCycles(dut.clk, 10)
+
+    # Helper for driving SCLK pulse with proper setup/hold for 3-stage synchronizer
+    async def sclk_pulse():
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sclk.value = 1
+        await ClockCycles(dut.clk, 4)
+        dut.spi_sclk.value = 0
+        await ClockCycles(dut.clk, 2)
 
     # 1. Send Command Byte (0xA0, 0xA1, 0xA2) over MOSI/IO0
     for b in range(7, -1, -1):
         dut.spi_io0.value = (cmd_byte >> b) & 1
-        await FallingEdge(dut.clk)
-        dut.spi_sclk.value = 1
-        await RisingEdge(dut.clk)
-        dut.spi_sclk.value = 0
+        dut.spi_io1.value = 0
+        await sclk_pulse()
+
+    dut._log.info(f"  After cmd 0x{cmd_byte:02X}: state={dut.u_spi_frontend.state.value} cmd_shift=0x{int(dut.u_spi_frontend.cmd_shift.value):02X} io0_sync={dut.u_spi_frontend.io0_in_sync.value}")
 
     # 2. Transmit Payload (Dual-SPI mode: 2 bits per SCLK cycle)
     if payload_bytes:
@@ -58,21 +66,61 @@ async def send_dual_spi_burst(dut, cmd_byte: int, payload_bytes: bytes = b""):
                 val2 = (byte_val >> (pair_idx * 2)) & 0x3
                 dut.spi_io0.value = val2 & 1
                 dut.spi_io1.value = (val2 >> 1) & 1
-                await FallingEdge(dut.clk)
-                dut.spi_sclk.value = 1
-                await RisingEdge(dut.clk)
-                dut.spi_sclk.value = 0
+                await sclk_pulse()
 
-    await ClockCycles(dut.clk, 4)
-    dut.spi_cs_n.value = 1
+    dut._log.info(f"  After payload: state={dut.u_spi_frontend.state.value} clk_pulse_cnt={int(dut.u_spi_frontend.clk_pulse_cnt.value)} rx_valid={dut.u_spi_frontend.o_tlp_rx_valid.value}")
+
     await ClockCycles(dut.clk, 10)
+    dut.spi_cs_n.value = 1
+    await ClockCycles(dut.clk, 20)
+
+async def read_dual_spi_burst(dut, cmd_byte: int = 0xA2, num_bytes: int = 64) -> bytes:
+    """Reads Dual-SPI SDR TLP burst from the FPGA DUT."""
+    dut.spi_cs_n.value = 0
+    await ClockCycles(dut.clk, 10)
+
+    async def sclk_pulse():
+        await ClockCycles(dut.clk, 2)
+        dut.spi_sclk.value = 1
+        await ClockCycles(dut.clk, 4)
+        dut.spi_sclk.value = 0
+        await ClockCycles(dut.clk, 2)
+
+    # 1. Send Command Byte (0xA2) over MOSI/IO0
+    for b in range(7, -1, -1):
+        dut.spi_io0.value = (cmd_byte >> b) & 1
+        dut.spi_io1.value = 0
+        await sclk_pulse()
+
+    # 2. Read 64-byte payload in Dual-SPI mode (2 bits per SCLK)
+    rx_bytes = bytearray()
+    for _ in range(num_bytes):
+        byte_val = 0
+        for _ in range(4):
+            # Sample on falling edge of SCLK
+            await ClockCycles(dut.clk, 2)
+            dut.spi_sclk.value = 1
+            await ClockCycles(dut.clk, 4)
+            # Sample outputs driven on falling edge
+            dut.spi_sclk.value = 0
+            await ClockCycles(dut.clk, 1)
+            b0 = int(dut.spi_io0_o.value)
+            b1 = int(dut.spi_io1_o.value)
+            byte_val = (byte_val << 2) | ((b1 << 1) | b0)
+            await ClockCycles(dut.clk, 1)
+        rx_bytes.append(byte_val)
+
+    await ClockCycles(dut.clk, 10)
+    dut.spi_cs_n.value = 1
+    await ClockCycles(dut.clk, 20)
+    return bytes(rx_bytes)
 
 
 @cocotb.test()
 async def test_inav_icm42688p_driver_sequence(dut):
     """End-to-End Testbench Mirroring iNav accgyro_icm42605.c Initialization Sequence."""
     # Start 100 MHz System Clock
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
 
     # Instantiate Python ICM-42688-P Sensor VIP matching iNav
     imu_vip = CocotbICM42688P(dut, default_odr_hz=1000)
@@ -122,8 +170,8 @@ async def test_inav_icm42688p_driver_sequence(dut):
     )
     await send_dual_spi_burst(dut, 0xA1, mem_wr_addr_tlp)
 
-    # Step 6: Enable FPGA IMU Auto-DMA (Write 0x00000001 to IMU_CTRL)
-    dut._log.info("[Step 6] Enabling FPGA Auto-DMA (writing 0x00000001 to IMU_CTRL)...")
+    # Step 6: Enable FPGA IMU Auto-DMA (Write 0x00000005 to IMU_CTRL: Bit 0=Enable, Bit 2=Active-High IRQ)
+    dut._log.info("[Step 6] Enabling FPGA Auto-DMA (writing 0x00000005 to IMU_CTRL)...")
     mem_wr_ctrl_tlp = pack_tlp(
         tlp_type=0x02,
         flags=0,
@@ -133,17 +181,47 @@ async def test_inav_icm42688p_driver_sequence(dut):
         len_dw=1,
         seq=2,
         ts=0,
-        payload=struct.pack(">I", 0x00000001),
+        payload=struct.pack(">I", 0x00000005),
     )
     await send_dual_spi_burst(dut, 0xA1, mem_wr_ctrl_tlp)
 
     # Step 7: Wait for iNav DRDY interrupt pulse & FPGA SPI acquisition
     dut._log.info("[Step 7] Waiting for iNav DRDY Interrupt pulse and FPGA SPI Master 14-byte read...")
+    dut._log.info(f"  Before DRDY: auto_dma_en={dut.u_imu_core.auto_dma_en.value} int_polarity={dut.u_imu_core.int_polarity.value} burst_addr=0x{int(dut.u_imu_core.burst_addr.value):02X}")
     await RisingEdge(dut.imu_int_i)
-    await ClockCycles(dut.clk, 2000)  # Allow FPGA SPI Master time to read 14 bytes from VIP
+    dut._log.info("  DRDY pulse detected! Waiting for FPGA SPI acquisition...")
+    # Wait for FPGA hardware SPI master to clock out 14 bytes and latch TLP into egress
+    for cycle in range(5000):
+        await RisingEdge(dut.clk)
+        if dut.o_int_req.value == 1:
+            dut._log.info(f"  o_int_req asserted after {cycle} clock cycles!")
+            break
+
+    dut._log.info(f"  After wait: imu_state={dut.u_imu_core.imu_state.value} tvalid={dut.u_imu_core.m_imu_stream_tvalid.value} egress_count={dut.u_spi_frontend.i_egress_count.value} o_int_req={dut.o_int_req.value}")
 
     # Step 8: Check Doorbell Interrupt (o_int_req) Output
     assert dut.o_int_req.value == 1, "Doorbell Interrupt (o_int_req) failed to assert on iNav Accel/Gyro TLP!"
     dut._log.info("[SUCCESS] o_int_req doorbell successfully asserted HIGH on 14-byte iNav Accel/Gyro TLP!")
+
+    # Step 9: Dual-SPI Burst Read of the Autonomous DMA_Stream TLP
+    dut._log.info("[Step 9] Reading 64-byte Telemetry TLP over Dual-SPI (CMD 0xA2)...")
+    rx_tlp_bytes = await read_dual_spi_burst(dut, cmd_byte=0xA2, num_bytes=64)
+    tlp_type, flags, tag, channel, addr, len_dw, seq, ts, payload, crc = unpack_tlp(rx_tlp_bytes)
+
+    dut._log.info(f"  Received TLP: Type=0x{tlp_type:02X} Channel=0x{channel:02X} Addr=0x{addr:08X} Len={len_dw}DW Seq={seq} TS={ts}ns")
+    assert tlp_type == 0x10, f"Expected Type=0x10 (DMA_Stream), got 0x{tlp_type:02X}"
+    assert channel == 0x02, f"Expected Channel=0x02 (TELEMETRY), got 0x{channel:02X}"
+    assert addr == 0x40000100, f"Expected Target Addr=0x40000100 (IMU BAR Base), got 0x{addr:08X}"
+
+    # Extract 14 bytes sensor telemetry
+    temp, ax, ay, az, gx, gy, gz = struct.unpack(">hhhhhhh", payload[:14])
+    dut._log.info(f"  Decoded IMU Data: Temp={temp} Accel=({ax},{ay},{az}) Gyro=({gx},{gy},{gz})")
+    assert (temp, ax, ay, az, gx, gy, gz) == (3312, 164, -82, 2048, 15, -22, 4), "Sensor payload mismatch!"
+    dut._log.info("[SUCCESS] 14-Byte IMU Telemetry payload perfectly verified against VIP readings!")
+
+    # Verify Doorbell deasserts after read-out
+    await ClockCycles(dut.clk, 20)
+    assert dut.o_int_req.value == 0, "Doorbell Interrupt (o_int_req) should deassert after TLP is read!"
+    dut._log.info("[SUCCESS] o_int_req doorbell automatically deasserted after TLP readout!")
 
     dut._log.info("ALL INAV ICM-42688-P DRIVER COCOTB VERIFICATION TESTS PASSED SUCCESSFULLY!")

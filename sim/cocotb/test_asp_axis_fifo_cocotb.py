@@ -16,7 +16,7 @@ async def reset(dut):
 @cocotb.test()
 async def test_axis_fifo_torture(dut):
     """ Validates AbstractX Constraints using generic Tester framework """
-    cocotb.start_soon(Clock(dut.clk, 10, units="ns").start())
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
     
     dut._log.info("Starting AbstractX Hostile Environment Test on generic FIFO")
