@@ -24,5 +24,22 @@ All AXI-Stream modules claiming AbstractX compatibility MUST pass a strict valid
 - **Framing Integrity:** The testbench MUST computationally validate that `tlast` perfectly matches the boundary of the transaction without slipping cycles or firing early.
 - **AXIS Rule Compliance:** Testbenches must verify that modules do not create combinatorial loops (e.g., `tvalid` waiting on `tready`, or `tready` directly driving incoming `tvalid`).
 
-## 4. IP Boundaries
+## 5. IP Boundaries
 - **Dual-License Rules:** You must not copy/paste aggressively licensed open source code into `asp_` components without verifying compliance with our Dual-License (Open Source + Commercial) model.
+
+## 6. C++20 Freestanding Header Rules
+All headers under `include/` MUST remain freestanding-compatible for MCU targets:
+- **Prohibited includes:** `<mutex>`, `<thread>`, `<condition_variable>`, `<iostream>`, `<vector>`, `<list>`, `<map>`, `<queue>`.
+- **Permitted includes:** `<coroutine>`, `<atomic>`, `<array>`, `<optional>`, `<variant>`, `<tuple>`, `<cstdint>`, `<cstddef>`, `<utility>`.
+- **Dynamic allocation:** `operator new` / `malloc` are only permitted inside static pool overrides (`operator new(size_t)` returning from a fixed pool). Direct heap use in core headers is REJECTED.
+
+## 7. SPSC Queue Sizing Rules
+- Minimum SPSC ring capacity: `max_in_flight_transactions * 2` slots (never less than 8).
+- Capacity MUST be a power of 2 (enforced by `static_assert` in `SpscRingBuffer`).
+- Channel arrays MUST have one dedicated ring per producer (one per ISR / worker thread).
+
+## 8. Endianness Convention
+- **ASP wire protocol:** Big-Endian for all multi-byte header fields.
+- **C/C++ structs in `include/`:** Native endianness (host byte order).
+- **Requirement:** Any code that serializes a struct to the wire or deserializes from wire bytes MUST include explicit byte-swap operations or a compile-time `static_assert` confirming the target is Big-Endian.
+- **Forbidden:** Relying on `memcpy` of native structs into SPI TX buffers without a byte-swap layer.

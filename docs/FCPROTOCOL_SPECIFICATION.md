@@ -42,7 +42,7 @@ Unlike legacy serial packet protocols with variable-length headers and byte-stuf
 | `0x40000010` | `REG_SYS_TIME_LOW` | RO | Counter | **Master Nanosecond Timestamp [31:0]** (latches high bits) |
 | `0x40000014` | `REG_SYS_TIME_HIGH` | RO | Counter | **Atomic Shadow Timestamp High [63:32]** |
 
-### 2.2 Motor Control Core (`0x400000200..0x40000210`)
+### 2.2 Motor Control Core (`0x40000200..0x40000210`)
 
 | Address | Register | Type | Description |
 |---|---|---|---|
@@ -98,9 +98,17 @@ extern void     pcie_reg_write32(uint32_t addr, uint32_t val);
 
 // High-Level Flight Controller API
 static inline uint64_t pcie_get_timestamp_ns(void) {
-    uint32_t low  = pcie_reg_read32(REG_SYS_TIME_LOW);
-    uint32_t high = pcie_reg_read32(REG_SYS_TIME_HIGH);
-    return ((uint64_t)high << 32) | low;
+    // Safe 64-bit atomic read pattern across two 32-bit SPI register reads.
+    // REG_SYS_TIME_LOW latches the HIGH shadow register on read, but two
+    // separate ioctl() SPI transactions can straddle a rollover on Linux.
+    // The read-high / read-low / verify-high loop handles that correctly:
+    uint32_t hi1, lo, hi2;
+    do {
+        hi1 = pcie_reg_read32(REG_SYS_TIME_HIGH);
+        lo  = pcie_reg_read32(REG_SYS_TIME_LOW);
+        hi2 = pcie_reg_read32(REG_SYS_TIME_HIGH);
+    } while (hi1 != hi2); /* Retry if nanosecond counter rolled over between reads */
+    return ((uint64_t)hi1 << 32) | lo;
 }
 
 static inline void pcie_set_motor_throttle(uint8_t ch, uint16_t val) {

@@ -1,10 +1,13 @@
 # AbstractX Software Execution Environments & Deployment Architecture
 
+> **See also:** [`ABSTRACTX_DESIGN_GOALS.md`](ABSTRACTX_DESIGN_GOALS.md) — the authoritative design goals and implemented-vs-roadmap status.
+
 ## 1. Overview & Core Vision
 
-AbstractX unifies real-time embedded I/O across **three foundational software execution environments**. 
+AbstractX unifies real-time embedded I/O across **three foundational software execution environments**.
 
-Crucially, **the top-level application software (written in C++20 Stackless Coroutines with `co_await`, `when_all`, and `when_any`) is 100% IDENTICAL across all three environments**. Only the underlying hardware/driver dispatch mechanism changes.
+Crucially, **the top-level application software (written in C++20 Stackless Coroutines with `co_await`, `when_all`, and `when_any`) is portable across all three environments with the same API**. The underlying hardware/driver dispatch mechanism, frame pool allocator, and transport layer are platform-specific — but the application code above them does not change.
+
 
 ```
 ┌───────────────────────────────────────────────────────────────────────────────────┐
