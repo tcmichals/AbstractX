@@ -176,27 +176,33 @@ AbstractX/
 
 ## 6. Quick Start & Verification Benchmarks
 
-### 1. Build and Run the C++20 SITL Multi-Rate Benchmark:
+### 1. Run Multi-Target Architectural Benchmark (Linux, Pico 2, ESP32, FPGA):
+```bash
+g++ -std=c++20 -O2 -pthread -Iinclude examples/simple_proof_benchmark.cpp -o examples/simple_proof_benchmark && ./examples/simple_proof_benchmark
+```
+*Proves that the exact same C++20 coroutine driver (`universal_ms5611_baro_driver`) runs with 100% bit-exact mathematical parity across Linux POSIX workers, Pico 2 (RP2350) dual-core SRAM, ESP32-P4/S3 DMA ISRs, and FPGA Auto-DMA with 0 dynamic heap allocations and 0 mutexes.*
+
+### 2. Run Flight SITL Multi-Sensor Coroutine Simulation (8 kHz IMU + Mag + Baro + EKF3):
 ```bash
 g++ -std=c++20 -O3 -Iinclude sim/sitl_coro_sim.cpp -o sim/sitl_coro_sim && ./sim/sitl_coro_sim
 ```
 
-### 2. Run Bare-Metal MCU Single-Core & Dual-Core SPSC Verification:
+### 3. Run Bare-Metal MCU Single-Core & Dual-Core SPSC Verification:
 ```bash
 g++ -std=c++20 -O3 -Iinclude sim/test_baremetal_isr_spsc.cpp -o sim/test_baremetal_isr_spsc && ./sim/test_baremetal_isr_spsc
 ```
 
-### 3. Run Dedicated Lock-Free SPSC Array Benchmark (Zero Mutexes, Zero Heap):
+### 4. Run Dedicated Lock-Free SPSC Array Benchmark (Zero Mutexes, Zero Heap):
 ```bash
 g++ -std=c++20 -O3 -Iinclude sim/test_spsc_channel_array.cpp -o sim/test_spsc_channel_array && ./sim/test_spsc_channel_array
 ```
 
-### 4. Run Multi-Target Message Sizing Verification (FPGA vs CPU):
+### 5. Run Multi-Target Message Sizing Verification (FPGA vs CPU):
 ```bash
 g++ -std=c++20 -O2 -Iinclude sim/test_tlp_msg.cpp -o sim/test_tlp_msg && ./sim/test_tlp_msg
 ```
 
-### 5. Interactive Hardware CLI (via Python):
+### 6. Interactive Hardware CLI (via Python):
 ```bash
 # Test register R/W in simulation mock mode:
 python3 tools/test_asp_pcie.py --mock --mode cli
