@@ -13,8 +13,8 @@
  * 6. Fault & Timeout handling for hardware robustness.
  */
 
+#include "abstractx/coro.hpp"
 #include "asp_tlp_msg.hpp"
-#include <coroutine>
 #include <iostream>
 #include <array>
 #include <thread>
@@ -27,6 +27,7 @@
 #include <optional>
 
 using namespace abstractx;
+using namespace abstractx::coro;
 
 // ============================================================================
 // 1. DATA STRUCTURES & ERROR / STATUS CODES
@@ -96,56 +97,6 @@ private:
     std::atomic<size_t> head_{0};
     std::atomic<size_t> tail_{0};
     std::mutex mtx_{};
-};
-
-// ============================================================================
-// 3. ZERO-ALLOCATION COROUTINE FRAME POOL & TASK
-// ============================================================================
-// Fixed pre-allocated static buffer for coroutine frames (Embedded / Flight safe)
-alignas(64) static uint8_t g_coro_frame_pool[4096];
-static std::atomic<size_t> g_frame_pool_offset{0};
-
-struct Task {
-    struct promise_type {
-        Task get_return_object() noexcept {
-            return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
-        }
-        static Task get_return_object_on_allocation_failure() noexcept {
-            return Task{nullptr};
-        }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-        std::suspend_always final_suspend() noexcept { return {}; }
-        void return_void() noexcept {}
-        void unhandled_exception() noexcept { std::terminate(); }
-
-        // Embedded static frame allocation - zero heap / malloc calls!
-        void* operator new(std::size_t size) noexcept {
-            size_t offset = g_frame_pool_offset.fetch_add((size + 63) & ~63);
-            if (offset + size > sizeof(g_coro_frame_pool)) {
-                return nullptr; // Out of static frame pool memory
-            }
-            return &g_coro_frame_pool[offset];
-        }
-
-        void operator delete(void*, std::size_t) noexcept {
-            // Static pool reclaimed at system reset / end of cycle
-        }
-    };
-
-    std::coroutine_handle<promise_type> handle{nullptr};
-    explicit Task(std::coroutine_handle<promise_type> h) noexcept : handle(h) {}
-    Task(Task&& other) noexcept : handle(other.handle) { other.handle = nullptr; }
-    Task& operator=(Task&& other) noexcept {
-        if (this != &other) {
-            if (handle) handle.destroy();
-            handle = other.handle;
-            other.handle = nullptr;
-        }
-        return *this;
-    }
-    ~Task() {
-        if (handle) handle.destroy();
-    }
 };
 
 // ============================================================================
@@ -273,7 +224,7 @@ struct DeviceAwaiter {
 // ============================================================================
 // 7. MAIN FLIGHT & CONTROL COROUTINE
 // ============================================================================
-Task run_async_control_loop(std::atomic<int>& success_count, std::atomic<int>& error_count) {
+Task<void> run_async_control_loop(std::atomic<int>& success_count, std::atomic<int>& error_count) {
     std::cout << "[Core Pipeline] Starting async control task...\n";
 
     for (int iter = 0; iter < 2; ++iter) {
@@ -353,8 +304,8 @@ int main() {
     g_audit_active = true;
 
     // Instantiate task using static frame pool
-    Task control_task = run_async_control_loop(success_count, error_count);
-    control_task.handle.resume(); // Advance to initial suspension point
+    Task<void> control_task = run_async_control_loop(success_count, error_count);
+    control_task.resume(); // Advance to initial suspension point
 
     // Single-threaded main reactor event loop
     int processed_events = 0;

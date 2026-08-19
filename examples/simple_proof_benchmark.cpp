@@ -20,6 +20,7 @@
  * 4. FPGA Hardware Offload (Gowin Tang 9K/20K: Autonomous Hardware Auto-DMA)
  */
 
+#include "abstractx/coro.hpp"
 #include "spsc_tlp_ring.hpp"
 #include "asp_tlp64.hpp"
 
@@ -31,11 +32,9 @@
 #include <atomic>
 #include <cmath>
 #include <numeric>
-#include <optional>
-#include <utility>
-#include <coroutine>
 
 using namespace abstractx;
+using namespace abstractx::coro;
 
 // =============================================================================
 // Heap Allocation Tracker (Verifies 0 Dynamic Bytes in Coroutine Path)
@@ -80,151 +79,6 @@ static float calculate_ms5611_altitude(uint32_t d1_press, uint32_t d2_temp) noex
 }
 
 // =============================================================================
-// AbstractX Static Frame Pool (Freestanding MCU Safe / 0 Dynamic Heap)
-// =============================================================================
-alignas(64) static uint8_t g_coro_frame_pool[64 * 1024];
-static std::atomic<size_t> g_pool_offset{0};
-
-template <typename T = void>
-class McuTask {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::optional<T> result_{};
-        std::coroutine_handle<> continuation_{nullptr};
-
-        McuTask get_return_object() noexcept {
-            return McuTask{handle_type::from_promise(*this)};
-        }
-
-        static McuTask get_return_object_on_allocation_failure() noexcept {
-            return McuTask{nullptr};
-        }
-
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto continuation = h.promise().continuation_;
-                if (continuation) return continuation;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_value(T val) noexcept { result_ = val; }
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit McuTask(handle_type h) noexcept : handle_(h) {}
-    ~McuTask() {
-        if (handle_) handle_.destroy();
-    }
-
-    McuTask(const McuTask&) = delete;
-    McuTask& operator=(const McuTask&) = delete;
-    McuTask(McuTask&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-template <>
-class McuTask<void> {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::coroutine_handle<> continuation_{nullptr};
-
-        McuTask get_return_object() noexcept {
-            return McuTask{handle_type::from_promise(*this)};
-        }
-
-        static McuTask get_return_object_on_allocation_failure() noexcept {
-            return McuTask{nullptr};
-        }
-
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto continuation = h.promise().continuation_;
-                if (continuation) return continuation;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_void() noexcept {}
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_frame_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_frame_pool;
-            }
-            return &g_coro_frame_pool[old_offset];
-        }
-
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit McuTask(handle_type h) noexcept : handle_(h) {}
-    ~McuTask() {
-        if (handle_) handle_.destroy();
-    }
-
-    McuTask(const McuTask&) = delete;
-    McuTask& operator=(const McuTask&) = delete;
-    McuTask(McuTask&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-// =============================================================================
 // Flight Execution Statistics
 // =============================================================================
 struct TargetResult {
@@ -258,29 +112,10 @@ struct TlpBusAwaiter {
     uint32_t await_resume() const noexcept { return 0; }
 };
 
-// Asynchronous Hardware Timer Awaiter (0 CPU Polling)
-struct AsyncTimerAwaiter {
-    uint64_t resume_at_us_{0};
-    uint64_t current_time_us_{0};
-    uint64_t* next_timer_reg_{nullptr};
-
-    bool await_ready() const noexcept {
-        return current_time_us_ >= resume_at_us_;
-    }
-
-    void await_suspend(std::coroutine_handle<>) noexcept {
-        if (next_timer_reg_) {
-            *next_timer_reg_ = resume_at_us_;
-        }
-    }
-
-    void await_resume() noexcept {}
-};
-
 // =============================================================================
 // UNIVERSAL DRIVER: The Exact Same C++20 Coroutine Function on ALL Platforms!
 // =============================================================================
-McuTask<void> universal_ms5611_baro_driver(
+Task<void> universal_ms5611_baro_driver(
     SpscTlpRing<64>& tx,
     TargetResult& result,
     uint64_t& sim_time_us,
@@ -293,20 +128,20 @@ McuTask<void> universal_ms5611_baro_driver(
         in_conversion = true;
         
         // 2. Yield for 9,040 us (physical sensor silicon ADC delay) - 0 CPU POLLING!
-        co_await AsyncTimerAwaiter{sim_time_us + 9040, sim_time_us, &timer_reg};
+        co_await AsyncSleepAwaiter{sim_time_us + 9040, sim_time_us, &timer_reg};
 
         // 3. Dispatch 64B TLP to read 24-bit Pressure D1 (100 us bus transfer)
-        co_await AsyncTimerAwaiter{sim_time_us + 100, sim_time_us, &timer_reg};
+        co_await AsyncSleepAwaiter{sim_time_us + 100, sim_time_us, &timer_reg};
         uint32_t d1 = 9085466;
 
         // 4. Dispatch 64B TLP to initiate 24-bit Temperature Conversion (0x58)
         co_await TlpBusAwaiter{tx, 0x40000400, 0x58, 2};
 
         // 5. Yield for 9,040 us (physical sensor silicon ADC delay)
-        co_await AsyncTimerAwaiter{sim_time_us + 9040, sim_time_us, &timer_reg};
+        co_await AsyncSleepAwaiter{sim_time_us + 9040, sim_time_us, &timer_reg};
 
         // 6. Dispatch 64B TLP to read 24-bit Temperature D2 (100 us bus transfer)
-        co_await AsyncTimerAwaiter{sim_time_us + 100, sim_time_us, &timer_reg};
+        co_await AsyncSleepAwaiter{sim_time_us + 100, sim_time_us, &timer_reg};
         uint32_t d2 = 8569124;
 
         // 7. Calculate calibrated altitude and update state
@@ -315,7 +150,7 @@ McuTask<void> universal_ms5611_baro_driver(
         in_conversion = false;
 
         // Sleep 2 ms before next baro cycle
-        co_await AsyncTimerAwaiter{sim_time_us + 2000, sim_time_us, &timer_reg};
+        co_await AsyncSleepAwaiter{sim_time_us + 2000, sim_time_us, &timer_reg};
     }
 }
 
@@ -388,7 +223,7 @@ TargetResult execute_platform_benchmark(
     bool in_baro_conversion = false;
 
     // Launch Universal C++20 Coroutine Driver
-    McuTask<void> baro_task = universal_ms5611_baro_driver(
+    Task<void> baro_task = universal_ms5611_baro_driver(
         host_tx_ring, res, current_time_us, timer_comparator_reg, in_baro_conversion
     );
     baro_task.resume();

@@ -52,50 +52,10 @@ struct IsrHandoffEvent {
 // Global Lock-Free SPSC Array in Shared SRAM (Zero Mutexes, Zero OS Dependencies)
 static SpscChannelArray<IsrHandoffEvent, 4, 16> g_mcu_spsc_channels;
 
-// ============================================================================
-// 2. STATIC EMBEDDED COROUTINE PROMISE & TASK (No Heap / Malloc)
-// ============================================================================
-alignas(64) static uint8_t g_mcu_coro_frame_pool[2048];
-// Atomic so that dual-core MCUs (RP2350, ESP32-P4) can safely allocate
-// frames from both cores without a data race.
-static std::atomic<size_t> g_mcu_pool_offset{0};
+#include "abstractx/coro.hpp"
 
-struct McuTask {
-    struct promise_type {
-        McuTask get_return_object() noexcept {
-            return McuTask{std::coroutine_handle<promise_type>::from_promise(*this)};
-        }
-        static McuTask get_return_object_on_allocation_failure() noexcept {
-            return McuTask{nullptr};
-        }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-        std::suspend_always final_suspend() noexcept { return {}; }
-        void return_void() noexcept {}
-        void unhandled_exception() noexcept { while(1); /* Embedded trap */ }
-
-        void* operator new(std::size_t size) noexcept {
-            // Align to 64-byte cache line boundary.
-            const size_t align_mask = 63;
-            size_t old_offset = g_mcu_pool_offset.load(std::memory_order_relaxed);
-            size_t aligned, new_offset;
-            do {
-                aligned   = (old_offset + align_mask) & ~align_mask;
-                new_offset = aligned + size;
-                // Bounds check BEFORE committing the allocation.
-                if (new_offset > sizeof(g_mcu_coro_frame_pool)) return nullptr;
-            } while (!g_mcu_pool_offset.compare_exchange_weak(
-                         old_offset, new_offset,
-                         std::memory_order_release,
-                         std::memory_order_relaxed));
-            return &g_mcu_coro_frame_pool[aligned];
-        }
-        void operator delete(void*, std::size_t) noexcept {}
-    };
-
-    std::coroutine_handle<promise_type> handle{nullptr};
-    explicit McuTask(std::coroutine_handle<promise_type> h) noexcept : handle(h) {}
-    ~McuTask() { if (handle) handle.destroy(); }
-};
+using namespace abstractx;
+using namespace abstractx::coro;
 
 // ============================================================================
 // 3. HARDWARE DMA / SENSOR AWAITER
@@ -148,7 +108,7 @@ void simulated_dma_transfer_complete_isr(ChannelId ch, std::coroutine_handle<> h
 // ============================================================================
 // 5. EMBEDDED FLIGHT / SENSOR CONTROL COROUTINE
 // ============================================================================
-McuTask run_mcu_control_loop(uint32_t& processed_count) {
+Task<void> run_mcu_control_loop(uint32_t& processed_count) {
     for (int i = 0; i < 2; ++i) {
         // Awaiters are LOCAL variables on the coroutine frame (not static globals).
         // HALO keeps them alive across suspension points without heap allocation.
@@ -186,8 +146,8 @@ int main() {
 
     // 1. Start coroutine. It advances to the first co_await (IMU awaiter).
     //    await_suspend() pushes a registration event into the IMU SPSC channel.
-    McuTask flight_task = run_mcu_control_loop(processed_count);
-    flight_task.handle.resume();
+    Task<void> flight_task = run_mcu_control_loop(processed_count);
+    flight_task.resume();
 
     // Helper: simulate hardware completing I/O and posting result into SPSC.
     auto simulate_isr = [](ChannelId ch, uint32_t raw_val) {
