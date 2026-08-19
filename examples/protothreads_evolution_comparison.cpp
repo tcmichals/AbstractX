@@ -7,25 +7,20 @@
  * Demonstrates how AbstractX C++20 Coroutines are the modern, type-safe,
  * compiler-guaranteed realization of Adam Dunkels' 2005 "Protothreads" concept.
  *
- * Modular Organization:
- * 1. run_classic_protothreads_demonstration() : Isolated execution of 2005 C Protothreads
- * 2. run_modern_cpp20_coroutines_demonstration(): Isolated execution of AbstractX C++20 Coroutines
- * 3. main()                                  : Master orchestrator & comparative reporting
+ * Uses the official AbstractX coroutine engine (include/asp_coro.hpp).
  */
 
+#include "asp_coro.hpp"
 #include "spsc_tlp_ring.hpp"
 #include "asp_tlp64.hpp"
 
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#include <atomic>
-#include <coroutine>
-#include <optional>
-#include <utility>
 #include <vector>
 
 using namespace abstractx;
+using namespace abstractx::coro;
 
 // =============================================================================
 // 1. CLASSIC C PROTOTHREADS ENGINE (Adam Dunkels' 2005 Macro System)
@@ -69,7 +64,6 @@ int run_classic_protothread_step(ClassicProtothreadContext* ctx, uint64_t curren
     PT_END(&ctx->pt_state);
 }
 
-// Isolated function demonstrating the classic C Protothreads workflow
 double run_classic_protothreads_demonstration() {
     std::cout << "------------------------------------------------------------------------------------\n";
     std::cout << " [1] EXECUTING CLASSIC C PROTOTHREADS (2005 Duff's Device Macros)\n";
@@ -108,141 +102,10 @@ double run_classic_protothreads_demonstration() {
 }
 
 // =============================================================================
-// 2. ABSTRACTX C++20 STACKLESS COROUTINES ENGINE (Modern Protothreads Evolution)
+// 2. ABSTRACTX C++20 STACKLESS COROUTINES ENGINE (Using standard asp_coro.hpp)
 // =============================================================================
-alignas(64) static uint8_t g_coro_pool[32 * 1024];
-static std::atomic<size_t> g_pool_offset{0};
 
-template <typename T = void>
-class CoroTask {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::optional<T> result_{};
-        std::coroutine_handle<> continuation_{nullptr};
-
-        CoroTask get_return_object() noexcept { return CoroTask{handle_type::from_promise(*this)}; }
-        static CoroTask get_return_object_on_allocation_failure() noexcept { return CoroTask{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_value(T val) noexcept { result_ = val; }
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_pool;
-            }
-            return &g_coro_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit CoroTask(handle_type h) noexcept : handle_(h) {}
-    ~CoroTask() { if (handle_) handle_.destroy(); }
-    CoroTask(CoroTask&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-template <>
-class CoroTask<void> {
-public:
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-
-    struct promise_type {
-        std::coroutine_handle<> continuation_{nullptr};
-
-        CoroTask get_return_object() noexcept { return CoroTask{handle_type::from_promise(*this)}; }
-        static CoroTask get_return_object_on_allocation_failure() noexcept { return CoroTask{nullptr}; }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-
-        struct FinalAwaiter {
-            bool await_ready() noexcept { return false; }
-            std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                auto c = h.promise().continuation_;
-                if (c) return c;
-                return std::noop_coroutine();
-            }
-            void await_resume() noexcept {}
-        };
-
-        FinalAwaiter final_suspend() noexcept { return {}; }
-        void unhandled_exception() noexcept {}
-        void return_void() noexcept {}
-
-        static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_pool)) {
-                g_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_pool;
-            }
-            return &g_coro_pool[old_offset];
-        }
-        static void operator delete(void*, size_t) noexcept {}
-    };
-
-    explicit CoroTask(handle_type h) noexcept : handle_(h) {}
-    ~CoroTask() { if (handle_) handle_.destroy(); }
-    CoroTask(CoroTask&& o) noexcept : handle_(std::exchange(o.handle_, nullptr)) {}
-
-    bool resume() {
-        if (handle_ && !handle_.done()) {
-            handle_.resume();
-            return !handle_.done();
-        }
-        return false;
-    }
-
-    bool is_ready() const noexcept { return !handle_ || handle_.done(); }
-
-private:
-    handle_type handle_{nullptr};
-};
-
-struct CoroTimerAwaiter {
-    uint64_t resume_at_us_{0};
-    uint64_t current_time_us_{0};
-    uint64_t* timer_comparator_{nullptr};
-
-    bool await_ready() const noexcept { return current_time_us_ >= resume_at_us_; }
-    void await_suspend(std::coroutine_handle<>) noexcept {
-        if (timer_comparator_) *timer_comparator_ = resume_at_us_;
-    }
-    void await_resume() noexcept {}
-};
-
-// Modern C++20 Coroutine Task:
-// Full local variable preservation across yields! Zero macros! Type safe!
-CoroTask<void> modern_coroutine_worker(
+Task<void> modern_coroutine_worker(
     uint32_t instance_id,
     uint64_t& current_time_us,
     uint64_t& timer_reg,
@@ -251,17 +114,16 @@ CoroTask<void> modern_coroutine_worker(
     // Local variable 'step' is NATURALLY preserved by compiler across yields!
     for (uint32_t step = 0; step < 3; ++step) {
         // Suspend for 100 us asynchronously
-        co_await CoroTimerAwaiter{current_time_us + 100, current_time_us, &timer_reg};
+        co_await AsyncSleepAwaiter{current_time_us + 100, current_time_us, &timer_reg};
     }
     completed_count++;
 }
 
-// Isolated function demonstrating the modern AbstractX C++20 Coroutines workflow
 double run_modern_cpp20_coroutines_demonstration() {
     std::cout << "------------------------------------------------------------------------------------\n";
-    std::cout << " [2] EXECUTING ABSTRACTX C++20 COROUTINES (Native Compiler Frame Graph)\n";
+    std::cout << " [2] EXECUTING ABSTRACTX C++20 COROUTINES (Native Compiler Frame Graph via asp_coro.hpp)\n";
     std::cout << "------------------------------------------------------------------------------------\n";
-    std::cout << " - Architecture : Native C++20 stackless coroutine (co_await)\n";
+    std::cout << " - Architecture : Native C++20 stackless coroutine (Task<void>, co_await)\n";
     std::cout << " - Context State: Automatic static frame allocation (0 B dynamic heap)\n";
     std::cout << " - Task Count   : 10 concurrent coroutines\n";
 
@@ -269,7 +131,7 @@ double run_modern_cpp20_coroutines_demonstration() {
     uint64_t coro_timer_reg = 0;
     uint32_t coro_completed_count = 0;
 
-    std::vector<CoroTask<void>> coro_tasks;
+    std::vector<Task<void>> coro_tasks;
     coro_tasks.reserve(10);
     for (uint32_t i = 0; i < 10; ++i) {
         coro_tasks.push_back(modern_coroutine_worker(i, coro_sim_time, coro_timer_reg, coro_completed_count));
