@@ -17,6 +17,12 @@ results.xml
 *.lst
 waveform.vcd
 sim/test_asp_top_sim
+sim/sitl_coro_sim
+sim/test_baremetal_isr_spsc
+sim/test_coro_combinators
+sim/test_halo_worker_pool
+sim/test_spsc_channel_array
+sim/test_tlp_msg
 
 
 # Tool artifacts
