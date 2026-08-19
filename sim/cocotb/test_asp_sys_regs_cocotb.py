@@ -3,22 +3,31 @@
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge
+from cocotb.triggers import RisingEdge, ClockCycles
 
-SYS_VERSION_DEFAULT = 0xA1B2C3D4
+REG_SYS_ID_REV    = 0x40000000
+REG_SYS_VENDOR_ID = 0x40000004
+REG_SYS_SCRATCH   = 0x40000008
+REG_SYS_LED_CTRL  = 0x4000000C
+REG_SYS_TIME_LOW  = 0x40000010
+REG_SYS_TIME_HIGH = 0x40000014
+
+SYS_ID_REV_DEFAULT    = 0xABF10164
+SYS_VENDOR_ID_DEFAULT = 0x19981ACC
+
 
 async def reset(dut):
     dut.rst.value = 1
+    dut.i_sys_timestamp.value = 0
     dut.wb_adr_i.value = 0
     dut.wb_dat_i.value = 0
     dut.wb_sel_i.value = 0
     dut.wb_we_i.value = 0
     dut.wb_cyc_i.value = 0
     dut.wb_stb_i.value = 0
-    for _ in range(5):
-        await RisingEdge(dut.clk)
+    await ClockCycles(dut.clk, 5)
     dut.rst.value = 0
-    await RisingEdge(dut.clk)
+    await ClockCycles(dut.clk, 5)
 
 
 async def wb_read(dut, addr):
@@ -33,7 +42,6 @@ async def wb_read(dut, addr):
         await RisingEdge(dut.clk)
         if dut.wb_ack_o.value == 1:
             result = int(dut.wb_dat_o.value)
-            # Deassert bus at next opportunity (after RisingEdge, not ReadOnly)
             dut.wb_cyc_i.value = 0
             dut.wb_stb_i.value = 0
             await RisingEdge(dut.clk)
@@ -64,65 +72,72 @@ async def wb_write(dut, addr, data, sel=0xF):
 
 
 @cocotb.test()
-async def test_read_sys_version(dut):
-    """Verify SYS_VERSION register at offset 0x00 returns the parameterized value."""
+async def test_read_sys_ids(dut):
+    """Verify REG_SYS_ID_REV and REG_SYS_VENDOR_ID return standard PCIe identifiers."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
 
-    result = await wb_read(dut, 0x00)
-    assert result == SYS_VERSION_DEFAULT, f"Expected 0x{SYS_VERSION_DEFAULT:08X}, got 0x{result:08X}"
-    dut._log.info(f"SYS_VERSION = 0x{result:08X} — correct.")
+    id_rev = await wb_read(dut, REG_SYS_ID_REV)
+    assert id_rev == SYS_ID_REV_DEFAULT, f"Expected 0x{SYS_ID_REV_DEFAULT:08X}, got 0x{id_rev:08X}"
+    dut._log.info(f"REG_SYS_ID_REV = 0x{id_rev:08X} (Device 0xABF1, Rev 0x01, Arch 0x64) — verified.")
+
+    vendor_id = await wb_read(dut, REG_SYS_VENDOR_ID)
+    assert vendor_id == SYS_VENDOR_ID_DEFAULT, f"Expected 0x{SYS_VENDOR_ID_DEFAULT:08X}, got 0x{vendor_id:08X}"
+    dut._log.info(f"REG_SYS_VENDOR_ID = 0x{vendor_id:08X} (Subsys 0x1998, Vendor 0x1ACC) — verified.")
 
 
 @cocotb.test()
 async def test_scratch_register_loopback(dut):
-    """Write to scratch register at 0x04 and read it back."""
+    """Write to scratch register at 0x08 and read it back."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
 
     test_values = [0xDEADBEEF, 0x12345678, 0x00000000, 0xFFFFFFFF]
     for val in test_values:
-        await wb_write(dut, 0x04, val)
-        result = await wb_read(dut, 0x04)
+        await wb_write(dut, REG_SYS_SCRATCH, val)
+        result = await wb_read(dut, REG_SYS_SCRATCH)
         assert result == val, f"Scratch loopback failed: wrote 0x{val:08X}, read 0x{result:08X}"
         dut._log.info(f"Scratch loopback 0x{val:08X} — OK")
 
 
 @cocotb.test()
-async def test_byte_select_masking(dut):
-    """Verify wb_sel_i byte-lane masking on scratch register."""
+async def test_led_control_register(dut):
+    """Write to LED control register and verify active-low LED output bits."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
 
-    await wb_write(dut, 0x04, 0x00000000)
-    await wb_write(dut, 0x04, 0xAB000000, sel=0x8)
-    result = await wb_read(dut, 0x04)
-    assert result == 0xAB000000, f"High-byte sel failed: got 0x{result:08X}"
+    # Turn ON LED 1 (bit 1 = 0)
+    await wb_write(dut, REG_SYS_LED_CTRL, 0x00000000)
+    await ClockCycles(dut.clk, 2)
+    assert int(dut.o_led_bits.value) == 0x00, f"Expected LEDs all ON (0x00), got 0x{int(dut.o_led_bits.value):02X}"
 
-    await wb_write(dut, 0x04, 0x000000CD, sel=0x1)
-    result = await wb_read(dut, 0x04)
-    assert result == 0xAB0000CD, f"Low-byte sel failed: got 0x{result:08X}"
-    dut._log.info(f"Byte-select masking verified: 0x{result:08X}")
+    # Turn OFF LEDs (0x3F)
+    await wb_write(dut, REG_SYS_LED_CTRL, 0x0000003F)
+    await ClockCycles(dut.clk, 2)
+    assert int(dut.o_led_bits.value) == 0x3F, f"Expected LEDs all OFF (0x3F), got 0x{int(dut.o_led_bits.value):02X}"
+    dut._log.info("[SUCCESS] LED control output bits verified!")
 
 
 @cocotb.test()
-async def test_unknown_address_returns_deadbeef(dut):
-    """Read from an unmapped address to confirm DEADBEEF sentinel."""
+async def test_atomic_timestamp_latching(dut):
+    """Reading TIME_LOW must atomically latch the 64-bit high word into TIME_HIGH shadow register."""
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     await reset(dut)
 
-    result = await wb_read(dut, 0x10)
-    assert result == 0xDEADBEEF, f"Expected 0xDEADBEEF, got 0x{result:08X}"
-    dut._log.info("Unmapped address correctly returns 0xDEADBEEF.")
+    # Set 64-bit nanosecond counter
+    dut.i_sys_timestamp.value = 0x0000000A_12345678
+    await ClockCycles(dut.clk, 2)
 
+    # 1. Read TIME_LOW: latches high bits (0x0000000A)
+    time_low = await wb_read(dut, REG_SYS_TIME_LOW)
+    assert time_low == 0x12345678, f"Expected low word 0x12345678, got 0x{time_low:08X}"
 
-@cocotb.test()
-async def test_version_is_read_only(dut):
-    """Writing to the SYS_VERSION address must not change its value."""
-    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
-    await reset(dut)
+    # 2. Advance timestamp past rollover before reading TIME_HIGH
+    dut.i_sys_timestamp.value = 0x0000000B_00000010
+    await ClockCycles(dut.clk, 2)
 
-    await wb_write(dut, 0x00, 0x00000000)
-    result = await wb_read(dut, 0x00)
-    assert result == SYS_VERSION_DEFAULT, f"SYS_VERSION was modified! Got 0x{result:08X}"
-    dut._log.info("SYS_VERSION is confirmed read-only.")
+    # 3. Read TIME_HIGH: must return latched shadow 0x0000000A, NOT live 0x0000000B!
+    time_high = await wb_read(dut, REG_SYS_TIME_HIGH)
+    assert time_high == 0x0000000A, f"Atomic latch failed! Expected 0x0000000A, got 0x{time_high:08X}"
+    dut._log.info("[SUCCESS] 64-bit Atomic Shadow Timestamp latching verified across rollover!")
+

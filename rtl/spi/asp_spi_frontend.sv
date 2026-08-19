@@ -21,8 +21,17 @@ module asp_spi_frontend #(
     // Physical SPI / Dual-SPI Pins
     input  wire        i_sclk,
     input  wire        i_cs_n,
+`ifdef VERILATOR
+    input  wire        io_sdio0, // MOSI in Single-SPI / IO0 in Dual-SPI
+    input  wire        io_sdio1, // MISO in Single-SPI / IO1 in Dual-SPI
+    output wire        io_sdio0_o,
+    output wire        io_sdio1_o,
+    output wire        io_sdio0_oe,
+    output wire        io_sdio1_oe,
+`else
     inout  wire        io_sdio0, // MOSI in Single-SPI / IO0 in Dual-SPI
     inout  wire        io_sdio1, // MISO in Single-SPI / IO1 in Dual-SPI
+`endif
 
     // Interrupt Request Doorbell pin to Host CPU GPIO
     input  wire [7:0]  i_egress_count,
@@ -61,8 +70,15 @@ module asp_spi_frontend #(
     logic       io1_out;
 
     // Tristate IO buffer assignments
+`ifndef VERILATOR
     assign io_sdio0 = io0_oe ? io0_out : 1'bZ;
     assign io_sdio1 = io1_oe ? io1_out : 1'bZ;
+`else
+    assign io_sdio0_o  = io0_out;
+    assign io_sdio1_o  = io1_out;
+    assign io_sdio0_oe = io0_oe;
+    assign io_sdio1_oe = io1_oe;
+`endif
 
     logic cs_active;
     logic cs_fall;

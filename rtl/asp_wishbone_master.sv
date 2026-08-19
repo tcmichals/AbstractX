@@ -55,29 +55,31 @@ module asp_wishbone_master (
     logic [15:0] tlp_len;
     logic [15:0] tlp_seq;
     logic [63:0] tlp_ts;
+    logic [31:0] write_data_latch;
     logic [31:0] read_data_latch;
 
     assign wb_sel_o = 4'hF; // 32-bit word select
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state           <= ST_IDLE;
-            s_tlp_tready    <= 1'b1;
-            m_cpl_tvalid    <= 1'b0;
-            m_cpl_tdata     <= 512'd0;
-            wb_cyc_o        <= 1'b0;
-            wb_stb_o        <= 1'b0;
-            wb_we_o         <= 1'b0;
-            wb_adr_o        <= 32'd0;
-            wb_dat_o        <= 32'd0;
-            read_data_latch <= 32'd0;
-            tlp_type        <= 8'd0;
-            tlp_tag         <= 8'd0;
-            tlp_channel     <= 8'd0;
-            tlp_addr        <= 32'd0;
-            tlp_len         <= 16'd0;
-            tlp_seq         <= 16'd0;
-            tlp_ts          <= 64'd0;
+            state            <= ST_IDLE;
+            s_tlp_tready     <= 1'b1;
+            m_cpl_tvalid     <= 1'b0;
+            m_cpl_tdata      <= 512'd0;
+            wb_cyc_o         <= 1'b0;
+            wb_stb_o         <= 1'b0;
+            wb_we_o          <= 1'b0;
+            wb_adr_o         <= 32'd0;
+            wb_dat_o         <= 32'd0;
+            write_data_latch <= 32'd0;
+            read_data_latch  <= 32'd0;
+            tlp_type         <= 8'd0;
+            tlp_tag          <= 8'd0;
+            tlp_channel      <= 8'd0;
+            tlp_addr         <= 32'd0;
+            tlp_len          <= 16'd0;
+            tlp_seq          <= 16'd0;
+            tlp_ts           <= 64'd0;
         end else begin
 
             // Handshake clear
@@ -92,22 +94,23 @@ module asp_wishbone_master (
                     s_tlp_tready <= 1'b1;
 
                     if (s_tlp_tvalid && s_tlp_tready) begin
-                        s_tlp_tready <= 1'b0;
-                        tlp_type     <= s_tlp_tdata[511:504]; // DW0: Type
-                        tlp_tag      <= s_tlp_tdata[495:488]; // DW0: Tag
-                        tlp_channel  <= s_tlp_tdata[487:480]; // DW0: Channel
-                        tlp_addr     <= s_tlp_tdata[479:448]; // DW1: Target Address
-                        tlp_len      <= s_tlp_tdata[447:432]; // DW2: Length DW
-                        tlp_seq      <= s_tlp_tdata[431:416]; // DW2: Sequence
-                        tlp_ts       <= s_tlp_tdata[415:352]; // DW3-4: Timestamp
-                        state        <= ST_DECODE;
+                        s_tlp_tready     <= 1'b0;
+                        tlp_type         <= s_tlp_tdata[511:504]; // DW0: Type
+                        tlp_tag          <= s_tlp_tdata[495:488]; // DW0: Tag
+                        tlp_channel      <= s_tlp_tdata[487:480]; // DW0: Channel
+                        tlp_addr         <= s_tlp_tdata[479:448]; // DW1: Target Address
+                        tlp_len          <= s_tlp_tdata[447:432]; // DW2: Length DW
+                        tlp_seq          <= s_tlp_tdata[431:416]; // DW2: Sequence
+                        tlp_ts           <= s_tlp_tdata[415:352]; // DW3-4: Timestamp
+                        write_data_latch <= s_tlp_tdata[351:320]; // DW5: Write data payload
+                        state            <= ST_DECODE;
                     end
                 end
 
                 ST_DECODE: begin
                     if (tlp_type == TYPE_MEM_WR) begin
                         wb_adr_o <= tlp_addr;
-                        wb_dat_o <= s_tlp_tdata[351:320]; // DW5 payload
+                        wb_dat_o <= write_data_latch; // Latch preserved from ST_IDLE
                         wb_we_o  <= 1'b1;
                         wb_cyc_o <= 1'b1;
                         wb_stb_o <= 1'b1;

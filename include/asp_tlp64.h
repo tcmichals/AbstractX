@@ -57,7 +57,10 @@ typedef struct __attribute__((packed, aligned(64))) {
     uint8_t  tag;             /* Split-transaction correlation ID */
     uint8_t  channel;         /* Routing plane / AXID */
     uint32_t target_address;  /* 32-bit Wishbone target address (Device ID) */
-    uint16_t length_dw;       /* Valid payload length in 32-bit DWORDs */
+    union {
+        uint16_t length_dw;   /* Valid payload length in 32-bit DWORDs */
+        uint16_t length;      /* Backward-compatible byte/DW alias */
+    };
     uint16_t sequence;        /* Sequence counter */
     uint64_t timestamp_ns;    /* 64-bit nanosecond hardware timestamp */
     uint8_t  payload[40];     /* Data payload (zero-padded if < 40B) */

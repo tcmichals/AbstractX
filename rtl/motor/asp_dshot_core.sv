@@ -43,9 +43,9 @@ module asp_dshot_core #(
 
     // DShot Bit Timing Counters (@ 50MHz clock)
     // DShot600: Bit period = 1.67 us (83 clocks), T0H = 0.625 us (31 clocks), T1H = 1.25 us (62 clocks)
-    localparam int DS600_BIT_CLKS = 83;
-    localparam int DS600_T0H_CLKS = 31;
-    localparam int DS600_T1H_CLKS = 62;
+    localparam logic [7:0] DS600_BIT_CLKS = 8'd83;
+    localparam logic [7:0] DS600_T0H_CLKS = 8'd31;
+    localparam logic [7:0] DS600_T1H_CLKS = 8'd62;
 
     logic [15:0] frame_cnt;
     logic        frame_tick;
@@ -79,29 +79,23 @@ module asp_dshot_core #(
             if (wb_cyc && wb_stb && !wb_ack) begin
                 wb_ack <= 1'b1;
                 if (wb_we) begin
-                    case (wb_addr[7:0])
-                        8'h00: reg_ctrl   <= wb_data_i;
-                        8'h04: reg_enable <= wb_data_i;
-                        8'h10: throttle_val[0] <= wb_data_i[15:0];
-                        8'h14: throttle_val[1] <= wb_data_i[15:0];
-                        8'h18: throttle_val[2] <= wb_data_i[15:0];
-                        8'h1C: throttle_val[3] <= wb_data_i[15:0];
-                        8'h20: throttle_val[4] <= wb_data_i[15:0];
-                        8'h24: throttle_val[5] <= wb_data_i[15:0];
-                        8'h28: throttle_val[6] <= wb_data_i[15:0];
-                        8'h2C: throttle_val[7] <= wb_data_i[15:0];
-                        default: ;
-                    endcase
+                    if (wb_addr[7:0] == 8'h00) begin
+                        reg_ctrl   <= wb_data_i;
+                    end else if (wb_addr[7:0] == 8'h04) begin
+                        reg_enable <= wb_data_i;
+                    end else if (wb_addr[7:0] >= 8'h10 && wb_addr[7:0] < 8'h10 + (NUM_CHANNELS * 4)) begin
+                        throttle_val[(wb_addr[7:0] - 8'h10) >> 2] <= wb_data_i[15:0];
+                    end
                 end else begin
-                    case (wb_addr[7:0])
-                        8'h00: wb_data_o <= reg_ctrl;
-                        8'h04: wb_data_o <= reg_enable;
-                        8'h10: wb_data_o <= {16'd0, throttle_val[0]};
-                        8'h14: wb_data_o <= {16'd0, throttle_val[1]};
-                        8'h18: wb_data_o <= {16'd0, throttle_val[2]};
-                        8'h1C: wb_data_o <= {16'd0, throttle_val[3]};
-                        default: wb_data_o <= 32'd0;
-                    endcase
+                    if (wb_addr[7:0] == 8'h00) begin
+                        wb_data_o <= reg_ctrl;
+                    end else if (wb_addr[7:0] == 8'h04) begin
+                        wb_data_o <= reg_enable;
+                    end else if (wb_addr[7:0] >= 8'h10 && wb_addr[7:0] < 8'h10 + (NUM_CHANNELS * 4)) begin
+                        wb_data_o <= {16'd0, throttle_val[(wb_addr[7:0] - 8'h10) >> 2]};
+                    end else begin
+                        wb_data_o <= 32'd0;
+                    end
                 end
             end
         end
@@ -137,7 +131,7 @@ module asp_dshot_core #(
                         bit_clk_cnt   <= 8'd0;
                         active        <= 1'b1;
                     end else if (active) begin
-                        if (bit_clk_cnt >= DS600_BIT_CLKS - 1) begin
+                        if (bit_clk_cnt >= DS600_BIT_CLKS - 8'd1) begin
                             bit_clk_cnt <= 8'd0;
                             if (bit_idx == 5'd1) begin
                                 active <= 1'b0;

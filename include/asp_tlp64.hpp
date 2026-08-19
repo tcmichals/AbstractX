@@ -35,14 +35,27 @@ enum class Channel : uint8_t {
     EscSerial = ASP_CHANNEL_ESC_SERIAL   // UART ESC Serial Tunnel (0x05)
 };
 
+constexpr bool operator==(TlpType t, uint8_t u) noexcept { return static_cast<uint8_t>(t) == u; }
+constexpr bool operator==(uint8_t u, TlpType t) noexcept { return u == static_cast<uint8_t>(t); }
+constexpr bool operator!=(TlpType t, uint8_t u) noexcept { return static_cast<uint8_t>(t) != u; }
+constexpr bool operator!=(uint8_t u, TlpType t) noexcept { return u != static_cast<uint8_t>(t); }
+
+constexpr bool operator==(Channel c, uint8_t u) noexcept { return static_cast<uint8_t>(c) == u; }
+constexpr bool operator==(uint8_t u, Channel c) noexcept { return u == static_cast<uint8_t>(c); }
+constexpr bool operator!=(Channel c, uint8_t u) noexcept { return static_cast<uint8_t>(c) != u; }
+constexpr bool operator!=(uint8_t u, Channel c) noexcept { return u != static_cast<uint8_t>(c); }
+
+// Wire format alias
+using TlpWire64 = asp_tlp64_t;
+
 // C++20 Wrapper class around C asp_tlp64_t structure
-struct Tlp64 {
+struct alignas(64) Tlp64 {
     asp_tlp64_t wire;
 
     constexpr Tlp64() noexcept : wire{} {}
 
     // Construct a Memory Read TLP
-    static constexpr Tlp64 make_mem_read(uint32_t addr, uint8_t tag) noexcept {
+    static constexpr Tlp64 make_mem_read(uint32_t addr, uint8_t tag = 0u) noexcept {
         Tlp64 packet{};
         packet.wire.type = static_cast<uint8_t>(TlpType::MemRead);
         packet.wire.tag = tag;
@@ -53,7 +66,7 @@ struct Tlp64 {
     }
 
     // Construct a Memory Write TLP
-    static constexpr Tlp64 make_mem_write(uint32_t addr, uint32_t value, uint8_t tag) noexcept {
+    static constexpr Tlp64 make_mem_write(uint32_t addr, uint32_t value, uint8_t tag = 0u) noexcept {
         Tlp64 packet{};
         packet.wire.type = static_cast<uint8_t>(TlpType::MemWrite);
         packet.wire.tag = tag;
@@ -73,6 +86,14 @@ struct Tlp64 {
 
     constexpr Channel channel() const noexcept {
         return static_cast<Channel>(wire.channel);
+    }
+
+    constexpr uint8_t tag() const noexcept {
+        return wire.tag;
+    }
+
+    constexpr uint16_t length() const noexcept {
+        return wire.length_dw;
     }
 
     constexpr uint32_t target_address() const noexcept {

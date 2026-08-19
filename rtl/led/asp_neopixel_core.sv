@@ -36,10 +36,10 @@ module asp_neopixel_core #(
     // T0H = 0.35 us = 18 clocks
     // T1H = 0.70 us = 35 clocks
     // Reset Latch = > 50 us = 2500 clocks
-    localparam int CLKS_BIT = 63;
-    localparam int CLKS_T0H = 18;
-    localparam int CLKS_T1H = 35;
-    localparam int CLKS_RST = 2500;
+    localparam logic [15:0] CLKS_BIT = 16'd63;
+    localparam logic [15:0] CLKS_T0H = 16'd18;
+    localparam logic [15:0] CLKS_T1H = 16'd35;
+    localparam logic [15:0] CLKS_RST = 16'd2500;
 
     logic [23:0] led_colors [0:MAX_LEDS-1];
     logic [31:0] reg_ctrl; // [0] = Enable, [7:0] = Active LED count
@@ -58,8 +58,8 @@ module asp_neopixel_core #(
                 if (wb_we) begin
                     if (wb_addr[7:0] == 8'h00) begin
                         reg_ctrl <= wb_data_i;
-                    end else if (wb_addr[7:2] > 0 && wb_addr[7:2] <= MAX_LEDS) begin
-                        led_colors[wb_addr[7:2]-1] <= wb_data_i[23:0];
+                    end else if (wb_addr[7:2] > 6'd0 && wb_addr[7:2] <= MAX_LEDS[5:0]) begin
+                        led_colors[wb_addr[7:2]-6'd1] <= wb_data_i[23:0];
                     end
                 end else begin
                     if (wb_addr[7:0] == 8'h00) wb_data_o <= reg_ctrl;
@@ -70,7 +70,7 @@ module asp_neopixel_core #(
     end
 
     // FSM State Machine for NRZ Transmission
-    typedef enum logic [1:0] { ST_IDLE, ST_SEND_BIT, ST_LATCH_RST } state_t;
+    typedef enum logic [1:0] { ST_IDLE = 2'b00, ST_SEND_BIT = 2'b01, ST_LATCH_RST = 2'b10 } state_t;
     state_t state;
 
     logic [5:0]  led_idx;
@@ -98,15 +98,15 @@ module asp_neopixel_core #(
                 end
 
                 ST_SEND_BIT: begin
-                    if (timer >= CLKS_BIT - 1) begin
+                    if (timer >= CLKS_BIT - 16'd1) begin
                         timer <= 16'd0;
                         if (bit_idx == 5'd0) begin
                             bit_idx <= 5'd23;
-                            if (led_idx >= (reg_ctrl[7:0] - 1)) begin
+                            if (led_idx >= (reg_ctrl[5:0] - 6'd1)) begin
                                 state <= ST_LATCH_RST;
                             end else begin
                                 led_idx <= led_idx + 6'd1;
-                                cur_grb <= led_colors[led_idx + 1];
+                                cur_grb <= led_colors[led_idx + 6'd1];
                             end
                         end else begin
                             bit_idx <= bit_idx - 5'd1;
@@ -129,6 +129,10 @@ module asp_neopixel_core #(
                     end else begin
                         timer <= timer + 16'd1;
                     end
+                end
+
+                default: begin
+                    state <= ST_IDLE;
                 end
             endcase
         end else begin

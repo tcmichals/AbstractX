@@ -21,8 +21,17 @@ module asp_top #(
     // Physical SPI / Dual-SPI Pins
     input  wire        spi_sclk,
     input  wire        spi_cs_n,
+`ifdef VERILATOR
+    input  wire        spi_io0,
+    input  wire        spi_io1,
+    output wire        spi_io0_o,
+    output wire        spi_io1_o,
+    output wire        spi_io0_oe,
+    output wire        spi_io1_oe,
+`else
     inout  wire        spi_io0,
     inout  wire        spi_io1,
+`endif
 
     // External Physical IMU Pins
     output logic       imu_sclk,
@@ -88,6 +97,12 @@ module asp_top #(
         .i_cs_n          (spi_cs_n),
         .io_sdio0        (spi_io0),
         .io_sdio1        (spi_io1),
+`ifdef VERILATOR
+        .io_sdio0_o      (spi_io0_o),
+        .io_sdio1_o      (spi_io1_o),
+        .io_sdio0_oe     (spi_io0_oe),
+        .io_sdio1_oe     (spi_io1_oe),
+`endif
         .i_egress_count  (egress_count),
         .o_int_req       (o_int_req),
         .o_tlp_rx_data   (tlp_rx_data),
