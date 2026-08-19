@@ -1,7 +1,11 @@
 # AbstractX
 
 **Universal Asynchronous Hardware Offloader & Heterogeneous Interconnect Framework**  
-*Small. Deterministic. Zero-Blocking I/O for FPGAs, Microcontrollers, and Linux Hosts.*
+*Small. Deterministic. Zero-Blocking I/O for FPGAs, Microcontrollers, and Linux Hosts.*  
+*The Modern C++20 Evolution of Protothreads with Smart I/O Dispatching.*
+
+> **Read the Technical Whitepaper:** [**`docs/PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md`**](docs/PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md)  
+> *How C++20 Stackless Coroutines + PCIe TLP Dispatchers complete the 20-year evolution of embedded concurrency (from Adam Dunkels' 2005 Protothreads to modern zero-heap real-time systems).*
 
 ---
 
@@ -14,9 +18,9 @@ High-frequency control and telemetry algorithms cannot afford to block while slo
 - In **Linux systems**, `/dev/spidev` and `/dev/i2c-dev` use synchronous blocking `ioctl()` calls without `epoll` support, forcing multi-threading that causes **OS scheduling jitter ($20\text{--}50\ \mu\text{s}$), cache thrashing, and mutex lock contention**.
 
 **AbstractX solves this permanently** by introducing a unified, multi-platform architecture:
-1. **PCIe-like Split-Transaction TLPs (`asp-tlp`)**: Request operations (`MemRd`, `MemWr`) are tagged and dispatched asynchronously; completions (`CplD`, `DMA_Stream`) are posted into lock-free rings when hardware finishes.
-2. **C++20 Stackless Coroutines (`asp_coro`)**: Application code is written sequentially using `co_await`, `when_all` (`&&`), and `when_any` (`||`) on a single real-time thread with **zero OS context switches, zero mutexes, and zero dynamic heap allocation**.
-3. **Hardware Offloading Across Silicon**: FPGAs (Gowin / Zynq), Microcontrollers (RP2350 Pico 2W, ESP32-P4, STM32), and Linux hosts execute I/O autonomously with **sub-20ns hardware timestamping**.
+1. **The Modern Evolution of Protothreads**: Replaces fragile macro hacks (Duff's Device) with native **C++20 Stackless Coroutines (`asp_coro`)** that preserve local variables across yields with **0 dynamic heap memory (`0 B`)** and **0 mutexes**.
+2. **PCIe-like Split-Transaction TLPs (`asp-tlp`)**: Request operations (`MemRd`, `MemWr`) are tagged and dispatched asynchronously; completions (`CplD`, `DMA_Stream`) are posted into lock-free rings when hardware finishes.
+3. **Smart Hardware I/O Dispatcher**: FPGAs (Gowin / Zynq), Microcontrollers (RP2350 Pico 2W, ESP32-P4, STM32), and Linux hosts execute I/O autonomously with **sub-20ns hardware timestamping**.
 
 ```
 +───────────────────────────────────────────────────────────────────────────────────+

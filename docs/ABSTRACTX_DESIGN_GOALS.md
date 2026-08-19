@@ -125,6 +125,7 @@ All docs must be consistent with this document. This document wins on conflict.
 
 ```
 ABSTRACTX_DESIGN_GOALS.md   <- YOU ARE HERE (top authority)
+├── PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md <- Architectural positioning & whitepaper
 ├── ASP_PROTOCOL.md           <- Wire format (normative)
 ├── FCPROTOCOL_SPECIFICATION.md <- Register map & C API
 ├── DESIGN_RULES.md           <- Engineering rules
