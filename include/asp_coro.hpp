@@ -310,11 +310,14 @@ struct YieldAwaiter {
     void await_resume() noexcept {}
 };
 
-// Standard Asynchronous Hardware Timer Comparator Awaiter
-struct AsyncSleepAwaiter {
+// Standard Asynchronous Delay / Sleep Awaiter (0 CPU Superloop Polling)
+struct AsyncDelayAwaiter {
     uint64_t resume_at_us_{0};
     uint64_t current_time_us_{0};
     uint64_t* timer_comparator_reg_{nullptr};
+
+    constexpr AsyncDelayAwaiter(uint64_t resume_at_us, uint64_t current_time_us, uint64_t* timer_reg = nullptr) noexcept
+        : resume_at_us_(resume_at_us), current_time_us_(current_time_us), timer_comparator_reg_(timer_reg) {}
 
     bool await_ready() const noexcept { return current_time_us_ >= resume_at_us_; }
 
@@ -327,6 +330,9 @@ struct AsyncSleepAwaiter {
     void await_resume() noexcept {}
 };
 
+// Aliases for embedded flexibility
+using AsyncSleepAwaiter = AsyncDelayAwaiter;
+
 // ============================================================================
 // 2. Generic Protothread Replacement Primitives (Zero-Heap Embedded Primitives)
 // ============================================================================
@@ -334,13 +340,25 @@ struct AsyncSleepAwaiter {
 // Standard Cooperative Yield (replaces PT_YIELD)
 inline YieldAwaiter yield() noexcept { return {}; }
 
-// Standard Asynchronous Timer Delay
-inline AsyncSleepAwaiter sleep_until(uint64_t target_time_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
-    return AsyncSleepAwaiter{target_time_us, current_time_us, timer_comparator};
+// Standard Asynchronous Delay Helpers
+inline AsyncDelayAwaiter delay_us(uint64_t delta_us, uint64_t current_time_us, uint64_t* timer_reg = nullptr) noexcept {
+    return AsyncDelayAwaiter{current_time_us + delta_us, current_time_us, timer_reg};
 }
 
-inline AsyncSleepAwaiter sleep_for(uint64_t delta_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
-    return AsyncSleepAwaiter{current_time_us + delta_us, current_time_us, timer_comparator};
+inline AsyncDelayAwaiter delay_ms(uint64_t delta_ms, uint64_t current_time_ms, uint64_t* timer_reg = nullptr) noexcept {
+    return AsyncDelayAwaiter{current_time_ms + delta_ms, current_time_ms, timer_reg};
+}
+
+inline AsyncDelayAwaiter delay_until(uint64_t target_time, uint64_t current_time, uint64_t* timer_reg = nullptr) noexcept {
+    return AsyncDelayAwaiter{target_time, current_time, timer_reg};
+}
+
+inline AsyncDelayAwaiter sleep_until(uint64_t target_time_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
+    return AsyncDelayAwaiter{target_time_us, current_time_us, timer_comparator};
+}
+
+inline AsyncDelayAwaiter sleep_for(uint64_t delta_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
+    return AsyncDelayAwaiter{current_time_us + delta_us, current_time_us, timer_comparator};
 }
 
 // Type-Safe Condition Awaiter (replaces PT_WAIT_UNTIL)

@@ -45,23 +45,6 @@ struct GenericHwAwaiter {
     uint32_t await_resume() const noexcept { return 0; }
 };
 
-// Generic Asynchronous Timer Delay Awaiter
-struct AsyncDelayAwaiter {
-    uint64_t resume_at_us_{0};
-    uint64_t current_time_us_{0};
-    uint64_t* timer_comparator_reg_{nullptr};
-
-    bool await_ready() const noexcept { return current_time_us_ >= resume_at_us_; }
-
-    void await_suspend(std::coroutine_handle<>) noexcept {
-        if (timer_comparator_reg_) {
-            *timer_comparator_reg_ = resume_at_us_;
-        }
-    }
-
-    void await_resume() noexcept {}
-};
-
 // =============================================================================
 // GENERIC APPLICATION COROUTINES (NOT SENSORS!)
 // =============================================================================
