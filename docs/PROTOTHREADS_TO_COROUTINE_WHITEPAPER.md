@@ -7,7 +7,7 @@
 
 ## Abstract
 
-Embedded systems development has long been divided between the heavy memory and jitter overhead of preemptive RTOS threads and the unmaintainable callback spaghetti of superloop state machines. Adam Dunkels' 2005 Protothreads demonstrated the promise of stackless cooperative concurrency, but remained constrained by Duff's Device macro limitations, broken local variables, and a lack of hardware integration. 
+Embedded systems development has long been divided between the heavy memory and jitter overhead of preemptive RTOS threads and the fragmented callback/state-machine architecture of single-stack cooperative schedulers. Adam Dunkels' 2005 Protothreads demonstrated the promise of stackless cooperative concurrency, but remained constrained by Duff's Device macro limitations, broken local variables, and a lack of hardware integration. Meanwhile, flight control firmware (such as INAV and Betaflight) developed priority-based cooperative task schedulers, yet were still forced into manual sub-state machines within I/O drivers to yield during multi-millisecond bus delays.
 
 **AbstractX modernizes embedded concurrency by uniting compiler-native C++20 stackless coroutines with a split-transaction, lock-free SPSC I/O dispatcher.** By isolating slow physical bus clocking (I2C, SPI, UART, CAN, DMA) into autonomous background transports while resuming suspended coroutine handles on the main thread in nanoseconds, AbstractX achieves deterministic, single-threaded execution with **guaranteed zero dynamic heap allocations** (via static atomic frame pools) and **sub-64-byte frame footprints** across Linux SBCs, dual-core microcontrollers, and FPGAs.
 
@@ -21,10 +21,14 @@ For two decades, embedded firmware engineers, robotics developers, and flight co
    - Provide clean, linear sequential code (`vTaskDelay()`, blocking `spi_read()`).
    - **Cost**: Each thread demands **1 KB to 8 KB of dedicated stack RAM**. Across 8–16 tasks, this consumes 32–64 KB of precious SRAM.
    - **Jitter & Contention**: Thread preemption, mutex locks (`AP_HAL::Semaphore`), and priority inversions introduce **$1\text{--}50\ \mu\text{s}$ context-switch and lock-contention jitter**, degrading high-frequency real-time control loops (e.g. 8 kHz IMU rate loops).
-2. **Superloop State Machines (Betaflight, INAV, Arduino)**:
-   - Zero stack RAM overhead, but force developers to write fragmented, fragile **callback/enum spaghetti** (`STATE_START`, `STATE_WAIT`, `STATE_READ`) with polling loops that waste tens of thousands of CPU cycles per second (**40,000 wasted polling checks/sec** in typical flight loops).
 
-In 2005, Adam Dunkels introduced **Protothreads** (Contiki OS) to provide stackless cooperative multi-threading with only 2 bytes of RAM overhead. While groundbreaking, Protothreads was constrained by C macro hacks (Duff's Device), which broke local variables across yields, disallowed yields inside switch statements, and lacked hardware I/O integration.
+2. **C Cooperative Schedulers with Driver Sub-State Machines (INAV, Betaflight, Cleanflight)**:
+   - Eliminate dedicated thread stacks by executing periodic tasks on a single shared stack via a cooperative task scheduler (`scheduler.c` with dynamic task queues, age-based priority boost, and moving-average time tracking).
+   - **Driver Fragmentation & Callback Spaghetti**: Because tasks run to completion and cannot block, slow hardware I/O (e.g. 9.04 ms MS5611 Barometer ADC conversion) forces developers to write manual **sub-state machines** (`BAROMETER_NEEDS_SAMPLES`, `BAROMETER_NEEDS_CALCULATION`), fragment driver code across multiple callback pointers (`start_up`, `get_up`, `start_ut`, `get_ut`), and repeatedly re-arm the scheduler via `rescheduleTask(TASK_SELF, delay)`.
+
+3. **Macro-Based Cooperative Protothreads (Adam Dunkels / Contiki OS)**:
+   - In 2005, Adam Dunkels introduced Protothreads to achieve stackless concurrency with only 2 bytes of RAM.
+   - **Macro Limitations**: Constrained by C macro hacks (Duff's Device), which broke local variables across yields, disallowed yields inside `switch` statements, and lacked hardware I/O integration.
 
 ---
 
@@ -32,15 +36,15 @@ In 2005, Adam Dunkels introduced **Protothreads** (Contiki OS) to provide stackl
 
 ```
 ┌───────────────────────────────────┬───────────────────────────────────┬───────────────────────────────────┐
-│     ERA 1: PRE-2005 (RTOS)        │    ERA 2: 2005-2020 (MACROS)      │       ERA 3: 2026+ (ABSTRACTX)    │
-│  Thread Stacks & Mutexes          │  Duff's Device Protothreads       │  C++20 Coroutines + TLP Engine    │
+│     ERA 1: PRE-2005 (RTOS)        │  ERA 2: 2005-2020 (MACROS/SCHED)  │       ERA 3: 2026+ (ABSTRACTX)    │
+│  Thread Stacks & Mutexes          │  Protothreads & C Schedulers      │  C++20 Coroutines + TLP Engine    │
 ├───────────────────────────────────┼───────────────────────────────────┼───────────────────────────────────┤
-│ • 1 KB - 8 KB Stack RAM per task  │ • 2 Bytes RAM per task (Stackless)│ • 32B - 64B Frame (Zero Stack RAM)│
-│ • 1-50 us Switch/Contention Jitter│ • C Switch/Case Macro Hack        │ • Native Compiler Code Generation │
-│ • Mutex Contention & Inversions   │ • Local Variables BROKEN on yield │ • Local Variables 100% PRESERVED  │
-│ • Synchronous Bus Stalls (I2C/SPI)│ • Yield in Switch/Case FORBIDDEN  │ • Full Control Flow (Loops/Switch)│
-│ • Heavy OS Porting Headers        │ • Software Polling Superloop      │ • Smart PCIe TLP-Framed Dispatch  │
-│ • High SRAM Footprint             │ • Integer Status Codes Only       │ • Strongly-Typed Task<T> / Events │
+│ • 1 KB - 8 KB Stack RAM per task  │ • Single Shared Stack (0 Extra RAM│ • 32B - 64B Frame (Zero Stack RAM)│
+│ • 1-50 us Switch/Contention Jitter│ • C Switch/Macro or Driver States │ • Native Compiler Code Generation │
+│ • Mutex Contention & Inversions   │ • Local Vars Broken (PT) / Static │ • Local Variables 100% PRESERVED  │
+│ • Synchronous Bus Stalls (I2C/SPI)│ • Driver Callback Splitting       │ • Full Control Flow (Loops/Switch)│
+│ • Heavy OS Porting Headers        │ • Manual Sub-State Rescheduling   │ • Smart PCIe TLP-Framed Dispatch  │
+│ • High SRAM Footprint             │ • Fragmented I/O Handlers         │ • Strongly-Typed Task<T> / Events │
 └───────────────────────────────────┴───────────────────────────────────┴───────────────────────────────────┘
 ```
 
