@@ -6,55 +6,64 @@ Welcome to the AbstractX documentation hub. This repository defines the universa
 
 ## Architecture Specifications & Protocol Stack
 
-1. **[`ABSTRACTX_SOFTWARE_ENVIRONMENTS.md`](ABSTRACTX_SOFTWARE_ENVIRONMENTS.md)**  
+1. **[`ABSTRACTX_DESIGN_GOALS.md`](ABSTRACTX_DESIGN_GOALS.md)**  
+   *Why*: Authoritative statement of what AbstractX is (and is not), non-negotiable invariants, and 3-layer architecture.
+
+2. **[`PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md`](PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md)**  
+   *Why*: Technical whitepaper on the 3 eras of embedded concurrency, the 5-flow async runtime, and zero-heap C++20 coroutines with split-transaction dispatchers.
+
+3. **[`SCHEDULER_VS_COROUTINE_ANALYSIS.md`](SCHEDULER_VS_COROUTINE_ANALYSIS.md)**  
+   *Why*: Deep-dive comparative analysis of traditional C cooperative schedulers (INAV / Betaflight) and sub-state driver fragmentation vs AbstractX C++20 coroutines.
+
+4. **[`ABSTRACTX_SOFTWARE_ENVIRONMENTS.md`](ABSTRACTX_SOFTWARE_ENVIRONMENTS.md)**  
    *Why*: Foundational guide to the **3 Execution Environments**: (1) Linux Multi-Threaded I/O Workers (SITL), (2) Multi-Core MCU Interrupt/DMA Offloading (RP2350 / ESP32-P4), and (3) FPGA Hardware Offloader.
 
-2. **[`COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md`](COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md)**  
-   *Why*: Comprehensive guide to the C++20 Coroutine execution engine (`asp_coro.hpp`), split-transaction dispatchers, concurrency combinators (`when_all` / `when_any`), multi-rate I/O interleaving, and Linux SITL architecture.
+5. **[`COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md`](COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md)**  
+   *Why*: Comprehensive guide to the C++20 Coroutine execution engine (`abstractx/coro.hpp`), split-transaction dispatchers, concurrency combinators (`when_all` / `when_any`), multi-rate I/O interleaving, and Linux SITL architecture.
 
-3. **[`PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
+6. **[`PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
    *Why*: Target offloader architecture detailing hardware offload mechanisms across silicon targets (FPGA fixed 64B, RP2350 compact 24B, ESP32-P4 variable, STM32 DMA, Linux zero-copy).
 
-3. **[`ASP_SPEC_DIRECTION.md`](ASP_SPEC_DIRECTION.md)**  
+7. **[`ASP_SPEC_DIRECTION.md`](ASP_SPEC_DIRECTION.md)**  
    *Why*: Protocol direction specifying the 64-byte TLP (`asp-tlp-64b`) frame architecture.
 
-4. **[`ASP_PROTOCOL.md`](ASP_PROTOCOL.md)**  
+8. **[`ASP_PROTOCOL.md`](ASP_PROTOCOL.md)**  
    *Why*: Normative specifications for 64-byte TLP headers, PCIe operations (`MemRd`, `MemWr`, `CplD`, `DMA_Stream`), and packet structures.
 
-5. **[`ASP_SPI_TRANSPORT.md`](ASP_SPI_TRANSPORT.md)**  
+9. **[`ASP_SPI_TRANSPORT.md`](ASP_SPI_TRANSPORT.md)**  
    *Why*: Physical layer transport specifications for Dual-SPI and Single-SPI modes up to 50 MHz.
 
-6. **[`ASP_SPI_REGISTER_MAP.md`](ASP_SPI_REGISTER_MAP.md)**  
-   *Why*: Command byte mapping (`0xA1 TLP_WRITE_BURST`, `0xA2 TLP_READ_BURST`) and Wishbone register space.
+10. **[`ASP_SPI_REGISTER_MAP.md`](ASP_SPI_REGISTER_MAP.md)**  
+    *Why*: Command byte mapping (`0xA1 TLP_WRITE_BURST`, `0xA2 TLP_READ_BURST`) and Wishbone register space.
 
-7. **[`LINUX_DEVICE_TREE_GUIDE.md`](LINUX_DEVICE_TREE_GUIDE.md)**  
-   *Why*: Linux Device Tree node (`.dts`) and Overlay (`.dtbo`) reference for enabling Dual-SPI 2x mode (`spi-tx-bus-width = <2>`, `spi-rx-bus-width = <2>`).
+11. **[`LINUX_DEVICE_TREE_GUIDE.md`](LINUX_DEVICE_TREE_GUIDE.md)**  
+    *Why*: Linux Device Tree node (`.dts`) and Overlay (`.dtbo`) reference for enabling Dual-SPI 2x mode (`spi-tx-bus-width = <2>`, `spi-rx-bus-width = <2>`).
 
-8. **[`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
-   *Why*: Parallel vector router fabric and Wishbone master gateway architecture.
+12. **[`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
+    *Why*: Parallel vector router fabric and Wishbone master gateway architecture.
 
-9. **[`IMU_AUTO_DMA_IP_SPEC.md`](IMU_AUTO_DMA_IP_SPEC.md)**  
-   *Why*: Hardware IMU SPI Master & Auto-DMA IP core for zero-CPU-overhead timestamped sensor telemetry streams.
+13. **[`IMU_AUTO_DMA_IP_SPEC.md`](IMU_AUTO_DMA_IP_SPEC.md)**  
+    *Why*: Hardware IMU SPI Master & Auto-DMA IP core for zero-CPU-overhead timestamped sensor telemetry streams.
 
 ---
 
 ## FPGA Pinout Maps & Hardware Rationale
 
-8. **[`TANG9K_PINOUT.md`](TANG9K_PINOUT.md)**  
-   *Why*: Physical pinout map and header layout for **Tang Nano 9K FPGA** (`GW1NR-9`).
+14. **[`TANG9K_PINOUT.md`](TANG9K_PINOUT.md)**  
+    *Why*: Physical pinout map and header layout for **Tang Nano 9K FPGA** (`GW1NR-9`).
    - **4 Motor Channels (`o_motor_pins[3:0]`)**: Configured for Quadcopter DShot150/300/600 & 1-wire ESC Serial Passthrough (`serial_4way.c`), saving FPGA logic resources.
    - **NeoPixel WS2812B RGB Pin**: Mapped to **Pin 37**.
    - **4 Dedicated Hardware Debug Pins (`o_debug_pins[3:0]`)**: Mapped to **Pins 42, 48, 49, 50** for logic analyzer / oscilloscope scoping.
    - **1 Hz FPGA Heartbeat Blinker**: Mapped to **LED 1 (Pin 10)** for instant visual confirmation of hardware clock & reset state.
    - **Linux Dynamic LED Control**: **LEDs 2..6 (Pins 11, 13, 14, 15, 16)** kept unassigned to internal fast signals so Linux or FreeRTOS can toggle them dynamically over PCIe TLP register `0x4000000C` (`REG_SYS_LED_CTRL`).
 
-9. **[`PRIMER20K_PINOUT.md`](PRIMER20K_PINOUT.md)**  
-   *Why*: Physical pinout map and header layout for **Tang Primer 20K FPGA** (`GW2A-18`).
-   - **4 Motor Channels**: Pins T6, T7, P6, R7.
-   - **NeoPixel WS2812B RGB Pin**: Pin A15.
-   - **4 Hardware Debug Pins**: Pins P8, R8, T8, T9.
-   - **1 Hz FPGA Heartbeat Blinker**: LED 1 (Pin L14).
-   - **Linux Dynamic LED Control**: LEDs 2..6 (Pins L16, N14, N16, M14, M15).
+15. **[`PRIMER20K_PINOUT.md`](PRIMER20K_PINOUT.md)**  
+    *Why*: Physical pinout map and header layout for **Tang Primer 20K FPGA** (`GW2A-18`).
+    - **4 Motor Channels**: Pins T6, T7, P6, R7.
+    - **NeoPixel WS2812B RGB Pin**: Pin A15.
+    - **4 Hardware Debug Pins**: Pins P8, R8, T8, T9.
+    - **1 Hz FPGA Heartbeat Blinker**: LED 1 (Pin L14).
+    - **Linux Dynamic LED Control**: LEDs 2..6 (Pins L16, N14, N16, M14, M15).
 
 ---
 
@@ -85,7 +94,7 @@ Welcome to the AbstractX documentation hub. This repository defines the universa
 
 ## Verification & Interactive Test Tooling
 
-10. **[`tools/test_asp_pcie.py`](../tools/test_asp_pcie.py)**  
+16. **[`tools/test_asp_pcie.py`](../tools/test_asp_pcie.py)**  
     *Why*: Executable Python test utility supporting hardware `/dev/spidevX.Y` and `--mock` PC simulation modes.
     - `python3 tools/test_asp_pcie.py --mode rainbow`: WS2812B NeoPixel RGB animated rainbow wave.
     - `python3 tools/test_asp_pcie.py --mode pwm_sweep`: 1000 µs to 2000 µs Servo PWM / DShot motor sweep.
@@ -96,6 +105,6 @@ Welcome to the AbstractX documentation hub. This repository defines the universa
 
 ## Governance, Verification & Engineering Logs
 
-11. **[`ENGINEERING_LOG.md`](ENGINEERING_LOG.md)**: Chronological history of engineering milestones, commit hashes, bitstream results, and git archive branches.
-12. **[`ASP_REQUIREMENTS.md`](ASP_REQUIREMENTS.md)**: Requirements, quality gates, and definition-of-done.
-13. **[`ASP_VALIDATION_MATRIX.md`](ASP_VALIDATION_MATRIX.md)**: Verification test matrix across synthesis, timing closure, and TLP protocol tests.
+17. **[`ENGINEERING_LOG.md`](ENGINEERING_LOG.md)**: Chronological history of engineering milestones, commit hashes, bitstream results, and git archive branches.
+18. **[`ASP_REQUIREMENTS.md`](ASP_REQUIREMENTS.md)**: Requirements, quality gates, and definition-of-done.
+19. **[`ASP_VALIDATION_MATRIX.md`](ASP_VALIDATION_MATRIX.md)**: Verification test matrix across synthesis, timing closure, and TLP protocol tests.
