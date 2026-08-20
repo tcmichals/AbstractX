@@ -5,10 +5,10 @@
 Traditional open-source flight controllers (**iNav**, **Betaflight**, **ArduPilot**) face a severe architectural conflict between **high-frequency loop determinism** (e.g. 8 kHz Gyro / PID rate loop) and **slow, multi-rate peripheral I/O** (e.g. 400 kHz I2C Barometers, Magnetometers, GPS UARTs, Rangefinders).
 
 ### The Historical Dilemma:
-1. **Bare-Metal Super-Loops (iNav / Betaflight)**:
-   - A single CPU core executes a cooperative scheduler (`schedulerExecute()`).
-   - Drivers cannot block synchronously for slow bus transfers (e.g. a 1.5 ms I2C Barometer read would stall the 8 kHz gyro loop for 12 consecutive cycles, inducing immediate flight instability).
-   - Developers are forced to hand-craft fragmented, fragile **state machines** (`STATE_START_CONVERSION`, `STATE_WAIT_DRDY`, `STATE_READ_BURST`, `STATE_CALCULATE`) managed across global/static variables and tick timers.
+1. **Single-Stack Cooperative Task Schedulers (iNav / Betaflight)**:
+   - A single CPU core executes a cooperative scheduler (`scheduler()`).
+   - Tasks execute on a single shared stack and run to completion; drivers cannot block synchronously for slow bus transfers (e.g. a 1.5 ms I2C Barometer read or 9 ms ADC conversion would stall the 8 kHz gyro loop, inducing immediate flight instability).
+   - Developers are forced to hand-craft fragmented, fragile **driver state machines** (`BAROMETER_NEEDS_SAMPLES`, `BAROMETER_NEEDS_CALCULATION`) managed across static variables and scheduler re-arming hooks (`rescheduleTask()`).
 2. **Multi-Threaded RTOS / POSIX (ArduPilot ChibiOS / Linux)**:
    - Separate threads are spawned for SPI, I2C, EKF, and MAVLink.
    - On Linux systems (SITL or Companion Flight Computers), Linux kernel drivers (`/dev/spidev`, `/dev/i2c-dev`) use **synchronous blocking `ioctl()`** calls (`SPI_IOC_MESSAGE`, `I2C_RDWR`). **Linux does not support `epoll` or `poll` for SPI/I2C master bus transfers**.

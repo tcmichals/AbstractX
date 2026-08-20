@@ -37,7 +37,7 @@ The **AbstractX PCIe TLP Architecture** establishes **PCIe-like 64-Byte TLPs (`a
 
 ## 2. Multi-Threaded Execution Model (ArduPilot ChibiOS / POSIX pthreads vs Lock-Free TLP Rings)
 
-Unlike Betaflight/iNav (which use bare-metal non-blocking super-loops), **ArduPilot** uses multi-threaded execution (ChibiOS threads on RTOS, POSIX `pthreads` on Linux):
+Unlike Betaflight/iNav (which use single-stack cooperative task schedulers with driver state machines), **ArduPilot** uses multi-threaded execution (ChibiOS threads on RTOS, POSIX `pthreads` on Linux):
 
 ```
 +-----------------------------------------------------------------------------------+

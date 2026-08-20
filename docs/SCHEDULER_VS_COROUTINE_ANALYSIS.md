@@ -108,12 +108,28 @@ Because execution must return to the scheduler at each step, the physical driver
 - `get_up`: Extracts 24-bit raw pressure integer.
 - `calculate`: Computes calibrated pressure and temperature.
 
-#### Component 3: Scheduler Sub-State Tracking ([`external/betaflight/src/main/scheduler/scheduler.c`](file:///home/tcmichals/ssdData/projects/home/inav/external/betaflight/src/main/scheduler/scheduler.c#L182-L220))
-The main scheduler must track sub-state times and evaluate whether tasks are ready on every tick:
-- `schedulerSetNextStateTime()`
+#### Component 3: INAV Scheduler Rescheduling Pattern (`inav/src/main/fc/fc_tasks.c` & `sensors/barometer.c`)
+In INAV, tasks are scheduled in `fc_tasks.c` and use `rescheduleTask()` to sleep the task during ADC conversion:
+```c
+// inav/src/main/fc/fc_tasks.c
+void taskUpdateBaro(timeUs_t currentTimeUs) {
+    if (!sensors(SENSOR_BARO)) return;
+    const uint32_t newDeadline = baroUpdate();
+    if (newDeadline != 0) {
+        rescheduleTask(TASK_SELF, newDeadline); // Asks scheduler to wake task in 10,000 µs
+    }
+}
+```
+Inside `sensors/barometer.c`, an internal 2-phase state machine alternates between reading previous ADC values and initiating new conversions:
+```c
+typedef enum { BAROMETER_NEEDS_SAMPLES = 0, BAROMETER_NEEDS_CALCULATION } barometerState_e;
+```
+
+#### Component 4: Scheduler Sub-State Tracking (`scheduler.c`)
+The main scheduler evaluates ready tasks and sub-state times across dynamic priority queues:
+- `schedulerSetNextStateTime()` / `rescheduleTask()`
 - `schedulerIgnoreTaskStateTime()`
-- `schedulerIgnoreTaskExecTime()`
-- `schedulerIgnoreTaskExecRate()`
+- Dynamic priority age tracking (`dynamicPriority = 1 + staticPriority * taskAgeCycles`)
 
 ---
 
