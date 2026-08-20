@@ -1,7 +1,7 @@
 # AbstractX Design Goals
 
 **Version:** 1.0  
-**Branch:** `feature/universal-async-framework`  
+**Branch:** `main`  
 **Status:** Authoritative — all other docs must agree with this document.
 
 ---
