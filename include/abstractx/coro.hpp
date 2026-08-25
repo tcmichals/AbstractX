@@ -22,6 +22,8 @@
 #define ABSTRACTX_CORO_HPP
 
 #include "../asp_coro.hpp"
+#include "isr_dispatcher.hpp"
+#include "timer.hpp"
 
 namespace abstractx {
     // Export standard coroutine primitives to top-level abstractx namespace for clean client usage
@@ -41,6 +43,11 @@ namespace abstractx {
     using coro::AsyncQueue;
     using coro::when_all;
     using coro::when_any;
+
+    // Export ISR Dispatcher and ETL-backed Timer Service
+    using abstractx::IsrDispatcher;
+    using abstractx::TimerService;
+    using abstractx::sleep_ms;
 }
 
 #endif // ABSTRACTX_CORO_HPP
