@@ -33,10 +33,22 @@ All headers under `include/` MUST remain freestanding-compatible for MCU targets
 - **Permitted includes:** `<coroutine>`, `<atomic>`, `<array>`, `<optional>`, `<variant>`, `<tuple>`, `<cstdint>`, `<cstddef>`, `<utility>`.
 - **Dynamic allocation:** `operator new` / `malloc` are only permitted inside static pool overrides (`operator new(size_t)` returning from a fixed pool). Direct heap use in core headers is REJECTED.
 
-## 7. SPSC Queue Sizing Rules
-- Minimum SPSC ring capacity: `max_in_flight_transactions * 2` slots (never less than 8).
-- Capacity MUST be a power of 2 (enforced by `static_assert` in `SpscRingBuffer`).
-- Channel arrays MUST have one dedicated ring per producer (one per ISR / worker thread).
+## 7. Execution Domain and Queue Safety Rules
+- **Canonical abstraction:** The public dispatcher abstraction is `DomainDispatcher`. The historical `IsrDispatcher` name remains only as a compatibility alias; it does not redefine the design boundary.
+- **Coroutine domain vs ISR domain:** AbstractX distinguishes the cooperative coroutine domain from the interrupt-driven ISR domain. These are separate execution domains with different safety requirements.
+- **Topology vs. Safety are different:** SPSC only describes producer/consumer topology; it does not imply ISR safety.
+- **ISR-safe queues are required for any queue touched by an ISR or any code that can be interrupted by a higher-priority IRQ.**
+- **ETL pattern requirement:** Any queue that may be written from an ISR must provide interrupt save/restore semantics and must protect the critical section against nested higher-priority interrupts. The canonical implementation is `etl::queue_spsc_isr<T, N, abstractx::InterruptLock>`; do not hand-roll a replacement ring.
+- **Domain direction is explicit in the call:** the coroutine domain uses the locked entry points (`push()` / `pop()`), and the ISR domain uses the unlocked ones (`push_from_isr()` / `pop_from_isr()`), because interrupts are already masked there.
+- **Interrupt API contract:** The access policy MUST expose the ETL `lock()` / `unlock()` pair, saving the prior interrupt state on the outermost lock and restoring the exact previous state on the matching unlock, so nesting never re-enables interrupts early. `abstractx::disable_interrupts_save_flags()` / `restore_interrupts_flags(uint32_t flags)` provide the underlying primitives.
+- **Priority-aware design:** If multiple IRQ sources with different priorities can enqueue into the same queue, the implementation MUST either:
+  - use a separate queue per priority domain, or
+  - mask interrupts / save flags while modifying the ring, restoring the prior interrupt state after the enqueue/dequeue.
+- **Driver request queues:** Top-level coroutines and main-loop code may enqueue requests to a driver, but the driver-facing queue must be ISR-safe because the driver can be called by hardware ISR activity and must support multiple queued requests in flight.
+- **Core-to-core and thread-to-thread follow the same bridge pattern:** the same queue/bridge design can be reused across core-to-core and thread-to-thread boundaries, but the implementation details are platform-specific (shared-memory queues, processor-local queues, or RTOS message queues).
+- **Ring sizing:** Minimum ring capacity: `max_in_flight_transactions * 2` slots (never less than 8).
+- **Power-of-two capacity:** Capacity MUST be a power of 2 (enforced by `static_assert` in `SpscRingBuffer`).
+- **Channel arrays:** Channel arrays MUST have one dedicated ring per producer (one per ISR / worker thread / processor core).
 
 ## 8. Endianness Convention
 - **ASP wire protocol:** Big-Endian for all multi-byte header fields.

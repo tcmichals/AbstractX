@@ -32,7 +32,8 @@ namespace coro {
 // ============================================================================
 
 // Freestanding MCU Static Frame Pool (Guarantees 0 B Dynamic Heap Allocation)
-alignas(64) inline uint8_t g_coro_static_frame_pool[64 * 1024];
+// Reserve DTCM headroom for regular BSS, ISR state, and the runtime stack.
+alignas(64) inline uint8_t g_coro_static_frame_pool[60 * 1024];
 inline std::atomic<size_t> g_coro_static_pool_offset{0};
 
 template <typename T = void>
