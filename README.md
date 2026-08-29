@@ -52,7 +52,7 @@ High-frequency control and telemetry algorithms cannot afford to block while slo
 
 ## 2. Key Multi-Domain Application Profiles
 
-AbstractX is domain-agnostic and provides tailored acceleration across multiple industries:
+AbstractX is domain-agnostic and provides tailored acceleration across multiple industries. The canonical dispatch abstraction is `DomainDispatcher`; the legacy `IsrDispatcher` name remains as a compatibility alias only for older code and documentation.
 
 ```
                  ┌──────────────────────────────────────────────┐
@@ -84,7 +84,26 @@ AbstractX is domain-agnostic and provides tailored acceleration across multiple 
 
 ---
 
-## 3. Cross-Platform Silicon Matrix
+## 3. Execution Domains and Queue Bridge Model
+
+AbstractX separates execution by domain rather than by “thread vs. IRQ” alone:
+
+- **Coroutine domain**: the cooperative top-level execution domain. This is the main coroutine/scheduler domain where user logic, higher-level drivers, and top-level application flow run.
+- **ISR domain**: hardware interrupt handlers and top-half completion paths. These can fire asynchronously and must never block or do unprotected queue mutation.
+- **Core-to-core / thread-to-thread domains**: separate execution domains for future multi-core or RTOS-backed platforms, using the same bridge pattern but with different interconnect implementations.
+
+The key rule is that inter-domain communication is always bridged through a queue or message boundary, not by assuming a single shared SPSC model applies everywhere.
+
+- **Coroutine-to-ISR bridge**: ISR-safe ring or request queue that preserves interrupt state during the critical section.
+- **Coroutine-to-core bridge**: same pattern, implemented with shared-memory or processor-local queues.
+- **Coroutine-to-thread bridge**: same conceptual pattern, implemented with OS message queues or RTOS primitives.
+- **Driver request queue**: a driver-facing queue used by a top-level coroutine and by ISR-triggered hardware completion paths; this must be ISR-safe and capable of buffering multiple pending requests.
+
+ETL provides the concrete transport: the bridge is `etl::queue_spsc_isr<T, N, abstractx::InterruptLock>`, so no ring buffer is hand-rolled. `InterruptLock` implements the ETL `lock()` / `unlock()` pair with nesting-aware interrupt save/restore, saving the prior state on the outermost lock and restoring the exact previous state on the matching unlock. The direction of travel is explicit at the call site: the coroutine domain uses the locked `push()` / `pop()`, while an ISR uses the unlocked `push_from_isr()` / `pop_from_isr()` because interrupts are already masked there.
+
+This is not optional: the queue semantics must match the execution-domain boundary, not just the producer/consumer count. For ISR-connected queues, the safety requirement is not implied by SPSC topology alone.
+
+## 4. Cross-Platform Silicon Matrix
 
 AbstractX adapts its message framing to match the physical architecture of each target:
 
