@@ -32,9 +32,51 @@ namespace coro {
 // ============================================================================
 
 // Freestanding MCU Static Frame Pool (Guarantees 0 B Dynamic Heap Allocation)
-// Reserve DTCM headroom for regular BSS, ISR state, and the runtime stack.
-alignas(64) inline uint8_t g_coro_static_frame_pool[60 * 1024];
+#ifndef ABSTRACTX_CORO_POOL_SIZE
+#define ABSTRACTX_CORO_POOL_SIZE (60 * 1024)
+#endif
+
+// Define ABSTRACTX_CORO_POOL_SECTION to place the pool outside the default BSS
+// region, e.g. "-DABSTRACTX_CORO_POOL_SECTION=\".coro_frame_pool\"" to keep
+// coroutine frames out of a small tightly-coupled RAM that also holds the stack.
+#ifdef ABSTRACTX_CORO_POOL_SECTION
+#define ABSTRACTX_CORO_POOL_ATTR __attribute__((section(ABSTRACTX_CORO_POOL_SECTION)))
+#else
+#define ABSTRACTX_CORO_POOL_ATTR
+#endif
+
+alignas(64) ABSTRACTX_CORO_POOL_ATTR inline uint8_t g_coro_static_frame_pool[ABSTRACTX_CORO_POOL_SIZE];
 inline std::atomic<size_t> g_coro_static_pool_offset{0};
+
+namespace detail {
+
+// Bump allocator for coroutine frames. Returns nullptr when exhausted so the
+// promise's get_return_object_on_allocation_failure() path runs; it must never
+// hand back storage that already belongs to a live coroutine.
+inline void* coro_frame_alloc(size_t sz) noexcept {
+    const size_t aligned_sz = (sz + 15U) & ~static_cast<size_t>(15U);
+    size_t offset = g_coro_static_pool_offset.load(std::memory_order_relaxed);
+    for (;;) {
+        if (aligned_sz > sizeof(g_coro_static_frame_pool) - offset) {
+            return nullptr;
+        }
+        if (g_coro_static_pool_offset.compare_exchange_weak(
+                offset, offset + aligned_sz,
+                std::memory_order_acq_rel, std::memory_order_relaxed)) {
+            return &g_coro_static_frame_pool[offset];
+        }
+    }
+}
+
+} // namespace detail
+
+inline size_t coro_pool_used() noexcept {
+    return g_coro_static_pool_offset.load(std::memory_order_relaxed);
+}
+
+constexpr size_t coro_pool_capacity() noexcept {
+    return sizeof(g_coro_static_frame_pool);
+}
 
 template <typename T = void>
 class Task {
@@ -84,13 +126,7 @@ public:
         }
 
         static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_coro_static_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_static_frame_pool)) {
-                g_coro_static_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_static_frame_pool;
-            }
-            return &g_coro_static_frame_pool[old_offset];
+            return detail::coro_frame_alloc(sz);
         }
 
         static void operator delete(void*, size_t) noexcept {}
@@ -220,13 +256,7 @@ public:
         }
 
         static void* operator new(size_t sz) noexcept {
-            size_t aligned_sz = (sz + 15u) & ~15u;
-            size_t old_offset = g_coro_static_pool_offset.fetch_add(aligned_sz, std::memory_order_acq_rel);
-            if (old_offset + aligned_sz > sizeof(g_coro_static_frame_pool)) {
-                g_coro_static_pool_offset.store(aligned_sz, std::memory_order_release);
-                return g_coro_static_frame_pool;
-            }
-            return &g_coro_static_frame_pool[old_offset];
+            return detail::coro_frame_alloc(sz);
         }
 
         static void operator delete(void*, size_t) noexcept {}
