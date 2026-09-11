@@ -21,3 +21,5 @@ add_abstractx_example(pt_example_codelock                   pt_example_codelock.
 add_abstractx_example(pt_example_socket                     pt_example_socket.cpp)
 add_abstractx_example(generic_protothread_replacements      generic_protothread_replacements.cpp)
 add_abstractx_example(dual_processor_io_and_processing     dual_processor_io_and_processing.cpp)
+add_abstractx_example(gps_imu_flight_node                  gps_imu_flight_node.cpp)
+

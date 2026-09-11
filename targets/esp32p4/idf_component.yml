@@ -1,0 +1,4 @@
+dependencies:
+  idf: ">=5.1"
+description: "AbstractX Universal Asynchronous Coroutine & HAL Framework for ESP32-P4"
+version: "1.0.0"
