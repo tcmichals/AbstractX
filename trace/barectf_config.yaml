@@ -1,0 +1,161 @@
+# trace/barectf_config.yaml
+# ==============================================================================
+# AbstractX barectf Common Trace Format (CTF 1.8) Specification
+# ==============================================================================
+# @impl [SPEC-TRACE-01] docs/DESIGN_SPECIFICATION.md#spec-trace-01
+# @status Complete
+
+version: '3.0'
+
+metadata:
+  trace:
+    major: 1
+    minor: 8
+    byte-order: le
+    packet-header-type:
+      fields:
+        magic:
+          type: uint32
+          init: 0xC1FC1FC1
+        stream_id:
+          type: uint8
+        packet_size:
+          type: uint32
+        content_size:
+          type: uint32
+        timestamp_begin:
+          type: uint64
+        timestamp_end:
+          type: uint64
+        events_discarded:
+          type: uint32
+
+  clocks:
+    monotonic:
+      frequency: 1000000 # 1 MHz microsecond clock
+      precision: 1
+      offset: 0
+      absolute: true
+
+  streams:
+    # --------------------------------------------------------------------------
+    # Stream 0: Real-Time Coroutine Lifecycles & Work Queue
+    # --------------------------------------------------------------------------
+    coroutine:
+      packet-context-type:
+        fields:
+          cpu_id:
+            type: uint8
+          task_count:
+            type: uint16
+      event-header-type:
+        fields:
+          id:
+            type: uint8
+          timestamp:
+            type: uint64
+
+      events:
+        coro_spawn:
+          fields:
+            task_id: uint32
+            handle_addr: uint32
+            name_hash: uint32
+
+        coro_suspend:
+          fields:
+            task_id: uint32
+            handle_addr: uint32
+            reason: uint8 # 0=Timer, 1=SPI, 2=UART, 3=Mailbox, 4=Queue
+
+        coro_resume:
+          fields:
+            task_id: uint32
+            handle_addr: uint32
+            queue_latency_us: uint32
+
+        coro_done:
+          fields:
+            task_id: uint32
+            handle_addr: uint32
+            total_duration_us: uint32
+
+    # --------------------------------------------------------------------------
+    # Stream 1: High-Rate Flight Telemetry & Sensor Samples
+    # --------------------------------------------------------------------------
+    telemetry:
+      packet-context-type:
+        fields:
+          cpu_id:
+            type: uint8
+      event-header-type:
+        fields:
+          id:
+            type: uint8
+          timestamp:
+            type: uint64
+
+      events:
+        imu_sample:
+          fields:
+            sample_seq: uint32
+            accel_x_mg: int16
+            accel_y_mg: int16
+            accel_z_mg: int16
+            gyro_x_dps: int16
+            gyro_y_dps: int16
+            gyro_z_dps: int16
+            temp_c_1e2: int16
+
+        gps_fix:
+          fields:
+            itow_ms: uint32
+            lat_1e7: int32
+            lon_1e7: int32
+            alt_mm: int32
+            ground_speed_mm_s: int32
+            heading_1e5: int32
+            sats: uint8
+            fix_type: uint8
+
+    # --------------------------------------------------------------------------
+    # Stream 2: HAL Driver I/O & Inter-Core TLP Protocol
+    # --------------------------------------------------------------------------
+    hal_tlp:
+      packet-context-type:
+        fields:
+          cpu_id:
+            type: uint8
+      event-header-type:
+        fields:
+          id:
+            type: uint8
+          timestamp:
+            type: uint64
+
+      events:
+        hal_io_start:
+          fields:
+            peripheral_id: uint8 # 0=SPI0, 1=UART0, 2=TIMER, 3=MSGBOX
+            req_size: uint16
+
+        hal_io_complete:
+          fields:
+            peripheral_id: uint8
+            bytes_transferred: uint16
+            duration_us: uint32
+            status: uint8
+
+        tlp_push:
+          fields:
+            tag: uint8
+            channel: uint8
+            target_addr: uint32
+            len_dw: uint16
+
+        tlp_pop:
+          fields:
+            tag: uint8
+            channel: uint8
+            target_addr: uint32
+            len_dw: uint16

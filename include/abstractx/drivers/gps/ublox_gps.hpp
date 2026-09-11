@@ -21,6 +21,7 @@
 
 #include "abstractx/hal/uart.hpp"
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/trace/tracer.hpp"
 #include "asp_tlp64.hpp"
 
 namespace abstractx::drivers::gps {
@@ -213,6 +214,13 @@ private:
             std::memcpy(&out.ground_speed_mm_s,&payload_buf_[60], 4);
             std::memcpy(&out.heading_1e5,      &payload_buf_[64], 4);
             out.valid = (out.fix_type >= GpsFixType::Fix2D);
+            if (out.valid) {
+                trace::g_tracer.trace_gps(
+                    out.itow_ms, out.lat_1e7, out.lon_1e7, out.alt_msl_mm,
+                    out.ground_speed_mm_s, out.heading_1e5, out.satellites,
+                    static_cast<uint8_t>(out.fix_type), out.timestamp_us
+                );
+            }
             return true;
         }
         return false;
