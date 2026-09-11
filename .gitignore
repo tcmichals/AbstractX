@@ -48,6 +48,8 @@ examples/dual_processor_io_and_processing
 *.pds
 *.fs
 *.json
+!CMakePresets.json
+!.vscode/*.json
 !docs/evidence/**/*.json
 !**/*.lushay.json
 !**/*.cst

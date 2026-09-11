@@ -1,0 +1,81 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Pico 2 W Firmware",
+            "type": "shell",
+            "command": "cmake --build build_pico2w -j$(nproc)",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build Host SITL & Tests",
+            "type": "shell",
+            "command": "cmake --build build_host -j$(nproc)",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build XuanTie E907 Firmware",
+            "type": "shell",
+            "command": "cmake --build build_e907 -j$(nproc)",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Start OpenOCD (RP2350)",
+            "type": "shell",
+            "command": "/home/tcmichals/.tools/openocd/bin/openocd -s /home/tcmichals/.tools/openocd/openocd/scripts -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c 'adapter speed 5000'",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "Open On-Chip Debugger",
+                    "endsPattern": "Listening on port 3333 for gdb connections"
+                }
+            }
+        },
+        {
+            "label": "Start OpenOCD (ESP32-P4)",
+            "type": "shell",
+            "command": "openocd-esp32 -f board/esp32p4-builtin.cfg -c 'adapter_khz 5000' || /home/tcmichals/.tools/openocd/bin/openocd -s /home/tcmichals/.tools/openocd/openocd/scripts -f board/esp32s3-builtin.cfg",
+            "isBackground": true,
+            "problemMatcher": {
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "Open On-Chip Debugger",
+                    "endsPattern": "Listening on port 3333 for gdb connections"
+                }
+            }
+        },
+        {
+            "label": "Flash Pico 2 W via OpenOCD SWD",
+            "type": "shell",
+            "command": "/home/tcmichals/.tools/openocd/bin/openocd -s /home/tcmichals/.tools/openocd/openocd/scripts -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c 'adapter speed 5000' -c 'program build_pico2w/apps/pico2w_companion/pico2w_companion.elf verify reset exit'",
+            "dependsOn": "Build Pico 2 W Firmware",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Audit Spec Coverage",
+            "type": "shell",
+            "command": "python3 tools/audit_specs.py",
+            "group": "test",
+            "problemMatcher": []
+        }
+    ]
+}

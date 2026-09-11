@@ -63,6 +63,11 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: `AsyncMailboxDriver` must handle hardware cross-core doorbells (MSGBox on Allwinner, SIO on RP2350, IPC on ESP32-P4) with `co_await notify_async()`.
 * **Implementation Target**: `include/abstractx/hal/mailbox.hpp`
 
+### `[SPEC-HAL-05]` Asynchronous Timer & Alarm Engine
+* **Requirement**: Timer delays, alarms, and periodic tasks must operate asynchronously through `AsyncTimerDriver` inheriting from `AsyncDriverBase<TimerRequest, TimerResult>`. Coroutines yield to the work queue and are awakened by hardware alarm ISRs, OS timer callbacks, or I/O processor queue completions. Coroutines never block or busy-spin on timers.
+* **Mechanism**: Request Queue $\rightarrow$ Hardware Alarm / OS Timer Callback $\rightarrow$ Completion Queue $\rightarrow$ `IsrDispatcher::post(handle)`.
+* **Implementation Target**: `include/abstractx/hal/timer.hpp`
+
 ---
 
 ## 4. Sensor Driver Specifications (`SPEC-IMU` & `SPEC-GPS`)

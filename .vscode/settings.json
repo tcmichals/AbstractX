@@ -1,0 +1,21 @@
+{
+    "cmake.configureOnOpen": true,
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.default.cppStandard": "c++20",
+    "C_Cpp.default.cStandard": "c17",
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/include",
+        "${workspaceFolder}/third_party/etl/include",
+        "${workspaceFolder}/targets/pico2w_rp2350/include",
+        "/home/tcmichals/.tools/pico-sdk/src/common/**",
+        "/home/tcmichals/.tools/pico-sdk/src/rp2_common/**",
+        "/home/tcmichals/.tools/pico-sdk/src/rp2350/**"
+    ],
+    "files.associations": {
+        "*.hpp": "cpp",
+        "*.cpp": "cpp",
+        "*.h": "c",
+        "*.c": "c",
+        "*.ld": "linkerscript"
+    }
+}
