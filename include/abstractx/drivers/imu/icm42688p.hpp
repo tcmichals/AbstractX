@@ -119,12 +119,21 @@ public:
     }
 
     /*
-     * Package ImuSample into a 64-bit PCIe-style TLP completion packet
+     * Package ImuSample into a standardized CTF 1.8 binary payload inside a 64-Byte TLP
      */
-    static Tlp64 to_tlp(const ImuSample& s) noexcept {
-        uint32_t payload = (static_cast<uint16_t>(s.accel_g[0] * 100.0f) << 16) |
-                           (static_cast<uint16_t>(s.gyro_dps[2] * 10.0f) & 0xFFFF);
-        return Tlp64::make_cpl_d(TLP_TAG_IMU, payload);
+    static Tlp64 to_tlp(const ImuSample& s, uint32_t seq = 0) noexcept {
+        trace::ImuSamplePayload ctf{};
+        ctf.event_id = 1;
+        ctf.timestamp_us = s.timestamp_us;
+        ctf.sample_seq = seq;
+        ctf.accel_x_mg = static_cast<int16_t>(s.accel_g[0] * 1000.0f);
+        ctf.accel_y_mg = static_cast<int16_t>(s.accel_g[1] * 1000.0f);
+        ctf.accel_z_mg = static_cast<int16_t>(s.accel_g[2] * 1000.0f);
+        ctf.gyro_x_dps = static_cast<int16_t>(s.gyro_dps[0] * 10.0f);
+        ctf.gyro_y_dps = static_cast<int16_t>(s.gyro_dps[1] * 10.0f);
+        ctf.gyro_z_dps = static_cast<int16_t>(s.gyro_dps[2] * 10.0f);
+        ctf.temp_c_1e2 = static_cast<int16_t>(s.temp_deg_c * 100.0f);
+        return Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_IMU, ctf, s.timestamp_us * 1000ULL);
     }
 
     /*

@@ -11,6 +11,7 @@
 #include "asp_tlp64.h"
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <span>
 #include <array>
 
@@ -97,6 +98,27 @@ struct alignas(64) Tlp64 {
 
     static constexpr Tlp64 make_cpl_d(uint8_t tag, uint32_t value, Channel ch = Channel::Telemetry) noexcept {
         return make_completion_data(tag, value, ch);
+    }
+
+    // Encapsulate an arbitrary CTF binary event payload into a 64-byte TLP
+    template <typename TCtfPayload>
+    static Tlp64 make_ctf(Channel ch, uint8_t tag, const TCtfPayload& ctf_event, uint64_t timestamp_ns = 0, TlpType type = TlpType::DmaStream) noexcept {
+        static_assert(sizeof(TCtfPayload) <= ASP_TLP64_PAYLOAD_SIZE, "CTF payload size exceeds 40-byte TLP limit");
+        Tlp64 packet{};
+        packet.wire.type = static_cast<uint8_t>(type);
+        packet.wire.tag = tag;
+        packet.wire.channel = static_cast<uint8_t>(ch);
+        packet.wire.length_dw = static_cast<uint16_t>((sizeof(TCtfPayload) + 3) / 4);
+        packet.wire.timestamp_ns = timestamp_ns;
+        std::memcpy(packet.wire.payload, &ctf_event, sizeof(TCtfPayload));
+        return packet;
+    }
+
+    // Access payload as strongly typed CTF structure
+    template <typename TCtfPayload>
+    const TCtfPayload* as_ctf() const noexcept {
+        static_assert(sizeof(TCtfPayload) <= ASP_TLP64_PAYLOAD_SIZE, "Requested CTF payload type exceeds 40 bytes");
+        return reinterpret_cast<const TCtfPayload*>(wire.payload);
     }
 
     constexpr TlpType type() const noexcept {

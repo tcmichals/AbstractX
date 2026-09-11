@@ -141,15 +141,76 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                     g_state.bytes_received += len(data)
                     g_state.rate_counter += 1
 
-                # Parse CTF Header (32 bytes)
-                if len(data) >= 32:
+                t = time.time() - start_t
+
+                # 1. Parse Standard 64-Byte TLP Encapsulating CTF 1.8 Payloads
+                if len(data) == 64 or (len(data) > 0 and len(data) % 64 == 0):
+                    for offset in range(0, len(data), 64):
+                        tlp_frame = data[offset:offset+64]
+                        tlp_type, flags, tag, channel, target_addr, len_dw, seq, timestamp_ns = struct.unpack(
+                            "<BBBBIHHQ", tlp_frame[0:20]
+                        )
+                        ctf_payload = tlp_frame[20:60]
+
+                        # Channel 2: Telemetry Stream (IMU & GPS)
+                        if channel == 2:
+                            event_id = ctf_payload[0]
+                            # Stream 1, Event 1: IMU Sample (27B)
+                            if event_id == 1 and len(ctf_payload) >= 27:
+                                _, _, sample_seq, ax_mg, ay_mg, az_mg, gx_dps, gy_dps, gz_dps, temp_c = struct.unpack(
+                                    "<BQihhhhhhh", ctf_payload[0:27]
+                                )
+                                g_state.push_sensor_sample(
+                                    t,
+                                    ax_mg / 1000.0,
+                                    ay_mg / 1000.0,
+                                    az_mg / 1000.0,
+                                    gx_dps / 10.0,
+                                    gy_dps / 10.0,
+                                    gz_dps / 10.0,
+                                )
+                            # Stream 1, Event 2: GPS Fix (35B)
+                            elif event_id == 2 and len(ctf_payload) >= 35:
+                                _, _, itow, lat, lon, alt_mm, speed_mm_s, heading, sats, fix_type = struct.unpack(
+                                    "<BQiiiiiiBB", ctf_payload[0:35]
+                                )
+                                with g_state.lock:
+                                    g_state.gps_lat = lat / 1e7
+                                    g_state.gps_lon = lon / 1e7
+                                    g_state.gps_alt_m = alt_mm / 1000.0
+                                    g_state.gps_speed_mps = speed_mm_s / 1000.0
+                                    g_state.gps_sats = sats
+                                    g_state.gps_fix_type = fix_type
+
+                        # Channel 4: Debug / Coroutine Stream
+                        elif channel == 4:
+                            event_id = ctf_payload[0]
+                            if event_id == 1 and len(ctf_payload) >= 19:
+                                _, ts, task_id, handle_addr, state, reason = struct.unpack(
+                                    "<BQIIBB", ctf_payload[0:19]
+                                )
+                                with g_state.lock:
+                                    idx = task_id % len(g_state.coro_states)
+                                    g_state.coro_states[idx] = state
+
+                        # Channel 1: Control / HAL I/O Driver Traces
+                        elif channel == 1:
+                            event_id = ctf_payload[0]
+                            if event_id == 1 and len(ctf_payload) >= 19:
+                                _, ts, periph_id, req_sz, xfer_sz, dur_us, status = struct.unpack(
+                                    "<BQBHHIB", ctf_payload[0:19]
+                                )
+                                with g_state.lock:
+                                    g_state.rtt_latency_us = dur_us
+
+                # 2. Backward Compatibility: Direct barectf Packet Header (32 bytes)
+                elif len(data) >= 32:
                     magic, stream_id = struct.unpack("<IB", data[0:5])
                     if magic == CTF_MAGIC:
-                        t = time.time() - start_t
                         # Extract telemetry if Stream 1
-                        if stream_id == 1 and len(data) >= 55:
+                        if stream_id == 1 and len(data) >= 59:
                             _, _, seq, ax_mg, ay_mg, az_mg, gx_dps, gy_dps, gz_dps, _ = struct.unpack(
-                                "<BQihhhhhhh", data[32:55]
+                                "<BQihhhhhhh", data[32:59]
                             )
                             g_state.push_sensor_sample(
                                 t,

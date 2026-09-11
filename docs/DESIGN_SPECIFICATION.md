@@ -37,9 +37,12 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ## 2. 64-Byte Transaction Layer Packet (TLP) Specifications (`SPEC-TLP`)
 
-### `[SPEC-TLP-01]` 64-Byte Wire Format & Alignment
-* **Requirement**: All inter-core and inter-process messages must strictly match the 64-byte `asp_tlp64_t` layout (`alignas(64)`).
-* **Wire Fields**: `type` (1B), `tag` (1B), `channel` (1B), `length_dw` (2B), `target_address` (4B), `timestamp_ns` (8B), `payload` (32B).
+### `[SPEC-TLP-01]` 64-Byte Wire Format & CTF 1.8 Standard Encapsulation
+* **Requirement**: All inter-core, inter-process, and network messages must strictly match the 64-byte `asp_tlp64_t` layout (`alignas(64)`). All data payloads (telemetry, sensor frames, coroutine lifecycles, and HAL traces) must encapsulate standardized binary **Common Trace Format (CTF 1.8 / barectf)** event structures within the 40-byte TLP payload (`payload[40]`).
+* **Wire Fields**: `type` (1B), `flags` (1B), `tag` (1B), `channel` (1B), `target_address` (4B), `length_dw` (2B), `sequence` (2B), `timestamp_ns` (8B), `payload` (40B CTF binary event), `crc32` (4B).
+* **Channel Routing**:
+  - `Channel::Telemetry` (`0x02`): CTF Stream 1 (`ImuSamplePayload` 23B, `GpsFixPayload` 35B).
+  - `Channel::FlightLog` / `Channel::Debug` (`0x03` / `0x04`): CTF Stream 0 (`CoroEventPayload` 17B), CTF Stream 2 (`HalIoPayload` 16B / `TlpTracePayload` 19B).
 * **Implementation Target**: `include/asp_tlp64.hpp`, `include/asp_tlp64.h`
 
 ### `[SPEC-TLP-02]` Memory-Mapped Virtual Addressing & Routing
@@ -79,8 +82,8 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ## 4. Sensor Driver Specifications (`SPEC-IMU` & `SPEC-GPS`)
 
-### `[SPEC-IMU-01]` ICM-42688-P 8 kHz SPI DMA Auto-Read
-* **Requirement**: Read 15-byte burst (`Temp[1..2]`, `Accel_XYZ[3..8]`, `Gyro_XYZ[9..14]`) on `DRDY` edge, convert to float $g$ and $\text{deg/s}$, and emit `Tlp64::make_cpl_d(0x01, payload)`.
+### `[SPEC-IMU-01]` ICM-42688-P 8 kHz SPI DMA Auto-Read & CTF TLP Emission
+* **Requirement**: Read 15-byte burst (`Temp[1..2]`, `Accel_XYZ[3..8]`, `Gyro_XYZ[9..14]`) on `DRDY` edge, convert to engineering units, and format into a 23-byte CTF `ImuSamplePayload` encapsulated in `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_IMU, payload)`.
 * **ODR & Scaling**: Gyro $\pm 2000\ \text{dps}$ ($16.4\ \text{LSB/dps}$), Accel $\pm 16g$ ($2048\ \text{LSB/g}$).
 * **Implementation Target**: `include/abstractx/drivers/imu/icm42688p.hpp`
 
@@ -88,21 +91,21 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: `co_await imu.next_sample_async()` suspends the calling task with zero CPU polling until the SPI DMA completes.
 * **Implementation Target**: `include/abstractx/drivers/imu/icm42688p.hpp`
 
-### `[SPEC-GPS-01]` U-Blox UBX-NAV-PVT Binary Parser
-* **Requirement**: Zero-allocation streaming byte parser for UBX Class `0x01`, ID `0x07` (92-byte payload) with Fletcher-8 checksum verification.
-* **Extracted Fields**: `lat_1e7`, `lon_1e7`, `alt_msl_mm`, `ground_speed_mm_s`, `heading_1e5`, `satellites`, `fix_type`.
+### `[SPEC-GPS-01]` U-Blox UBX-NAV-PVT Binary Parser & CTF TLP Emission
+* **Requirement**: Zero-allocation streaming byte parser for UBX Class `0x01`, ID `0x07` (92-byte payload) with Fletcher-8 checksum verification, emitting a 35-byte CTF `GpsFixPayload` inside `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_GPS, payload)`.
+* **Extracted Fields**: `lat_1e7`, `lon_1e7`, `alt_msl_mm`, `ground_speed_mm_s`, `heading_1e5`, `satellites`, `fix_type`, `itow_ms`.
 * **Implementation Target**: `include/abstractx/drivers/gps/ublox_gps.hpp`
 
 ### `[SPEC-GPS-02]` U-Blox GPS Coroutine Awaiter & TLP Emission
-* **Requirement**: `co_await gps.next_fix_async()` yields until a verified 3D fix frame is parsed, emitting `Tlp64::make_cpl_d(0x02, payload)`.
+* **Requirement**: `co_await gps.next_fix_async()` yields until a verified 3D fix frame is parsed, emitting `Tlp64` containing the full CTF navigation payload.
 * **Implementation Target**: `include/abstractx/drivers/gps/ublox_gps.hpp`
 
 ---
 
 ## 5. Trace & Visualizer Specifications (`SPEC-TRACE`)
 
-### `[SPEC-TRACE-01]` barectf Common Trace Format (CTF) Event Specification & Wire Model
-* **Requirement**: System must emit binary CTF event packets conforming to `trace/barectf_config.yaml` (`magic = 0xC1FC1FC1`) capturing Coroutine lifecycles (`coro_state`), IMU bursts (`imu_sample`), GPS fixes (`gps_fix`), HAL driver I/O (`hal_io`), and TLP routing (`tlp_msg`).
+### `[SPEC-TRACE-01]` barectf Common Trace Format (CTF) Event Specification & TLP Carrier
+* **Requirement**: System must emit binary CTF event packets conforming to `trace/barectf_config.yaml` (`magic = 0xC1FC1FC1`) capturing Coroutine lifecycles (`coro_state`), IMU bursts (`imu_sample`), GPS fixes (`gps_fix`), HAL driver I/O (`hal_io`), and TLP routing (`tlp_msg`), with individual CTF events directly transportable inside 64-byte `Tlp64` messages.
 * **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `trace/barectf_config.yaml`
 
 ### `[SPEC-TRACE-02]` Zero-Allocation Trace Buffer & Ring Engine
@@ -111,7 +114,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-TRACE-03]` Multi-Target Visualizer Transport
 * **Requirement**: Trace packets must be transportable to the AbstractX Visualizer via:
-  - **Pico 2 W**: Core 0 UDP Wi-Fi / socket stream (Port 9870).
+  - **Pico 2 W**: Core 0 UDP Wi-Fi / socket stream (Port 9870) carrying 64-byte CTF-in-TLP frames.
   - **XuanTie E907**: Shared non-cacheable DRAM ring (`0x48100000`) & RemoteProc `trace0`.
   - **Host SITL**: CTF binary stream file and local loopback UDP.
 * **Implementation Target**: `apps/pico2w_companion/main.cpp`, `apps/e907_coprocessor/main.cpp`
