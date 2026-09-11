@@ -50,6 +50,8 @@ struct SpiResult {
     SpiStatus status{SpiStatus::Ok};
     size_t    transferred_bytes{0};
     uint64_t  timestamp_us{0};
+    uint32_t  queue_latency_us{0};
+    uint32_t  bus_duration_us{0};
 };
 
 /*

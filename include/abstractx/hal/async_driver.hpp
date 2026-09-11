@@ -37,6 +37,8 @@ struct AsyncTransactionMeta {
     Callback               callback{};
     std::coroutine_handle<> coro_handle{nullptr};
     void*                  user_context{nullptr};
+    uint64_t               submit_timestamp_us{0};
+    uint64_t               start_timestamp_us{0};
 
     void notify_completion(const TResult& result) const noexcept {
         if (callback.is_valid()) {
