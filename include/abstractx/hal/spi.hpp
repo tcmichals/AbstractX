@@ -65,6 +65,22 @@ struct SpiRequest : public AsyncTransactionMeta<SpiResult> {
     uint32_t                 cs_pin{0};
     bool                     auto_cs{true};
     bool                     is_dual_spi{false};
+
+    // Dedicated RX/TX callbacks when hardware operation finishes
+    etl::delegate<void(const SpiResult&)> on_tx_complete{};
+    etl::delegate<void(const SpiResult&)> on_rx_complete{};
+
+    void notify_tx_completion(const SpiResult& result) const noexcept {
+        if (on_tx_complete.is_valid()) {
+            on_tx_complete(result);
+        }
+    }
+
+    void notify_rx_completion(const SpiResult& result) const noexcept {
+        if (on_rx_complete.is_valid()) {
+            on_rx_complete(result);
+        }
+    }
 };
 
 // @impl [SPEC-HAL-02] docs/DESIGN_SPECIFICATION.md#spec-hal-02
@@ -78,6 +94,7 @@ public:
     // Synchronous fallback
     virtual uint8_t transfer_byte(uint8_t tx) = 0;
     virtual bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) = 0;
+    virtual bool set_frequency(uint32_t frequency_hz) { (void)frequency_hz; return true; }
 
     /*
      * C++20 Coroutine Async Transfer Awaiter

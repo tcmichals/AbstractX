@@ -75,6 +75,8 @@
 #define SPI0_BASE                   0x04025000  /* High-Speed SPI0 Controller (Port C) */
 #define UART0_BASE                  0x02500000  /* UART0 Debug Serial Console */
 #define UART2_BASE                  0x02500800  /* UART2 Navigation/CRSF Serial (Port B) */
+#define TWI0_BASE                   0x02502000  /* High-Speed I2C / TWI0 Controller */
+#define TWI1_BASE                   0x02502400  /* High-Speed I2C / TWI1 Controller */
 
 /* MCU / Subsystem Control Blocks */
 #define MCU_CCU_BASE                0x07010000  /* MCU Subsystem Clock/Reset Control */

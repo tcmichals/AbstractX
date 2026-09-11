@@ -110,6 +110,75 @@ struct TlpDescriptor {
     }
 };
 
+// -----------------------------------------------------------------------------
+// 4. Strongly Typed Views for SPI & I2C Bus Packets Inside Tlp64
+// -----------------------------------------------------------------------------
+struct TlpSpiView {
+    const Tlp64& tlp;
+
+    explicit constexpr TlpSpiView(const Tlp64& t) noexcept : tlp(t) {}
+
+    const asp_tlp_spi_req_header_t* req_header() const noexcept {
+        return reinterpret_cast<const asp_tlp_spi_req_header_t*>(tlp.wire.payload);
+    }
+
+    const asp_tlp_spi_cpl_header_t* cpl_header() const noexcept {
+        return reinterpret_cast<const asp_tlp_spi_cpl_header_t*>(tlp.wire.payload);
+    }
+
+    std::span<const uint8_t> tx_data() const noexcept {
+        const auto* r = req_header();
+        size_t len = (r->tx_len > 36) ? 36 : r->tx_len;
+        return std::span<const uint8_t>{tlp.wire.payload + sizeof(asp_tlp_spi_req_header_t), len};
+    }
+
+    std::span<const uint8_t> rx_data() const noexcept {
+        const auto* c = cpl_header();
+        size_t len = (c->transferred_len > 36) ? 36 : c->transferred_len;
+        return std::span<const uint8_t>{tlp.wire.payload + sizeof(asp_tlp_spi_cpl_header_t), len};
+    }
+};
+
+struct TlpI2cView {
+    const Tlp64& tlp;
+
+    explicit constexpr TlpI2cView(const Tlp64& t) noexcept : tlp(t) {}
+
+    const asp_tlp_i2c_req_header_t* req_header() const noexcept {
+        return reinterpret_cast<const asp_tlp_i2c_req_header_t*>(tlp.wire.payload);
+    }
+
+    const asp_tlp_i2c_cpl_header_t* cpl_header() const noexcept {
+        return reinterpret_cast<const asp_tlp_i2c_cpl_header_t*>(tlp.wire.payload);
+    }
+
+    std::span<const uint8_t> tx_data() const noexcept {
+        const auto* r = req_header();
+        size_t len = (r->tx_len > 32) ? 32 : r->tx_len;
+        return std::span<const uint8_t>{tlp.wire.payload + sizeof(asp_tlp_i2c_req_header_t), len};
+    }
+
+    std::span<const uint8_t> rx_data() const noexcept {
+        const auto* c = cpl_header();
+        size_t len = (c->transferred_len > 36) ? 36 : c->transferred_len;
+        return std::span<const uint8_t>{tlp.wire.payload + sizeof(asp_tlp_i2c_cpl_header_t), len};
+    }
+};
+
+struct TlpGpioView {
+    const Tlp64& tlp;
+
+    explicit constexpr TlpGpioView(const Tlp64& t) noexcept : tlp(t) {}
+
+    const asp_tlp_gpio_req_header_t* req_header() const noexcept {
+        return reinterpret_cast<const asp_tlp_gpio_req_header_t*>(tlp.wire.payload);
+    }
+
+    const asp_tlp_gpio_cpl_header_t* cpl_header() const noexcept {
+        return reinterpret_cast<const asp_tlp_gpio_cpl_header_t*>(tlp.wire.payload);
+    }
+};
+
 } // namespace abstractx
 
 #endif // ASP_TLP_MSG_HPP

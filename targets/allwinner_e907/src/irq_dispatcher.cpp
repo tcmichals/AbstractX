@@ -35,6 +35,7 @@ void default_isr_ignore() noexcept {
 extern "C" {
     void fc_msgbox_doorbell_isr() noexcept __attribute__((weak, alias("default_isr_ignore")));
     void fc_spi1_isr()            noexcept __attribute__((weak, alias("default_isr_ignore")));
+    void fc_twi0_isr()            noexcept __attribute__((weak, alias("default_isr_ignore")));
     void fc_uart0_isr()           noexcept __attribute__((weak, alias("default_isr_ignore")));
     void fc_dma_isr()             noexcept __attribute__((weak, alias("default_isr_ignore")));
     void fc_gpio_drdy_isr()       noexcept __attribute__((weak, alias("default_isr_ignore")));
@@ -45,6 +46,7 @@ extern "C" {
 // Hardware IRQ IDs & PLIC Registers
 // -----------------------------------------------------------------------------
 namespace irq_id {
+    constexpr uint32_t TWI0        = 26; // High-Speed I2C/TWI0 Controller
     constexpr uint32_t MSGBOX_E907 = 48; // Hardware Doorbell
     constexpr uint32_t SPI1        = 54; // Primary Sensor SPI
     constexpr uint32_t UART0       = 34; // Debug Console
@@ -55,6 +57,13 @@ namespace irq_id {
 namespace plic {
     inline volatile uint32_t& claim_complete() noexcept {
         return *reinterpret_cast<volatile uint32_t*>(0x10000000 + 0x200004);
+    }
+
+    inline void enable_irq(uint32_t irq_id) noexcept {
+        volatile uint32_t* priority = reinterpret_cast<volatile uint32_t*>(0x10000000 + 4 * irq_id);
+        *priority = 1;
+        volatile uint32_t* enable = reinterpret_cast<volatile uint32_t*>(0x10002000 + 4 * (irq_id / 32));
+        *enable |= (1U << (irq_id % 32));
     }
 }
 
@@ -68,6 +77,7 @@ static inline void dispatch_external_plic() noexcept {
 
     while (irq != 0) {
         switch (irq) {
+            case irq_id::TWI0:        fc_twi0_isr();            break;
             case irq_id::MSGBOX_E907: fc_msgbox_doorbell_isr(); break;
             case irq_id::SPI1:        fc_spi1_isr();            break;
             case irq_id::UART0:       fc_uart0_isr();           break;

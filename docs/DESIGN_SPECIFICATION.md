@@ -31,7 +31,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   - **Core 0**: Dedicated I/O, DMA, CYW43439 Wi-Fi/networking master, and SIO doorbell bridge.
   - **Core 1**: Dedicated real-time coroutine flight engine running 8 kHz attitude estimation and EKF.
 * **Mechanism**: Dual lock-free `SpscTlpRing<64>` and RP2350 hardware SIO FIFOs (`pico/multicore.h`).
-* **Implementation Target**: `apps/pico2w_companion/main.cpp`, `targets/pico2w_rp2350/`
+* **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `targets/pico2w_rp2350/`
 
 ---
 
@@ -117,7 +117,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   - **Pico 2 W**: Core 0 UDP Wi-Fi / socket stream (Port 9870) carrying 64-byte CTF-in-TLP frames.
   - **XuanTie E907**: Shared non-cacheable DRAM ring (`0x48100000`) & RemoteProc `trace0`.
   - **Host SITL**: CTF binary stream file and local loopback UDP.
-* **Implementation Target**: `apps/pico2w_companion/main.cpp`, `apps/e907_coprocessor/main.cpp`
+* **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `apps/e907_coprocessor/main.cpp`
 
 ---
 

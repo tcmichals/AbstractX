@@ -109,7 +109,7 @@ Connect the **Raspberry Pi Debug Probe** (or any CMSIS-DAP / Picoprobe debugger)
      -f interface/cmsis-dap.cfg \
      -f target/rp2350.cfg \
      -c "adapter speed 5000" \
-     -c "program build_pico2w/apps/pico2w_companion/pico2w_companion.elf verify reset exit"
+     -c "program build_pico2w/apps/gps_imu_app/gps_imu_app.elf verify reset exit"
    ```
 
 ---
@@ -122,7 +122,7 @@ Connect the **Raspberry Pi Debug Probe** (or any CMSIS-DAP / Picoprobe debugger)
 4. Press **`F5`**:
    - VS Code runs the pre-launch build task.
    - OpenOCD connects over CMSIS-DAP.
-   - GDB loads symbols from `pico2w_companion.elf`, resets the RP2350, and breaks at `main()`.
+   - GDB loads symbols from `gps_imu_app.elf`, resets the RP2350, and breaks at `main()`.
 
 ---
 
@@ -203,5 +203,5 @@ In the GDB / VS Code watch window, add:
 
 ### Breaking on Coroutine Suspension / Resumption
 Set a breakpoint at:
-- `apps/pico2w_companion/main.cpp:39` (`ImuSample sample = co_await imu.next_sample_async();`)
+- `apps/gps_imu_app/src/main.cpp:46` (`ImuSample sample = co_await imu.next_sample_async();`)
 - Step into `next_sample_async()` to observe the zero-allocation coroutine awaiter saving the handle and dispatching to SPI DMA!

@@ -5,6 +5,8 @@
 if(NOT DEFINED PICO_SDK_PATH)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/pico-sdk/pico_sdk_init.cmake")
         set(PICO_SDK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/pico-sdk" CACHE PATH "Path to the Pico SDK")
+    elseif(EXISTS "/home/tcmichals/.tools/pico/pico-sdk/pico_sdk_init.cmake")
+        set(PICO_SDK_PATH "/home/tcmichals/.tools/pico/pico-sdk" CACHE PATH "Path to the Pico SDK")
     elseif(EXISTS "/home/tcmichals/.tools/pico-sdk/pico_sdk_init.cmake")
         set(PICO_SDK_PATH "/home/tcmichals/.tools/pico-sdk" CACHE PATH "Path to the Pico SDK")
     elseif(DEFINED ENV{PICO_SDK_PATH})

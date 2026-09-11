@@ -35,7 +35,9 @@
       "toolchainFile": "${sourceDir}/cmake/toolchains/arm-none-eabi.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "ABSTRACTX_TARGET": "pico2w"
+        "ABSTRACTX_TARGET": "pico2w",
+        "PICO_PLATFORM": "rp2350-arm-s",
+        "PICO_BOARD": "pico2_w"
       }
     }
   ],

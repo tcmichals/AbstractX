@@ -87,6 +87,11 @@ public:
 
     bool empty() const noexcept { return size() == 0; }
 
+    void clear() noexcept {
+        head_.store(0, std::memory_order_relaxed);
+        tail_.store(0, std::memory_order_relaxed);
+    }
+
 private:
     alignas(64) std::array<T, Capacity> buffer_{};
     alignas(64) std::atomic<size_t> head_{0};
