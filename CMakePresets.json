@@ -1,0 +1,56 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "host",
+      "displayName": "Host POSIX Simulation & Tests",
+      "description": "Build for local workstation with unit tests and simulation examples",
+      "binaryDir": "${sourceDir}/build_host",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ABSTRACTX_TARGET": "host"
+      }
+    },
+    {
+      "name": "e907",
+      "displayName": "Allwinner XuanTie E907 RISC-V Bare-metal",
+      "description": "Build for XuanTie E907 (Allwinner T527 / A733) co-processor via remoteproc",
+      "binaryDir": "${sourceDir}/build_e907",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/riscv-none-elf.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ABSTRACTX_TARGET": "e907"
+      }
+    },
+    {
+      "name": "pico2w",
+      "displayName": "Raspberry Pi Pico 2 / Pico 2 W (RP2350)",
+      "description": "Build for RP2350 using Pico SDK",
+      "binaryDir": "${sourceDir}/build_pico2w",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/arm-none-eabi.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ABSTRACTX_TARGET": "pico2w"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "host",
+      "configurePreset": "host"
+    },
+    {
+      "name": "e907",
+      "configurePreset": "e907"
+    },
+    {
+      "name": "pico2w",
+      "configurePreset": "pico2w"
+    }
+  ]
+}

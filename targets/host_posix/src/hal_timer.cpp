@@ -30,6 +30,15 @@ public:
         auto now = std::chrono::steady_clock::now().time_since_epoch();
         return static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
     }
+
+protected:
+    void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
+        TimerResult result{};
+        result.status = TimerStatus::Ok;
+        result.timestamp_us = get_time_us() + req.duration_us;
+        push_completion_from_isr(req, result);
+        set_hardware_idle_from_isr();
+    }
 };
 
 } // namespace abstractx::hal

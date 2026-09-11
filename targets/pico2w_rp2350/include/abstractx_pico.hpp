@@ -13,6 +13,7 @@
 
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
+#include "pico/time.h"
 #include "hardware/spi.h"
 #include "hardware/uart.h"
 #include "hardware/timer.h"
@@ -172,12 +173,16 @@ public:
     void delay_us(uint32_t us) override {
 #ifdef PICO_ON_DEVICE
         sleep_us(us);
+#else
+        (void)us;
 #endif
     }
 
     void delay_ms(uint32_t ms) override {
 #ifdef PICO_ON_DEVICE
         sleep_ms(ms);
+#else
+        (void)ms;
 #endif
     }
 
@@ -196,6 +201,45 @@ public:
         return 0;
 #endif
     }
+
+protected:
+    void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
+        active_req_ = req;
+#ifdef PICO_ON_DEVICE
+        alarm_id_ = add_alarm_in_us(req.duration_us, alarm_callback_wrapper, this, true);
+#else
+        TimerResult result{};
+        result.status = TimerStatus::Ok;
+        result.timestamp_us = get_time_us() + req.duration_us;
+        push_completion_from_isr(req, result);
+        set_hardware_idle_from_isr();
+#endif
+    }
+
+private:
+#ifdef PICO_ON_DEVICE
+    static int64_t alarm_callback_wrapper(alarm_id_t id, void* user_data) {
+        (void)id;
+        auto* self = static_cast<PicoTimer*>(user_data);
+        TimerResult result{};
+        result.status = TimerStatus::Ok;
+        result.timestamp_us = self->get_time_us();
+
+        TimerRequest req = self->active_req_;
+        self->push_completion_from_isr(req, result);
+        self->set_hardware_idle_from_isr();
+
+        // Feed next pending timer request if one exists in the queue
+        TimerRequest next_req{};
+        if (self->pop_next_request_from_isr(next_req)) {
+            self->start_hardware_transfer_from_isr(next_req);
+        }
+        return 0;
+    }
+
+    alarm_id_t alarm_id_{0};
+#endif
+    TimerRequest active_req_{};
 };
 
 } // namespace abstractx::hal
