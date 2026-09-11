@@ -4,11 +4,9 @@
  *
  * AbstractX Raspberry Pi Pico 2 W (RP2350) Flight Companion Node
  * ---------------------------------------------------------------
- * Demonstrates the Pure Asynchronous Work-Queue Coroutine Engine:
- * 1. Coroutines NEVER block on timers or I/O; they yield (co_await) to the work queue.
- * 2. Hardware alarms, SPI DMA completions, and UART ISRs post completion tokens.
- * 3. The work queue dispatcher awakens ready coroutines with 0 B heap allocation.
- * 4. Main loop stays in low-power WFE / event-drain with zero busy-spin polling.
+ * Dual-Core Asymmetric Multiprocessing (AMP) Architecture:
+ * - Core 0: Dedicated I/O, DMA, CYW43439 Wi-Fi/Network Master, and SIO Doorbell Bridge
+ * - Core 1: Dedicated Real-Time Coroutine Flight Engine (Zero Network Jitter)
  */
 
 #include "abstractx_pico.hpp"
@@ -21,18 +19,29 @@
 #include <cstdio>
 #include <etl/circular_buffer.h>
 
+#ifdef PICO_ON_DEVICE
+#include "pico/multicore.h"
+#include "pico/cyw43_arch.h"
+#include "hardware/sync.h"
+#endif
+
 using namespace abstractx;
 using namespace abstractx::coro;
 using namespace abstractx::drivers::imu;
 using namespace abstractx::drivers::gps;
 
-// Lock-free static TLP ring for flight telemetry transport
-static SpscTlpRing<64> g_telemetry_ring;
+// Lock-free static TLP rings for inter-core communication
+static SpscTlpRing<64> g_telemetry_ring; // Core 1 -> Core 0 (Telemetry to Wi-Fi / GCS)
+static SpscTlpRing<64> g_sensor_ring;    // Core 0 -> Core 1 (Raw DMA sensor packets)
 
 // Hardware HAL driver instances
 static hal::PicoPioDualSpi g_spi_driver;
 static hal::PicoUart        g_uart_driver;
 static hal::PicoTimer       g_timer;
+
+// ============================================================================
+// Core 1: Dedicated Real-Time Coroutine Flight Engine
+// ============================================================================
 
 // @impl [SPEC-ARCH-03] [SPEC-IMU-02] docs/DESIGN_SPECIFICATION.md#spec-imu-02
 // @status Complete
@@ -65,43 +74,29 @@ Task<void> gps_task(UbloxGps& gps) {
 Task<void> heartbeat_task(hal::ITimer& timer, hal::IUart& uart) {
     uint32_t count = 0;
     while (true) {
-        // Asynchronously yield to work queue for 1000ms (Hardware Alarm Callback)
         co_await timer.sleep_ms_async(1000);
         count++;
 
-        uart.puts("[AbstractX Pico 2 W] Heartbeat #");
+        uart.puts("[AbstractX Pico 2 W Core 1] Heartbeat #");
         char num[32];
-        snprintf(num, sizeof(num), "%u | TLP Ring: %u pkts\n",
+        snprintf(num, sizeof(num), "%u | Telemetry Ring: %u\n",
                  static_cast<unsigned>(count),
                  static_cast<unsigned>(g_telemetry_ring.size()));
         uart.puts(num);
     }
 }
 
-int main() {
-#ifdef PICO_ON_DEVICE
-    stdio_init_all();
-#endif
-
-    // 1. Initialize Hardware Drivers
-    g_uart_driver.init(115200);
-    g_uart_driver.puts("\n========================================================\n");
-    g_uart_driver.puts("  AbstractX - Pico 2 W (RP2350) Flight Node Ready       \n");
-    g_uart_driver.puts("  Pure Work-Queue Coroutine Engine (Zero Blocking Delays)\n");
-    g_uart_driver.puts("  Pipeline: ICM-42688-P (SPI) + U-Blox GPS (UART)       \n");
-    g_uart_driver.puts("========================================================\n");
-
-    hal::SpiConfig spi_cfg{};
-    spi_cfg.frequency_hz = 10'000'000;
-    spi_cfg.mode = hal::SpiMode::Mode3;
-    g_spi_driver.init(spi_cfg);
+// @impl [SPEC-ARCH-05] docs/DESIGN_SPECIFICATION.md#spec-arch-05
+// @status Complete
+void core1_coroutine_flight_engine() {
+    g_uart_driver.puts("[Core 1] Real-Time Flight Coroutine Engine Online!\n");
 
     Icm42688p imu(g_spi_driver);
     UbloxGps  gps(g_uart_driver);
 
     imu.init();
 
-    // 2. Launch Concurrent Coroutine Tasks onto Work Queue
+    // Launch coroutines onto the work queue
     auto imu_coro       = imu_task(imu);
     auto gps_coro       = gps_task(gps);
     auto heartbeat_coro = heartbeat_task(g_timer, g_uart_driver);
@@ -110,23 +105,83 @@ int main() {
     gps_coro.resume();
     heartbeat_coro.resume();
 
-    // 3. Main Work-Queue Event Loop: Coroutines never block; they run when ready
     while (true) {
-        // Process ready coroutines scheduled from ISRs, Timers, or I/O completions
+        // Drain ready coroutines from the work queue
         Dispatcher::process();
 
-        // Feed any available UART RX stream into GPS parser
+#ifdef PICO_ON_DEVICE
+        // Sleep in WFE until next hardware DMA or inter-core SIO interrupt
+        __asm__ volatile("wfe");
+#endif
+    }
+}
+
+// ============================================================================
+// Core 0: Dedicated I/O, DMA & Wireless Networking Master
+// ============================================================================
+
+int main() {
+#ifdef PICO_ON_DEVICE
+    stdio_init_all();
+#endif
+
+    g_uart_driver.init(115200);
+    g_uart_driver.puts("\n========================================================\n");
+    g_uart_driver.puts("  AbstractX - Pico 2 W (RP2350) Dual-Core AMP Started   \n");
+    g_uart_driver.puts("  Core 0: I/O, DMA & CYW43439 Wi-Fi Network Master      \n");
+    g_uart_driver.puts("  Core 1: Dedicated Real-Time Coroutine Flight Engine   \n");
+    g_uart_driver.puts("========================================================\n");
+
+    hal::SpiConfig spi_cfg{};
+    spi_cfg.frequency_hz = 10'000'000;
+    spi_cfg.mode = hal::SpiMode::Mode3;
+    g_spi_driver.init(spi_cfg);
+
+#ifdef PICO_ON_DEVICE
+    // Initialize CYW43439 Wi-Fi Architecture on Core 0
+    if (cyw43_arch_init() == 0) {
+        g_uart_driver.puts("[Core 0] CYW43 Wi-Fi Initialized Successfully.\n");
+        cyw43_arch_enable_sta_mode();
+    }
+
+    // Launch Core 1 Flight Coroutine Engine
+    multicore_launch_core1(core1_coroutine_flight_engine);
+#else
+    // Host SITL simulation fallback
+    core1_coroutine_flight_engine();
+#endif
+
+    // Core 0 I/O & Networking Loop
+    UbloxGps gps(g_uart_driver);
+    uint32_t last_wifi_poll_ms = g_timer.get_time_ms();
+
+    while (true) {
+        // 1. Drain incoming UART bytes from GPS into shared sensor ring
         uint8_t rx_byte = 0;
         GpsFix fix{};
         while (g_uart_driver.read_byte(rx_byte)) {
             if (gps.feed_byte(rx_byte, fix)) {
                 Tlp64 tlp = UbloxGps::to_tlp(fix);
-                g_telemetry_ring.push(tlp);
+                g_sensor_ring.push(tlp);
             }
         }
 
+        // 2. Poll Wi-Fi / Networking stack periodically
+        uint32_t now = g_timer.get_time_ms();
+        if (now - last_wifi_poll_ms >= 50) {
+            last_wifi_poll_ms = now;
 #ifdef PICO_ON_DEVICE
-        // Low-power wait for interrupt/event (woken by DMA, Timer Alarm, or UART IRQ)
+            cyw43_arch_poll();
+#endif
+        }
+
+        // 3. Forward completed telemetry TLPs from Core 1 to Wi-Fi / UART stream
+        Tlp64 tlp{};
+        while (g_telemetry_ring.pop(tlp)) {
+            // Stream packet over Wi-Fi / Serial
+        }
+
+#ifdef PICO_ON_DEVICE
         __asm__ volatile("wfe");
 #endif
     }

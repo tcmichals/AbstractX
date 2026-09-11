@@ -21,10 +21,13 @@ if(COMMAND pico_sdk_init)
         abstractx_core
         etl
         pico_stdlib
+        pico_multicore
+        pico_cyw43_arch_none
         hardware_spi
         hardware_pio
         hardware_dma
         hardware_timer
+        hardware_sync
     )
 
     target_compile_definitions(abstractx_target_pico2w PUBLIC

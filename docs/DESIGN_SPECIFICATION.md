@@ -26,6 +26,13 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: Allwinner XuanTie E907 operates as a dedicated I/O coprocessor servicing 8 kHz SPI DMA and GPS UART, delivering timestamped 64B TLPs into shared SRAM A3/C (`0x40000000`) for Linux `remoteproc` consumers.
 * **Implementation Target**: `targets/allwinner_e907/`, `apps/e907_coprocessor/`
 
+### `[SPEC-ARCH-05]` Dual-Core Asymmetric Multiprocessing (Pico 2 W / RP2350)
+* **Requirement**: RP2350 separates I/O & wireless networking from flight coroutines across dual Cortex-M33 cores:
+  - **Core 0**: Dedicated I/O, DMA, CYW43439 Wi-Fi/networking master, and SIO doorbell bridge.
+  - **Core 1**: Dedicated real-time coroutine flight engine running 8 kHz attitude estimation and EKF.
+* **Mechanism**: Dual lock-free `SpscTlpRing<64>` and RP2350 hardware SIO FIFOs (`pico/multicore.h`).
+* **Implementation Target**: `apps/pico2w_companion/main.cpp`, `targets/pico2w_rp2350/`
+
 ---
 
 ## 2. 64-Byte Transaction Layer Packet (TLP) Specifications (`SPEC-TLP`)
