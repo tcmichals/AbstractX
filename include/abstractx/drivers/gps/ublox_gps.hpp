@@ -142,13 +142,21 @@ public:
     }
 
     /*
-     * Package GpsFix into a 64-bit PCIe-style TLP completion packet
+     * Package GpsFix into a standardized CTF 1.8 binary payload inside a 64-Byte TLP
      */
     static Tlp64 to_tlp(const GpsFix& fix) noexcept {
-        // Encode upper 16 bits of lat and lon into TLP 32-bit payload
-        uint32_t payload = (static_cast<uint16_t>(fix.lat_1e7 / 1000) << 16) |
-                           (static_cast<uint16_t>(fix.lon_1e7 / 1000) & 0xFFFF);
-        return Tlp64::make_cpl_d(TLP_TAG_GPS, payload);
+        trace::GpsFixPayload ctf{};
+        ctf.event_id = 2;
+        ctf.timestamp_us = fix.timestamp_us;
+        ctf.itow_ms = fix.itow_ms;
+        ctf.lat_1e7 = fix.lat_1e7;
+        ctf.lon_1e7 = fix.lon_1e7;
+        ctf.alt_mm = fix.alt_msl_mm;
+        ctf.ground_speed_mm_s = fix.ground_speed_mm_s;
+        ctf.heading_1e5 = fix.heading_1e5;
+        ctf.sats = fix.satellites;
+        ctf.fix_type = static_cast<uint8_t>(fix.fix_type);
+        return Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_GPS, ctf, fix.timestamp_us * 1000ULL);
     }
 
     /*
