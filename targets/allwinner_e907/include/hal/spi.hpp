@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <coroutine>
+#include <etl/delegate.h>
 
 namespace fc::hal {
 
@@ -21,6 +22,17 @@ public:
     /* Synchronous Fallback Transfers */
     static bool transceive_fpga_dual_sync(const uint8_t *tx_buf, uint8_t *rx_buf, size_t length);
     static bool transceive_imu_single_sync(const uint8_t *tx_buf, uint8_t *rx_buf, size_t length);
+
+    /* Asynchronous Non-Blocking DMA Transfers (Sunxi DMA Engine) */
+    static bool start_dma_transfer(
+        int cs_id,
+        const uint8_t *tx,
+        uint8_t *rx,
+        size_t len,
+        etl::delegate<void(bool)> callback = {}
+    ) noexcept;
+
+    static bool is_busy() noexcept;
 
     /* Asynchronous Non-Blocking Coroutine Transfers (Interrupt-Driven) */
     struct AsyncTransferAwaiter {

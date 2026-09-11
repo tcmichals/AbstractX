@@ -13,6 +13,11 @@ add_library(abstractx_target_e907 STATIC
     src/pmp.cpp
     src/crash.cpp
     src/irq_dispatcher.cpp
+    src/dma.cpp
+    src/spi.cpp
+    src/i2c.cpp
+    src/platform.cpp
+    src/io_processor.cpp
 )
 
 target_include_directories(abstractx_target_e907 PUBLIC
@@ -30,6 +35,5 @@ target_link_libraries(abstractx_target_e907 PUBLIC
 set(E907_LDSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bsp/e907_ddr.ld" CACHE FILEPATH "E907 Linker Script")
 target_compile_definitions(abstractx_target_e907 PUBLIC
     TARGET_ALLWINNER_E907=1
-    ETL_NO_STL=1
     ETL_NO_CHECKS=1
 )

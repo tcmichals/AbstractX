@@ -269,14 +269,14 @@ ctest --test-dir build_host --output-on-failure
 ```bash
 cmake --preset pico2w
 cmake --build build_pico2w
-# Generates build_pico2w/apps/pico2w_companion/pico2w_companion.uf2
+# Generates build_pico2w/apps/gps_imu_app/gps_imu_app.uf2
 ```
 
 ### 3. Cross-Compile XuanTie E907 RISC-V Firmware:
 ```bash
 cmake --preset e907
 cmake --build build_e907
-# Generates build_e907/apps/e907_coprocessor/e907_coprocessor
+# Generates build_e907/apps/e907_coprocessor/e907_coprocessor and gps_imu_app.bin
 ```
 
 ---
@@ -300,8 +300,8 @@ AbstractX/
 │   ├── asp_router.sv             # 512-bit vector channel routing fabric
 │   └── asp_wishbone_master.sv    # Wishbone bridge & peripheral registers
 ├── apps/                         # Target Application Firmwares
-│   ├── pico2w_companion/         # Dual-Core RP2350 AMP Flight Node (Core 0 I/O vs Core 1 Flight)
-│   └── e907_coprocessor/         # XuanTie E907 RemoteProc DDR Flight Engine
+│   ├── gps_imu_app/              # Single Cross-Platform Sensor Application (Pico 2 W, Linux, E907)
+│   └── e907_coprocessor/         # XuanTie E907 RemoteProc DDR Engine
 ├── trace/                        # CTF 1.8 Metadata Specifications
 │   └── barectf_config.yaml       # CTF Stream 0 (Coro), Stream 1 (Telemetry), Stream 2 (HAL)
 ├── tools/                        # Python Tooling & Visualizer

@@ -2,7 +2,7 @@
 
 function(add_abstractx_sim TARGET_NAME SOURCE_FILE)
     add_executable(${TARGET_NAME} ${SOURCE_FILE})
-    target_link_libraries(${TARGET_NAME} PRIVATE abstractx_core)
+    target_link_libraries(${TARGET_NAME} PRIVATE abstractx_core abstractx_target_host)
     add_test(NAME sim_${TARGET_NAME} COMMAND ${TARGET_NAME})
 endfunction()
 
@@ -11,6 +11,7 @@ add_abstractx_sim(test_baremetal_isr_spsc   test_baremetal_isr_spsc.cpp)
 add_abstractx_sim(test_spsc_channel_array   test_spsc_channel_array.cpp)
 add_abstractx_sim(test_halo_worker_pool     test_halo_worker_pool.cpp)
 add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
+add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 
 # Common macro to generate a test target for a specific module
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)

@@ -67,6 +67,7 @@ public:
     virtual bool read_byte(uint8_t& ch) = 0;
     virtual size_t read(std::span<uint8_t> buffer) = 0;
     virtual void flush() = 0;
+    virtual bool set_baud_rate(uint32_t baudrate) { (void)baudrate; return true; }
 
     /*
      * C++20 Coroutine Async Write Awaiter

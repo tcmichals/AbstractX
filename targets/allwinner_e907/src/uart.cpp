@@ -63,6 +63,7 @@ private:
 };
 
 static AtomicByteQueue<512> g_uart_rx_ring;
+static AtomicByteQueue<512> g_uart_tx_ring;
 static std::atomic<std::coroutine_handle<>> g_uart_rx_coroutine{nullptr};
 static std::atomic<bool> g_uart_packet_ready{false};
 
@@ -71,7 +72,6 @@ void Uart2::init(uint32_t baud_rate, uint32_t apb_clock_hz) {
     UART2_IER = 0x00;
 
     // 2. Enable and reset FIFOs (64-byte depth, RX trigger at 1/2 full = 32 bytes)
-    // FCR: Bit 0=FIFO Enable, Bit 1=Reset RX, Bit 2=Reset TX, Bits 7:6=0b10 (32-byte trigger)
     UART2_FCR = 0x87;
 
     // 3. Set Baud Rate
@@ -82,6 +82,7 @@ void Uart2::init(uint32_t baud_rate, uint32_t apb_clock_hz) {
 
     // 5. Clear queues
     g_uart_rx_ring.clear();
+    g_uart_tx_ring.clear();
 
     // 6. Enable Receiver Data Available (ERBFI bit 0) & Receiver Timeout (RTO) Interrupt
     UART2_IER = 0x01;
@@ -101,8 +102,17 @@ void Uart2::set_baud(uint32_t baud_rate, uint32_t apb_clock_hz) {
 }
 
 void Uart2::write_byte(uint8_t ch) {
-    while (!(UART2_LSR & (1 << 5)));
-    UART2_THR = ch;
+    // ZERO POLLING: If TX ring is empty and hardware FIFO is ready, write directly
+    if (g_uart_tx_ring.empty() && (UART2_LSR & (1 << 5))) {
+        UART2_THR = ch;
+        return;
+    }
+
+    // Otherwise enqueue into non-blocking TX ring buffer
+    g_uart_tx_ring.push(ch);
+
+    // Enable Transmitter Holding Register Empty Interrupt (ETBEI bit 1 in IER)
+    UART2_IER |= (1 << 1);
 }
 
 void Uart2::write(const uint8_t *data, size_t len) {
@@ -114,12 +124,12 @@ void Uart2::write(const uint8_t *data, size_t len) {
 void Uart2::write_str(const char *str) {
     while (*str) {
         if (*str == '\n') write_byte('\r');
-        write_byte((uint8_t)*str++);
+        write_byte(static_cast<uint8_t>(*str++));
     }
 }
 
 bool Uart2::has_data() {
-    return (UART2_LSR & (1 << 0)) != 0 || !g_uart_rx_ring.empty();
+    return !g_uart_rx_ring.empty() || ((UART2_LSR & (1 << 0)) != 0);
 }
 
 uint8_t Uart2::read_byte() {
@@ -127,19 +137,36 @@ uint8_t Uart2::read_byte() {
     if (g_uart_rx_ring.pop(byte)) {
         return byte;
     }
-    while (!(UART2_LSR & (1 << 0)));
-    return (uint8_t)(UART2_RBR & 0xFF);
+    // ZERO POLLING: Return immediate FIFO byte if ready, never busy-spin
+    if (UART2_LSR & (1 << 0)) {
+        return static_cast<uint8_t>(UART2_RBR & 0xFF);
+    }
+    return 0;
 }
 
 void Uart2::handle_irq() {
     uint32_t iir = UART2_IIR & 0x0F;
+
+    // 0x02: Transmitter Holding Register Empty (THRE)
+    if (iir == 0x02) {
+        size_t written = 0;
+        uint8_t byte = 0;
+        while (written < 64 && g_uart_tx_ring.pop(byte)) {
+            UART2_THR = byte;
+            written++;
+        }
+        if (g_uart_tx_ring.empty()) {
+            // Disable THRE interrupt once TX queue is drained
+            UART2_IER &= ~(1 << 1);
+        }
+    }
 
     // 0x04: Received Data Available (RDA) - FIFO reached threshold
     // 0x0C: Character Timeout Indication (RTO) - Line idle for 4 character times
     if (iir == 0x04 || iir == 0x0C) {
         // Drain all available bytes from hardware FIFO into atomic SPSC ring buffer
         while (UART2_LSR & (1 << 0)) {
-            uint8_t ch = (uint8_t)(UART2_RBR & 0xFF);
+            uint8_t ch = static_cast<uint8_t>(UART2_RBR & 0xFF);
             g_uart_rx_ring.push(ch);
         }
 

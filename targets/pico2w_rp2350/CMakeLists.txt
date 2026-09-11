@@ -9,8 +9,12 @@ if(COMMAND pico_sdk_init)
 
     add_library(abstractx_target_pico2w STATIC
         src/hal_timer.cpp
+        src/hal_gpio.cpp
         src/hal_uart.cpp
-        src/hal_pio_spi.cpp
+        src/hal_spi.cpp
+        src/hal_i2c.cpp
+        src/hal_platform.cpp
+        src/io_processor.cpp
     )
 
     target_include_directories(abstractx_target_pico2w PUBLIC
@@ -24,6 +28,7 @@ if(COMMAND pico_sdk_init)
         pico_multicore
         pico_cyw43_arch_none
         hardware_spi
+        hardware_i2c
         hardware_pio
         hardware_dma
         hardware_timer
