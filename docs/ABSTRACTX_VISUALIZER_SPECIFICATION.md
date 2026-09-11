@@ -1,0 +1,72 @@
+# AbstractX Visualizer Specification: The Next-Gen Trace & Coroutine Studio
+
+The **AbstractX Visualizer** is a modern, real-time observability and timeline studio designed to surpass **Percepio Tracealyzer** and **Linux LTTng / Trace Compass** by combining **C++20 Coroutine-First Execution Modeling** with **High-Rate Flight Telemetry & TLP Packet Inspection**.
+
+---
+
+## 1. Why AbstractX Visualizer Surpasses Existing Tools
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 KEY ARCHITECTURAL ADVANTAGES                            │
+├──────────────────────────┬─────────────────────────────┬────────────────────────────────┤
+│ Feature                  │ Percepio Tracealyzer / LTTng│ AbstractX Visualizer Studio    │
+├──────────────────────────┼─────────────────────────────┼────────────────────────────────┤
+│ Execution Paradigm       │ OS Threads & Tasks only     │ C++20 Asynchronous Coroutines │
+│ Suspension Reason Aware  │ Generic blocked state       │ Exact `co_await` token reason  │
+│ Flight Telemetry Synced  │ No (separate GCS tool)      │ 100% Synced 8 kHz Gyro & EKF   │
+│ Protocol Inspection      │ Raw byte dumps              │ 64-Byte PCIe-style TLP decoder │
+│ User Interface Tech      │ Java / Eclipse or Win32     │ WebAssembly / WebGL (120 FPS)  │
+│ Deployment Model         │ Heavy native desktop app    │ Zero-install Web & Standalone  │
+│ License & Standards      │ Expensive Proprietary       │ Open Standard (barectf/CTF 1.8)│
+└──────────────────────────┴─────────────────────────────┴────────────────────────────────┘
+```
+
+---
+
+## 2. Visualizer Layout & Real-Time Panes
+
+```
++-----------------------------------------------------------------------------------------+
+|  ABSTRACTX STUDIO   [Live UDP :9870] [Target: Pico 2 W RP2350] [Trace Rate: 8.2 kHz]   |
++-----------------------------------------------------------------------------------------+
+| PANE 1: COROUTINE GANTT EXECUTION TIMELINE (Microsecond Precision)                     |
+|                                                                                         |
+| Core 0 [I/O]:  [===SPI DMA===]          [==UART RX==]         [===CYW43 Wi-Fi Poll===]  |
+| Core 1 [Coro]: [imu_task]──────>[gps_task]────────>[attitude_ekf]────────>[pid_loop]    |
+|                ▲               ▲                   ▲                      ▲             |
+|                co_await SPI    co_await UART       co_await Timer         co_await SIO  |
++-----------------------------------------------------------------------------------------+
+| PANE 2: SYNCHRONIZED 8 kHz SENSOR OSCILLOSCOPE & 3D ATTITUDE VIEWER                    |
+|                                                                                         |
+| Gyro X/Y/Z [dps]:  /\_/\__/\_/\__/\_/\__/\_/\__/\_     [ 3D Orientation Cube ]          |
+| Accel X/Y/Z [g] :  ═══════════════════════════════     Pitch: +1.2 deg                  |
+| GPS Satellites  :  18 SVs (3D Fix)                     Roll : -0.4 deg                  |
+| GPS MSL Altitude:  142.50 meters                       Yaw  : 89.1 deg                  |
++-----------------------------------------------------------------------------------------+
+| PANE 3: SPSC TLP RING SATURATION & LATENCY METERS                                       |
+|                                                                                         |
+| g_sensor_ring   : [████████░░░░░░░░░░░░] 24 / 64 pkts  (Avg Latency: 1.2 µs)            |
+| g_telemetry_ring: [████░░░░░░░░░░░░░░░░] 12 / 64 pkts  (Avg Latency: 0.8 µs)            |
+| Discarded Events: 0 packets (0.00% overflow rate)                                       |
++-----------------------------------------------------------------------------------------+
+```
+
+---
+
+## 3. Core Observability Pillars
+
+### 1. Coroutine-Aware State Machine
+Unlike thread visualizers that only show when an OS thread was preempted, the AbstractX Visualizer reconstructs the **full C++20 coroutine state graph**:
+- **Spawn**: Frame allocated from `CoroutineStaticPool`.
+- **Suspend Point**: Exact line of code and peripheral awaited (`co_await imu`, `co_await timer`, `co_await msgbox`).
+- **Dispatch Latency**: Precise nanoseconds elapsed between hardware ISR completion and coroutine resumption by `Dispatcher::process()`.
+- **Completion**: Coroutine return and frame return to pool.
+
+### 2. Microsecond Telemetry Synchronization
+The visualizer synchronizes the execution timeline with the physical sensor graphs:
+- Hovering over a gyro spike immediately reveals the exact coroutine, DMA transfer, and PID calculation that occurred at that microsecond.
+
+### 3. Live Streaming & CTF Replay
+- **Live Mode**: Ingests real-time binary CTF packets via **UDP Port 9870** (Pico 2 W) or **Linux RemoteProc shared memory** (XuanTie E907).
+- **Replay Mode**: Drag-and-drop any standard CTF folder or `.ctf` file generated by `CtfTraceEngine` for frame-by-frame post-mortem flight analysis.
