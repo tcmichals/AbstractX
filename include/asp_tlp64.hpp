@@ -48,7 +48,8 @@ constexpr bool operator!=(uint8_t u, Channel c) noexcept { return u != static_ca
 // Wire format alias
 using TlpWire64 = asp_tlp64_t;
 
-// C++20 Wrapper class around C asp_tlp64_t structure
+// @impl [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md#spec-tlp-01
+// @status Complete
 struct alignas(64) Tlp64 {
     asp_tlp64_t wire;
 
@@ -78,6 +79,24 @@ struct alignas(64) Tlp64 {
         packet.wire.payload[2] = static_cast<uint8_t>(value >> 8);
         packet.wire.payload[3] = static_cast<uint8_t>(value & 0xFF);
         return packet;
+    }
+
+    // Construct a Completion with Data TLP
+    static constexpr Tlp64 make_completion_data(uint8_t tag, uint32_t value, Channel ch = Channel::Telemetry) noexcept {
+        Tlp64 packet{};
+        packet.wire.type = static_cast<uint8_t>(TlpType::Completion);
+        packet.wire.tag = tag;
+        packet.wire.channel = static_cast<uint8_t>(ch);
+        packet.wire.length_dw = 1;
+        packet.wire.payload[0] = static_cast<uint8_t>(value >> 24);
+        packet.wire.payload[1] = static_cast<uint8_t>(value >> 16);
+        packet.wire.payload[2] = static_cast<uint8_t>(value >> 8);
+        packet.wire.payload[3] = static_cast<uint8_t>(value & 0xFF);
+        return packet;
+    }
+
+    static constexpr Tlp64 make_cpl_d(uint8_t tag, uint32_t value, Channel ch = Channel::Telemetry) noexcept {
+        return make_completion_data(tag, value, ch);
     }
 
     constexpr TlpType type() const noexcept {

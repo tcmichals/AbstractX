@@ -32,3 +32,9 @@ When you suggest, modify, or create code in this repository, you MUST adhere to 
 
 ## 7. Licensing
 - The repository operates under a Dual-License model (GPLv3 & Commercial). Under no circumstances should you generate code that plagiarizes restrictively licensed software which would violate these terms.
+
+## 8. Markdown-Driven Architecture & Minimal In-Code Comments
+- **Markdown is the Single Source of Truth (SSOT)**: Architectural topologies, memory maps, protocols, and Mermaid diagrams live in `docs/` and `README.md`.
+- **Minimal Code Comments**: Keep comments in `.hpp`, `.cpp`, `.S`, and `.sv` files strictly minimal (1–2 lines). Always use direct cross-reference markers back to the markdown spec (e.g. `// Spec: docs/PROMPT_MARKDOWN_DRIVEN_ARCHITECTURE.md`).
+- **Zero Comment Drift**: Do not duplicate architecture essays or diagrams inside code headers. Modify the markdown spec first, then write clean, lean C++20 execution logic.
+

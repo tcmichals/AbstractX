@@ -13,6 +13,8 @@
 
 namespace abstractx {
 
+// @impl [SPEC-TLP-02] docs/DESIGN_SPECIFICATION.md#spec-tlp-02
+// @status Complete
 namespace bar {
     constexpr uint32_t SystemBase    = 0x0000u; // 0x0000
     constexpr uint32_t ImuBase       = 0x1000u; // 0x1000
