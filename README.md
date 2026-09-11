@@ -22,30 +22,41 @@ High-frequency control and telemetry algorithms cannot afford to block while slo
 2. **PCIe TLP-Inspired Split-Transaction Protocol (`asp-tlp`)**: Request operations (`MemRd`, `MemWr`) are tagged and dispatched asynchronously; completions (`CplD`, `DMA_Stream`) are posted into lock-free rings when hardware finishes (mapping to physical PCIe BARs on FPGA, and lock-free shared SRAM on MCUs).
 3. **Smart Hardware I/O Dispatcher**: FPGAs (Gowin / Zynq), Microcontrollers (RP2350 Pico 2W, ESP32-P4, STM32), and Linux hosts execute I/O autonomously with **sub-20ns hardware timestamping**.
 
-```
-+───────────────────────────────────────────────────────────────────────────────────+
-|               APPLICATION LAYER (C++20 Stackless Coroutine Engine)                |
-|                                                                                   |
-|  [Robotics Joint Loop]       [Industrial DAQ Stream]      [Multi-Sensor Sync]     |
-|  co_await next_telemetry()    co_await adc_burst()         co_await when_all(     |
-|  (Executes, yields)           (Autonomous DMA stream)        read_sensor_a(),     |
-|         │                            │                       read_sensor_b())     |
-+─────────┼────────────────────────────┼────────────────────────────┼───────────────+
-          │                            │                            │
-          ▼                            ▼                            ▼
-+───────────────────────────────────────────────────────────────────────────────────+
-|               LOCK-FREE SPSC TLP RING BUFFERS (SpscTlpRing)                       |
-|          - Host TX Ring (MemRd / MemWr)     - Host RX Ring (CplD / DMA_Stream)    |
-+───────────────────────────────────────────────────────────────────────────────────+
-                                       ▲
-                                       │ Universal Split-Transaction Protocol
-                                       ▼
-+───────────────────────────────────────────────────────────────────────────────────+
-|               HARDWARE OFFLOADER / HETEROGENEOUS COPROCESSOR LAYER                |
-|  - FPGA Fabric: Autonomous SPI/I2C state machines & 512-bit vector router         |
-|  - RP2350 PIO State Machines & SIO Ring / ESP32-P4 Dual RISC-V 400MHz Mailboxes   |
-|  - Linux SITL / Host: Background I/O worker threads handling physical bus ioctl   |
-+───────────────────────────────────────────────────────────────────────────────────+
+```mermaid
+graph TD
+    subgraph "1. Application Layer (C++20 Stackless Coroutine Engine)"
+        APP1["<b>Robotics Joint Loop</b><br/><code>co_await next_telemetry()</code>"]
+        APP2["<b>Industrial DAQ Stream</b><br/><code>co_await adc_burst()</code>"]
+        APP3["<b>Flight Navigation & Fusion</b><br/><code>co_await when_all(imu, gps)</code>"]
+    end
+
+    subgraph "2. Universal Data & Transport Layer (64-Byte TLPs + CTF 1.8)"
+        TLP["<b>Universal 64-Byte TLP Container</b><br/>20B Header + 40B CTF Payload + 4B CRC32"]
+        RING["<b>Lock-Free SPSC TLP Rings</b><br/>(0 B Dynamic Heap, 0 Mutexes)"]
+    end
+
+    subgraph "3. Heterogeneous Silicon & Co-Processor Layer"
+        HW_FPGA["<b>FPGA Fabric (Gowin / Zynq)</b><br/>512-bit Vector Router & Hardware CTF"]
+        HW_PICO["<b>RP2350 Pico 2 W (Dual Cortex-M33)</b><br/>Core 0 I/O & Wi-Fi | Core 1 Flight"]
+        HW_E907["<b>Allwinner XuanTie E907 (RISC-V)</b><br/>512K SRAM + 1MB DRAM Carveout"]
+        HW_HOST["<b>Host SITL (Linux / POSIX)</b><br/>Deterministic Coroutine Simulator"]
+    end
+
+    APP1 --> RING
+    APP2 --> RING
+    APP3 --> RING
+    RING <--> TLP
+    TLP <--> HW_FPGA
+    TLP <--> HW_PICO
+    TLP <--> HW_E907
+    TLP <--> HW_HOST
+
+    classDef appBox fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef tlpBox fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#f8fafc;
+    classDef hwBox fill:#1e1b4b,stroke:#8b5cf6,stroke-width:2px,color:#f8fafc;
+    class APP1,APP2,APP3 appBox;
+    class TLP,RING tlpBox;
+    class HW_FPGA,HW_PICO,HW_E907,HW_HOST hwBox;
 ```
 
 ---
@@ -54,23 +65,24 @@ High-frequency control and telemetry algorithms cannot afford to block while slo
 
 AbstractX is domain-agnostic and provides tailored acceleration across multiple industries. The canonical dispatch abstraction is `DomainDispatcher`; the legacy `IsrDispatcher` name remains as a compatibility alias only for older code and documentation.
 
-```
-                 ┌──────────────────────────────────────────────┐
-                 │       AbstractX Universal Core Engine        │
-                 │   (C++20 Coroutines + Lock-Free 64B TLPs)    │
-                 └──────────────────────┬───────────────────────┘
-                                        │
-      ┌──────────────────┬──────────────┴─────┬──────────────────┐
-      ▼                  ▼                    ▼                  ▼
-┌─────────────┐    ┌─────────────┐      ┌─────────────┐    ┌─────────────┐
-│  Robotics & │    │ Industrial  │      │   Battery   │    │  Aviation & │
-│  ROS2 Nodes │    │ DAQ & PLCs  │      │ Management  │    │  Motion     │
-│             │    │             │      │ (BMS/Power) │    │             │
-│• Multi-axis │    │• 1MSPS ADC  │      │• Multi-cell │    │• 8kHz IMU   │
-│  Servo/CAN  │    │  vibration  │      │  voltage/T  │    │  Auto-DMA   │
-│• Kinematics │    │• Isolated   │      │• <20ns fast │    │• DShot/ESC  │
-│  in Coro    │    │  SPI/Modbus │      │  fault trip │    │• EKF3 Sync  │
-└─────────────┘    └─────────────┘      └─────────────┘    └─────────────┘
+```mermaid
+graph TD
+    CORE["<b>AbstractX Universal Core Engine</b><br/>(C++20 Coroutines + Lock-Free 64B TLPs)"]
+    
+    D1["<b>Robotics & ROS2 Nodes</b><br/>• Multi-axis Servo / CAN<br/>• Kinematics in Coroutine"]
+    D2["<b>Industrial DAQ & PLCs</b><br/>• 1 MSPS ADC Vibration<br/>• Isolated SPI / Modbus"]
+    D3["<b>Battery Management (BMS)</b><br/>• Multi-cell Voltage & Temp<br/>• &lt;20ns Fast Fault Trip"]
+    D4["<b>Aviation & Flight Motion</b><br/>• 8 kHz IMU Auto-DMA<br/>• DShot ESC & EKF3 Sync"]
+
+    CORE --> D1
+    CORE --> D2
+    CORE --> D3
+    CORE --> D4
+
+    classDef coreStyle fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#ffffff;
+    classDef domStyle fill:#0f172a,stroke:#34d399,stroke-width:1px,color:#f1f5f9;
+    class CORE coreStyle;
+    class D1,D2,D3,D4 domStyle;
 ```
 
 1. **Robotics & Motion Control (ROS2 / Micro-ROS)**:
@@ -107,23 +119,56 @@ This is not optional: the queue semantics must match the execution-domain bounda
 
 AbstractX unifies all inter-core, inter-process, and network messages under a single wire standard: **Common Trace Format (CTF 1.8 / barectf) binary payloads encapsulated inside 64-Byte Transaction Layer Packets (`Tlp64`)**.
 
-```
-                  ┌────────────────────────────────────────────────────────┐
-                  │      64-Byte PCIe TLP (alignas(64), 512-bit vector)    │
-                  ├──────────────────────┬──────────────────┬──────────────┤
-                  │ 20B Universal Header │ 40B CTF Payload  │ 4B CRC32     │
-                  │ Type, Channel, Tag,  │ ImuSamplePayload │ IEEE 802.3   │
-                  │ TargetAddr, Seq, TS  │ GpsFixPayload    │ Checksum     │
-                  │                      │ CoroEventPayload │              │
-                  │                      │ HalIoPayload     │              │
-                  └──────────────────────┴────────┬─────────┴──────────────┘
-                                                  │
-       ┌──────────────────┬───────────────────────┼───────────────────────┬──────────────────┐
-       ▼                  ▼                       ▼                       ▼                  ▼
-┌──────────────┐   ┌─────────────┐         ┌─────────────┐         ┌─────────────┐   ┌─────────────┐
-│RP2350 SIO/AMP│   │ E907 DRAM   │         │ Dual-SPI DMA│         │ Wi-Fi UDP   │   │ Python      │
-│Lock-Free SPSC│   │ RemoteProc  │         │ FPGA Fabric │         │ Port 9870   │   │ imgui-bundle│
-└──────────────┘   └─────────────┘         └─────────────┘         └─────────────┘   └─────────────┘
+```mermaid
+graph TD
+    subgraph "CTF 1.8 Binary Event Payloads (<= 40 Bytes)"
+        E_IMU["<b>ImuSamplePayload</b> (27B)<br/>Stream 1, Event 1: Accel XYZ, Gyro XYZ, Temp"]
+        E_GPS["<b>GpsFixPayload</b> (35B)<br/>Stream 1, Event 2: Lat/Lon, Alt, Speed, Sats"]
+        E_CORO["<b>CoroEventPayload</b> (19B)<br/>Stream 0, Event 1: TaskID, State, Reason"]
+        E_HAL["<b>HalIoPayload / TlpTrace</b> (19B)<br/>Stream 2, Event 1: Peripheral, Latency, Status"]
+    end
+
+    subgraph "Universal 64-Byte TLP Container (alignas(64))"
+        HDR["<b>TLP Header</b> (20B)<br/>Type | Channel | Tag | Seq | Timestamp_ns"]
+        PAYLOAD["<b>CTF Payload Area</b> (40B)<br/>Direct Memory-Mapped Binary Layout"]
+        CRC["<b>Checksum</b> (4B)<br/>IEEE 802.3 CRC32"]
+        HDR --- PAYLOAD --- CRC
+    end
+
+    E_IMU --> PAYLOAD
+    E_GPS --> PAYLOAD
+    E_CORO --> PAYLOAD
+    E_HAL --> PAYLOAD
+
+    subgraph "Switchable Physical & Logical Transports"
+        T_PICO["<b>RP2350 Dual-Core SIO</b><br/>Lock-Free SPSC Ring"]
+        T_E907["<b>XuanTie E907 RemoteProc</b><br/>Non-Cacheable DDR (0x48100000)"]
+        T_FPGA["<b>FPGA Dual-SPI DMA</b><br/>512-bit Vector Router"]
+        T_WIFI["<b>CYW43 Wi-Fi Network</b><br/>UDP Port 9870"]
+    end
+
+    PAYLOAD --> T_PICO
+    PAYLOAD --> T_E907
+    PAYLOAD --> T_FPGA
+    PAYLOAD --> T_WIFI
+
+    subgraph "AbstractX Visualizer Studio"
+        STUDIO["<b>Python + imgui-bundle</b><br/>• Real-Time 8 kHz Oscilloscope<br/>• Coroutine Gantt Execution Timeline<br/>• Split-Transaction Latency Gauges"]
+    end
+
+    T_WIFI --> STUDIO
+    T_E907 --> STUDIO
+    T_FPGA --> STUDIO
+    T_PICO --> STUDIO
+
+    classDef ctfStyle fill:#047857,stroke:#10b981,stroke-width:1px,color:#ffffff;
+    classDef tlpStyle fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
+    classDef transStyle fill:#374151,stroke:#9ca3af,stroke-width:1px,color:#ffffff;
+    classDef studioStyle fill:#581c87,stroke:#a855f7,stroke-width:2px,color:#ffffff;
+    class E_IMU,E_GPS,E_CORO,E_HAL ctfStyle;
+    class HDR,PAYLOAD,CRC tlpStyle;
+    class T_PICO,T_E907,T_FPGA,T_WIFI transStyle;
+    class STUDIO studioStyle;
 ```
 
 ### Why CTF-in-TLP is Superior to Traditional Protocols:
