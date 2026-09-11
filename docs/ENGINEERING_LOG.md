@@ -13,6 +13,22 @@ This document maintains a chronological record of major architectural milestones
 
 ## Chronological Engineering Milestones
 
+### Milestone 6: Universal Cross-Platform HAL, I2C, Atomic GPIO TLP & Single `gps_imu_app`
+- **Date**: 2026-09-11
+- **Commits**: [`a12074d`](https://github.com/tcmichals/AbstractX/commit/a12074d)
+- **Key Changes**:
+  - **Zero-Polling I2C HAL (`II2c`)**: Implemented hardware Fast-Mode I2C drivers for Raspberry Pi Pico 2 W (`hardware/i2c`), Allwinner XuanTie E907 (Sunxi TWI0 ISR FSM), and Linux (`/dev/i2c-1`).
+  - **Atomic GPIO / PIO TLP Protocol**: Codified 64-byte TLP wire specification on channel `0x08` (`ASP_CHANNEL_GPIO_BRIDGE`) supporting atomic Set, Clear, Xor bitmasks, pin read, and positive/negative edge interrupt event delivery.
+  - **Platform Lifecycle Abstraction**: Created `include/abstractx/hal/platform.hpp` (`platform_init()`, `platform_launch_processing_domain()`, `platform_idle_wait()`) and driver factory accessors, eliminating silicon `#ifdef`s from applications.
+  - **Single Cross-Platform Application (`apps/gps_imu_app/`)**: Replaced fragmented target apps with a single, portable C++20 sensor benchmark and testbench node running unmodified across Pico 2 W, XuanTie E907, and Linux.
+  - **Retired Legacy Scaffolding**: Purged `apps/pico2w_companion/` and unified build targets across CMake presets.
+  - **Verification**: 20/20 specifications verified (100.0% coverage), 22/22 unit tests passing across all targets.
+- **Roadmap / In-Flight Architecture**:
+  - Firm up HAL drivers to emit binary `barectf` / CTF 1.8 trace events instead of raw formatted strings (`uart.puts`).
+  - Transition `apps/gps_imu_app` to a 100% event-driven dispatcher loop (removing manual byte polling and `platform_poll_network()`).
+  - Implement C++ `UdpTraceSink` and `FileTraceSink` for live network streaming and disk logging.
+  - Deploy real-time Dear ImGui Python Visualizer Studio (`tools/visualizer/abstractx_studio.py`) for live oscilloscope, GPS mapping, and trace recording.
+
 ### Milestone 5: 64-Bit Timestamp, PCIe Identity, 4-Ch DShot & Python VIP
 - **Date**: 2026-08-11
 - **Commits**: [`7424814`](https://github.com/tcmichals/AbstractX/commit/7424814), [`86a08f2`](https://github.com/tcmichals/AbstractX/commit/86a08f2), [`ba7b600`](https://github.com/tcmichals/AbstractX/commit/ba7b600), [`421dc01`](https://github.com/tcmichals/AbstractX/commit/421dc01)
