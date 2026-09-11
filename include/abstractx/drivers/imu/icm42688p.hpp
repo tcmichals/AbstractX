@@ -20,6 +20,7 @@
 
 #include "abstractx/hal/spi.hpp"
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/trace/tracer.hpp"
 #include "asp_tlp64.hpp"
 
 namespace abstractx::drivers::imu {
@@ -152,6 +153,17 @@ public:
             hal::SpiResult res{};
             driver.spi_.pop_completion(res);
             sample = parse_raw_buffer(rx_buf.data(), res.timestamp_us);
+            trace::g_tracer.trace_imu(
+                0,
+                static_cast<int16_t>(sample.accel_g[0] * 1000.0f),
+                static_cast<int16_t>(sample.accel_g[1] * 1000.0f),
+                static_cast<int16_t>(sample.accel_g[2] * 1000.0f),
+                static_cast<int16_t>(sample.gyro_dps[0] * 10.0f),
+                static_cast<int16_t>(sample.gyro_dps[1] * 10.0f),
+                static_cast<int16_t>(sample.gyro_dps[2] * 10.0f),
+                static_cast<int16_t>(sample.temp_deg_c * 100.0f),
+                sample.timestamp_us
+            );
             return sample;
         }
     };

@@ -120,6 +120,8 @@ void core1_coroutine_flight_engine() {
 // Core 0: Dedicated I/O, DMA & Wireless Networking Master
 // ============================================================================
 
+// @impl [SPEC-TRACE-03] docs/DESIGN_SPECIFICATION.md#spec-trace-03
+// @status Complete
 int main() {
 #ifdef PICO_ON_DEVICE
     stdio_init_all();

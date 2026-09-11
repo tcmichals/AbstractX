@@ -99,21 +99,43 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ---
 
-## 5. Requirements Traceability Matrix
+## 5. Trace & Visualizer Specifications (`SPEC-TRACE`)
+
+### `[SPEC-TRACE-01]` barectf Common Trace Format (CTF) Event Specification & Wire Model
+* **Requirement**: System must emit binary CTF event packets conforming to `trace/barectf_config.yaml` (`magic = 0xC1FC1FC1`) capturing Coroutine lifecycles (`coro_state`), IMU bursts (`imu_sample`), GPS fixes (`gps_fix`), HAL driver I/O (`hal_io`), and TLP routing (`tlp_msg`).
+* **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `trace/barectf_config.yaml`
+
+### `[SPEC-TRACE-02]` Zero-Allocation Trace Buffer & Ring Engine
+* **Requirement**: Tracing operations must incur 0 dynamic memory allocations and execute in $< 200\ \text{ns}$ per event using static circular packet buffers with automatic packet commit and overflow tracking.
+* **Implementation Target**: `include/abstractx/trace/tracer.hpp`
+
+### `[SPEC-TRACE-03]` Multi-Target Visualizer Transport
+* **Requirement**: Trace packets must be transportable to the AbstractX Visualizer via:
+  - **Pico 2 W**: Core 0 UDP Wi-Fi / socket stream (Port 9870).
+  - **XuanTie E907**: Shared non-cacheable DRAM ring (`0x48100000`) & RemoteProc `trace0`.
+  - **Host SITL**: CTF binary stream file and local loopback UDP.
+* **Implementation Target**: `apps/pico2w_companion/main.cpp`, `apps/e907_coprocessor/main.cpp`
+
+---
+
+## 6. Requirements Traceability Matrix
 
 ```mermaid
 graph TD
-    SPEC_ARCH["<b>Architecture</b><br/>SPEC-ARCH-01..04"] --> SPEC_HAL["<b>HAL Contracts</b><br/>SPEC-HAL-01..04"]
+    SPEC_ARCH["<b>Architecture</b><br/>SPEC-ARCH-01..05"] --> SPEC_HAL["<b>HAL Contracts</b><br/>SPEC-HAL-01..05"]
     SPEC_ARCH --> SPEC_TLP["<b>TLP Protocol</b><br/>SPEC-TLP-01..03"]
     SPEC_HAL --> SPEC_SENSORS["<b>Sensors</b><br/>SPEC-IMU-01..02<br/>SPEC-GPS-01..02"]
+    SPEC_ARCH --> SPEC_TRACE["<b>Tracing & Visualizer</b><br/>SPEC-TRACE-01..03"]
     
     SPEC_SENSORS --> CODE_IMU["<code>icm42688p.hpp</code>"]
     SPEC_SENSORS --> CODE_GPS["<code>ublox_gps.hpp</code>"]
-    SPEC_HAL --> CODE_HAL["<code>async_driver.hpp</code><br/><code>spi.hpp</code><br/><code>uart.hpp</code>"]
+    SPEC_HAL --> CODE_HAL["<code>async_driver.hpp</code><br/><code>spi.hpp</code><br/><code>uart.hpp</code><br/><code>timer.hpp</code>"]
     SPEC_TLP --> CODE_TLP["<code>asp_tlp64.hpp</code><br/><code>spsc_tlp_ring.hpp</code>"]
+    SPEC_TRACE --> CODE_TRACE["<code>tracer.hpp</code><br/><code>barectf_config.yaml</code>"]
     
     classDef specBox fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
     classDef codeBox fill:#0f172a,stroke:#10b981,stroke-width:1px,color:#e2e8f0;
-    class SPEC_ARCH,SPEC_HAL,SPEC_TLP,SPEC_SENSORS specBox;
-    class CODE_IMU,CODE_GPS,CODE_HAL,CODE_TLP codeBox;
+    class SPEC_ARCH,SPEC_HAL,SPEC_TLP,SPEC_SENSORS,SPEC_TRACE specBox;
+    class CODE_IMU,CODE_GPS,CODE_HAL,CODE_TLP,CODE_TRACE codeBox;
 ```
+

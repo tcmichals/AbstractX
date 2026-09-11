@@ -44,7 +44,7 @@ static void put_uint(uint32_t val) {
     }
 }
 
-// @impl [SPEC-ARCH-04] docs/DESIGN_SPECIFICATION.md#spec-arch-04
+// @impl [SPEC-ARCH-04] [SPEC-TRACE-03] docs/DESIGN_SPECIFICATION.md#spec-trace-03
 // @status Complete
 int main(void) {
     // 1. Remoteproc shared counters in SRAM / DRAM

@@ -26,8 +26,8 @@ target_link_libraries(abstractx_target_e907 PUBLIC
     etl
 )
 
-# Export default linker script
-set(E907_LDSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bsp/e907_sram.ld" CACHE FILEPATH "E907 Linker Script")
+# Export default linker script (512K SRAM A3 + 1M DRAM carveout)
+set(E907_LDSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bsp/e907_ddr.ld" CACHE FILEPATH "E907 Linker Script")
 target_compile_definitions(abstractx_target_e907 PUBLIC
     TARGET_ALLWINNER_E907=1
     ETL_NO_STL=1
