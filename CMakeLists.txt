@@ -1,13 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
 
-include(targets/pico2w_rp2350/pico_sdk_import.cmake)
-
-project(AbstractX VERSION 1.0.0 LANGUAGES C CXX ASM)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
 # Determine Target Platform (host, e907, pico2w, esp32p4)
 if(NOT DEFINED ABSTRACTX_TARGET)
     if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv")
@@ -19,30 +11,42 @@ if(NOT DEFINED ABSTRACTX_TARGET)
     endif()
 endif()
 
-message(STATUS "AbstractX Build Target: ${ABSTRACTX_TARGET}")
-
-# Core AbstractX Interface Library
-add_library(abstractx_core INTERFACE)
-target_include_directories(abstractx_core INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:include>
-)
-target_compile_features(abstractx_core INTERFACE cxx_std_20)
-
-if(NOT CMAKE_CROSSCOMPILING)
-    find_package(Threads)
-    if(TARGET Threads::Threads)
-        target_link_libraries(abstractx_core INTERFACE Threads::Threads)
-    endif()
+if(ABSTRACTX_TARGET STREQUAL "pico2w")
+    include(targets/pico2w_rp2350/pico_sdk_import.cmake)
 endif()
+
+project(AbstractX VERSION 1.0.0 LANGUAGES C CXX ASM)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+message(STATUS "AbstractX Build Target: ${ABSTRACTX_TARGET}")
 
 # 1. Third-Party Dependencies (ETL, etc.)
 add_subdirectory(third_party)
 
-target_link_libraries(abstractx_core INTERFACE etl)
+# 2. Core AbstractX Library with Master Runtime
+add_library(abstractx_core STATIC
+    src/runtime.cpp
+)
+target_include_directories(abstractx_core PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+target_compile_features(abstractx_core PUBLIC cxx_std_20)
+target_link_libraries(abstractx_core PUBLIC etl)
 
-# 2. Hardware Abstraction Layer & Target BSPs
+if(NOT CMAKE_CROSSCOMPILING)
+    find_package(Threads)
+    if(TARGET Threads::Threads)
+        target_link_libraries(abstractx_core PUBLIC Threads::Threads)
+    endif()
+endif()
+
+# 3. Hardware Abstraction Layer & Target BSPs
 add_subdirectory(targets)
+
 
 # 3. Applications & Deployable Binaries
 add_subdirectory(apps)

@@ -13,18 +13,20 @@ The `gps_imu_app` is the flagship reference application for AbstractX. It coordi
 
 ```mermaid
 graph TD
-    subgraph CORO_DOMAIN["1. Coroutine Domain (coro_app.cpp)"]
-        IMU_TASK["<b>imu_task()</b><br/>co_await imu.next_sample_async()<br/>Runs AHRS & Rate PID at 8 kHz"]
-        GPS_TASK["<b>gps_task()</b><br/>co_await gps.next_fix_async()<br/>Updates EKF position at 10-25 Hz"]
+    subgraph APP["1. Unified Application (src/main.cpp)"]
+        IMU_TASK["<b>imu_test_task()</b><br/>co_await imu.next_sample_async()<br/>Pushes 64B TLP & CTF trace"]
+        GPS_TASK["<b>gps_test_task()</b><br/>co_await gps.read_packet_async()<br/>Parses UBX-NAV-PVT stream"]
         HEARTBEAT["<b>heartbeat_task()</b><br/>co_await timer.sleep_ms_async(1000)"]
+        APP_BOOT["<b>main()</b><br/>abstractx::init(config)<br/>abstractx::run(app_main())"]
     end
 
-    subgraph RINGS["2. Lock-Free SPSC TLP Rings (Shared Memory)"]
+    subgraph RINGS["2. Lock-Free SPSC TLP Rings (Static Memory)"]
         SensorRing["<b>g_sensor_ring</b><br/>IO Proc -> Coroutines (64B DMA_Stream TLPs)"]
-        TelemRing["<b>g_telemetry_ring</b><br/>Coroutines -> IO Proc (Outbound Telemetry)"]
+        TelemRing["<b>g_telemetry_ring</b><br/>Coroutines -> Network / Egress"]
+        TxRing["<b>g_tx_ring</b><br/>Sensor Test -> I/O (Requests)"]
     end
 
-    subgraph IOPROC_DOMAIN["3. App I/O Processing Loop (io_processor.cpp)"]
+    subgraph IOPROC_DOMAIN["3. Autonomous I/O Processor (IIoProcessor)"]
         PIN3_IRQ["<b>Pin 3 (DRDY) GPIO Interrupt</b><br/>Latches nanosecond timestamp"]
         SPI1_DMA["<b>SPI1 DMA Burst Engine</b><br/>Autonomously clocks 15B from ICM-42688-P"]
         UART_GPS["<b>UART Streaming Parser</b><br/>UBX-NAV-PVT zero-allocation parser"]
@@ -56,83 +58,76 @@ graph TD
     classDef ioStyle fill:#4c1d95,stroke:#8b5cf6,stroke-width:2px,color:#ffffff;
     classDef halStyle fill:#0f172a,stroke:#475569,stroke-width:1px,color:#e2e8f0;
 
-    class IMU_TASK,GPS_TASK,HEARTBEAT coroStyle;
-    class SensorRing,TelemRing ringStyle;
+    class IMU_TASK,GPS_TASK,HEARTBEAT,APP_BOOT coroStyle;
+    class SensorRing,TelemRing,TxRing ringStyle;
     class PIN3_IRQ,SPI1_DMA,UART_GPS,TLP_GEN,NET_EGRESS ioStyle;
     class SPI_IF,GPIO_IF,UART_IF,TIMER_IF halStyle;
 ```
 
 ---
 
-## 2. App I/O Processing Loop (`src/io_processor.cpp`)
+## 2. Master Entrypoint & Setup (`src/main.cpp`)
 
-The application I/O processing loop manages physical peripheral sequencing using **only generic HAL interfaces**:
+The application entrypoint sets up the sensor channel mappings, SPSC rings, and launches the runtime:
 
-### 2.1 Hardware Configuration Sequence
-1. **SPI1 Setup**:
-   - Calls `hal_spi.init(SpiConfig{ .frequency_hz = 12'000'000, .mode = SpiMode::Mode3, .use_dma = true })`.
-   - Initializes ICM-42688-P registers (`PWR_MGMT0 = 0x0F` full gyro/accel power, `GYRO_CONFIG0 = 0x06` ±2000 dps @ 8 kHz, `ACCEL_CONFIG0 = 0x06` ±16g @ 8 kHz, `INT_CONFIG = 0x03` push-pull active-high).
-2. **Pin 3 Interrupt Setup (Non-TLP Generic API)**:
-   - Calls `hal_gpio.configure_pin(PIN_IMU_DRDY, PinMode::Input, PinPull::PullDown)`.
-   - Calls `hal_gpio.configure_interrupt(PIN_IMU_DRDY, EdgeTrigger::Rising, &on_imu_drdy_interrupt, this)`.
-   - Calls `hal_gpio.enable_interrupt(PIN_IMU_DRDY, true)`.
-3. **GPS UART Setup**:
-   - Calls `hal_uart.init(115200)` (or 921600 baud).
+```cpp
+int main() {
+    // 1. Unified Configuration
+    Config config{};
+    config.trace.sink_type = TraceSinkType::Udp;
+    config.trace.sink_target = "127.0.0.1:9870";
+    config.trace.flush_interval_ms = 10;
 
-### 2.2 8 kHz Auto-Sample Pipeline
-```mermaid
-sequenceDiagram
-    participant HW as ICM-42688-P
-    participant IRQ as Pin 3 (DRDY) ISR
-    participant DMA as SPI1 DMA Engine
-    participant RING as g_sensor_ring
-    participant CORO as Coroutine (Core 1)
+    // 2. Configure Sensor HW Fusion Channel
+    static hal::AutoChannelConfig auto_channels[1]{};
+    auto_channels[0].channel_id = 0;
+    auto_channels[0].auto_mode = true;
+    auto_channels[0].trigger_mode = hal::TriggerMode::GpioEdge;
+    auto_channels[0].trigger_pin = 20; // Pin 3 / GP20 DRDY
+    auto_channels[0].bus_type = hal::BusType::Spi;
+    auto_channels[0].bus_index = 1;
+    auto_channels[0].bus_speed_hz = 10'000'000;
+    auto_channels[0].rx_len = 15;
+    auto_channels[0].tlp_channel = 0x02;
 
-    HW->>IRQ: Assert DRDY line (Pin 3 rising edge)
-    activate IRQ
-    IRQ->>IRQ: Latch timestamp_ns = timer.get_time_ns()
-    IRQ->>DMA: Trigger 15-byte SPI DMA Burst (0x1D..0x2B)
-    deactivate IRQ
-    
-    activate DMA
-    DMA->>HW: Transfer 15 bytes @ 12-24 MHz
-    HW-->>DMA: Return Temp[2], Accel[6], Gyro[6]
-    DMA->>DMA: Form 64-Byte DMA_Stream TLP
-    DMA->>RING: push_from_isr(tlp)
-    DMA->>CORO: Signal Doorbell (SIO FIFO / IPC)
-    deactivate DMA
+    config.io_setup.channels = auto_channels;
+    config.io_setup.egress_tx_ring = &g_tx_ring;
+    config.io_setup.ingress_rx_ring = &g_sensor_ring;
 
-    activate CORO
-    CORO->>RING: pop(tlp)
-    CORO->>CORO: imu_task resumes in 2-5 ns!
-    deactivate CORO
+    // 3. One-line initialization: handles clocks, HAL, SPSC rings, coprocessor, and tracing
+    abstractx::init(config);
+
+    // 4. One-line execution: runs coroutines, I/O reactor, and trace dispatcher to completion
+    abstractx::run(app_main());
+
+    return 0;
+}
 ```
 
 ---
 
-## 3. C++20 Coroutine Application Engine (`src/coro_app.cpp`)
+## 3. C++20 Coroutine Application Tasks (`src/main.cpp`)
 
-The Coroutine Domain runs the flight and navigation algorithms. It is completely isolated from physical interrupts and bus stalls:
+The Coroutine Domain runs the sensor benchmarks and telemetry tasks:
 
 ```cpp
 // 1. High-Rate 8 kHz IMU Control Task
-Task<void> imu_task(Icm42688p& imu) {
+Task<void> imu_test_task(Icm42688p& imu) {
+    uint32_t seq = 0;
     while (true) {
         // Suspends task until the next 64B DMA_Stream TLP arrives
         ImuSample sample = co_await imu.next_sample_async();
         if (sample.valid) {
-            run_attitude_filter(sample.gyro, sample.accel, sample.timestamp_ns);
-            run_rate_pid();
-            
-            // Format telemetry TLP and queue for outbound transmission
-            Tlp64 telem = Icm42688p::to_tlp(sample);
-            g_telemetry_ring.push(telem);
+            seq++;
+            Tlp64 tlp = Icm42688p::to_tlp(sample);
+            g_telemetry_ring.push(tlp);
+            trace::g_tracer.trace_imu(seq, ...);
         }
     }
 }
 
 // 2. Navigation GPS Task
-Task<void> gps_task(UbloxGps& gps) {
+Task<void> gps_test_task(UbloxGps& gps) {
     while (true) {
         // Suspends task until verified 3D UBX-NAV-PVT fix arrives
         GpsFix fix = co_await gps.next_fix_async();

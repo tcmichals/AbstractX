@@ -40,6 +40,14 @@ enum class CoroState : uint8_t {
     Done    = 3
 };
 
+// Sizing and Topology Profiles for CTF Trace Buffers
+enum class BufferProfile : uint8_t {
+    PingPong_1K_x2  = 0, // 2 x 1024 B ping-pong (2 KB total - recommended default)
+    Ring_1K_x4      = 1, // 4 x 1024 B ring (4 KB total - for high-burst buffering)
+    Compact_512B_x2 = 2, // 2 x 512 B ping-pong (1 KB total - for ultra-constrained SRAM)
+    Large_2K_x4     = 3  // 4 x 2048 B ring (8 KB total - for Linux SITL / logging)
+};
+
 // Packed CTF Packet Header (32 bytes)
 struct alignas(4) CtfPacketHeader {
     uint32_t magic{CTF_MAGIC};
@@ -126,13 +134,25 @@ static_assert(sizeof(TlpTracePayload) <= ASP_TLP64_PAYLOAD_SIZE, "TlpTracePayloa
 // Flush Callback Type for Target Transports (UDP / DRAM / File)
 using TracePacketFlushFn = void (*)(const uint8_t* packet_data, size_t packet_len, void* context);
 
-// @impl [SPEC-TRACE-01] [SPEC-TRACE-02] docs/DESIGN_SPECIFICATION.md#spec-trace-02
+// @impl [SPEC-TRACE-01] [SPEC-TRACE-02] [SPEC-TRACE-06] docs/DESIGN_SPECIFICATION.md#spec-trace-06
 // @status Complete
-template <size_t PacketSize = 512, size_t NumPackets = 8>
+template <size_t PacketSize = 1024, size_t NumPackets = 2>
 class CtfTraceEngine {
 public:
     static constexpr size_t PACKET_SIZE = PacketSize;
     static constexpr size_t NUM_PACKETS = NumPackets;
+    static constexpr size_t TOTAL_CAPACITY_BYTES = PacketSize * NumPackets;
+
+    static constexpr bool is_ping_pong() noexcept { return NumPackets == 2; }
+    size_t get_active_fill_idx() const noexcept { return current_packet_idx_; }
+    size_t get_ready_transmit_idx() const noexcept {
+        return (current_packet_idx_ + NumPackets - 1) % NumPackets;
+    }
+    size_t get_current_offset() const noexcept { return offset_; }
+
+    CtfTraceEngine() noexcept {
+        init();
+    }
 
     void init(TracePacketFlushFn flush_fn = nullptr, void* context = nullptr) noexcept {
         flush_fn_ = flush_fn;
@@ -142,6 +162,7 @@ public:
         discarded_count_ = 0;
         reset_current_packet();
     }
+
 
     void set_flush_handler(TracePacketFlushFn flush_fn, void* context) noexcept {
         flush_fn_ = flush_fn;
@@ -332,8 +353,8 @@ private:
     void*              context_{nullptr};
 };
 
-// Global default tracer instance
-inline CtfTraceEngine<512, 8> g_tracer;
+// Global default tracer instance: 1024-byte ping-pong buffer (2 x 1024 B = 2 KB total)
+inline CtfTraceEngine<1024, 2> g_tracer;
 
 } // namespace abstractx::trace
 

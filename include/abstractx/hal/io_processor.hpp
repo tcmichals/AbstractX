@@ -19,6 +19,8 @@
 
 #include "asp_tlp64.hpp"
 #include "spsc_tlp_ring.hpp"
+#include "asp_coro.hpp"
+#include "abstractx/domain_dispatcher.hpp"
 
 namespace abstractx::hal {
 
@@ -101,6 +103,13 @@ public:
     virtual bool start() = 0;
 
     /*
+     * Init: Convenience initialization that configures and starts the I/O processor.
+     */
+    virtual bool init(const IoProcessorSetup& setup) {
+        return configure(setup) && start();
+    }
+
+    /*
      * Stop: Disarms triggers and shuts down cleanly.
      */
     virtual void stop() = 0;
@@ -115,6 +124,17 @@ public:
      * Run: Blocking execution loop for dedicated worker thread or Core 0.
      */
     virtual void run() = 0;
+
+    /*
+     * Run Coroutine: Cooperative I/O reactor execution task.
+     * Allows the I/O processor reactor to execute cooperatively inside the main coroutine loop.
+     */
+    virtual coro::Task<void> run_coroutine() {
+        while (is_running()) {
+            step(0);
+            co_await yield_to_dispatcher();
+        }
+    }
 
     /*
      * Operational status.

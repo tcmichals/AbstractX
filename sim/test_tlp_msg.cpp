@@ -248,14 +248,23 @@ int main() {
     uint8_t sw_rx[] = { 0x00, 0x00 };
     sw_req.tx_data = sw_tx;
     sw_req.rx_data = sw_rx;
-    bool sw_done = false;
-    sw_req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create([&](const hal::SpiResult& r) {
-        sw_done = true;
-        assert(r.status == hal::SpiStatus::Ok);
-    });
+    struct WorkerTracker {
+        bool sw_done{false};
+        bool iw_done{false};
+        void on_spi(const hal::SpiResult& r) {
+            sw_done = true;
+            assert(r.status == hal::SpiStatus::Ok);
+        }
+        void on_i2c(const hal::I2cResult& r) {
+            iw_done = true;
+            assert(r.status == hal::I2cStatus::Ok);
+        }
+    } wt{};
+
+    sw_req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<WorkerTracker, &WorkerTracker::on_spi>(wt);
     assert(spi_w.submit(sw_req));
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    assert(sw_done);
+    assert(wt.sw_done);
     assert(sw_rx[1] == 0x47); // Simulated ICM-42688 WHO_AM_I
     spi_w.stop();
     std::cout << "    [v] SpiWorker async execution via EventFd verified (WHO_AM_I=0x47)\n";
@@ -269,16 +278,13 @@ int main() {
     iw_req.use_register = true;
     iw_req.register_offset = 0xD0; // BMP280 chip id register
     iw_req.rx_data = iw_rx;
-    bool iw_done = false;
-    iw_req.on_rx_complete = etl::delegate<void(const hal::I2cResult&)>::create([&](const hal::I2cResult& r) {
-        iw_done = true;
-        assert(r.status == hal::I2cStatus::Ok);
-    });
+    iw_req.on_rx_complete = etl::delegate<void(const hal::I2cResult&)>::create<WorkerTracker, &WorkerTracker::on_i2c>(wt);
     assert(i2c_w.submit(iw_req));
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    assert(iw_done);
+    assert(wt.iw_done);
     assert(iw_rx[0] == 0x58); // Simulated BMP280 chip ID
     i2c_w.stop();
+
     std::cout << "    [v] I2cWorker async execution via EventFd verified (BMP280=0x58)\n";
 
     // Verify GpiodV2Monitor

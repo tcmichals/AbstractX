@@ -14,6 +14,7 @@ if(NOT DEFINED PICO_SDK_PATH)
     endif()
 endif()
 
-if(EXISTS "${PICO_SDK_PATH}/pico_sdk_init.cmake")
+if(ABSTRACTX_TARGET STREQUAL "pico2w" AND EXISTS "${PICO_SDK_PATH}/pico_sdk_init.cmake")
     include(${PICO_SDK_PATH}/pico_sdk_init.cmake)
 endif()
+

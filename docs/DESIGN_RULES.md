@@ -55,3 +55,24 @@ All headers under `include/` MUST remain freestanding-compatible for MCU targets
 - **C/C++ structs in `include/`:** Native endianness (host byte order).
 - **Requirement:** Any code that serializes a struct to the wire or deserializes from wire bytes MUST include explicit byte-swap operations or a compile-time `static_assert` confirming the target is Big-Endian.
 - **Forbidden:** Relying on `memcpy` of native structs into SPI TX buffers without a byte-swap layer.
+
+## 9. Trace Dispatcher & Sink Architecture Invariants
+- **Trace Dispatcher Mandate:** Real-time sensor coroutines (such as 8 kHz IMU loops) MUST NOT perform synchronous file I/O, socket writes, or formatting. All trace emission must be pushed to a lock-free ring and dispatched cooperatively via a dedicated `trace_dispatcher_task()` coroutine.
+- **Configurable Sink at Startup:** The trace output mechanism MUST be configurable at dispatcher/platform initialization (`TraceDispatcherConfig`) specifying the sink type (`None`, `Udp`, `File`, or `SharedSramRing`) and target parameters (IP/port, file path, or shared memory address).
+- **Transport Independence:** Coroutines emit standardized 64-byte CTF-in-TLPs (`Tlp64::make_ctf`) regardless of whether the final sink is a local Linux file, a live UDP network socket, or a co-processor shared memory ring (E907/RP2350).
+- **Heterogeneous Remoteproc Routing:** When the `io_processor` resides on a coprocessor (e.g. Allwinner XuanTie E907), trace TLPs MUST be committed to shared SRAM (`0x40000000`) and signaled to Linux via hardware mailbox (`sun6i-msgbox`), where a corresponding Linux receiver coroutine drains the ring into the configured host sink.
+
+## 10. Unified AbstractX Runtime API & Autonomous Domain Placement
+- **Single Public API Mandate:** Applications MUST interact with the framework via the unified `abstractx::` namespace API (`abstractx::init()`, `abstractx::spawn()`, `abstractx::step()`, `abstractx::step_async()`, `abstractx::run()`). Applications must not manually manage thread spawns, multicore core 1 launches, or doorbell plumbing.
+- **Autonomous Domain Placement:** The AbstractX runtime MUST automatically place and schedule internal components based on target silicon topology:
+  - *Linux / SITL:* Runs `io_processor`, `trace_dispatcher`, and user coroutines cooperatively or in epoll reactors within the unified runtime.
+  - *Dual-Core AMP (RP2350 Pico 2 W):* Automatically assigns `io_processor` to Core 0 and user coroutines + trace dispatcher to Core 1.
+  - *Heterogeneous Co-Processor (Allwinner E907 + Linux):* Automatically assigns `io_processor` to E907, establishes shared SRAM A3/C queues, and runs host trace/telemetry ingestion on Linux.
+- **Zero Application `#ifdef`s:** An application written against `abstractx::` MUST compile and execute identically across all target platforms with zero preprocessor conditional architecture directives.
+
+## 11. CTF Ping-Pong Buffer Architecture & Profile Configuration
+- **Ping-Pong Buffer Separation (Producer vs Consumer):** Trace logging MUST use a dual-buffer (ping-pong) or multi-buffer ring architecture where the producer (ISRs and high-rate sensor coroutines) writes into an active *fill buffer* while the consumer (`trace_dispatcher_task`) dispatches the inactive *transmit buffer*.
+- **1 KB Buffer Sweet Spot:** The default packet size for trace buffers is 1,024 bytes (1 KB). This batches ~35–45 binary CTF events per packet, keeping total frame size under Ethernet/Wi-Fi MTU (1,500 bytes) and preventing network packet fragmentation while cutting UDP/doorbell overhead by >80%.
+- **Class Enum Configuration:** Buffer memory sizing and topology MUST be configurable via `enum class BufferProfile` (`PingPong_1K_x2`, `Ring_1K_x4`, `Compact_512B_x2`, `Large_2K_x4`) passed into `TraceConfig` at initialization, maintaining zero dynamic heap allocation across all targets.
+
+

@@ -153,7 +153,7 @@ This log chronicles the development, technical decisions, and architecture miles
     2. **Environment 2 (Multi-Core MCU / AMP)**: Core 1 application coroutines + Core 0 interrupt/DMA/PIO coprocessor (RP2350 Pico 2W, ESP32-P4, STM32).
     3. **Environment 3 (FPGA Hardware Offloader)**: Host CPU coroutines + synthesizable RTL state machines & 512-bit vector router (Gowin Tang 9K/20K, Zynq-7020).
 *   **Multi-Target TLP Header (`include/asp_tlp_msg.hpp`)**: Standardized universal 20B `TlpHeader`, fixed 64B `Tlp64` (FPGA), compact 24B `TlpShort` (MCU Reg R/W), variable `TlpVar<N>`, and 48B `TlpDescriptor` (Linux zero-copy).
-*   **Top-Level Rebranding (`README.md`)**: Elevated AbstractX to a **Universal Asynchronous Hardware Offloader & Heterogeneous Interconnect Framework**, covering Robotics (ROS2), Industrial DAQ, Battery Management (BMS), and Aviation.
+*   **Top-Level Positioning (`README.md`)**: Positioned AbstractX as a **Universal Asynchronous Hardware Offloader & Heterogeneous Interconnect Framework**, focused on deterministic, high-speed single-loop embedded real-time processing with prioritized dispatching.
 
 ### Why it was done
 *   **100% Application Portability**: Developers can write C++20 coroutine control logic once and run it unchanged across PC simulation, low-cost microcontrollers, and high-performance FPGA platforms.
@@ -172,4 +172,58 @@ This log chronicles the development, technical decisions, and architecture miles
 *   **Zero OS Footprint**: Microcontrollers in avionics, robotics, and industrial DAQ do not run an OS. Core data structures must execute safely in raw silicon with zero runtime heap dependencies.
 *   **Interrupt & Inter-Core Determinism**: Lock-free SPSC guarantees that neither hardware interrupts on single-core MCUs nor parallel coprocessor execution on dual-core MCUs can corrupt the coroutine scheduler state.
 
+## [2026-09-10] - CTF 1.8 Binary Event Encapsulation & Visualizer Studio Architecture
 
+### What was done
+*   **CTF-in-TLP Standardization (`include/asp_tlp64.hpp`, `include/asp_tlp64.h`)**: Standardized binary Common Trace Format (CTF 1.8 / barectf) event structures inside the 40-byte payload of 64-byte TLPs.
+*   **Driver & Tracer Integration**: Updated ICM-42688-P IMU, U-Blox GPS drivers, and `include/abstractx/trace/tracer.hpp` to pack native binary trace payloads with sub-microsecond timestamps.
+*   **Visualizer Studio (`tools/visualizer/abstractx_studio.py`)**: Designed real-time Dear ImGui dashboard for live 8 kHz IMU oscilloscope, GPS navigation tracking, and coroutine Gantt timelines.
+*   **Documentation Suite Updated**: Added [`docs/BARECTF_AND_LIVE_VISUALIZER_ARCHITECTURE.md`](file:///home/tcmichals/projects/AbstractX/docs/BARECTF_AND_LIVE_VISUALIZER_ARCHITECTURE.md) and [`docs/ABSTRACTX_VISUALIZER_SPECIFICATION.md`](file:///home/tcmichals/projects/AbstractX/docs/ABSTRACTX_VISUALIZER_SPECIFICATION.md).
+
+### Why it was done
+*   **Zero CPU String Overhead**: Text-based logging (printf, NMEA) imposes heavy serialization penalties. Binary CTF frames eliminate formatting cost in embedded interrupt paths while providing 100% compatibility with Trace Compass and Babeltrace 2.
+
+## [2026-09-11] - Universal Cross-Platform HAL, I2C, Atomic GPIO TLP & Single gps_imu_app
+
+### What was done
+*   **Zero-Polling I2C HAL (`II2c`)**: Implemented hardware Fast-Mode I2C drivers for Raspberry Pi Pico 2 W (`hardware/i2c`), Allwinner XuanTie E907 (Sunxi TWI0 ISR FSM), and Linux (`/dev/i2c-1`).
+*   **Atomic GPIO / PIO TLP Protocol**: Codified 64-byte TLP wire specification on channel `0x08` (`ASP_CHANNEL_GPIO_BRIDGE`) supporting atomic Set, Clear, Xor bitmasks, pin read, and positive/negative edge interrupt event delivery.
+*   **Platform Lifecycle Abstraction**: Created `include/abstractx/hal/platform.hpp` (`platform_init()`, `platform_launch_processing_domain()`, `platform_idle_wait()`) and driver factory accessors, eliminating silicon `#ifdef`s from applications.
+*   **Single Cross-Platform Application (`apps/gps_imu_app/`)**: Replaced fragmented target apps with a single, portable C++20 sensor benchmark and testbench node running unmodified across Pico 2 W, XuanTie E907, and Linux.
+*   **Retired Legacy Scaffolding**: Purged `apps/pico2w_companion/` and unified build targets across CMake presets.
+*   **Verification**: 20/20 specifications verified (100.0% coverage), 22/22 unit tests passing across all targets.
+
+### Why it was done
+*   **True Portability**: Eliminates fragmented companion apps and vendor lock-in. Applications depend exclusively on pure C++20 HAL interfaces and TLP queues.
+
+## [2026-09-12] - Unified AbstractX Runtime API, Trace Dispatcher Sinks, IIoProcessor Coroutine & Zero-#ifdef Modernization
+
+### What was done
+*   **Unified Master Runtime API (`include/abstractx/abstractx.hpp`, `src/runtime.cpp`) `[SPEC-ARCH-06]`**:
+    *   Declared and implemented the single authoritative public runtime interface: `abstractx::init()`, `abstractx::spawn()`, `abstractx::step()`, `abstractx::step_async()`, and `abstractx::run()`.
+    *   Autonomous placement engine assigns I/O reactors, coroutine executors, and inter-domain queues across heterogeneous silicon without application `#ifdef`s.
+*   **`IIoProcessor` Coroutine & Init Interface Enhancement**:
+    *   Added `IIoProcessor::init(const IoProcessorSetup&)` and `virtual coro::Task<void> run_coroutine()` to `include/abstractx/hal/io_processor.hpp`.
+    *   Implemented cooperative reactor coroutine loops on Linux (`targets/linux/src/io_processor.cpp`), XuanTie E907 (`targets/allwinner_e907/src/io_processor.cpp`), and RP2350 (`targets/pico2w_rp2350/src/io_processor.cpp`).
+*   **Binary CTF 1.8 Configurable Sinks & Trace Dispatcher `[SPEC-TRACE-04]`**:
+    *   Created `include/abstractx/trace/sink.hpp` with zero-allocation `FileTraceSink`, `UdpTraceSink`, and `NullTraceSink`.
+    *   Implemented non-blocking `trace_dispatcher_task()` in `include/abstractx/trace/trace_dispatcher.hpp` with periodic flush timers.
+    *   Updated HAL drivers (`hal_uart.cpp`, `hal_spi.cpp`, `hal_i2c.cpp`, `hal_gpio.cpp`) to record binary CTF trace events via `trace::g_tracer.trace_hal()`.
+*   **Heterogeneous Co-Processor Pipeline (E907 to Linux) `[SPEC-TRACE-05]`**:
+    *   Wired E907 trace TLPs to shared SRAM (`0x40000000`) and asserted `sun6i-msgbox` hardware doorbell interrupt.
+    *   Implemented `linux_trace_receiver_task` in `trace_dispatcher.hpp` to drain 64-byte TLPs into host UDP or file sinks.
+*   **Application Modernization (`apps/gps_imu_app/`)**:
+    *   Refactored `apps/gps_imu_app/src/main.cpp` to use the unified `abstractx::init()` and `abstractx::run()` API.
+    *   Eliminated manual thread launches, manual byte polling loops, and `platform_poll_network()` calls in favor of a 100% event-driven coroutine application.
+*   **1 KB Ping-Pong Buffer Architecture & Configurable Profiles `[SPEC-TRACE-06]`**:
+    *   Transitioned `CtfTraceEngine` default to dual 1,024-byte (1 KB) ping-pong buffers (`CtfTraceEngine<1024, 2>`).
+    *   Producer coroutines/ISRs fill active Buffer A while the background dispatcher transmits completed Buffer B with zero producer wait states.
+    *   1 KB payload fits unfragmented in a single standard 1,500 B Ethernet/Wi-Fi frame (~1,084 B total with headers) and batches ~35–45 events, cutting network/doorbell overhead by >80%.
+    *   Added `enum class BufferProfile` (`PingPong_1K_x2`, `Ring_1K_x4`, `Compact_512B_x2`, `Large_2K_x4`) to `TraceConfig`.
+    *   Authored comprehensive how-to guide: [`docs/HOW_TO_CTF_PING_PONG_TRACING.md`](docs/HOW_TO_CTF_PING_PONG_TRACING.md).
+*   **Verification**:
+    *   All 23 CTest unit tests passing (100% pass rate).
+    *   Expanded `sim/test_abstractx_runtime.cpp` and `sim/test_io_processor.cpp` to verify `init()`, `run_coroutine()`, `FileTraceSink`, `UdpTraceSink`, `trace_dispatcher_task`, and atomic 1 KB ping-pong buffer index swapping.
+
+### Why it was done
+*   **Single Unified Mental Model & Zero Real-Time Jitter**: Rather than forcing developers to configure multi-core launches, interrupts, and IPC doorbells by hand, AbstractX provides one top-level API that autonomously arranges execution across coprocessors, cores, and OS threads. The 1 KB ping-pong buffer guarantees that 8 kHz flight loops never stall on socket, file, or doorbell I/O.

@@ -6,6 +6,8 @@
  */
 
 #include "abstractx/hal/spi.hpp"
+#include "abstractx/hal/platform.hpp"
+#include "abstractx/trace/tracer.hpp"
 #include "spi_worker.hpp"
 #include <cstring>
 #include <algorithm>
@@ -44,6 +46,8 @@ public:
         size_t len = std::max(tx_data.size(), rx_data.size());
         if (len == 0) return true;
 
+        uint64_t t0 = get_timer_driver().get_time_us();
+        bool ok = false;
         if (worker_.is_hardware_active()) {
             struct spi_ioc_transfer tr{};
             tr.tx_buf = reinterpret_cast<uint64_t>(tx_data.data());
@@ -51,14 +55,20 @@ public:
             tr.len = static_cast<uint32_t>(len);
             tr.speed_hz = config_.frequency_hz;
             tr.bits_per_word = 8;
-            return (::ioctl(worker_.fd(), SPI_IOC_MESSAGE(1), &tr) >= 0);
+            ok = (::ioctl(worker_.fd(), SPI_IOC_MESSAGE(1), &tr) >= 0);
         } else {
             size_t copy_n = std::min(tx_data.size(), rx_data.size());
             if (copy_n > 0) {
                 std::memcpy(rx_data.data(), tx_data.data(), copy_n);
             }
-            return true;
+            ok = true;
         }
+        uint64_t t1 = get_timer_driver().get_time_us();
+        trace::g_tracer.trace_hal(2 /* SPI */, static_cast<uint16_t>(len),
+                                  ok ? static_cast<uint16_t>(len) : 0,
+                                  static_cast<uint32_t>(t1 - t0),
+                                  ok ? 0 : 1, t1);
+        return ok;
     }
 
     target::SpiWorker& worker() noexcept {
@@ -77,7 +87,7 @@ private:
 };
 
 static LinuxSpiDriver g_linux_spi;
-ISpi& get_spi_driver() {
+ISpi& get_spi_driver() noexcept {
     return g_linux_spi;
 }
 

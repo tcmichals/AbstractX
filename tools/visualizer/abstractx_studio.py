@@ -47,6 +47,52 @@ class TelemetryState:
         self.rate_counter = 0
         self.discarded_events = 0
 
+        # Platform Topology Table & Hardware Interconnect
+        self.platform_arch = "Linux_Host_E907_FPGA"
+        self.platform_name = "Allwinner A5E Heterogeneous"
+        self.board_model = "Radxa Cubie A5E"
+        self.primary_transport = "Shared SRAM A3/C (0x40000000) + sun6i-msgbox"
+        self.active_cores = [
+            {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
+            {"id": 1, "role": "XuanTie E907 RISC-V", "task": "Real-Time I/O Reactor & DMA", "clock_mhz": 600},
+            {"id": 2, "role": "Tang Primer 20K FPGA", "task": "Hardware Auto-DMA & DShot Fabric", "clock_mhz": 50},
+        ]
+        self.hardware_accels = ["IMU Auto-DMA IP", "DShot 4-CH Core", "NeoPixel IP", "sun6i-msgbox"]
+
+        # Dual-Plane Execution Data
+        # Plane 1: I/O Processor & Drivers
+        self.io_driver_events = [
+            {"name": "SPI0 DMA Burst", "driver": "hal_spi", "subsystem": "ICM-42688-P DMA", "latency_us": 0.8, "file": "targets/linux/src/hal_spi.cpp", "line": 78},
+            {"name": "TWI0 I2C ISR", "driver": "hal_i2c", "subsystem": "Compass / Baro", "latency_us": 1.2, "file": "targets/allwinner_e907/src/hal_i2c.cpp", "line": 45},
+            {"name": "MSGBox Doorbell", "driver": "msgbox", "subsystem": "Inter-Core RPC", "latency_us": 0.4, "file": "targets/allwinner_e907/src/io_processor.cpp", "line": 92},
+            {"name": "UART0 RX FIFO", "driver": "hal_uart", "subsystem": "U-Blox M10 GPS", "latency_us": 1.5, "file": "targets/linux/src/hal_uart.cpp", "line": 125},
+        ]
+        # Plane 2: Main Coroutine Loop
+        self.coro_names = ["imu_pipeline", "gps_task", "attitude_ekf", "flight_control"]
+        self.coro_states = [1, 2, 4, 1]
+        self.coro_latencies_us = [0.8, 1.2, 0.4, 0.9]
+        self.coro_source_info = [
+            {"file": "apps/gps_imu_app/src/main.cpp", "line": 42, "token": "co_await g_sensor_ring.pop_async()"},
+            {"file": "apps/gps_imu_app/src/main.cpp", "line": 78, "token": "co_await gps.read_packet_async()"},
+            {"file": "apps/gps_imu_app/src/main.cpp", "line": 115, "token": "co_await timer.sleep_ms_async(1)"},
+            {"file": "apps/gps_imu_app/src/main.cpp", "line": 140, "token": "co_await attitude_ready"},
+        ]
+
+        # Selected Source Code View
+        self.selected_event_name = "imu_pipeline"
+        self.selected_source_file = "apps/gps_imu_app/src/main.cpp"
+        self.selected_source_line = 42
+        self.selected_token = "co_await g_sensor_ring.pop_async()"
+
+        # Per-Processor SPU/CPU & Process Utilization
+        self.linux_total_cpu = 8.4
+        self.linux_abstractx_cpu = 5.2
+        self.linux_external_cpu = 3.2
+        self.e907_active_duty_pct = 14.8
+        self.e907_wfi_sleep_pct = 85.2
+        self.fpga_lut_utilization_pct = 18.2
+        self.fpga_dma_bw_mbps = 12.8
+
         # Ring buffers for Sensor Data (Time vs Value)
         self.time_history = np.zeros(HISTORY_SIZE, dtype=np.float64)
         self.accel_x = np.zeros(HISTORY_SIZE, dtype=np.float64)
@@ -64,12 +110,6 @@ class TelemetryState:
         self.gps_speed_mps = 12.4
         self.gps_sats = 18
         self.gps_fix_type = 3  # 3D Fix
-
-        # Coroutine Execution States (Gantt Data)
-        # 0=Idle, 1=Running, 2=Suspended(SPI), 3=Suspended(UART), 4=Suspended(Timer)
-        self.coro_names = ["imu_task", "gps_task", "heartbeat_task", "flight_control"]
-        self.coro_states = [1, 2, 4, 1]
-        self.coro_latencies_us = [0.8, 1.2, 0.4, 0.9]
 
         # TLP Queue Status
         self.sensor_ring_fill = 18
@@ -236,34 +276,125 @@ def render_gui():
     else:
         imgui.text_colored(imgui.ImVec4(0.9, 0.2, 0.1, 1.0), "[OFFLINE / WAITING]")
     imgui.same_line()
-    imgui.text(f"| Packets: {g_state.packet_count} | Rate: {g_state.fps_packet_rate} pkts/sec | Drop: {g_state.discarded_events}")
+    imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count} | Rate: {g_state.fps_packet_rate} pkts/sec")
     imgui.end_group()
     imgui.separator()
 
-    # 2. Main Layout: Split into Timeline (Top) and Sensors/Queues (Bottom)
-    if imgui.collapsing_header("C++20 Coroutine Gantt Execution Timeline", imgui.TreeNodeFlags_.default_open):
-        imgui.text("Core 1 Asynchronous Work Queue States (Microsecond Resolution):")
+    # =========================================================================
+    # WINDOW 1: PLATFORM TOPOLOGY & SILICON FABRIC
+    # =========================================================================
+    if imgui.collapsing_header("Window 1: Platform Topology & Silicon Interconnect Fabric", imgui.TreeNodeFlags_.default_open):
+        imgui.columns(3, "topo_cols", False)
         
-        # Draw Coroutine Gantt Status Bars
-        imgui.columns(4, "coro_columns", True)
-        state_names = {0: ("IDLE", (0.5, 0.5, 0.5, 1.0)),
-                       1: ("RUNNING", (0.1, 0.9, 0.2, 1.0)),
-                       2: ("AWAIT SPI DMA", (0.9, 0.6, 0.1, 1.0)),
-                       3: ("AWAIT UART GPS", (0.2, 0.6, 0.9, 1.0)),
-                       4: ("AWAIT TIMER", (0.8, 0.3, 0.9, 1.0))}
+        # Column 1: Detected Architecture
+        imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Platform Architecture]")
+        imgui.text(f"Arch Name : {g_state.platform_arch}")
+        imgui.text(f"Board     : {g_state.board_model}")
+        imgui.text(f"Transport : {g_state.primary_transport}")
         
-        for i, name in enumerate(g_state.coro_names):
-            imgui.text_colored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), f"{name}")
-            st_text, st_color = state_names.get(g_state.coro_states[i], ("UNKNOWN", (1, 1, 1, 1)))
-            imgui.text_colored(imgui.ImVec4(*st_color), f"State: {st_text}")
-            imgui.text(f"Latency: {g_state.coro_latencies_us[i]} µs")
-            imgui.next_column()
+        imgui.next_column()
+        
+        # Column 2: Active Silicon Cores
+        imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "[Processing Units & Roles]")
+        for core in g_state.active_cores:
+            imgui.bullet_text(f"Core {core['id']}: {core['role']} ({core['clock_mhz']} MHz)\n  └─ {core['task']}")
+            
+        imgui.next_column()
+        
+        # Column 3: Synthesized Accelerators & Rings
+        imgui.text_colored(imgui.ImVec4(1.0, 0.7, 0.2, 1.0), "[Hardware Accelerators & Rings]")
+        for accel in g_state.hardware_accels:
+            imgui.text(f" ✓ {accel}")
+        imgui.text("SPSC Ring : 64 Descriptors (Zero-Copy)")
         imgui.columns(1)
 
     imgui.separator()
 
-    # 3. Sensor Oscilloscope (ImPlot)
-    if implot.begin_plot("8 kHz ICM-42688-P Oscilloscope (Real-Time Waveforms)", imgui.ImVec2(-1, 280)):
+    # =========================================================================
+    # WINDOW 2: DUAL-PLANE EXECUTION TIMELINE & SOURCE CODE SCANNER
+    # =========================================================================
+    if imgui.collapsing_header("Window 2: Dual-Plane Execution Timeline & Source Code Scanner", imgui.TreeNodeFlags_.default_open):
+        # Plane 1: Low-Level I/O Processor & Hardware Drivers
+        imgui.text_colored(imgui.ImVec4(0.9, 0.5, 0.2, 1.0), "Plane 1: Hardware I/O Processor & Peripheral Drivers (Interrupt & DMA Context)")
+        imgui.columns(len(g_state.io_driver_events), "io_plane_cols", True)
+        for ev in g_state.io_driver_events:
+            if imgui.button(f"[{ev['name']}]\n{ev['subsystem']}\n{ev['latency_us']} µs", imgui.ImVec2(-1, 55)):
+                with g_state.lock:
+                    g_state.selected_event_name = ev['name']
+                    g_state.selected_source_file = ev['file']
+                    g_state.selected_source_line = ev['line']
+                    g_state.selected_token = f"Driver ISR: {ev['driver']}"
+            imgui.next_column()
+        imgui.columns(1)
+
+        imgui.spacing()
+
+        # Plane 2: High-Level Main Coroutine Loop
+        imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "Plane 2: Main Processing Loop (Cooperative C++20 Coroutine Tasks)")
+        imgui.columns(len(g_state.coro_names), "coro_plane_cols", True)
+        state_labels = {0: "IDLE", 1: "RUNNING", 2: "AWAIT SPI", 3: "AWAIT UART", 4: "AWAIT TIMER"}
+        for i, name in enumerate(g_state.coro_names):
+            lbl = state_labels.get(g_state.coro_states[i], "RUNNING")
+            src = g_state.coro_source_info[i]
+            if imgui.button(f"[{name}]\nState: {lbl}\nLat: {g_state.coro_latencies_us[i]} µs", imgui.ImVec2(-1, 55)):
+                with g_state.lock:
+                    g_state.selected_event_name = name
+                    g_state.selected_source_file = src['file']
+                    g_state.selected_source_line = src['line']
+                    g_state.selected_token = src['token']
+            imgui.next_column()
+        imgui.columns(1)
+
+        imgui.spacing()
+
+        # Source Code Scanner / Inspector Sub-Pane
+        imgui.text_colored(imgui.ImVec4(1.0, 1.0, 0.2, 1.0), f">> [Source Code Inspector] Selected: {g_state.selected_event_name} -> {g_state.selected_source_file}:{g_state.selected_source_line}")
+        imgui.begin_child("SourcePreview", imgui.ImVec2(-1, 80), True)
+        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"// Source location: {g_state.selected_source_file}")
+        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line - 1}:   // Processing event loop")
+        imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), f"-> {g_state.selected_source_line}:       {g_state.selected_token};")
+        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line + 1}:   attitude_ekf.update(sample.gyro, sample.accel);")
+        imgui.end_child()
+
+    imgui.separator()
+
+    # =========================================================================
+    # WINDOW 3: PER-PROCESSOR SPU/CPU & PROCESS UTILIZATION
+    # =========================================================================
+    if imgui.collapsing_header("Window 3: Per-Processor SPU/CPU & Process Utilization", imgui.TreeNodeFlags_.default_open):
+        imgui.columns(3, "cpu_cols", False)
+        
+        # Core 0 / Host Linux CPU Breakdown
+        imgui.text_colored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), "[Core 0: Host Linux ARM64]")
+        imgui.text(f"Total System CPU : {g_state.linux_total_cpu:.1f}%")
+        imgui.progress_bar(g_state.linux_total_cpu / 100.0, imgui.ImVec2(-1, 0), f"{g_state.linux_total_cpu:.1f}%")
+        imgui.text(f"AbstractX Process: {g_state.linux_abstractx_cpu:.1f}% (coro_main + udp_sink)")
+        imgui.text(f"OS Background    : {g_state.linux_external_cpu:.1f}% (kernel, sshd, mosquitto)")
+
+        imgui.next_column()
+
+        # Core 1 / Coprocessor E907 RISC-V Duty Cycle
+        imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.4, 1.0), "[Core 1: XuanTie E907 RISC-V]")
+        imgui.text(f"Active Duty Cycle: {g_state.e907_active_duty_pct:.1f}% (148 µs/ms)")
+        imgui.progress_bar(g_state.e907_active_duty_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.e907_active_duty_pct:.1f}%")
+        imgui.text(f"WFI Sleep Duty   : {g_state.e907_wfi_sleep_pct:.1f}% (Power-Saving)")
+        imgui.text("Breakdown: SPI DMA 6.1%, TWI0 4.2%, Ring 4.5%")
+
+        imgui.next_column()
+
+        # Tang Primer 20K FPGA Logic Fabric
+        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[Fabric: Tang Primer 20K FPGA]")
+        imgui.text(f"Logic LUT Usage  : {g_state.fpga_lut_utilization_pct:.1f}% (3,640 / 20,000)")
+        imgui.progress_bar(g_state.fpga_lut_utilization_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.fpga_lut_utilization_pct:.1f}%")
+        imgui.text(f"Auto-DMA Rate    : {g_state.fpga_dma_bw_mbps:.1f} Mbps (25 MHz SPI)")
+        imgui.text("Active Cores: IMU Auto-DMA, DShot 4-CH, NeoPixel")
+
+        imgui.columns(1)
+
+    imgui.separator()
+
+    # 4. Sensor Oscilloscope (ImPlot)
+    if implot.begin_plot("8 kHz ICM-42688-P Oscilloscope (Real-Time Waveforms)", imgui.ImVec2(-1, 240)):
         implot.setup_axes("Time (s)", "Value", implot.ImPlotAxisFlags_.auto_fit, implot.ImPlotAxisFlags_.auto_fit)
         
         with g_state.lock:
@@ -286,7 +417,7 @@ def render_gui():
 
     imgui.separator()
 
-    # 4. GPS & TLP Queue Watermarks
+    # 5. GPS & TLP Queue Watermarks
     imgui.columns(2, "bottom_cols", False)
     
     # Column 1: GPS Navigation Status

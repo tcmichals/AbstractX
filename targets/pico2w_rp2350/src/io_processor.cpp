@@ -114,6 +114,14 @@ public:
         }
     }
 
+    coro::Task<void> run_coroutine() override {
+        running_.store(true, std::memory_order_release);
+        while (running_.load(std::memory_order_acquire)) {
+            drain_egress_requests();
+            co_await yield_to_dispatcher();
+        }
+    }
+
     bool is_running() const noexcept override {
         return running_.load(std::memory_order_acquire);
     }

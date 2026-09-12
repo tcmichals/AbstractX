@@ -6,6 +6,8 @@
  */
 
 #include "abstractx/hal/i2c.hpp"
+#include "abstractx/hal/platform.hpp"
+#include "abstractx/trace/tracer.hpp"
 #include "i2c_worker.hpp"
 #include <cstring>
 #include <algorithm>
@@ -32,6 +34,8 @@ public:
     bool write_read_sync(uint8_t slave_addr,
                          std::span<const uint8_t> tx_data,
                          std::span<uint8_t> rx_data) override {
+        uint64_t t0 = get_timer_driver().get_time_us();
+        bool ok = false;
         if (worker_.is_hardware_active()) {
             struct i2c_msg msgs[2]{};
             msgs[0].addr = slave_addr;
@@ -47,16 +51,23 @@ public:
             struct i2c_rdwr_ioctl_data rdwr{};
             rdwr.msgs = msgs;
             rdwr.nmsgs = 2;
-            return (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
+            ok = (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
         } else {
             for (size_t i = 0; i < rx_data.size(); ++i) {
                 rx_data[i] = static_cast<uint8_t>(0x30 + i);
             }
-            return true;
+            ok = true;
         }
+        uint64_t t1 = get_timer_driver().get_time_us();
+        trace::g_tracer.trace_hal(3 /* I2C */, static_cast<uint16_t>(tx_data.size() + rx_data.size()),
+                                  ok ? static_cast<uint16_t>(tx_data.size() + rx_data.size()) : 0,
+                                  static_cast<uint32_t>(t1 - t0), ok ? 0 : 1, t1);
+        return ok;
     }
 
     bool write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) override {
+        uint64_t t0 = get_timer_driver().get_time_us();
+        bool ok = false;
         if (worker_.is_hardware_active()) {
             struct i2c_msg msg{};
             msg.addr = slave_addr;
@@ -67,12 +78,20 @@ public:
             struct i2c_rdwr_ioctl_data rdwr{};
             rdwr.msgs = &msg;
             rdwr.nmsgs = 1;
-            return (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
+            ok = (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
+        } else {
+            ok = true;
         }
-        return true;
+        uint64_t t1 = get_timer_driver().get_time_us();
+        trace::g_tracer.trace_hal(3 /* I2C */, static_cast<uint16_t>(tx_data.size()),
+                                  ok ? static_cast<uint16_t>(tx_data.size()) : 0,
+                                  static_cast<uint32_t>(t1 - t0), ok ? 0 : 1, t1);
+        return ok;
     }
 
     bool read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) override {
+        uint64_t t0 = get_timer_driver().get_time_us();
+        bool ok = false;
         if (worker_.is_hardware_active()) {
             struct i2c_msg msg{};
             msg.addr = slave_addr;
@@ -83,13 +102,18 @@ public:
             struct i2c_rdwr_ioctl_data rdwr{};
             rdwr.msgs = &msg;
             rdwr.nmsgs = 1;
-            return (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
+            ok = (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
         } else {
             for (size_t i = 0; i < rx_data.size(); ++i) {
                 rx_data[i] = static_cast<uint8_t>(0x40 + i);
             }
-            return true;
+            ok = true;
         }
+        uint64_t t1 = get_timer_driver().get_time_us();
+        trace::g_tracer.trace_hal(3 /* I2C */, static_cast<uint16_t>(rx_data.size()),
+                                  ok ? static_cast<uint16_t>(rx_data.size()) : 0,
+                                  static_cast<uint32_t>(t1 - t0), ok ? 0 : 1, t1);
+        return ok;
     }
 
     target::I2cWorker& worker() noexcept {
@@ -107,8 +131,9 @@ private:
     target::I2cWorker  worker_{};
 };
 
+ISpi& get_spi_driver() noexcept;
 static LinuxI2cDriver g_linux_i2c;
-II2c& get_i2c_driver() {
+II2c& get_i2c_driver() noexcept {
     return g_linux_i2c;
 }
 

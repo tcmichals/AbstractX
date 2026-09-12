@@ -25,15 +25,16 @@ target_include_directories(abstractx_target_linux PUBLIC
 if(LIBGPIOD_FOUND)
     target_include_directories(abstractx_target_linux PRIVATE ${LIBGPIOD_INCLUDE_DIRS})
     target_link_libraries(abstractx_target_linux PUBLIC ${LIBGPIOD_LIBRARIES})
-else()
-    # Fallback to direct library link
-    target_link_libraries(abstractx_target_linux PUBLIC gpiod)
 endif()
 
+
 target_link_libraries(abstractx_target_linux PUBLIC
+    abstractx_core
+    etl
     pthread
     rt
 )
+
 
 # Backward-compatible alias for existing host targets & tests
 add_library(abstractx_target_host ALIAS abstractx_target_linux)

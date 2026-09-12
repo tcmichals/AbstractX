@@ -34,9 +34,9 @@ Crucially, **the top-level application software (written in C++20 Stackless Coro
 ## 2. The 3 Execution Environments
 
 ### Environment 1: Linux / Host Multi-Threaded I/O Workers (SITL & Companion Computers)
-* **Target Platforms**: Raspberry Pi 5, NVIDIA Jetson, x86 Linux SITL Simulation, ROS2 / Micro-ROS Nodes.
+* **Target Platforms**: Raspberry Pi 5, Allwinner A5E / A7A, NVIDIA Jetson, x86 Linux SITL Simulation, Embedded Linux Flight Daemons.
 * **Architecture**:
-  - **Top Level**: A single high-priority real-time thread running the C++20 Coroutine Scheduler (`CoroutineIoEngine`).
+  - **Top Level**: A single prioritized execution loop running the C++20 Coroutine Scheduler (`CoroutineIoEngine`). Avoids task proliferation by dispatching cooperative coroutines based on hardware completion priority.
   - **I/O Subsystem**: Background POSIX worker threads (one thread per physical blocking device: `/dev/spidev`, `/dev/i2c-dev`, `/dev/ttyUSB`, or simulated physics/sensor models in SITL).
   - **Interconnect**: Lock-free SPSC rings (`SpscTlpRing`) with `eventfd` doorbells and zero-copy pointer descriptors (`TlpDescriptor`).
 * **Why It Solves the Linux Dilemma**:
@@ -322,7 +322,7 @@ On advanced robotic systems, companion computers (Raspberry Pi 5, NVIDIA Jetson)
 │  Worker 0: FPGA SPI Bridge    │ │  Worker 1: Linux Native I2C   │ │  Worker 2: Linux Native UART  │
 │  /dev/spidev0.0 (50 MHz)      │ │  /dev/i2c-1 (400 kHz)         │ │  /dev/ttyUSB0 (2 Mbaud)       │
 │  - 8 kHz IMU Auto-DMA Stream  │ │  - Barometer / Mag Sensor     │ │  - GPS / Companion Telemetry  │
-│  - DShot Motor Timers         │ │  - Power Monitoring IC        │ │  - MAVLink / ROS2 Micro-XRCE  │
+│  - DShot Motor Timers         │ │  - Power Monitoring IC        │ │  - MAVLink / Serial Telemetry │
 │  - Sub-20ns Latched TS        │ │  - EEPROM Calibration         │ │  - Blackbox Flash Tunnel      │
 └──────────────┬────────────────┘ └───────────────────────────────┘ └───────────────────────────────┘
                │ Dual-SPI 50MHz

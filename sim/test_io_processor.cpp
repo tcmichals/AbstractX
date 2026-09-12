@@ -58,8 +58,9 @@ int main() {
 
     // 4. In Setup Mode: Manual reads and writes MUST succeed!
     uint8_t tx_bytes[2] = { static_cast<uint8_t>(0x75 | 0x80), 0x00 }; // Read WHO_AM_I
-    Tlp64 spi_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, 42, 0, Channel::Control);
+    Tlp64 spi_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, ASP_SPI_FLAG_AUTO_CS, 42, Channel::Control);
     assert(app_to_io_tx_ring.push(spi_req) && "Failed to push SPI request to TX ring");
+
 
     io_proc.step(20);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -84,7 +85,7 @@ int main() {
     std::cout << "  -> Sensor HW Fusion Mode ENABLED via TLP control packet." << std::endl;
 
     // 6. CRITICAL HARDWARE INVARIANT: Once in Auto/DMA mode, manual reads/writes CANNOT happen!
-    Tlp64 rejected_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, 43, 0, Channel::Control);
+    Tlp64 rejected_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, ASP_SPI_FLAG_AUTO_CS, 43, Channel::Control);
     assert(app_to_io_tx_ring.push(rejected_req) && "Failed to push SPI request");
     io_proc.step(20);
 
@@ -107,8 +108,9 @@ int main() {
     std::cout << "  -> Sensor HW Fusion Mode DISABLED via TLP control packet (Bus Unlocked)." << std::endl;
 
     // 8. With Auto-DMA turned OFF: Manual reads and writes succeed once again!
-    Tlp64 allowed_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, 44, 0, Channel::Control);
+    Tlp64 allowed_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, ASP_SPI_FLAG_AUTO_CS, 44, Channel::Control);
     assert(app_to_io_tx_ring.push(allowed_req) && "Failed to push SPI request");
+
     io_proc.step(20);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     io_proc.step(20);
@@ -123,6 +125,35 @@ int main() {
     io_proc.stop();
     assert(!io_proc.is_running() && "Expected is_running() to be false after stop()");
     std::cout << "  -> IIoProcessor stopped cleanly." << std::endl;
+
+    // 10. Verify IIoProcessor::init(setup) and run_coroutine()
+    bool reinit_ok = io_proc.init(setup);
+    assert(reinit_ok && "IIoProcessor init(setup) failed");
+    assert(io_proc.is_running() && "Expected is_running() to be true after init()");
+    std::cout << "  -> IIoProcessor::init(setup) verified successfully." << std::endl;
+
+    // Launch run_coroutine()
+    coro::Task<void> io_coro = io_proc.run_coroutine();
+    io_coro.resume();
+    assert(!io_coro.done() && "Expected io_coro to remain active");
+
+    // Queue a manual SPI request and process via Dispatcher
+    Tlp64 coro_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, ASP_SPI_FLAG_AUTO_CS, 55, Channel::Control);
+    assert(app_to_io_tx_ring.push(coro_req) && "Failed to push SPI request for coroutine test");
+
+    // Pump Dispatcher
+    Dispatcher::process();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    Dispatcher::process();
+
+    Tlp64 coro_cpl{};
+    assert(io_to_app_rx_ring.pop(coro_cpl) && "Failed to receive completion via coroutine");
+    assert(coro_cpl.tag() == 55 && "Tag mismatch");
+    assert(coro_cpl.wire.payload[0] == ASP_STATUS_OK && "Expected OK from coroutine execution");
+    std::cout << "  -> IIoProcessor::run_coroutine() pumped and serviced TLP request cleanly." << std::endl;
+
+    io_proc.stop();
+    assert(!io_proc.is_running() && "Expected is_running() to be false after final stop()");
 
     std::cout << "[SUCCESS] Sensor HW Fusion API & Bus Lockout verified 100% cleanly!" << std::endl;
     return 0;

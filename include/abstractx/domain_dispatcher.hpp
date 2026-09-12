@@ -79,13 +79,15 @@ public:
     // Coroutine domain consumer: each pop is taken with interrupts masked, and the
     // handle is resumed outside of the critical section.
     static inline void process_ready_coroutines() noexcept {
+        size_t count = queue_.size();
         value_type handle{};
-        while (queue_.pop(handle)) {
+        while (count-- > 0 && queue_.pop(handle)) {
             if (is_resumable(handle) && !handle.done()) {
                 handle.resume();
             }
         }
     }
+
 
     static inline void process() noexcept {
         process_ready_coroutines();
@@ -112,6 +114,19 @@ using Dispatcher = DomainDispatcher<IsrSafeSpscQueue>;
 
 // Backward-compatible alias for the current RISC-V ISR-safe implementation.
 using IsrDispatcher = Dispatcher;
+
+// Dispatcher-aware yield awaiter: yields control and reschedules the coroutine in Dispatcher.
+struct DispatcherYieldAwaiter {
+    bool await_ready() const noexcept { return false; }
+    void await_suspend(std::coroutine_handle<> h) noexcept {
+        Dispatcher::push(h);
+    }
+    void await_resume() const noexcept {}
+};
+
+inline DispatcherYieldAwaiter yield_to_dispatcher() noexcept {
+    return {};
+}
 
 } // namespace abstractx
 

@@ -33,7 +33,19 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Mechanism**: Dual lock-free `SpscTlpRing<64>` and RP2350 hardware SIO FIFOs (`pico/multicore.h`).
 * **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `targets/pico2w_rp2350/`
 
+### `[SPEC-ARCH-06]` Unified AbstractX Runtime API & Autonomous Domain Placement
+* **Requirement**: Applications must interface with the framework exclusively through the unified `abstractx::` API (`init()`, `spawn()`, `step()`, `step_async()`, `run()`). The runtime must automatically determine target topology and assign `io_processor`, `trace_dispatcher`, and user coroutines to their optimal hardware execution domains (Core 0 vs Core 1 on dual-core MCU, E907 vs Linux on heterogeneous SoCs, or cooperative coroutine loop on SITL), guaranteeing 0 application `#ifdef`s.
+* **Implementation Target**: `include/abstractx/abstractx.hpp`, `src/runtime.cpp`
+
+### `[SPEC-ARCH-07]` Platform Topology Table & Studio Multi-Window Observability
+* **Requirement**: AbstractX runtimes must encode and announce a standardized `PlatformTopologyTable` describing the exact silicon execution topology (e.g. `Linux_Standard_SITL`, `Linux_Host_E907`, `Linux_Host_E907_FPGA`, `RP2350_DualCore_Pico2W`, `ESP32P4_FreeRTOS`), active cores, interconnects, and hardware accelerators. The Observability Studio must render:
+  1. **Window 1: Platform Topology & Interconnect Fabric** (Auto-detected silicon graph and SPSC ring saturations).
+  2. **Window 2: Dual-Plane Timeline & Source Code Scanner** (Separation of I/O driver context from C++20 coroutines, with interactive source jumping to `__FILE__`: `__LINE__`).
+  3. **Window 3: Per-Processor SPU/CPU & OS Process Utilization** (Tracking host Linux CPU% and external daemons, XuanTie E907 active vs WFI cycles, and FPGA logic LUT / DMA bandwidth).
+* **Implementation Target**: `include/abstractx/platform_topology.hpp`, `docs/ABSTRACTX_PLATFORM_TOPOLOGY_AND_METRICS_SPEC.md`, `tools/visualizer/abstractx_studio.py`
+
 ---
+
 
 ## 2. 64-Byte Transaction Layer Packet (TLP) Specifications (`SPEC-TLP`)
 
@@ -119,7 +131,20 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   - **Host SITL**: CTF binary stream file and local loopback UDP.
 * **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `apps/e907_coprocessor/main.cpp`
 
+### `[SPEC-TRACE-04]` Configurable Trace Dispatcher Coroutine & Startup Sinks
+* **Requirement**: The coroutine engine MUST host a non-blocking `trace_dispatcher_task()` coroutine that flushes buffered CTF events into 64-byte TLPs based on watermark thresholds and periodic timers. The destination sink MUST be established at Dispatcher/Platform startup via `TraceDispatcherConfig` (supporting `None`, `Udp`, `File`, or `SharedSramRing`), never hardcoding the transport.
+* **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `include/abstractx/domain_dispatcher.hpp`, `include/abstractx/hal/platform.hpp`
+
+### `[SPEC-TRACE-05]` Heterogeneous Coprocessor Trace Pipeline (E907 to Linux)
+* **Requirement**: When `io_processor` executes on a coprocessor (Allwinner XuanTie E907 / RP2350 Core 0), trace TLPs must route through the shared SRAM ring (`0x40000000`) and trigger a hardware doorbell (`sun6i-msgbox` / SIO FIFO). The Linux host coroutine loop must execute a non-blocking receiver coroutine that drains the shared memory ring directly into the host UDP or file sink.
+* **Implementation Target**: `targets/allwinner_e907/src/io_processor.cpp`, `targets/linux/src/io_processor.cpp`, `apps/gps_imu_app/src/main.cpp`
+
+### `[SPEC-TRACE-06]` 1 KB Ping-Pong Buffer Architecture & Profile Configuration
+* **Requirement**: The trace engine MUST support a dual-buffer (ping-pong) topology (producer fills buffer A while consumer transmits buffer B) with a standard 1,024-byte (1 KB) packet size. The memory profile MUST be configurable via `enum class BufferProfile` (`PingPong_1K_x2`, `Ring_1K_x4`, `Compact_512B_x2`, `Large_2K_x4`) to support ultra-constrained co-processors (Allwinner E907 / RP2350) and high-throughput SITL logging with 0 dynamic heap allocations.
+* **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `include/abstractx/abstractx.hpp`, `docs/HOW_TO_CTF_PING_PONG_TRACING.md`
+
 ---
+
 
 ## 6. Requirements Traceability Matrix
 
