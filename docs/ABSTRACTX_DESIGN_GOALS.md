@@ -21,9 +21,8 @@ The **Gowin FPGA flight controller offload board** is the canonical reference im
 
 ## 2. What AbstractX Is NOT
 
-- **Not a full RTOS.** AbstractX provides the async I/O layer. Scheduling and preemption are left to the application or hardware.
-- **Not a complete flight stack.** It provides sensor transport and motor output. EKF, PID, and navigation algorithms live on top.
-- **Not a Modbus / CAN / ROS2 framework.** Those are future integration targets, not current implementations.
+- **Not a heavy multi-task RTOS.** AbstractX avoids task proliferation. It uses a single prioritized execution loop where coroutines yield cooperatively on hardware completion tokens.
+- **Not a complex middleware framework.** AbstractX keeps things simple and high-speed. It avoids middleware layers, serialization bloat, and preemptive thread overhead.
 - **Not a replacement for Linux kernel drivers.** On Linux it wraps existing `ioctl()` drivers in background workers.
 
 ---
@@ -113,7 +112,6 @@ ASP wire protocol is Big-Endian. C/C++ structs use native endianness with explic
 | RP2350 PIO / SIO FIFO mailbox driver | 🗺️ Roadmap |
 | ESP32-P4 dual-core RISC-V driver | 🗺️ Roadmap |
 | ArduPilot `AP_HAL_AbstractX` backend | 🗺️ Roadmap |
-| ROS2 / Micro-ROS integration | 🗺️ Future (no timeline) |
 | Modbus / RS-485 driver | 🗺️ Future (no timeline) |
 | CAN / CANopen driver | 🗺️ Future (no timeline) |
 

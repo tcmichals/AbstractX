@@ -9,22 +9,17 @@
  * - Linux (Desktop Workstation, SITL, and Allwinner Cubie A5E Cortex-A55)
  * - Allwinner XuanTie E907 RISC-V Co-Processor
  *
- * Dual-Domain Architecture:
- * - Domain 0: Dedicated I/O, DMA, Wireless Network Master, and Doorbell Bridge
- * - Domain 1: Dedicated Real-Time Coroutine Sensor Testing Engine
- *
- * Zero #ifdef Invariant: 100% portable modern C++20 using generic AbstractX HAL.
+ * Modernized Unified Architecture:
+ * - 100% Event-Driven C++20 Coroutine Application
+ * - Zero #ifdef directives across all target platforms
+ * - Unified abstractx::init() and abstractx::run() API
+ * - Transparent CTF 1.8 binary telemetry tracing (UDP :9870 / File)
  */
 
-#include "abstractx/hal/platform.hpp"
-#include "abstractx/coro.hpp"
+#include "abstractx/abstractx.hpp"
 #include "abstractx/drivers/imu/icm42688p.hpp"
 #include "abstractx/drivers/gps/ublox_gps.hpp"
-#include "spsc_tlp_ring.hpp"
-#include "asp_tlp64.hpp"
-
 #include <cstdio>
-#include <etl/circular_buffer.h>
 
 using namespace abstractx;
 using namespace abstractx::coro;
@@ -37,18 +32,33 @@ static SpscTlpRing<64> g_sensor_ring;    // I/O -> Sensor Test (Raw DMA sensor p
 static SpscTlpRing<64> g_telemetry_ring; // Sensor Test -> Egress / Log (Telemetry to Network / Serial)
 
 // ============================================================================
-// Domain 1: Dedicated Real-Time Coroutine Sensor Testing Domain
+// Sensor Testing Coroutines
 // ============================================================================
 
 // @impl [SPEC-ARCH-03] [SPEC-IMU-02] docs/DESIGN_SPECIFICATION.md#spec-imu-02
 // @status Complete
 Task<void> imu_test_task(Icm42688p& imu) {
+    uint32_t seq = 0;
     while (true) {
         // Asynchronously await next 8 kHz SPI DMA auto-burst sample
         ImuSample sample = co_await imu.next_sample_async();
         if (sample.valid) {
+            seq++;
             Tlp64 tlp = Icm42688p::to_tlp(sample);
             g_telemetry_ring.push(tlp);
+
+            // Record binary CTF 1.8 telemetry event
+            trace::g_tracer.trace_imu(
+                seq,
+                static_cast<int16_t>(sample.accel_g[0] * 1000.0f),
+                static_cast<int16_t>(sample.accel_g[1] * 1000.0f),
+                static_cast<int16_t>(sample.accel_g[2] * 1000.0f),
+                static_cast<int16_t>(sample.gyro_dps[0]),
+                static_cast<int16_t>(sample.gyro_dps[1]),
+                static_cast<int16_t>(sample.gyro_dps[2]),
+                static_cast<int16_t>(sample.temp_deg_c * 100.0f),
+                sample.timestamp_us ? sample.timestamp_us : hal::get_timer_driver().get_time_us()
+            );
         }
     }
 }
@@ -62,6 +72,19 @@ Task<void> gps_test_task(UbloxGps& gps) {
         if (fix.valid) {
             Tlp64 tlp = UbloxGps::to_tlp(fix);
             g_telemetry_ring.push(tlp);
+
+            // Record binary CTF 1.8 GPS fix event
+            trace::g_tracer.trace_gps(
+                fix.itow_ms,
+                fix.lat_1e7,
+                fix.lon_1e7,
+                fix.alt_msl_mm,
+                fix.ground_speed_mm_s,
+                fix.heading_1e5,
+                fix.satellites,
+                static_cast<uint8_t>(fix.fix_type),
+                fix.timestamp_us ? fix.timestamp_us : hal::get_timer_driver().get_time_us()
+            );
         }
     }
 }
@@ -70,7 +93,6 @@ Task<void> gps_test_task(UbloxGps& gps) {
 Task<void> i2c_test_task(hal::II2c& i2c, hal::ITimer& timer) {
     while (true) {
         co_await timer.sleep_ms_async(500);
-        // Periodic I2C bus health ping / sensor probe
         uint8_t dummy_reg = 0x00;
         uint8_t rx_byte = 0;
         i2c.write_read_sync(0x68, std::span(&dummy_reg, 1), std::span(&rx_byte, 1));
@@ -85,7 +107,7 @@ Task<void> heartbeat_task(hal::ITimer& timer, hal::IUart& uart) {
         co_await timer.sleep_ms_async(1000);
         count++;
 
-        uart.puts("[AbstractX Sensor Test] Heartbeat #");
+        uart.puts("[AbstractX App] Heartbeat #");
         char num[64];
         snprintf(num, sizeof(num), "%u | Egress Queue: %u pkts\n",
                  static_cast<unsigned>(count),
@@ -94,61 +116,55 @@ Task<void> heartbeat_task(hal::ITimer& timer, hal::IUart& uart) {
     }
 }
 
-// @impl [SPEC-ARCH-05] docs/DESIGN_SPECIFICATION.md#spec-arch-05
+// ============================================================================
+// Unified Application Main Task
+// ============================================================================
+
+// @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
-void sensor_testing_engine() {
+Task<void> app_main() {
     auto& uart  = hal::get_uart_driver();
     auto& timer = hal::get_timer_driver();
     auto& spi   = hal::get_spi_driver();
     auto& i2c   = hal::get_i2c_driver();
 
-    uart.puts("[Sensor Test Domain] Coroutine Engine Online!\n");
+    uart.puts("\n========================================================\n");
+    uart.puts("  AbstractX - Heterogeneous Flight Application (gps_imu)\n");
+    uart.puts("  Single Unified Event-Driven Coroutine Architecture    \n");
+    uart.puts("========================================================\n");
 
-    Icm42688p imu(spi);
-    UbloxGps  gps(uart);
+    static Icm42688p imu(spi);
+    static UbloxGps  gps(uart);
 
     imu.init();
 
-    // Launch sensor benchmark coroutines onto the work queue
-    auto imu_coro       = imu_test_task(imu);
-    auto gps_coro       = gps_test_task(gps);
-    auto i2c_coro       = i2c_test_task(i2c, timer);
-    auto heartbeat_coro = heartbeat_task(timer, uart);
+    // Spawn concurrent application coroutines into AbstractX runtime
+    abstractx::spawn(imu_test_task(imu));
+    abstractx::spawn(gps_test_task(gps));
+    abstractx::spawn(i2c_test_task(i2c, timer));
+    abstractx::spawn(heartbeat_task(timer, uart));
 
-    imu_coro.resume();
-    gps_coro.resume();
-    i2c_coro.resume();
-    heartbeat_coro.resume();
-
-    // Dedicated Sensor Testing Coroutine Loop
+    // Yield cooperatively to runtime dispatcher
     while (true) {
-        Dispatcher::process();
-        hal::platform_idle_wait();
+        co_await abstractx::step_async();
     }
 }
 
 // ============================================================================
-// Domain 0: Dedicated I/O, DMA & Wireless Networking Master
+// Application Boot & Master Entry Point
 // ============================================================================
 
-// @impl [SPEC-TRACE-03] docs/DESIGN_SPECIFICATION.md#spec-trace-03
+// @impl [SPEC-TRACE-03] [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
 int main() {
-    hal::platform_init();
+    // 1. Unified Configuration
+    Config config{};
+    config.trace.sink_type = TraceSinkType::Udp;
+    config.trace.sink_target = "127.0.0.1:9870";
+    config.trace.flush_interval_ms = 10;
 
-    auto& uart    = hal::get_uart_driver();
-    auto& timer   = hal::get_timer_driver();
-    auto& io_proc = hal::get_target_io_processor();
-
-    uart.init(115200);
-    uart.puts("\n========================================================\n");
-    uart.puts("  AbstractX - Heterogeneous Sensor Testbench (gps_imu)  \n");
-    uart.puts("  Domain 0: ioProcessor Message Processing Loop         \n");
-    uart.puts("  Domain 1: Real-Time Coroutine Sensor Testing Engine   \n");
-    uart.puts("========================================================\n");
-
-    // Configure and start target ioProcessor on Domain 0
-    hal::AutoChannelConfig auto_channels[1]{};
+    // 2. Configure Sensor HW Fusion Channel
+    static hal::AutoChannelConfig auto_channels[1]{};
     auto_channels[0].channel_id = 0;
     auto_channels[0].auto_mode = true;
     auto_channels[0].trigger_mode = hal::TriggerMode::GpioEdge;
@@ -163,49 +179,15 @@ int main() {
     auto_channels[0].tlp_channel = 0x02;
     auto_channels[0].tlp_tag = 1;
 
-    hal::IoProcessorSetup setup{};
-    setup.channels = auto_channels;
-    setup.egress_tx_ring = &g_tx_ring;
-    setup.ingress_rx_ring = &g_sensor_ring;
-    io_proc.configure(setup);
-    io_proc.start();
+    config.io_setup.channels = auto_channels;
+    config.io_setup.egress_tx_ring = &g_tx_ring;
+    config.io_setup.ingress_rx_ring = &g_sensor_ring;
 
-    // Launch Sensor Testing Engine on Domain 1 (Core 1 / Worker Thread)
-    hal::platform_launch_processing_domain(sensor_testing_engine);
+    // 3. One-line initialization: handles clocks, HAL, SPSC rings, coprocessor, and tracing
+    abstractx::init(config);
 
-    // Domain 0: Dedicated I/O Message Processing Loop
-    UbloxGps gps(uart);
-    uint32_t last_net_poll_ms = timer.get_time_ms();
-
-    while (true) {
-        // 1. Drain egress requests from Sensor Domain and pump hardware DMA
-        io_proc.step();
-
-        // 2. Drain incoming UART bytes from GPS into shared sensor ring
-        uint8_t rx_byte = 0;
-        GpsFix fix{};
-        while (uart.read_byte(rx_byte)) {
-            if (gps.feed_byte(rx_byte, fix)) {
-                Tlp64 tlp = UbloxGps::to_tlp(fix);
-                g_sensor_ring.push(tlp);
-            }
-        }
-
-        // 3. Poll networking stack periodically
-        uint32_t now = timer.get_time_ms();
-        if (now - last_net_poll_ms >= 50) {
-            last_net_poll_ms = now;
-            hal::platform_poll_network();
-        }
-
-        // 4. Forward completed telemetry TLPs from Sensor Domain to Network / UART
-        Tlp64 tlp{};
-        while (g_telemetry_ring.pop(tlp)) {
-            // Stream packet over Network / Serial
-        }
-
-        hal::platform_idle_wait();
-    }
+    // 4. One-line execution: runs coroutines, I/O reactor, and trace dispatcher to completion
+    abstractx::run(app_main());
 
     return 0;
 }

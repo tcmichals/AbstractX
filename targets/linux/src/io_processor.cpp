@@ -106,13 +106,24 @@ public:
     }
 
     int step(int timeout_ms = 0) override {
+        drain_egress_requests();
         return process_events(timeout_ms);
     }
+
 
     void run() override {
         running_.store(true, std::memory_order_release);
         while (running_.load(std::memory_order_acquire)) {
             process_events(100);
+        }
+    }
+
+    coro::Task<void> run_coroutine() override {
+        running_.store(true, std::memory_order_release);
+        while (running_.load(std::memory_order_acquire)) {
+            drain_egress_requests();
+            process_events(0);
+            co_await yield_to_dispatcher();
         }
     }
 
@@ -253,7 +264,9 @@ private:
             }
 
             uint8_t ch = static_cast<uint8_t>(tlp.channel());
-            if (ch == ASP_CHANNEL_SPI_BRIDGE || ch == 0x01) {
+            uint32_t addr = tlp.target_address();
+            if (ch == ASP_CHANNEL_SPI_BRIDGE || ch == 0x01 || (addr & 0xFFFFFF00) == ASP_ADDR_SPI_BASE) {
+
                 // HARDWARE INVARIANT: Once in Auto/DMA mode, manual reads and writes CANNOT happen!
                 // To perform manual R/W, app must first turn off auto/DMA mode.
                 if (is_bus_locked(hal::BusType::Spi)) {

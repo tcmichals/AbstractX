@@ -8,7 +8,15 @@
 #ifndef ABSTRACTX_TARGET_GPIO_GPIOD_HPP
 #define ABSTRACTX_TARGET_GPIO_GPIOD_HPP
 
+#if __has_include(<gpiod.h>)
 #include <gpiod.h>
+#define ABSTRACTX_HAVE_LIBGPIOD 1
+#else
+struct gpiod_chip;
+struct gpiod_line_request;
+struct gpiod_edge_event_buffer;
+#endif
+
 #include <cstdint>
 #include <functional>
 #include <atomic>
@@ -27,6 +35,7 @@ public:
     bool open_pin_interrupt(const char* chip_path, unsigned int line_offset, bool rising = true, bool falling = false) noexcept {
         close();
 
+#ifdef ABSTRACTX_HAVE_LIBGPIOD
         if (!chip_path || chip_path[0] == '\0') {
             chip_path = "/dev/gpiochip0";
         }
@@ -58,32 +67,37 @@ public:
             return false;
         }
 
-        unsigned int offset = line_offset;
-        ::gpiod_line_config_add_line_settings(line_cfg, &offset, 1, settings);
-
-        struct gpiod_request_config* req_cfg = ::gpiod_request_config_new();
-        if (req_cfg) {
-            ::gpiod_request_config_set_consumer(req_cfg, "abstractx_drdy");
-        }
-
-        request_ = ::gpiod_chip_request_lines(chip_, req_cfg, line_cfg);
-
-        if (req_cfg) ::gpiod_request_config_free(req_cfg);
-        ::gpiod_line_config_free(line_cfg);
+        unsigned int offsets[1] = {line_offset};
+        ::gpiod_line_config_add_line_settings(line_cfg, offsets, 1, settings);
         ::gpiod_line_settings_free(settings);
 
+        struct gpiod_request_config* req_cfg = ::gpiod_request_config_new();
+        if (!req_cfg) {
+            ::gpiod_line_config_free(line_cfg);
+            return false;
+        }
+        ::gpiod_request_config_set_consumer(req_cfg, "AbstractX_DRDY");
+
+        request_ = ::gpiod_chip_request_lines(chip_, req_cfg, line_cfg);
+        ::gpiod_request_config_free(req_cfg);
+        ::gpiod_line_config_free(line_cfg);
+
         if (!request_) {
-            ::gpiod_chip_close(chip_);
-            chip_ = nullptr;
             sim_eventfd_ = EventFd(true);
             return true;
         }
 
         event_buf_ = ::gpiod_edge_event_buffer_new(16);
         return true;
+#else
+        (void)chip_path; (void)line_offset; (void)rising; (void)falling;
+        sim_eventfd_ = EventFd(true);
+        return true;
+#endif
     }
 
     void close() noexcept {
+#ifdef ABSTRACTX_HAVE_LIBGPIOD
         if (event_buf_) {
             ::gpiod_edge_event_buffer_free(event_buf_);
             event_buf_ = nullptr;
@@ -96,12 +110,15 @@ public:
             ::gpiod_chip_close(chip_);
             chip_ = nullptr;
         }
+#endif
     }
 
     int get_fd() const noexcept {
+#ifdef ABSTRACTX_HAVE_LIBGPIOD
         if (request_) {
             return ::gpiod_line_request_get_fd(request_);
         }
+#endif
         return sim_eventfd_.fd();
     }
 
@@ -111,6 +128,7 @@ public:
 
     template <typename Callback>
     int process_events(Callback&& cb) noexcept {
+#ifdef ABSTRACTX_HAVE_LIBGPIOD
         if (request_ && event_buf_) {
             int count = ::gpiod_line_request_read_edge_events(request_, event_buf_, 16);
             if (count > 0) {
@@ -124,7 +142,9 @@ public:
                 }
             }
             return count;
-        } else if (sim_eventfd_.is_valid()) {
+        }
+#endif
+        if (sim_eventfd_.is_valid()) {
             uint64_t val = sim_eventfd_.drain();
             if (val > 0) {
                 cb(3, 0);
@@ -145,6 +165,7 @@ private:
     struct gpiod_line_request*      request_{nullptr};
     struct gpiod_edge_event_buffer* event_buf_{nullptr};
     EventFd                         sim_eventfd_{};
+
 };
 
 } // namespace abstractx::target

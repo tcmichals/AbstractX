@@ -6,6 +6,8 @@
  */
 
 #include "abstractx/hal/uart.hpp"
+#include "abstractx/hal/platform.hpp"
+#include "abstractx/trace/tracer.hpp"
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -119,11 +121,17 @@ public:
 
 protected:
     void start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept override {
+        uint64_t t0 = get_timer_driver().get_time_us();
         UartResult result{};
         result.status = UartStatus::Ok;
         if (!req.data.empty()) {
             result.bytes_transferred = write(req.data);
         }
+        uint64_t t1 = get_timer_driver().get_time_us();
+        trace::g_tracer.trace_hal(1 /* UART */, static_cast<uint16_t>(req.data.size()),
+                                  static_cast<uint16_t>(result.bytes_transferred),
+                                  static_cast<uint32_t>(t1 - t0),
+                                  static_cast<uint8_t>(result.status), t1);
         push_completion_from_isr(req, result);
         set_hardware_idle_from_isr();
     }
@@ -168,7 +176,7 @@ private:
 };
 
 static LinuxUartDriver g_linux_uart;
-IUart& get_uart_driver() {
+IUart& get_uart_driver() noexcept {
     return g_linux_uart;
 }
 

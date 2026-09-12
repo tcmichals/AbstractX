@@ -6,6 +6,8 @@
  */
 
 #include "abstractx/hal/gpio.hpp"
+#include "abstractx/hal/platform.hpp"
+#include "abstractx/trace/tracer.hpp"
 #include "gpio_gpiod.hpp"
 #include <array>
 #include <iostream>
@@ -26,12 +28,14 @@ public:
     void write_pin(uint32_t pin, bool level) override {
         if (pin < pin_levels_.size()) {
             pin_levels_[pin] = level;
+            trace::g_tracer.trace_hal(4 /* GPIO */, 1, 1, 0, 0, get_timer_driver().get_time_us());
         }
     }
 
     void toggle_pin(uint32_t pin) override {
         if (pin < pin_levels_.size()) {
             pin_levels_[pin] = !pin_levels_[pin];
+            trace::g_tracer.trace_hal(4 /* GPIO */, 1, 1, 0, 0, get_timer_driver().get_time_us());
         }
     }
 
@@ -84,7 +88,7 @@ private:
 };
 
 static LinuxGpioDriver g_linux_gpio;
-IGpio& get_gpio_driver() {
+IGpio& get_gpio_driver() noexcept {
     return g_linux_gpio;
 }
 

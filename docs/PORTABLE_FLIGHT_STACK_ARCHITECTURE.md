@@ -44,8 +44,8 @@ Unlike Betaflight/iNav (which use single-stack cooperative task schedulers with 
 |                     ARDUPILOT MULTI-THREADED ARCHITECTURE                         |
 |                                                                                   |
 |  [Main Flight Thread]      [EKF3 Navigation Thread]    [MAVLink / Telemetry Thread]|
-|  - 400 Hz Attitude PID     - 24-State EKF Matrix       - MAVLink 2 / ROS2 / GCS    |
-|  - Motor Output Command    - Position/Velocity Calc    - Logging & Companion AI   |
+|  - 400 Hz Attitude PID     - 24-State EKF Matrix       - MAVLink 2 / Ground Station|
+|  - Motor Output Command    - Position/Velocity Calc    - Logging & Telemetry Link  |
 +-----------------------------------------------------------------------------------+
                                          ▲
                                          │  Lock-Free 64B TLP Shared Memory Rings
@@ -115,7 +115,7 @@ ArduPilot's **EKF3 (Extended Kalman Filter 3)** estimates 24+ vehicle state vari
 
 ## 5. Architectural Summary
 
-1. **100% Backward Compatibility**: Keeps Betaflight / iNav / ArduPilot `AP_HAL` APIs intact so all configurator tools, MAVLink telemetry, and ROS2 companion computer features work out of the box.
+1. **100% Backward Compatibility**: Keeps Betaflight / iNav / ArduPilot `AP_HAL` APIs intact so configurator tools, ground station links, and MAVLink telemetry work out of the box.
 2. **Chip-Specific Acceleration Unlocked**: Each silicon target deploys its specialized hardware (Pico 2 PIO, STM32 Timer Input Capture + MDMA, Gowin FPGA, ESP32-P4 Mailboxes) without changing flight software code.
 3. **Optimized Message Density**: Fixed 64B on FPGA for ultra-low gate count; compact 24B/variable/zero-copy descriptors on processors (Pico 2W, ESP32-P4, Linux) for maximum cache efficiency and memory conservation.
 4. **Zero Inter-Processor Friction**: All targets share the identical 20-byte `TlpHeader` specification and split-transaction `Tag` correlation semantics.

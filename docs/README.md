@@ -45,6 +45,18 @@ Welcome to the AbstractX documentation hub. This repository defines the universa
 13. **[`IMU_AUTO_DMA_IP_SPEC.md`](IMU_AUTO_DMA_IP_SPEC.md)**  
     *Why*: Hardware IMU SPI Master & Auto-DMA IP core for zero-CPU-overhead timestamped sensor telemetry streams.
 
+14. **[`ABSTRACTX_PLATFORM_TOPOLOGY_AND_METRICS_SPEC.md`](ABSTRACTX_PLATFORM_TOPOLOGY_AND_METRICS_SPEC.md)**  
+    *Why*: Authoritative specification for the unified Platform Topology Table (`PlatformTopologyTable`), Linux multi-target configurations (Standard Linux, Linux+E907, Linux+E907+FPGA), dynamic identity packets, and the 3-window studio layout.
+
+15. **[`ABSTRACTX_VISUALIZER_SPECIFICATION.md`](ABSTRACTX_VISUALIZER_SPECIFICATION.md)**  
+    *Why*: Architecture specification for the real-time Observability Studio (Python + Dear ImGui Bundle) featuring Dual-Plane Gantt execution, interactive source code scanner, and per-processor SPU/CPU & OS process utilization.
+
+16. **[`HOW_TO_CTF_PING_PONG_TRACING.md`](HOW_TO_CTF_PING_PONG_TRACING.md)**  
+    *Why*: Step-by-step engineering guide for the 1 KB ping-pong buffer architecture, binary CTF 1.8 packet generation, and UDP / File / Shared SRAM sinks.
+
+17. **[`E907_COPROCESSOR_ARCHITECTURE.md`](E907_COPROCESSOR_ARCHITECTURE.md)**  
+    *Why*: Heterogeneous co-processor architecture for the Allwinner XuanTie E907 RISC-V core communicating with Linux via shared SRAM A3/C and `sun6i-msgbox` hardware doorbells.
+
 ---
 
 ## FPGA Pinout Maps & Hardware Rationale
