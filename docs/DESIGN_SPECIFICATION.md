@@ -22,9 +22,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: Top-level flight control and telemetry logic (`FlightApp` / `inav-abstractx`) must compile unmodified across Linux SBCs, Raspberry Pi Pico 2 W, ESP32-P4, and Desktop SITL.
 * **Implementation Target**: `examples/gps_imu_flight_node.cpp`, `apps/`
 
-### `[SPEC-ARCH-04]` Heterogeneous Co-Processor Interconnect (E907 + Linux)
-* **Requirement**: Allwinner XuanTie E907 operates as a dedicated I/O coprocessor servicing 8 kHz SPI DMA and GPS UART, delivering timestamped 64B TLPs into shared SRAM A3/C (`0x40000000`) for Linux `remoteproc` consumers.
-* **Implementation Target**: `targets/allwinner_e907/`, `apps/e907_coprocessor/`
+### `[SPEC-ARCH-04]` Heterogeneous Co-Processor Interconnect & Single-Core MPSC (E907 + Linux)
+* **Requirement**: Allwinner XuanTie E907 operates as a dedicated I/O coprocessor servicing 8 kHz SPI DMA and GPS UART, delivering timestamped 64B TLPs into shared SRAM Space 0 (`0x3FFC8100`) for Linux `remoteproc` consumers.
+* **Concurrency Model**: Single-core preemption. Multiple hardware PLIC ISRs (SPI DMA, UART RX, Timer, Mailbox Doorbell) and cooperative Coroutine tasks push into a unified wait-free Multi-Producer Single-Consumer (`MpscIsrQueue`) work queue.
+* **Implementation Target**: `targets/allwinner_e907/`, `include/mpsc_isr_queue.hpp`, `apps/gps_imu_app/`
 
 ### `[SPEC-ARCH-05]` Dual-Core Asymmetric Multiprocessing (Pico 2 W / RP2350)
 * **Requirement**: RP2350 separates I/O & wireless networking from flight coroutines across dual Cortex-M33 cores:
@@ -61,9 +62,9 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: Sensor and actuator requests must target virtual BAR memory regions (`IMU_BASE = 0x40000100`, `GPS_BASE = 0x40000300`), remaining transport-agnostic.
 * **Implementation Target**: `include/pcie_bar_map.hpp`
 
-### `[SPEC-TLP-03]` Lock-Free SPSC TLP Ring Transport
-* **Requirement**: Inter-core and inter-domain FIFO queues must operate lock-free via single-producer single-consumer rings with atomic head/tail pointers.
-* **Implementation Target**: `include/spsc_tlp_ring.hpp`
+### `[SPEC-TLP-03]` Lock-Free SPSC & Wait-Free MPSC Ring Transport
+* **Requirement**: Inter-core and inter-domain FIFO queues must operate lock-free via single-producer single-consumer rings (`SpscTlpRing<64>`) with atomic head/tail pointers. Intra-core and single-core coprocessor event queues must operate wait-free via multi-producer single-consumer queues (`MpscIsrQueue<T, Capacity>`) with hardware IRQ masking (`csrrci` on RV32 / `cpsid i` on Cortex-M).
+* **Implementation Target**: `include/spsc_tlp_ring.hpp`, `include/mpsc_isr_queue.hpp`
 
 ---
 

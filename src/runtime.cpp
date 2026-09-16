@@ -36,6 +36,9 @@ void trace_flush_callback(const uint8_t* data, size_t len, void* /*context*/) {
         g_active_sink->write(data, len);
         g_active_sink->flush();
     }
+    if (data && len > 0) {
+        hal::platform_send_telemetry(data, len);
+    }
 }
 
 } // anonymous namespace
@@ -108,10 +111,13 @@ void step() noexcept {
     // 2. Step the target I/O processor reactor
     hal::get_target_io_processor().step(0);
 
-    // 3. Flush trace buffer if required
+    // 3. Service background network stack
+    hal::platform_poll_network();
+
+    // 4. Flush trace buffer if required
     trace::g_tracer.flush(hal::get_timer_driver().get_time_us());
 
-    // 4. Clean up finished tasks from the active pool
+    // 5. Clean up finished tasks from the active pool
     for (auto it = g_tasks.begin(); it != g_tasks.end();) {
         if (it->done()) {
             it = g_tasks.erase(it);

@@ -26,7 +26,7 @@ if(COMMAND pico_sdk_init)
         etl
         pico_stdlib
         pico_multicore
-        pico_cyw43_arch_none
+        pico_cyw43_arch_lwip_poll
         hardware_spi
         hardware_i2c
         hardware_pio
@@ -38,6 +38,17 @@ if(COMMAND pico_sdk_init)
     target_compile_definitions(abstractx_target_pico2w PUBLIC
         TARGET_PICO2W_RP2350=1
     )
+
+    if(DEFINED WIFI_SSID)
+        target_compile_definitions(abstractx_target_pico2w PUBLIC
+            WIFI_SSID="${WIFI_SSID}"
+        )
+    endif()
+    if(DEFINED WIFI_PASSWORD)
+        target_compile_definitions(abstractx_target_pico2w PUBLIC
+            WIFI_PASSWORD="${WIFI_PASSWORD}"
+        )
+    endif()
 else()
     message(STATUS "Pico SDK not found; abstractx_target_pico2w will be disabled.")
 endif()

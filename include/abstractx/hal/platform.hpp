@@ -42,6 +42,9 @@ void platform_idle_wait() noexcept;
 // Background networking / wireless stack servicing hook
 void platform_poll_network() noexcept;
 
+// Send barectf or TLP telemetry packet over the platform's egress transport (UDP / Shared Memory)
+void platform_send_telemetry(const uint8_t* data, size_t len) noexcept;
+
 // Universal HAL Driver Accessors
 ISpi&         get_spi_driver() noexcept;
 II2c&         get_i2c_driver() noexcept;
