@@ -16,6 +16,8 @@
 #include "pico/multicore.h"
 #include "pico/cyw43_arch.h"
 #include "hardware/sync.h"
+#include "lwip/netif.h"
+#include "lwip/ip4_addr.h"
 #endif
 
 namespace abstractx::hal {
@@ -41,6 +43,19 @@ void platform_init() noexcept {
     stdio_init_all();
     if (cyw43_arch_init() == 0) {
         cyw43_arch_enable_sta_mode();
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+        printf("[Pico 2 W Wi-Fi] Connecting to SSID '%s'...\n", WIFI_SSID);
+        if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 15000) != 0) {
+            printf("[Pico 2 W Wi-Fi] WARNING: Failed to connect to Wi-Fi within 15s timeout.\n");
+        } else {
+            printf("[Pico 2 W Wi-Fi] Successfully connected! IP: %s\n",
+                   ip4addr_ntoa(netif_ip4_addr(netif_default)));
+        }
+#else
+        printf("[Pico 2 W Wi-Fi] STA mode ready (WIFI_SSID/WIFI_PASSWORD not set at compile time).\n");
+#endif
+    } else {
+        printf("[Pico 2 W Wi-Fi] ERROR: cyw43_arch_init failed.\n");
     }
 #endif
 }
@@ -64,6 +79,36 @@ void platform_idle_wait() noexcept {
 void platform_poll_network() noexcept {
 #ifdef PICO_ON_DEVICE
     cyw43_arch_poll();
+#endif
+}
+
+#ifdef PICO_ON_DEVICE
+#include "lwip/udp.h"
+#include "lwip/pbuf.h"
+
+static struct udp_pcb *g_pico_udp_pcb = nullptr;
+static ip_addr_t g_pico_dest_ip{};
+static bool g_pico_udp_ready = false;
+#endif
+
+void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
+#ifdef PICO_ON_DEVICE
+    if (!g_pico_udp_ready) {
+        g_pico_udp_pcb = udp_new();
+        ip4addr_aton("255.255.255.255", &g_pico_dest_ip);
+        g_pico_udp_ready = true;
+    }
+    if (g_pico_udp_pcb && data && len > 0) {
+        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
+        if (p) {
+            std::memcpy(p->payload, data, len);
+            udp_sendto(g_pico_udp_pcb, p, &g_pico_dest_ip, 9870);
+            pbuf_free(p);
+        }
+    }
+#else
+    (void)data;
+    (void)len;
 #endif
 }
 

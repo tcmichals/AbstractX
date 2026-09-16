@@ -26,7 +26,7 @@ graph TD
     end
 
     subgraph E907_Queue["Domain Bridge Work Queue"]
-        WorkQueue["IsrSafeCoroutineQueue<32><br/>(etl::queue_spsc_isr)"]
+        WorkQueue["MpscIsrQueue<32><br/>(Wait-Free Bounded MPSC)"]
     end
 
     subgraph E907_Coro["E907 Coroutine Domain (Main Loop)"]
@@ -91,10 +91,11 @@ To avoid dedicating scarce hardware timer channels to individual tasks, the E907
 ---
 
 ## 4. Shared Memory Mapping (`memory_map.h`)
-
+ 
 | Memory Region | Physical Address | Size | Function |
 | :--- | :--- | :--- | :--- |
-| **SRAM A1 (E907 Code)** | `0x00020000` | 64 KB | E907 boot code (`startup.S`), vector table, and `.text`. |
-| **SRAM A3 / C (TLP Ring)** | `0x40000000` | 64 KB | Lock-free SPSC TLP telemetry ring (`asp_tlp64_t`). |
-| **DRAM Reserved (Trace)**| `0x4E000000` | 1 MB | Linux RemoteProc Resource Table & Trace Ring (`trace0`). |
+| **SRAM Space 0 (E907 Code)** | `0x3FFC0000` | 256 KB | E907 execution window (`startup.S`), vector table, and `.text`. *(Note: `0x00020000` is reserved for HiFi4 DSP)* |
+| **SRAM Space 0 (TLP / Trace)** | `0x3FFC8100` | 32 KB | Barectf CTF 1.8 Binary Trace & TLP Ring Buffer (`asp_tlp64_t`). |
+| **SRAM C (Dedicated IPC)** | `0x07131000` | 4 KB | Zero-copy direct memory telemetry / UIO doorbell window. |
+| **DRAM Reserved (Trace / VirtIO)**| `0x48000000` | 1 MB | Linux RemoteProc Resource Table & VirtIO vdev carveout (`trace0`). |
 | **MSGBox MMIO** | `0x03003000` | 4 KB | Hardware cross-core doorbells (Channels 0–3). |

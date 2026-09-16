@@ -12,6 +12,7 @@
 #include "hal/spi.hpp"
 #include "hal/i2c.hpp"
 #include "hal/pio.hpp"
+#include "hal/msgbox.hpp"
 
 namespace abstractx::hal {
 
@@ -217,6 +218,21 @@ void platform_idle_wait() noexcept {
 
 void platform_poll_network() noexcept {
     // No direct wireless stack on coprocessor
+}
+
+void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
+    if (data && len > 0) {
+        // Direct zero-copy copy to Dedicated MCU SRAM C (0x07131000)
+        volatile uint32_t* dst = reinterpret_cast<volatile uint32_t*>(0x07131000);
+        const uint32_t* src = reinterpret_cast<const uint32_t*>(data);
+        size_t words = (len + 3) / 4;
+        for (size_t i = 0; i < words; ++i) {
+            dst[i] = src[i];
+        }
+        __asm__ volatile("fence rw, rw" ::: "memory");
+        // Doorbell notify Linux host
+        ::hal::MsgBox::notify_doorbell(0x01);
+    }
 }
 
 } // namespace abstractx::hal

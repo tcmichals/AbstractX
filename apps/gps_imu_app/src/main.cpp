@@ -101,18 +101,26 @@ Task<void> i2c_test_task(hal::II2c& i2c, hal::ITimer& timer) {
 
 // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md#spec-hal-05
 // @status Complete
-Task<void> heartbeat_task(hal::ITimer& timer, hal::IUart& uart) {
+Task<void> heartbeat_task(hal::ITimer& timer) {
     uint32_t count = 0;
     while (true) {
         co_await timer.sleep_ms_async(1000);
         count++;
 
-        uart.puts("[AbstractX App] Heartbeat #");
-        char num[64];
-        snprintf(num, sizeof(num), "%u | Egress Queue: %u pkts\n",
-                 static_cast<unsigned>(count),
-                 static_cast<unsigned>(g_telemetry_ring.size()));
-        uart.puts(num);
+        printf("[AbstractX Sensor Test] Heartbeat #%u | Egress Queue: %u pkts\n",
+               static_cast<unsigned>(count),
+               static_cast<unsigned>(g_telemetry_ring.size()));
+    }
+}
+
+// Background Telemetry Egress Task
+Task<void> telemetry_egress_task() {
+    while (true) {
+        Tlp64 tlp{};
+        while (g_telemetry_ring.pop(tlp)) {
+            hal::platform_send_telemetry(reinterpret_cast<const uint8_t*>(&tlp), sizeof(tlp));
+        }
+        co_await abstractx::step_async();
     }
 }
 
@@ -128,10 +136,13 @@ Task<void> app_main() {
     auto& spi   = hal::get_spi_driver();
     auto& i2c   = hal::get_i2c_driver();
 
-    uart.puts("\n========================================================\n");
-    uart.puts("  AbstractX - Heterogeneous Flight Application (gps_imu)\n");
-    uart.puts("  Single Unified Event-Driven Coroutine Architecture    \n");
-    uart.puts("========================================================\n");
+    // GPS UART must ONLY be used for GPS binary communications - never debug prints!
+    uart.init(115200);
+
+    printf("\n========================================================\n");
+    printf("  AbstractX - Heterogeneous Flight Application (gps_imu)\n");
+    printf("  Single Unified Event-Driven Coroutine Architecture    \n");
+    printf("========================================================\n");
 
     static Icm42688p imu(spi);
     static UbloxGps  gps(uart);
@@ -142,7 +153,8 @@ Task<void> app_main() {
     abstractx::spawn(imu_test_task(imu));
     abstractx::spawn(gps_test_task(gps));
     abstractx::spawn(i2c_test_task(i2c, timer));
-    abstractx::spawn(heartbeat_task(timer, uart));
+    abstractx::spawn(heartbeat_task(timer));
+    abstractx::spawn(telemetry_egress_task());
 
     // Yield cooperatively to runtime dispatcher
     while (true) {
