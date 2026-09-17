@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <span>
+#include <array>
 #include <coroutine>
 
 #include "async_driver.hpp"
@@ -91,7 +92,11 @@ public:
     virtual bool init(const SpiConfig& config) = 0;
     virtual void select(bool active) = 0;
 
-    // Synchronous fallback
+    // ------------------------------------------------------------------------
+    // Isolated Synchronous Fallbacks (Pre-scheduler bare-metal setup only)
+    // NOTE: MUST NOT be called inside coroutines or the reactive event loop!
+    // See docs/DESIGN_RULES.md Section 12.
+    // ------------------------------------------------------------------------
     virtual uint8_t transfer_byte(uint8_t tx) = 0;
     virtual bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) = 0;
     virtual bool set_frequency(uint32_t frequency_hz) { (void)frequency_hz; return true; }
@@ -136,6 +141,51 @@ public:
 
     AsyncTransferAwaiter transfer_async(std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept {
         return AsyncTransferAwaiter(*this, tx, rx, false);
+    }
+
+    /*
+     * C++20 Coroutine Async Register Transfer Awaiter (Zero-Heap, Frame-Embedded Buffers)
+     */
+    struct AsyncRegTransferAwaiter {
+        AsyncSpiDriver&        driver;
+        std::array<uint8_t, 2> tx_buf{};
+        std::array<uint8_t, 2> rx_buf{};
+        SpiRequest             request{};
+        SpiResult              result{};
+
+        AsyncRegTransferAwaiter(AsyncSpiDriver& drv, uint8_t cmd, uint8_t val = 0)
+            : driver(drv), tx_buf{cmd, val} {}
+
+        bool await_ready() const noexcept { return false; }
+
+        void await_suspend(std::coroutine_handle<> handle) noexcept {
+            request.tx_data = tx_buf;
+            request.rx_data = rx_buf;
+            request.coro_handle = handle;
+            if (!driver.submit_request(request)) {
+                result.status = SpiStatus::QueueFull;
+                if (handle && !handle.done()) {
+                    handle.resume();
+                }
+            }
+        }
+
+        uint8_t await_resume() noexcept {
+            driver.pop_completion(result);
+            return rx_buf[1];
+        }
+    };
+
+    AsyncRegTransferAwaiter transfer_reg_async(uint8_t cmd, uint8_t val = 0) noexcept {
+        return AsyncRegTransferAwaiter(*this, cmd, val);
+    }
+
+    AsyncRegTransferAwaiter read_reg_async(uint8_t reg, uint8_t read_mask = 0x80) noexcept {
+        return AsyncRegTransferAwaiter(*this, static_cast<uint8_t>(reg | read_mask), 0x00);
+    }
+
+    AsyncRegTransferAwaiter write_reg_async(uint8_t reg, uint8_t val, uint8_t write_mask = 0x7F) noexcept {
+        return AsyncRegTransferAwaiter(*this, static_cast<uint8_t>(reg & write_mask), val);
     }
 
     AsyncTransferAwaiter transfer_dual_async(std::span<const uint8_t> tx_a,

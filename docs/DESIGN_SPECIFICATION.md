@@ -130,7 +130,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   - **Pico 2 W**: Core 0 UDP Wi-Fi / socket stream (Port 9870) carrying 64-byte CTF-in-TLP frames.
   - **XuanTie E907**: Shared non-cacheable DRAM ring (`0x48100000`) & RemoteProc `trace0`.
   - **Host SITL**: CTF binary stream file and local loopback UDP.
-* **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `apps/e907_coprocessor/main.cpp`
+* **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `apps/gps_imu_app/platforms/allwinner_e907/main.cpp`
 
 ### `[SPEC-TRACE-04]` Configurable Trace Dispatcher Coroutine & Startup Sinks
 * **Requirement**: The coroutine engine MUST host a non-blocking `trace_dispatcher_task()` coroutine that flushes buffered CTF events into 64-byte TLPs based on watermark thresholds and periodic timers. The destination sink MUST be established at Dispatcher/Platform startup via `TraceDispatcherConfig` (supporting `None`, `Udp`, `File`, or `SharedSramRing`), never hardcoding the transport.

@@ -512,7 +512,20 @@ public:
         return true;
     }
 
+    bool try_pop(T& out) noexcept {
+        if (is_empty()) return false;
+        out = std::move(buffer_[tail_]);
+        tail_ = (tail_ + 1) % (Capacity + 1);
+        if (push_waiter_) {
+            auto h = push_waiter_;
+            push_waiter_ = nullptr;
+            h.resume();
+        }
+        return true;
+    }
+
     T try_pop() noexcept {
+        if (is_empty()) return T{};
         T item = std::move(buffer_[tail_]);
         tail_ = (tail_ + 1) % (Capacity + 1);
         if (push_waiter_) {

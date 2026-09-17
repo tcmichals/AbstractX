@@ -4,10 +4,20 @@
         {
             "label": "Build Pico 2 W Firmware",
             "type": "shell",
-            "command": "cmake --build build_pico2w -j$(nproc)",
+            "command": "export PICO_SDK_PATH=/home/tcmichals/.tools/pico/pico-sdk && cmake --build build_pico2w -j$(nproc)",
             "group": {
                 "kind": "build",
                 "isDefault": false
+            },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build Pico 2 W Firmware (Debug)",
+            "type": "shell",
+            "command": "export PICO_SDK_PATH=/home/tcmichals/.tools/pico/pico-sdk && cmake -B build_pico2w -DCMAKE_BUILD_TYPE=Debug -DABSTRACTX_TARGET=pico2w -DPICO_PLATFORM=rp2350-arm-s -DPICO_BOARD=pico2_w -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-none-eabi.cmake && cmake --build build_pico2w -j$(nproc)",
+            "group": {
+                "kind": "build",
+                "isDefault": true
             },
             "problemMatcher": ["$gcc"]
         },
@@ -34,23 +44,7 @@
         {
             "label": "Start OpenOCD (RP2350)",
             "type": "shell",
-            "command": "/home/tcmichals/.tools/openocd/bin/openocd -s /home/tcmichals/.tools/openocd/openocd/scripts -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c 'adapter speed 5000'",
-            "isBackground": true,
-            "problemMatcher": {
-                "pattern": {
-                    "regexp": "^$"
-                },
-                "background": {
-                    "activeOnStart": true,
-                    "beginsPattern": "Open On-Chip Debugger",
-                    "endsPattern": "Listening on port 3333 for gdb connections"
-                }
-            }
-        },
-        {
-            "label": "Start OpenOCD (ESP32-P4)",
-            "type": "shell",
-            "command": "openocd-esp32 -f board/esp32p4-builtin.cfg -c 'adapter_khz 5000' || /home/tcmichals/.tools/openocd/bin/openocd -s /home/tcmichals/.tools/openocd/openocd/scripts -f board/esp32s3-builtin.cfg",
+            "command": "/home/tcmichals/.tools/oss-cad-suite/bin/openocd -s /home/tcmichals/.tools/oss-cad-suite/share/openocd/scripts -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c 'adapter speed 5000'",
             "isBackground": true,
             "problemMatcher": {
                 "pattern": {
@@ -66,9 +60,23 @@
         {
             "label": "Flash Pico 2 W via OpenOCD SWD",
             "type": "shell",
-            "command": "/home/tcmichals/.tools/openocd/bin/openocd -s /home/tcmichals/.tools/openocd/openocd/scripts -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c 'adapter speed 5000' -c 'program build_pico2w/apps/pico2w_companion/pico2w_companion.elf verify reset exit'",
+            "command": "/home/tcmichals/.tools/oss-cad-suite/bin/openocd -s /home/tcmichals/.tools/oss-cad-suite/share/openocd/scripts -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c 'adapter speed 5000' -c 'program build_pico2w/apps/gps_imu_app/gps_imu_app.elf verify reset exit'",
             "dependsOn": "Build Pico 2 W Firmware",
             "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Run AbstractX Studio GUI",
+            "type": "shell",
+            "command": "python3 tools/visualizer/abstractx_studio.py --port 9870",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Flight Display GUI",
+            "type": "shell",
+            "command": "python3 apps/gps_imu_app/tools/flight_display.py --port 9870",
+            "isBackground": true,
+            "problemMatcher": []
         },
         {
             "label": "Audit Spec Coverage",

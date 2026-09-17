@@ -19,6 +19,7 @@
 #include <array>
 #include <cstring>
 
+#include "abstractx/coro.hpp"
 #include "abstractx/hal/uart.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/trace/tracer.hpp"
@@ -60,6 +61,15 @@ public:
     void init(uint32_t baudrate = 115200) {
         uart_.init(baudrate);
         reset_parser();
+    }
+
+    /*
+     * C++20 Coroutine Async Lifecycle Initialization [SPEC-GPS-01]
+     */
+    coro::Task<bool> init_async(uint32_t baudrate = 115200) {
+        uart_.init(baudrate);
+        reset_parser();
+        co_return true;
     }
 
     /*

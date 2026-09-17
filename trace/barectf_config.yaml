@@ -84,6 +84,7 @@ metadata:
     # Stream 1: High-Rate Flight Telemetry & Sensor Samples
     # --------------------------------------------------------------------------
     telemetry:
+      stream_id: 1
       packet-context-type:
         fields:
           cpu_id:
@@ -97,26 +98,179 @@ metadata:
 
       events:
         imu_sample:
+          id: 1
+          description: "8 kHz Accelerometer and Gyroscope sample stream"
           fields:
-            sample_seq: uint32
-            accel_x_mg: int16
-            accel_y_mg: int16
-            accel_z_mg: int16
-            gyro_x_dps: int16
-            gyro_y_dps: int16
-            gyro_z_dps: int16
-            temp_c_1e2: int16
+            sample_seq:
+              type: uint32
+              display_name: "Sequence"
+            accel_x_mg:
+              type: int16
+              scale: 0.001
+              unit: "g"
+              display_name: "Accel X"
+              widget: "oscilloscope"
+            accel_y_mg:
+              type: int16
+              scale: 0.001
+              unit: "g"
+              display_name: "Accel Y"
+              widget: "oscilloscope"
+            accel_z_mg:
+              type: int16
+              scale: 0.001
+              unit: "g"
+              display_name: "Accel Z"
+              widget: "oscilloscope"
+            gyro_x_dps:
+              type: int16
+              scale: 0.1
+              unit: "deg/s"
+              display_name: "Gyro X (Roll Rate)"
+              widget: "oscilloscope"
+            gyro_y_dps:
+              type: int16
+              scale: 0.1
+              unit: "deg/s"
+              display_name: "Gyro Y (Pitch Rate)"
+              widget: "oscilloscope"
+            gyro_z_dps:
+              type: int16
+              scale: 0.1
+              unit: "deg/s"
+              display_name: "Gyro Z (Yaw Rate)"
+              widget: "oscilloscope"
+            temp_c_1e2:
+              type: int16
+              scale: 0.01
+              unit: "°C"
+              display_name: "Die Temperature"
 
         gps_fix:
+          id: 2
+          description: "10 Hz Geodetic Navigation Fix"
           fields:
-            itow_ms: uint32
-            lat_1e7: int32
-            lon_1e7: int32
-            alt_mm: int32
-            ground_speed_mm_s: int32
-            heading_1e5: int32
-            sats: uint8
-            fix_type: uint8
+            itow_ms:
+              type: uint32
+              unit: "ms"
+              display_name: "GPS Time of Week"
+            lat_1e7:
+              type: int32
+              scale: 1e-7
+              unit: "deg"
+              display_name: "Latitude"
+              widget: "map"
+            lon_1e7:
+              type: int32
+              scale: 1e-7
+              unit: "deg"
+              display_name: "Longitude"
+              widget: "map"
+            alt_mm:
+              type: int32
+              scale: 0.001
+              unit: "m"
+              display_name: "GPS Altitude"
+              widget: "altimeter"
+            ground_speed_mm_s:
+              type: int32
+              scale: 0.001
+              unit: "m/s"
+              display_name: "Ground Speed"
+              widget: "airspeed"
+            heading_1e5:
+              type: int32
+              scale: 1e-5
+              unit: "deg"
+              display_name: "Course Heading"
+              widget: "compass"
+            sats:
+              type: uint8
+              display_name: "Satellites Tracked"
+            fix_type:
+              type: uint8
+              display_name: "Fix Type"
+
+        mag_sample:
+          id: 3
+          description: "50 Hz 3-Axis Geomagnetic Compass"
+          fields:
+            mag_x_mgauss:
+              type: int16
+              unit: "mG"
+              display_name: "Mag X"
+            mag_y_mgauss:
+              type: int16
+              unit: "mG"
+              display_name: "Mag Y"
+            mag_z_mgauss:
+              type: int16
+              unit: "mG"
+              display_name: "Mag Z"
+            heading_cdeg:
+              type: uint16
+              scale: 0.01
+              unit: "deg"
+              display_name: "Magnetic Heading"
+              widget: "compass"
+
+        ahrs_state:
+          id: 4
+          description: "Fused 9-DoF Mahony AHRS & Quad-X Motor Demands"
+          fields:
+            roll_cdeg:
+              type: int16
+              scale: 0.01
+              unit: "deg"
+              display_name: "Roll Angle"
+              widget: "artificial_horizon"
+            pitch_cdeg:
+              type: int16
+              scale: 0.01
+              unit: "deg"
+              display_name: "Pitch Angle"
+              widget: "artificial_horizon"
+            yaw_cdeg:
+              type: uint16
+              scale: 0.01
+              unit: "deg"
+              display_name: "Yaw Angle"
+              widget: "compass"
+            alt_mm:
+              type: int32
+              scale: 0.001
+              unit: "m"
+              display_name: "Fused Altitude"
+              widget: "altimeter"
+            speed_cm_s:
+              type: uint16
+              scale: 0.01
+              unit: "m/s"
+              display_name: "Ground Speed"
+            m1_throttle:
+              type: uint16
+              range: [100, 1000]
+              unit: "us"
+              display_name: "Motor 1 (Front-Right CCW)"
+              widget: "throttle_bar"
+            m2_throttle:
+              type: uint16
+              range: [100, 1000]
+              unit: "us"
+              display_name: "Motor 2 (Rear-Left CCW)"
+              widget: "throttle_bar"
+            m3_throttle:
+              type: uint16
+              range: [100, 1000]
+              unit: "us"
+              display_name: "Motor 3 (Front-Left CW)"
+              widget: "throttle_bar"
+            m4_throttle:
+              type: uint16
+              range: [100, 1000]
+              unit: "us"
+              display_name: "Motor 4 (Rear-Right CW)"
+              widget: "throttle_bar"
 
     # --------------------------------------------------------------------------
     # Stream 2: HAL Driver I/O & Inter-Core TLP Protocol

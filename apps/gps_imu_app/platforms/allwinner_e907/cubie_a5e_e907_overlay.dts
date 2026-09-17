@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+/*
+ * Copyright (C) 2026 Tim Michals
+ *
+ * AbstractX Radxa Cubie A5E (Allwinner A5E) — XuanTie E907 RemoteProc Overlay
+ * ============================================================================
+ * Hardware Resource Partitioning for gps_imu_app:
+ *
+ * 1. XuanTie E907 RISC-V Co-Processor Domain (Hard Real-Time I/O Reactor):
+ *    - SPI0: High-Speed Full-Duplex DMA Master to ICM-42688-P (Port C)
+ *            [Pins 19 (MOSI), 21 (MISO), 23 (CLK), 24 (CS0/FPGA), 26 (CS1/IMU)]
+ *    - GPIO DRDY: Pin 29 rising-edge data ready interrupt (Direct Auto-DMA trigger)
+ *    - UART2: High-speed streaming serial GPS link [Pins 11 (TX) & 13 (RX)]
+ *    - MSGBOX: Inter-core hardware doorbell for signaling Linux host
+ *    - SRAM A3: Dedicated 256 KB on-chip SRAM Space 0 at 0x40000000
+ *
+ * 2. ARM Cortex-A55 Linux Host Domain (Flight Controller & AHRS):
+ *    - UART0: Diagnostic / serial debug console terminal [Pins 8 (TX) & 10 (RX)]
+ *    - I2C3: Fast-Mode (400 kHz) sensor bus for QMC5883L Compass / BMP388 [Pins 27 & 28]
+ *    - Wi-Fi / Ethernet: High-speed network egress for CTF 1.8 UDP :9870 telemetry
+ *
+ * Physical 40-Pin Header Layout Mapping on Radxa Cubie A5E:
+ *
+ *                  3.3V Power [ 1] [ 2] 5V Power (Input/Output)
+ *            I2C1-SDA (TWI1)  [ 3] [ 4] 5V Power (Input/Output)
+ *            I2C1-SCL (TWI1)  [ 5] [ 6] GND
+ *            SPI2-CLK         [ 7] [ 8] UART0-TX (Linux Serial Console)
+ *                         GND [ 9] [10] UART0-RX (Linux Serial Console)
+ *   [RISC-V] UART2-TX (PB0)   [11] [12] SPI1-CS0 (Linux Expansion)
+ *   [RISC-V] UART2-RX (PB1)   [13] [14] GND
+ *            SPI2-CS0         [15] [16] SPI2-MOSI
+ *                  3.3V Power [17] [18] SPI2-MISO
+ *   [RISC-V] SPI0-MOSI / IO0  [19] [20] GND
+ *   [RISC-V] SPI0-MISO / IO1  [21] [22] FPGA Frame Ready ISR (GPIO)   [RISC-V]
+ *   [RISC-V] SPI0-CLK         [23] [24] SPI0-CS0 (FPGA Dual-SPI)      [RISC-V]
+ *                         GND [25] [26] SPI0-CS1 (IMU Single-SPI)     [RISC-V]
+ *            I2C3-SDA (TWI3)  [27] [28] I2C3-SCL (TWI3) (Sensors/Compass)
+ *   [RISC-V] IMU DRDY ISR     [29] [30] GND
+ *                        GPIO [31] [32] GPIO/PWM
+ *                        GPIO [33] [34] GND
+ *            SPI1-MISO (Exp)  [35] [36] GPIO
+ *                        GPIO [37] [38] SPI1-MOSI (Exp)
+ *                         GND [39] [40] SPI1-CLK  (Exp)
+ *
+ * Compilation & Application:
+ *   dtc -@ -I dts -O dtb -o cubie_a5e_e907_overlay.dtbo cubie_a5e_e907_overlay.dts
+ *   sudo cp cubie_a5e_e907_overlay.dtbo /boot/dtb/overlay/
+ * ============================================================================
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "radxa,cubie-a5e", "allwinner,sun60iw2p1", "allwinner,a733";
+    description = "AbstractX XuanTie E907 RemoteProc & Shared SRAM Overlay";
+};
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 1. Dedicated Linux Peripherals
+ * ----------------------------------------------------------------------------
+ */
+
+/* UART0: Linux Host Serial Debug Console (Pins 8 & 10) */
+&uart0 {
+    status = "okay";
+};
+
+/* I2C3 (TWI3): Magnetometer (QMC5883L) & Barometer (Pins 27 & 28) */
+&i2c3 {
+    status = "okay";
+    pinctrl-names = "default";
+};
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 2. Peripherals Claimed Exclusively by XuanTie E907 RISC-V Coprocessor
+ *    (Disabled in Linux device tree to prevent kernel driver claiming)
+ * ----------------------------------------------------------------------------
+ */
+
+/* SPI0: High-Speed IMU & Sensor Bus (Pins 19, 21, 23, 24, 26) */
+&spi0 {
+    status = "disabled";
+};
+
+/* UART2: High-Speed Navigation Serial Bus (Pins 11 & 13) */
+&uart2 {
+    status = "disabled";
+};
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 3. Reserved Memory Carveouts for E907 Firmware & SPSC TLP Rings
+ * ----------------------------------------------------------------------------
+ */
+&{/} {
+    #address-cells = <2>;
+    #size-cells = <2>;
+
+    reserved-memory {
+        #address-cells = <2>;
+        #size-cells = <2>;
+        ranges;
+
+        /* Dedicated on-chip SRAM A3 Space 0 (0x40000000, 256 KB) */
+        e907_sram0_reserved: sram@40000000 {
+            reg = <0x0 0x40000000 0x0 0x00040000>;
+            no-map;
+        };
+
+        /* Non-cacheable shared DMA / Vring pool in DDR (0x48000000, 1 MB) */
+        rproc_vdev_reserved: vdev@48000000 {
+            reg = <0x0 0x48000000 0x0 0x00100000>;
+            no-map;
+        };
+    };
+};
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 4. Inter-Processor Hardware Mailbox & RemoteProc Configuration
+ * ----------------------------------------------------------------------------
+ */
+&msgbox {
+    status = "okay";
+};
+
+&rproc {
+    compatible = "allwinner,sun60iw2-e907", "allwinner,e907-rproc";
+    firmware-name = "e907_coprocessor.bin";
+    memory-region = <&rproc_vdev_reserved>, <&e907_sram0_reserved>;
+    mboxes = <&msgbox 8>, <&msgbox 9>;
+    mbox-names = "rx", "tx";
+    status = "okay";
+};

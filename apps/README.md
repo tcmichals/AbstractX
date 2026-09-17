@@ -61,6 +61,5 @@ graph TD
 
 | Application | Description | Authoritative Spec | Status |
 | :--- | :--- | :--- | :--- |
-| **`gps_imu_app/`** | Flagship unified 8 kHz IMU auto-burst & GPS navigation streaming application (runs across Pico 2 W, Linux, and E907). | [`apps/gps_imu_app/SPECIFICATION.md`](gps_imu_app/SPECIFICATION.md) | 🚀 Active |
-| **`e907_coprocessor/`** | XuanTie E907 RemoteProc DDR coprocessor firmware. | [`apps/e907_coprocessor/CMakeLists.txt`](e907_coprocessor/CMakeLists.txt) | 🚀 Active |
-| **`esp32p4_hub/`** | Legacy ESP32-P4 sensor hub app (migrated to `gps_imu_app`). | [`apps/esp32p4_hub/CMakeLists.txt`](esp32p4_hub/CMakeLists.txt) | Legacy |
+| **`gps_imu_app/platforms/allwinner_e907/`** | Companion XuanTie E907 RemoteProc coprocessor firmware for Allwinner A5E. | [`apps/gps_imu_app/platforms/allwinner_e907/CMakeLists.txt`](gps_imu_app/platforms/allwinner_e907/CMakeLists.txt) | 🚀 Active |
+

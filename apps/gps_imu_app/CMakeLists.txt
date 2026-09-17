@@ -37,3 +37,8 @@ else()
     # Linux (Desktop workstation, SITL, or Allwinner Cubie A5E Linux)
     target_link_libraries(gps_imu_app PRIVATE abstractx_target_linux)
 endif()
+
+# Companion XuanTie E907 coprocessor firmware for Allwinner A5E
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platforms/allwinner_e907/CMakeLists.txt" AND ABSTRACTX_TARGET STREQUAL "e907")
+    add_subdirectory(platforms/allwinner_e907)
+endif()

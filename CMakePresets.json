@@ -30,11 +30,24 @@
     {
       "name": "pico2w",
       "displayName": "Raspberry Pi Pico 2 / Pico 2 W (RP2350)",
-      "description": "Build for RP2350 using Pico SDK",
+      "description": "Build for RP2350 using Pico SDK (Release)",
       "binaryDir": "${sourceDir}/build_pico2w",
       "toolchainFile": "${sourceDir}/cmake/toolchains/arm-none-eabi.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
+        "ABSTRACTX_TARGET": "pico2w",
+        "PICO_PLATFORM": "rp2350-arm-s",
+        "PICO_BOARD": "pico2_w"
+      }
+    },
+    {
+      "name": "pico2w-debug",
+      "displayName": "Raspberry Pi Pico 2 / Pico 2 W (RP2350) Debug",
+      "description": "Build for RP2350 using Pico SDK with Debug symbols (-g3 -O0)",
+      "binaryDir": "${sourceDir}/build_pico2w_debug",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/arm-none-eabi.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
         "ABSTRACTX_TARGET": "pico2w",
         "PICO_PLATFORM": "rp2350-arm-s",
         "PICO_BOARD": "pico2_w"
@@ -53,6 +66,10 @@
     {
       "name": "pico2w",
       "configurePreset": "pico2w"
+    },
+    {
+      "name": "pico2w-debug",
+      "configurePreset": "pico2w-debug"
     }
   ]
 }
