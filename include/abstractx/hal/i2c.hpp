@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <span>
+#include <array>
 #include <coroutine>
 
 #include "async_driver.hpp"
@@ -81,7 +82,11 @@ public:
     virtual bool init(const I2cConfig& config) = 0;
     virtual bool set_frequency(uint32_t frequency_hz) { (void)frequency_hz; return true; }
 
-    // Synchronous combined write-then-read (Repeated Start)
+    // ------------------------------------------------------------------------
+    // Isolated Synchronous Fallbacks (Pre-scheduler bare-metal setup only)
+    // NOTE: MUST NOT be called inside coroutines or the reactive event loop!
+    // See docs/DESIGN_RULES.md Section 12.
+    // ------------------------------------------------------------------------
     virtual bool write_read_sync(uint8_t slave_addr,
                                  std::span<const uint8_t> tx_data,
                                  std::span<uint8_t> rx_data) = 0;
@@ -134,6 +139,91 @@ public:
                                    std::span<const uint8_t> tx,
                                    std::span<uint8_t> rx) noexcept {
         return AsyncI2cAwaiter(*this, slave_addr, tx, rx);
+    }
+
+    /*
+     * C++20 Coroutine Async Register Read Awaiter (Zero-Heap, Frame-Embedded Single-Byte Buffers)
+     */
+    struct AsyncI2cRegReadAwaiter {
+        AsyncI2cDriver& driver;
+        uint8_t         reg_byte;
+        uint8_t         rx_byte{0};
+        I2cRequest      request{};
+        I2cResult       result{};
+
+        AsyncI2cRegReadAwaiter(AsyncI2cDriver& drv, uint8_t slave_addr, uint8_t reg)
+            : driver(drv), reg_byte(reg) {
+            request.slave_addr = slave_addr;
+            request.use_register = true;
+            request.register_offset = reg;
+            request.is_read = true;
+            request.repeated_start = true;
+        }
+
+        bool await_ready() const noexcept { return false; }
+
+        void await_suspend(std::coroutine_handle<> handle) noexcept {
+            request.tx_data = std::span<const uint8_t>(&reg_byte, 1);
+            request.rx_data = std::span<uint8_t>(&rx_byte, 1);
+            request.coro_handle = handle;
+            if (!driver.submit_request(request)) {
+                result.status = I2cStatus::QueueFull;
+                if (handle && !handle.done()) {
+                    handle.resume();
+                }
+            }
+        }
+
+        uint8_t await_resume() noexcept {
+            driver.pop_completion(result);
+            return rx_byte;
+        }
+    };
+
+    /*
+     * C++20 Coroutine Async Register Write Awaiter (Zero-Heap, Frame-Embedded Buffer)
+     */
+    struct AsyncI2cRegWriteAwaiter {
+        AsyncI2cDriver&        driver;
+        std::array<uint8_t, 2> tx_buf;
+        I2cRequest             request{};
+        I2cResult              result{};
+
+        AsyncI2cRegWriteAwaiter(AsyncI2cDriver& drv, uint8_t slave_addr, uint8_t reg, uint8_t val)
+            : driver(drv), tx_buf{reg, val} {
+            request.slave_addr = slave_addr;
+            request.use_register = true;
+            request.register_offset = reg;
+            request.is_read = false;
+            request.repeated_start = false;
+        }
+
+        bool await_ready() const noexcept { return false; }
+
+        void await_suspend(std::coroutine_handle<> handle) noexcept {
+            request.tx_data = tx_buf;
+            request.rx_data = {};
+            request.coro_handle = handle;
+            if (!driver.submit_request(request)) {
+                result.status = I2cStatus::QueueFull;
+                if (handle && !handle.done()) {
+                    handle.resume();
+                }
+            }
+        }
+
+        I2cResult await_resume() noexcept {
+            driver.pop_completion(result);
+            return result;
+        }
+    };
+
+    AsyncI2cRegReadAwaiter read_reg_async(uint8_t slave_addr, uint8_t reg) noexcept {
+        return AsyncI2cRegReadAwaiter(*this, slave_addr, reg);
+    }
+
+    AsyncI2cRegWriteAwaiter write_reg_async(uint8_t slave_addr, uint8_t reg, uint8_t val) noexcept {
+        return AsyncI2cRegWriteAwaiter(*this, slave_addr, reg, val);
     }
 };
 

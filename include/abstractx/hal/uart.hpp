@@ -105,6 +105,41 @@ public:
     AsyncWriteAwaiter write_async(std::span<const uint8_t> buffer) noexcept {
         return AsyncWriteAwaiter(*this, buffer);
     }
+
+    /*
+     * C++20 Coroutine Async Byte Write Awaiter (Zero Heap, Frame-Embedded Byte)
+     */
+    struct AsyncByteWriteAwaiter {
+        AsyncUartDriver& driver;
+        uint8_t          byte_val;
+        UartTxRequest    request{};
+        UartResult       result{};
+
+        AsyncByteWriteAwaiter(AsyncUartDriver& drv, uint8_t b)
+            : driver(drv), byte_val(b) {}
+
+        bool await_ready() const noexcept { return false; }
+
+        void await_suspend(std::coroutine_handle<> handle) noexcept {
+            request.data = std::span<const uint8_t>(&byte_val, 1);
+            request.coro_handle = handle;
+            if (!driver.submit_request(request)) {
+                result.status = UartStatus::QueueFull;
+                if (handle && !handle.done()) {
+                    handle.resume();
+                }
+            }
+        }
+
+        UartResult await_resume() noexcept {
+            driver.pop_completion(result);
+            return result;
+        }
+    };
+
+    AsyncByteWriteAwaiter write_byte_async(uint8_t b) noexcept {
+        return AsyncByteWriteAwaiter(*this, b);
+    }
 };
 
 using IUart = AsyncUartDriver<32>;

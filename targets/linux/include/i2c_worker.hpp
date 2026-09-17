@@ -156,6 +156,17 @@ private:
                     if (!req.rx_data.empty()) {
                         if (req.use_register && req.register_offset == 0xD0) {
                             req.rx_data[0] = 0x58; // BMP280 chip ID
+                        } else if ((req.slave_addr == 0x0D || req.slave_addr == 0x1E) && req.rx_data.size() >= 6) {
+                            // Synthesize realistic 3-axis magnetic field vector (X=250mG, Y=100mG, Z=450mG)
+                            int16_t mx = 750;
+                            int16_t my = 300;
+                            int16_t mz = 1350;
+                            req.rx_data[0] = static_cast<uint8_t>(mx & 0xFF);
+                            req.rx_data[1] = static_cast<uint8_t>((mx >> 8) & 0xFF);
+                            req.rx_data[2] = static_cast<uint8_t>(my & 0xFF);
+                            req.rx_data[3] = static_cast<uint8_t>((my >> 8) & 0xFF);
+                            req.rx_data[4] = static_cast<uint8_t>(mz & 0xFF);
+                            req.rx_data[5] = static_cast<uint8_t>((mz >> 8) & 0xFF);
                         } else {
                             for (size_t i = 0; i < req.rx_data.size(); ++i) {
                                 req.rx_data[i] = static_cast<uint8_t>(0x20 + i);

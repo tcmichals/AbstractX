@@ -1,0 +1,85 @@
+# targets/linux/io_processor.yaml
+# ==============================================================================
+# AbstractX Target I/O Processor Configuration: Linux Host / SITL / Cubie A5E
+# ==============================================================================
+version: '1.0'
+
+target:
+  name: "linux"
+  description: "Linux Host / Desktop SITL / Radxa Cubie A5E (Quad A55 @ 1.4 GHz)"
+  io_domain_thread: "posix_epoll"
+  coro_domain_thread: "main_runner"
+  doorbell: "eventfd"
+
+io_processor:
+  max_channels: 4
+  rings:
+    ingress_rx_ring:
+      name: "g_sensor_ring"
+      capacity: 64
+      type: "SpscTlpRing"
+    egress_tx_ring:
+      name: "g_tx_ring"
+      capacity: 64
+      type: "SpscTlpRing"
+
+  channels:
+    # --------------------------------------------------------------------------
+    # Channel 0: 8 kHz SPI Auto-DMA IMU Burst on DRDY
+    # --------------------------------------------------------------------------
+    - id: 0
+      name: "imu_auto_dma"
+      description: "ICM-42688-P 8 kHz Accelerometer and Gyroscope burst read"
+      auto_mode: true
+      
+      trigger:
+        mode: "gpio_edge"
+        device: "/dev/gpiochip0"
+        pin: 20             # Pin 3 / GP20 DRDY
+        edge: "rising"
+        
+      bus:
+        type: "spi"
+        device: "/dev/spidev0.0"
+        index: 0
+        speed_hz: 10000000  # 10 MHz
+        mode: "mode3"
+        
+      transfer:
+        tx_cmd: [0x9D]      # 0x80 | 0x1D
+        tx_len: 1
+        rx_len: 15
+        
+      tlp_output:
+        channel: 2
+        tag: 1
+        type: "dma_stream"
+
+    # --------------------------------------------------------------------------
+    # Channel 1: 50 Hz Periodic I2C Magnetometer Polling
+    # --------------------------------------------------------------------------
+    - id: 1
+      name: "mag_polling"
+      description: "QMC5883L 50 Hz 3-Axis Geomagnetic Compass sample burst"
+      auto_mode: true
+      
+      trigger:
+        mode: "timer"
+        period_us: 20000    # 20 ms = 50 Hz
+        
+      bus:
+        type: "i2c"
+        device: "/dev/i2c-1"
+        index: 1
+        speed_hz: 400000
+        address: 0x0D
+        
+      transfer:
+        tx_cmd: [0x00]
+        tx_len: 1
+        rx_len: 6
+        
+      tlp_output:
+        channel: 2
+        tag: 3
+        type: "dma_stream"

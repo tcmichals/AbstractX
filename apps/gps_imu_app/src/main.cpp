@@ -19,101 +19,137 @@
 #include "abstractx/abstractx.hpp"
 #include "abstractx/drivers/imu/icm42688p.hpp"
 #include "abstractx/drivers/gps/ublox_gps.hpp"
+#include "abstractx/drivers/mag/qmc5883l.hpp"
+#include "abstractx/fusion/attitude_filter.hpp"
 #include <cstdio>
 
 using namespace abstractx;
 using namespace abstractx::coro;
 using namespace abstractx::drivers::imu;
 using namespace abstractx::drivers::gps;
+using namespace abstractx::drivers::mag;
+using namespace abstractx::fusion;
 
 // Lock-free static TLP rings for inter-domain communication
-static SpscTlpRing<64> g_tx_ring;        // Sensor Test -> I/O (Requests / IOCTL)
-static SpscTlpRing<64> g_sensor_ring;    // I/O -> Sensor Test (Raw DMA sensor packets & Completions)
-static SpscTlpRing<64> g_telemetry_ring; // Sensor Test -> Egress / Log (Telemetry to Network / Serial)
+// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-APP-07] docs/DESIGN_SPECIFICATION.md#spec-tlp-01
+static SpscTlpRing<64> g_tx_ring;        // Flight Controller -> I/O Processor (Requests)
+static SpscTlpRing<64> g_sensor_ring;    // I/O Processor -> Flight Controller (Completions)
+static SpscTlpRing<64> g_telemetry_ring; // Flight Controller -> Egress / Network (:9870)
+
+// Lock-free asynchronous coroutine channels for multi-rate sensor streaming
+// @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-APP-07] apps/gps_imu_app/SPECIFICATION.md#spec-app-02
+static AsyncQueue<ImuSample, 32> g_imu_channel; // High rate (1 kHz - 8 kHz)
+static AsyncQueue<MagSample, 16> g_mag_channel; // Medium rate (50 Hz - 100 Hz)
+static AsyncQueue<GpsFix, 8>     g_gps_channel; // Low rate (5 Hz - 10 Hz)
 
 // ============================================================================
-// Sensor Testing Coroutines
+// Multi-Rate Sensor Producer Coroutines (Zero State Machines)
 // ============================================================================
 
-// @impl [SPEC-ARCH-03] [SPEC-IMU-02] docs/DESIGN_SPECIFICATION.md#spec-imu-02
-// @status Complete
-Task<void> imu_test_task(Icm42688p& imu) {
-    uint32_t seq = 0;
+// High-Rate IMU Task: Ingests 8 kHz SPI DMA auto-burst samples
+// @impl [SPEC-IMU-01] [SPEC-IMU-02] [SPEC-HAL-02] [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md#spec-imu-01
+Task<void> imu_producer_task(Icm42688p& imu) {
     while (true) {
-        // Asynchronously await next 8 kHz SPI DMA auto-burst sample
         ImuSample sample = co_await imu.next_sample_async();
         if (sample.valid) {
-            seq++;
-            Tlp64 tlp = Icm42688p::to_tlp(sample);
-            g_telemetry_ring.push(tlp);
-
-            // Record binary CTF 1.8 telemetry event
-            trace::g_tracer.trace_imu(
-                seq,
-                static_cast<int16_t>(sample.accel_g[0] * 1000.0f),
-                static_cast<int16_t>(sample.accel_g[1] * 1000.0f),
-                static_cast<int16_t>(sample.accel_g[2] * 1000.0f),
-                static_cast<int16_t>(sample.gyro_dps[0]),
-                static_cast<int16_t>(sample.gyro_dps[1]),
-                static_cast<int16_t>(sample.gyro_dps[2]),
-                static_cast<int16_t>(sample.temp_deg_c * 100.0f),
-                sample.timestamp_us ? sample.timestamp_us : hal::get_timer_driver().get_time_us()
-            );
+            g_imu_channel.try_push(sample);
         }
     }
 }
 
-// @impl [SPEC-GPS-02] docs/DESIGN_SPECIFICATION.md#spec-gps-02
-// @status Complete
-Task<void> gps_test_task(UbloxGps& gps) {
+// Medium-Rate Magnetometer Task: Ingests 50 Hz I2C 3-axis magnetic compass samples
+// @impl [SPEC-HAL-05] [SPEC-APP-03] apps/gps_imu_app/SPECIFICATION.md#spec-app-03
+Task<void> mag_producer_task(Qmc5883l& mag, hal::ITimer& timer) {
     while (true) {
-        // Asynchronously await next verified UBX-NAV-PVT navigation fix
+        co_await timer.sleep_ms_async(20); // 50 Hz sampling cadence
+        MagSample sample = co_await mag.read_sample_async();
+        if (sample.valid) {
+            g_mag_channel.try_push(sample);
+        }
+    }
+}
+
+// Low-Rate GPS Navigation Task: Ingests 10 Hz UBX-NAV-PVT solutions from UART
+// @impl [SPEC-GPS-01] [SPEC-GPS-02] [SPEC-HAL-03] docs/DESIGN_SPECIFICATION.md#spec-gps-01
+Task<void> gps_producer_task(UbloxGps& gps) {
+    while (true) {
         GpsFix fix = co_await gps.next_fix_async();
         if (fix.valid) {
-            Tlp64 tlp = UbloxGps::to_tlp(fix);
-            g_telemetry_ring.push(tlp);
-
-            // Record binary CTF 1.8 GPS fix event
-            trace::g_tracer.trace_gps(
-                fix.itow_ms,
-                fix.lat_1e7,
-                fix.lon_1e7,
-                fix.alt_msl_mm,
-                fix.ground_speed_mm_s,
-                fix.heading_1e5,
-                fix.satellites,
-                static_cast<uint8_t>(fix.fix_type),
-                fix.timestamp_us ? fix.timestamp_us : hal::get_timer_driver().get_time_us()
-            );
+            g_gps_channel.try_push(fix);
         }
     }
 }
 
-// Optional I2C Sensor Probe Task
-Task<void> i2c_test_task(hal::II2c& i2c, hal::ITimer& timer) {
+// ============================================================================
+// Multi-Rate Sensor Fusion & AHRS Filter Coroutine
+// ============================================================================
+// @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-APP-07] [SPEC-APP-10] apps/gps_imu_app/SPECIFICATION.md
+Task<void> sensor_fusion_task(hal::ITimer& timer, AttitudeFilter& filter) {
+    uint32_t seq = 0;
+    uint64_t last_time_us = timer.get_time_us();
+
     while (true) {
-        co_await timer.sleep_ms_async(500);
-        uint8_t dummy_reg = 0x00;
-        uint8_t rx_byte = 0;
-        i2c.write_read_sync(0x68, std::span(&dummy_reg, 1), std::span(&rx_byte, 1));
+        // 1. Asynchronously await next high-rate IMU sample as the primary pacing clock
+        ImuSample imu = co_await g_imu_channel.pop();
+
+        uint64_t now_us = timer.get_time_us();
+        float dt = static_cast<float>(now_us - last_time_us) * 1e-6f;
+        if (dt <= 0.0f || dt > 0.05f) dt = 0.001f;
+        last_time_us = now_us;
+
+        // 2. High-rate Gyro integration & Accel gravity tilt correction
+        filter.update_imu(imu, dt);
+
+        // 3. Drain medium-rate I2C Magnetometer samples (tilt-compensated yaw correction)
+        MagSample mag;
+        while (g_mag_channel.try_pop(mag)) {
+            filter.update_mag(mag);
+        }
+
+        // 4. Drain low-rate UART GPS fixes (altitude, velocity vector, course heading)
+        GpsFix gps;
+        while (g_gps_channel.try_pop(gps)) {
+            filter.update_gps(gps);
+        }
+
+        // 5. Emit fused 64-byte TLP into telemetry stream
+        seq++;
+        if ((seq % 10) == 0) { // Telemetry decimation
+            Tlp64 tlp = AttitudeFilter::to_tlp(filter.state());
+            g_telemetry_ring.push(tlp);
+        }
     }
 }
 
+// ============================================================================
+// Live Flight Telemetry & Heartbeat Display
+// ============================================================================
+
 // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md#spec-hal-05
-// @status Complete
-Task<void> heartbeat_task(hal::ITimer& timer) {
+Task<void> flight_monitor_task(hal::ITimer& timer, const AttitudeFilter& filter) {
     uint32_t count = 0;
     while (true) {
         co_await timer.sleep_ms_async(1000);
         count++;
 
-        printf("[AbstractX Sensor Test] Heartbeat #%u | Egress Queue: %u pkts\n",
+        const auto& s = filter.state();
+        printf("[AbstractX AHRS #%u] Roll: %+5.1f° | Pitch: %+5.1f° | Yaw: %5.1f° (Mag: %5.1f°) | Alt: %5.1fm | Spd: %4.1f m/s | IMU: %u, Mag: %u, GPS: %u | Egress: %u pkts\n",
                static_cast<unsigned>(count),
+               s.roll_deg,
+               s.pitch_deg,
+               s.yaw_deg,
+               s.mag_heading_deg,
+               s.altitude_m,
+               s.ground_speed_m_s,
+               static_cast<unsigned>(s.imu_updates),
+               static_cast<unsigned>(s.mag_updates),
+               static_cast<unsigned>(s.gps_updates),
                static_cast<unsigned>(g_telemetry_ring.size()));
     }
 }
 
 // Background Telemetry Egress Task
+// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-TRACE-03] [SPEC-TRACE-06] docs/DESIGN_SPECIFICATION.md#spec-trace-03
 Task<void> telemetry_egress_task() {
     while (true) {
         Tlp64 tlp{};
@@ -128,32 +164,43 @@ Task<void> telemetry_egress_task() {
 // Unified Application Main Task
 // ============================================================================
 
-// @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
+// @impl [SPEC-APP-01] [SPEC-ARCH-03] [SPEC-ARCH-05] [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-03
 Task<void> app_main() {
     auto& uart  = hal::get_uart_driver();
     auto& timer = hal::get_timer_driver();
     auto& spi   = hal::get_spi_driver();
     auto& i2c   = hal::get_i2c_driver();
 
-    // GPS UART must ONLY be used for GPS binary communications - never debug prints!
-    uart.init(115200);
-
     printf("\n========================================================\n");
-    printf("  AbstractX - Heterogeneous Flight Application (gps_imu)\n");
-    printf("  Single Unified Event-Driven Coroutine Architecture    \n");
+    printf("  AbstractX - Multi-Rate Flight Controller & AHRS Node   \n");
+    printf("  Structured Concurrency + Channel-Based Sensor Fusion  \n");
     printf("========================================================\n");
 
-    static Icm42688p imu(spi);
-    static UbloxGps  gps(uart);
+    static Icm42688p       imu(spi);
+    static UbloxGps        gps(uart);
+    static Qmc5883l        mag(i2c);
+    static AttitudeFilter  filter;
 
-    imu.init();
+    // Structured Parallel Boot: Initialize SPI IMU, UART GPS, and I2C Mag concurrently!
+    // @impl [SPEC-APP-01] apps/gps_imu_app/SPECIFICATION.md
+    printf("[AbstractX Boot] Parallel hardware initialization (when_all: SPI IMU + UART GPS + I2C Mag)...\n");
+    auto [imu_ok, gps_ok, mag_ok] = co_await coro::when_all(
+        imu.init_async(),
+        gps.init_async(115200),
+        mag.init_async()
+    );
 
-    // Spawn concurrent application coroutines into AbstractX runtime
-    abstractx::spawn(imu_test_task(imu));
-    abstractx::spawn(gps_test_task(gps));
-    abstractx::spawn(i2c_test_task(i2c, timer));
-    abstractx::spawn(heartbeat_task(timer));
+    printf("[AbstractX Boot] Hardware Status: IMU=%s, GPS=%s, MAG=%s\n",
+           imu_ok ? "OK" : "FAIL",
+           gps_ok ? "OK" : "FAIL",
+           mag_ok ? "OK" : "FAIL");
+
+    // Spawn concurrent multi-rate producer and fusion tasks into AbstractX runtime
+    abstractx::spawn(imu_producer_task(imu));
+    abstractx::spawn(mag_producer_task(mag, timer));
+    abstractx::spawn(gps_producer_task(gps));
+    abstractx::spawn(sensor_fusion_task(timer, filter));
+    abstractx::spawn(flight_monitor_task(timer, filter));
     abstractx::spawn(telemetry_egress_task());
 
     // Yield cooperatively to runtime dispatcher
@@ -166,7 +213,7 @@ Task<void> app_main() {
 // Application Boot & Master Entry Point
 // ============================================================================
 
-// @impl [SPEC-TRACE-03] [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
+// @impl [SPEC-ARCH-03] [SPEC-ARCH-05] [SPEC-ARCH-06] [SPEC-ARCH-07] [SPEC-TRACE-03] [SPEC-TRACE-04] [SPEC-TRACE-05] [SPEC-APP-08] [SPEC-APP-09] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
 int main() {
     // 1. Unified Configuration

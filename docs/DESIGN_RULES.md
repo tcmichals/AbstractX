@@ -75,4 +75,10 @@ All headers under `include/` MUST remain freestanding-compatible for MCU targets
 - **1 KB Buffer Sweet Spot:** The default packet size for trace buffers is 1,024 bytes (1 KB). This batches ~35–45 binary CTF events per packet, keeping total frame size under Ethernet/Wi-Fi MTU (1,500 bytes) and preventing network packet fragmentation while cutting UDP/doorbell overhead by >80%.
 - **Class Enum Configuration:** Buffer memory sizing and topology MUST be configurable via `enum class BufferProfile` (`PingPong_1K_x2`, `Ring_1K_x4`, `Compact_512B_x2`, `Large_2K_x4`) passed into `TraceConfig` at initialization, maintaining zero dynamic heap allocation across all targets.
 
+## 12. Zero Synchronous Peripheral I/O & Awaitable Lifecycle Invariant
+- **Zero Synchronous Fallbacks in Public HAL:** Public HAL interfaces (`ISpi`, `II2c`, `IUart`) MUST NOT expose synchronous blocking transfer methods (`transfer_sync`, `write_read_sync`, `write_sync`, `read_sync`) in the active runtime API. All peripheral transactions MUST be split-transaction and return an awaiter.
+- **Mandatory Awaitable Driver Lifecycles:** Sensor, actuator, and peripheral driver initialization methods MUST be asynchronous C++20 coroutines returning `coro::Task<bool>` (e.g. `co_await dev.init_async()`). Drivers MUST NOT perform synchronous busy-waiting bus reads or writes during boot or configuration.
+- **Awaitable Register Operations:** All single-register and burst register read/write operations on drivers and HAL abstractions MUST be awaitable coroutines (e.g. `co_await dev.read_reg_async(reg)` and `co_await dev.write_reg_async(reg, val)`).
+- **Coroutines Must Never Block:** Application coroutines executing on the single main runner MUST NEVER invoke blocking system calls, `ioctl()`s, or spin-loops. Any bus operation must yield cooperatively via `co_await` so that high-rate control tasks (such as 8 kHz IMU loops) remain strictly unblocked.
+
 

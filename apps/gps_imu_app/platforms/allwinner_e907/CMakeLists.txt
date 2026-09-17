@@ -1,5 +1,5 @@
-# apps/e907_coprocessor/CMakeLists.txt
-# -----------------------------------
+# apps/gps_imu_app/platforms/allwinner_e907/CMakeLists.txt
+# ---------------------------------------------------
 # Deployable ELF/BIN for XuanTie E907 via Linux remoteproc
 
 add_executable(e907_coprocessor
@@ -26,3 +26,14 @@ add_custom_command(TARGET e907_coprocessor POST_BUILD
     COMMAND ${CMAKE_SIZE} $<TARGET_FILE:e907_coprocessor>
     COMMENT "Generated e907_coprocessor.bin and displaying memory footprint"
 )
+
+# Automated compilation of Device Tree Overlay if dtc is available
+find_program(DTC_EXECUTABLE dtc HINTS /home/tcmichals/ssdData/projects/home/CubieA5E/bld.a7a/host/bin)
+if(DTC_EXECUTABLE)
+    add_custom_target(e907_dtbo ALL
+        COMMAND ${DTC_EXECUTABLE} -@ -I dts -O dtb -o ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e907_overlay.dtbo ${CMAKE_CURRENT_SOURCE_DIR}/cubie_a5e_e907_overlay.dts
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e907_overlay.dtbo
+        COMMENT "Compiled cubie_a5e_e907_overlay.dtbo using ${DTC_EXECUTABLE}"
+    )
+endif()
+

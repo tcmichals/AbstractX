@@ -13,7 +13,12 @@ from pathlib import Path
 
 def main():
     root_dir = Path(__file__).resolve().parent.parent
-    spec_file = root_dir / "docs" / "DESIGN_SPECIFICATION.md"
+    if len(sys.argv) > 1:
+        spec_file = Path(sys.argv[1])
+        if not spec_file.is_absolute():
+            spec_file = root_dir / spec_file
+    else:
+        spec_file = root_dir / "docs" / "DESIGN_SPECIFICATION.md"
 
     if not spec_file.exists():
         print(f"[ERROR] Specification file not found: {spec_file}")

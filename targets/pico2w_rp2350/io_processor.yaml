@@ -1,0 +1,83 @@
+# targets/pico2w_rp2350/io_processor.yaml
+# ==============================================================================
+# AbstractX Target I/O Processor Configuration: Raspberry Pi Pico 2 W (RP2350)
+# ==============================================================================
+version: '1.0'
+
+target:
+  name: "pico2w_rp2350"
+  description: "Raspberry Pi Pico 2 W (RP2350 Dual Cortex-M33 @ 150 MHz)"
+  io_domain_core: 0       # Core 0: ioProcessor + PIO DMA + CYW43439 Wi-Fi
+  coro_domain_core: 1     # Core 1: Cooperative C++20 Flight Coroutines
+  doorbell: "sio_fifo"    # RP2350 SIO hardware FIFO inter-core doorbell
+
+io_processor:
+  max_channels: 4
+  rings:
+    ingress_rx_ring:
+      name: "g_sensor_ring"
+      capacity: 64
+      type: "SpscTlpRing"
+    egress_tx_ring:
+      name: "g_tx_ring"
+      capacity: 64
+      type: "SpscTlpRing"
+
+  channels:
+    # --------------------------------------------------------------------------
+    # Channel 0: 8 kHz SPI Auto-DMA IMU Burst on DRDY
+    # --------------------------------------------------------------------------
+    - id: 0
+      name: "imu_auto_dma"
+      description: "ICM-42688-P 8 kHz Accelerometer and Gyroscope burst read"
+      auto_mode: true
+      
+      trigger:
+        mode: "gpio_edge"
+        pin: 20             # Pin 3 / GP20 DRDY
+        edge: "rising"
+        
+      bus:
+        type: "spi"
+        index: 1            # SPI1
+        speed_hz: 10000000  # 10 MHz
+        mode: "mode3"
+        cs_pin: 17
+        
+      transfer:
+        tx_cmd: [0x9D]      # 0x80 | 0x1D (ACCEL_DATA_X1 read)
+        tx_len: 1
+        rx_len: 15          # 1B status + 6B accel + 6B gyro + 2B temp
+        
+      tlp_output:
+        channel: 2          # Channel::Telemetry (0x02)
+        tag: 1              # Tag 1 = IMU
+        type: "dma_stream"
+
+    # --------------------------------------------------------------------------
+    # Channel 1: 50 Hz Periodic I2C Magnetometer Polling
+    # --------------------------------------------------------------------------
+    - id: 1
+      name: "mag_polling"
+      description: "QMC5883L 50 Hz 3-Axis Geomagnetic Compass sample burst"
+      auto_mode: true
+      
+      trigger:
+        mode: "timer"
+        period_us: 20000    # 20 ms = 50 Hz
+        
+      bus:
+        type: "i2c"
+        index: 0            # I2C0
+        speed_hz: 400000    # 400 kHz Fast-Mode
+        address: 0x0D       # QMC5883L 7-bit address
+        
+      transfer:
+        tx_cmd: [0x00]      # Register 0x00
+        tx_len: 1
+        rx_len: 6           # 6 bytes
+        
+      tlp_output:
+        channel: 2
+        tag: 3              # Tag 3 = Magnetometer
+        type: "dma_stream"

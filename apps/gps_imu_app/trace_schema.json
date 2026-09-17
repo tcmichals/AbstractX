@@ -1,0 +1,80 @@
+{
+  "application": "gps_imu_app",
+  "version": "1.0.0",
+  "wire_protocol": {
+    "magic": "0xC1FC1FC1",
+    "frame_size_bytes": 64,
+    "header_size_bytes": 20,
+    "payload_size_bytes": 40,
+    "crc_size_bytes": 4
+  },
+  "streams": {
+    "1": {
+      "name": "telemetry",
+      "channel": 2,
+      "description": "Multi-rate high-frequency flight telemetry and AHRS stream",
+      "events": {
+        "1": {
+          "name": "imu_sample",
+          "rate_hz": 8000,
+          "source_device": "ICM-42688-P (SPI1)",
+          "unpack_format": "<i6h",
+          "fields": [
+            { "name": "sample_seq", "type": "int32", "unit": "", "scale": 1.0, "display_name": "Sequence" },
+            { "name": "accel_x_mg", "type": "int16", "unit": "g", "scale": 0.001, "display_name": "Accel X", "widget": "oscilloscope" },
+            { "name": "accel_y_mg", "type": "int16", "unit": "g", "scale": 0.001, "display_name": "Accel Y", "widget": "oscilloscope" },
+            { "name": "accel_z_mg", "type": "int16", "unit": "g", "scale": 0.001, "display_name": "Accel Z", "widget": "oscilloscope" },
+            { "name": "gyro_x_dps", "type": "int16", "unit": "deg/s", "scale": 0.1, "display_name": "Gyro X (Roll Rate)", "widget": "oscilloscope" },
+            { "name": "gyro_y_dps", "type": "int16", "unit": "deg/s", "scale": 0.1, "display_name": "Gyro Y (Pitch Rate)", "widget": "oscilloscope" },
+            { "name": "gyro_z_dps", "type": "int16", "unit": "deg/s", "scale": 0.1, "display_name": "Gyro Z (Yaw Rate)", "widget": "oscilloscope" }
+          ]
+        },
+        "2": {
+          "name": "gps_fix",
+          "rate_hz": 10,
+          "source_device": "U-Blox M10 (UART0)",
+          "unpack_format": "<i5i2B",
+          "fields": [
+            { "name": "itow_ms", "type": "int32", "unit": "ms", "scale": 1.0, "display_name": "GPS Time of Week" },
+            { "name": "lat_1e7", "type": "int32", "unit": "deg", "scale": 1e-7, "display_name": "Latitude", "widget": "map" },
+            { "name": "lon_1e7", "type": "int32", "unit": "deg", "scale": 1e-7, "display_name": "Longitude", "widget": "map" },
+            { "name": "alt_mm", "type": "int32", "unit": "m", "scale": 0.001, "display_name": "GPS Altitude", "widget": "altimeter" },
+            { "name": "ground_speed_mm_s", "type": "int32", "unit": "m/s", "scale": 0.001, "display_name": "Ground Speed", "widget": "airspeed" },
+            { "name": "heading_1e5", "type": "int32", "unit": "deg", "scale": 1e-5, "display_name": "Course Heading", "widget": "compass" },
+            { "name": "sats", "type": "uint8", "unit": "", "scale": 1.0, "display_name": "Satellites Tracked" },
+            { "name": "fix_type", "type": "uint8", "unit": "", "scale": 1.0, "display_name": "Fix Type" }
+          ]
+        },
+        "3": {
+          "name": "mag_sample",
+          "rate_hz": 50,
+          "source_device": "QMC5883L (I2C0)",
+          "unpack_format": "<3hH",
+          "fields": [
+            { "name": "mag_x_mgauss", "type": "int16", "unit": "mG", "scale": 1.0, "display_name": "Mag X" },
+            { "name": "mag_y_mgauss", "type": "int16", "unit": "mG", "scale": 1.0, "display_name": "Mag Y" },
+            { "name": "mag_z_mgauss", "type": "int16", "unit": "mG", "scale": 1.0, "display_name": "Mag Z" },
+            { "name": "heading_cdeg", "type": "uint16", "unit": "deg", "scale": 0.01, "display_name": "Magnetic Heading", "widget": "compass" }
+          ]
+        },
+        "4": {
+          "name": "ahrs_state",
+          "rate_hz": 100,
+          "source_device": "Mahony 9-DoF Fusion & Cascaded PID",
+          "unpack_format": "<2hHiH4H",
+          "fields": [
+            { "name": "roll_cdeg", "type": "int16", "unit": "deg", "scale": 0.01, "display_name": "Euler Roll", "widget": "artificial_horizon" },
+            { "name": "pitch_cdeg", "type": "int16", "unit": "deg", "scale": 0.01, "display_name": "Euler Pitch", "widget": "artificial_horizon" },
+            { "name": "yaw_cdeg", "type": "uint16", "unit": "deg", "scale": 0.01, "display_name": "Euler Yaw", "widget": "compass" },
+            { "name": "alt_mm", "type": "int32", "unit": "m", "scale": 0.001, "display_name": "Fused Altitude", "widget": "altimeter" },
+            { "name": "speed_cm_s", "type": "uint16", "unit": "m/s", "scale": 0.01, "display_name": "Ground Speed", "widget": "airspeed" },
+            { "name": "m1_throttle", "type": "uint16", "unit": "us", "scale": 1.0, "range": [100, 1000], "display_name": "Motor 1 (FR CCW)", "widget": "throttle_bar" },
+            { "name": "m2_throttle", "type": "uint16", "unit": "us", "scale": 1.0, "range": [100, 1000], "display_name": "Motor 2 (RL CCW)", "widget": "throttle_bar" },
+            { "name": "m3_throttle", "type": "uint16", "unit": "us", "scale": 1.0, "range": [100, 1000], "display_name": "Motor 3 (FL CW)", "widget": "throttle_bar" },
+            { "name": "m4_throttle", "type": "uint16", "unit": "us", "scale": 1.0, "range": [100, 1000], "display_name": "Motor 4 (RR CW)", "widget": "throttle_bar" }
+          ]
+        }
+      }
+    }
+  }
+}

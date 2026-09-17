@@ -46,11 +46,12 @@ examples/dual_processor_io_and_processing
 *.jou
 *.log
 *.pds
-*.fs
+*.dtbo
 *.json
 !CMakePresets.json
 !.vscode/*.json
 !docs/evidence/**/*.json
+!apps/gps_imu_app/trace_schema.json
 !**/*.lushay.json
 !**/*.cst
 !**/*.sv
