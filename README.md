@@ -11,7 +11,11 @@ By pairing **C++20 stackless coroutines** with **hardware auto-DMA engines and P
 ## End-to-End Specification-Driven Hardware / Software Mirror
 
 <p align="center">
-  <img src="docs/media/end_to_end_walkthrough.gif" alt="AbstractX End-to-End Specification-Driven Hardware / Software Mirror Walkthrough" width="100%" />
+  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/media/end_to_end_walkthrough.gif" alt="AbstractX End-to-End Specification-Driven Hardware / Software Mirror Walkthrough" width="100%" />
+</p>
+
+<p align="center">
+  <em>(Specification-driven dual synthesis: C++20 Processor Firmware &amp; FPGA SystemVerilog RTL Mirror)</em>
 </p>
 
 > **Specification-First Development**: A single markdown specification (`SPECIFICATION.md`) drives dual target synthesis:
@@ -49,21 +53,22 @@ flowchart LR
     subgraph SW["PROCESSOR / FIRMWARE DOMAIN"]
         direction TB
         S1["<b>C++20 Stackless Coroutines</b><br/><code>include/asp_coro.hpp</code><br/>Linear sequential task graphs"]
-        S2["<b>Async Lock-Free Channels</b><br/><code>AsyncQueue&lt;T, N&gt;</code> & <code>SpscTlpRing&lt;64&gt;</code><br/>Bounded static circular buffers"]
+        S2["<b>Async Lock-Free Channels</b><br/><code>AsyncQueue(T, N)</code> & <code>SpscTlpRing(64)</code><br/>Bounded static circular buffers"]
         S3["<b>Non-Blocking Suspension</b><br/><code>co_await</code> cooperative yield without thread sleep"]
         S4["<b>Deterministic Zero-Heap Model</b><br/>0 Bytes dynamic allocation • 2 KB shared stack"]
         S1 --- S2 --- S3 --- S4
     end
 
-    HW <===>|Hardware AXI-Stream Bus| PLANE <===>|Lock-Free Ring Buffers| SW
+    H4 <-->|Hardware AXI-Stream Bus| P_HDR
+    P_CRC <-->|Lock-Free Ring Buffers| S1
 
     classDef hwStyle fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
     classDef planeStyle fill:#312e81,stroke:#c084fc,stroke-width:2px,color:#ffffff;
     classDef swStyle fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
 
-    class HW,H1,H2,H3,H4 hwStyle;
-    class PLANE,P_HDR,P_PAYLOAD,P_CRC planeStyle;
-    class SW,S1,S2,S3,S4 swStyle;
+    class H1,H2,H3,H4 hwStyle;
+    class P_HDR,P_PAYLOAD,P_CRC planeStyle;
+    class S1,S2,S3,S4 swStyle;
 ```
 
 ```mermaid
@@ -78,7 +83,7 @@ flowchart TD
 
     subgraph INTERCONNECT["Lock-Free Inter-Domain Bridge (Static Memory)"]
         direction LR
-        SPSC_RING["<b>Lock-Free SPSC Ring (SpscTlpRing&lt;64&gt;)</b><br/>Atomic head/tail pointers • Zero mutex locks"]
+        SPSC_RING["<b>Lock-Free SPSC Ring (SpscTlpRing(64))</b><br/>Atomic head/tail pointers • Zero mutex locks"]
         DOORBELL["<b>Event Signal / Doorbell</b><br/>Wakes event loop without thread preemption"]
         TLP_GEN -->|push| SPSC_RING
         TLP_GEN -->|signal| DOORBELL
@@ -156,28 +161,28 @@ flowchart LR
         T3["<b>Thread 3: State Estimation</b><br/>4 KB Dedicated Stack"]
         T4["<b>Thread 4: Digital Filtering</b><br/>8 KB Dedicated Stack"]
         T5["<b>Thread 5: Telemetry Egress</b><br/>4 KB Dedicated Stack"]
-        SCHED["<b>Preemptive RTOS Scheduler</b><br/>• Periodic timer tick interruptions<br/>• Expensive context switches & cache thrashing<br/>• Mutex priority inversion hazards<br/>• <b>&gt; 22 KB SRAM wasted on idle stacks</b>"]
-        T1 & T2 & T3 & T4 & T5 --> SCHED
+        SCHED["<b>Preemptive RTOS Scheduler</b><br/>• Periodic timer tick interruptions<br/>• Expensive context switches & cache thrashing<br/>• Mutex priority inversion hazards<br/>• <b>over 22 KB SRAM wasted on idle stacks</b>"]
+        T1 --> SCHED
+        T2 --> SCHED
+        T3 --> SCHED
+        T4 --> SCHED
+        T5 --> SCHED
     end
 
     subgraph CORO["AbstractX Static Coroutine Graph (Deterministic & Zero-Heap)"]
         direction TB
         STACK["<b>Single Shared CPU Stack</b><br/>Only 2 KB total stack space allocated"]
-        FRAMES["<b>Static Coroutine Frames (BSS)</b><br/>&lt; 120 Bytes per suspended task<br/>Statically pooled in data segment"]
+        FRAMES["<b>Static Coroutine Frames (BSS)</b><br/>under 120 Bytes per suspended task<br/>Statically pooled in data segment"]
         DISP["<b>Cooperative Event Dispatcher</b><br/>• Microsecond awakening via doorbells<br/>• 0 OS context switch overhead<br/>• 0 Bytes dynamic heap allocation<br/>• <b>100% Deterministic execution</b>"]
         STACK --> DISP
         FRAMES --> DISP
     end
 
     classDef rtosNode fill:#450a0a,stroke:#f87171,stroke-width:2px,color:#ffffff;
-    classDef rtosBox fill:#1c0707,stroke:#ef4444,stroke-width:2px,color:#fca5a5;
     classDef coroNode fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#ffffff;
-    classDef coroBox fill:#022c22,stroke:#10b981,stroke-width:2px,color:#6ee7b7;
 
     class T1,T2,T3,T4,T5,SCHED rtosNode;
-    class RTOS rtosBox;
     class STACK,FRAMES,DISP coroNode;
-    class CORO coroBox;
 ```
 
 ```mermaid
@@ -418,7 +423,7 @@ flowchart TD
     end
 
     subgraph HOST["Host Processor Domain (C++20 Coroutine Engine)"]
-        SPSC_HOST["<b>Lock-Free SPSC Rings (SpscTlpRing&lt;64&gt;)</b><br/>Zero-copy shared memory queue"]
+        SPSC_HOST["<b>Lock-Free SPSC Rings (SpscTlpRing(64))</b><br/>Zero-copy shared memory queue"]
         CORO_HOST["<b>Cooperative Task Graph</b><br/><code>co_await</code> linear stream processing"]
         PCIE_DMA --> SPSC_HOST --> CORO_HOST
     end
@@ -484,7 +489,8 @@ flowchart LR
         direction TB
         FPGA_SRC["<b>FPGA Hardware Drivers</b><br/><code>asp_imu_auto_dma.sv</code><br/>Hardware-packetized CTF 1.8 events"]
         SW_SRC["<b>C++20 Software Tasks</b><br/><code>main_task()</code><br/>Zero-copy binary CTF 1.8 events"]
-        FPGA_SRC & SW_SRC -->|64-Byte TLP Packets| TLP_BUS["<b>Lock-Free Telemetry Bus</b><br/>PCIe / UDP Stream (Port 9870)"]
+        FPGA_SRC -->|64-Byte TLP Packets| TLP_BUS["<b>Lock-Free Telemetry Bus</b><br/>PCIe / UDP Stream (Port 9870)"]
+        SW_SRC -->|64-Byte TLP Packets| TLP_BUS
     end
 
     subgraph SCHEMA["Dynamic Schema Decoupling (Single Source of Truth)"]
@@ -492,7 +498,8 @@ flowchart LR
         YAML["<b>barectf_config.yaml</b><br/>Authoritative CTF 1.8 Schema<br/>Stream IDs • Bit layouts • Units"]
         JSON["<b>trace_schema.json</b><br/>UI Widget bindings • Scales • Multipliers"]
         LOADER["<b>ctf_schema_loader.py</b><br/>Compiles <code>struct.Struct</code> decoders<br/><i>Zero hardcoded payload offsets</i>"]
-        YAML & JSON --> LOADER
+        YAML --> LOADER
+        JSON --> LOADER
     end
 
     subgraph TOOLS["Unified Tooling Ecosystem (Hardware + Software)"]
@@ -502,7 +509,7 @@ flowchart LR
         BABEL["<b>Industry CTF Tooling</b><br/>Babeltrace 2 • Trace Compass<br/>Unified ns-accurate hardware-software trace"]
     end
 
-    TLP_BUS ==|Streaming 64B CTF TLPs|==> LOADER
+    TLP_BUS ==>|Streaming 64B CTF TLPs| LOADER
     LOADER --> STUDIO
     LOADER --> VISUALIZER
     LOADER --> BABEL
