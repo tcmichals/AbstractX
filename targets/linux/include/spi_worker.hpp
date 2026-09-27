@@ -122,6 +122,34 @@ private:
                             // ICM-42688 WHO_AM_I register simulation
                             req.rx_data[0] = 0x00;
                             if (req.rx_data.size() > 1) req.rx_data[1] = 0x47;
+                        } else if (!req.tx_data.empty() && (req.tx_data[0] & 0x7F) == 0x1D && req.rx_data.size() >= 15) {
+                            // SITL Synthetic Flight Dynamics (sinusoidal banking, pitching, gyro rates)
+                            static uint64_t s_sim_step = 0;
+                            s_sim_step++;
+                            double t = static_cast<double>(s_sim_step) * 0.002;
+                            double roll = 0.28 * std::sin(t * 1.8);
+                            double pitch = 0.12 * std::cos(t * 1.2);
+                            double gx = (0.28 * 1.8 * std::cos(t * 1.8)) * (180.0 / 3.14159265);
+                            double gy = (-0.12 * 1.2 * std::sin(t * 1.2)) * (180.0 / 3.14159265);
+                            double gz = 4.5; // gentle yaw turn
+                            double ax = -std::sin(pitch);
+                            double ay = std::sin(roll) * std::cos(pitch);
+                            double az = std::cos(roll) * std::cos(pitch);
+
+                            req.rx_data[0] = 0x00;
+                            req.rx_data[1] = 0x00; req.rx_data[2] = 0x00; // Temp ~ 25 C
+                            int16_t raw_ax = static_cast<int16_t>(ax * 2048.0);
+                            int16_t raw_ay = static_cast<int16_t>(ay * 2048.0);
+                            int16_t raw_az = static_cast<int16_t>(az * 2048.0);
+                            req.rx_data[3] = static_cast<uint8_t>(raw_ax >> 8); req.rx_data[4] = static_cast<uint8_t>(raw_ax & 0xFF);
+                            req.rx_data[5] = static_cast<uint8_t>(raw_ay >> 8); req.rx_data[6] = static_cast<uint8_t>(raw_ay & 0xFF);
+                            req.rx_data[7] = static_cast<uint8_t>(raw_az >> 8); req.rx_data[8] = static_cast<uint8_t>(raw_az & 0xFF);
+                            int16_t raw_gx = static_cast<int16_t>(gx * 16.4);
+                            int16_t raw_gy = static_cast<int16_t>(gy * 16.4);
+                            int16_t raw_gz = static_cast<int16_t>(gz * 16.4);
+                            req.rx_data[9] = static_cast<uint8_t>(raw_gx >> 8); req.rx_data[10] = static_cast<uint8_t>(raw_gx & 0xFF);
+                            req.rx_data[11] = static_cast<uint8_t>(raw_gy >> 8); req.rx_data[12] = static_cast<uint8_t>(raw_gy & 0xFF);
+                            req.rx_data[13] = static_cast<uint8_t>(raw_gz >> 8); req.rx_data[14] = static_cast<uint8_t>(raw_gz & 0xFF);
                         } else {
                             size_t copy_n = std::min(req.tx_data.size(), req.rx_data.size());
                             if (copy_n > 0) {

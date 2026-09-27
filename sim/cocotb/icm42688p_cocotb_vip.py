@@ -21,9 +21,10 @@ from cocotb.triggers import FallingEdge, RisingEdge, Timer
 class CocotbICM42688P:
     """Python Cocotb VIP for ICM-42688-P matching iNav driver specifications."""
 
-    def __init__(self, dut, default_odr_hz: int = 1000):
+    def __init__(self, dut, default_odr_hz: int = 1000, auto_drdy: bool = True):
         self.dut = dut
         self.sample_period_ns = int(1_000_000_000 / default_odr_hz)
+        self.auto_drdy = auto_drdy
 
         # ICM-42688-P Register Storage (User Bank 0)
         self.registers = [0] * 128
@@ -35,13 +36,13 @@ class CocotbICM42688P:
         self.registers[0x65] = 0x08  # INT_SOURCE0 (UI_DRDY_INT1_EN)
 
         # Simulated iNav Telemetry Readings (Signed 16-bit)
-        self.temp = 3312  # ~25 deg C ((3312/132.48) + 25)
-        self.accel_x = 164  # +0.01g
-        self.accel_y = -82  # -0.005g
-        self.accel_z = 2048  # +1.00g (Gravity vector under ±16g scale: 2048 LSB/g)
-        self.gyro_x = 15  # +0.9 dps
+        self.temp = 3312   # ~25 deg C ((3312/132.48) + 25)
+        self.accel_x = 164 # +0.01g
+        self.accel_y = -82 # -0.005g
+        self.accel_z = 2048 # +1.00g (Gravity vector under ±16g scale: 2048 LSB/g)
+        self.gyro_x = 15   # +0.9 dps
         self.gyro_y = -22  # -1.3 dps
-        self.gyro_z = 4  # +0.2 dps
+        self.gyro_z = 4    # +0.2 dps
 
         self._update_telemetry_window()
         self._running = True
@@ -61,9 +62,27 @@ class CocotbICM42688P:
         for i, b in enumerate(raw_bytes):
             self.registers[0x1D + i] = b
 
+    def set_telemetry(self, temp: int, ax: int, ay: int, az: int, gx: int, gy: int, gz: int):
+        """Updates the 14-byte sensor burst registers dynamically."""
+        self.temp = int(temp)
+        self.accel_x = int(ax)
+        self.accel_y = int(ay)
+        self.accel_z = int(az)
+        self.gyro_x = int(gx)
+        self.gyro_y = int(gy)
+        self.gyro_z = int(gz)
+        self._update_telemetry_window()
+
+    async def pulse_drdy(self):
+        """Manually pulses the DRDY pin for deterministic simulation pacing."""
+        self.dut.imu_int_i.value = 1
+        await Timer(100, unit="ns")
+        self.dut.imu_int_i.value = 0
+
     async def start(self):
         """Starts background tasks for DRDY interrupts and SPI slave handling."""
-        cocotb.start_soon(self._drdy_generator())
+        if self.auto_drdy:
+            cocotb.start_soon(self._drdy_generator())
         cocotb.start_soon(self._spi_slave_loop())
 
     async def _drdy_generator(self):

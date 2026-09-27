@@ -8,6 +8,21 @@ By pairing **C++20 stackless coroutines** with **hardware auto-DMA engines and P
 
 ---
 
+## End-to-End Specification-Driven Hardware / Software Mirror
+
+<p align="center">
+  <img src="docs/media/end_to_end_walkthrough.gif" alt="AbstractX End-to-End Specification-Driven Hardware / Software Mirror Walkthrough" width="100%" />
+</p>
+
+> **Specification-First Development**: A single markdown specification (`SPECIFICATION.md`) drives dual target synthesis:
+> 1. **Target A (Processor)**: Freestanding C++20 coroutines, lock-free SPSC channels, and zero dynamic heap.
+> 2. **Target B (FPGA RTL)**: Autonomous SystemVerilog Auto-DMA state machine, hardware DRDY pin trigger, and 9.57 µs doorbell.
+> 3. **AI Adversarial Audit**: 5-stage automated invariant verification enforcing Sashiko safety rules (`tools/run_adversarial_audit.py`).
+> 4. **Dual Verification**: 100% pass rate across CppUTest SITL suites (< 3 ms) and Cocotb Verilator co-simulations.
+> 5. **Symmetrical Telemetry Mirror**: Live Primary Flight Display (PFD) visualizer mirrors both pipelines identically over UDP port 9870.
+
+---
+
 ## 1. The Unified Design Pattern (Hardware + Software Co-Design)
 
 In AbstractX, **hardware and software share the exact same asynchronous, non-blocking execution model**:
@@ -603,6 +618,17 @@ flowchart LR
    $ python3 tools/audit_specs.py apps/gps_imu_app/SPECIFICATION.md
    Total Specifications: 10 | Implemented: 10 | Coverage: 100.0% [SUCCESS]
    ```
+5. **Sashiko-Grade Adversarial Audit & CppUTest Verification (`tools/run_adversarial_audit.py`)**:
+   Eliminates AI hallucinations and driver regressions by enforcing a 5-stage decomposed adversarial review gate ([Full Guide](docs/SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md)):
+   ```bash
+   $ python3 tools/run_adversarial_audit.py
+   [PASS] Stage 1 (Zero-Heap & Freestanding): 0 issues found
+   [PASS] Stage 2 (Non-Blocking HAL & Lifecycle): 0 issues found
+   [PASS] Stage 3 (ISR Boundary & Dispatch Safety): 0 issues found
+   [PASS] Stage 4 (Endianness & Wire Framing): 0 issues found
+   [PASS] Stage 5 (CppUTest & Test Verification): 0 issues found
+   EXECUTIVE VERDICT: [PASS FOR PRODUCTION COMMIT] (0 Issues)
+   ```
 
 ---
 
@@ -644,6 +670,7 @@ AbstractX/
 │   └── motor/asp_dshot_core.sv       # 4-Channel hardware DShot motor core
 ├── tools/                            # Developer tooling, schema compilers & auditors
 │   ├── audit_specs.py                # Automated specification-to-code traceability auditor
+│   ├── run_adversarial_audit.py      # 5-Stage Sashiko-grade adversarial firmware audit tool
 │   ├── create_app_spec.py            # Automated SPECIFICATION.md generator
 │   ├── generate_io_config.py         # Compiles io_processor.yaml -> constexpr C++ headers
 │   └── visualizer/                   # Observability Studio & dynamic CTF schema loader
@@ -672,7 +699,12 @@ ctest --test-dir build --output-on-failure
 ```
 *Result: 100% tests passed (0 failures) in < 0.9 seconds.*
 
-### 3. Verify Spec-to-Code Traceability
+### 3. Run the 5-Stage Sashiko-Grade Adversarial Firmware Audit
+```bash
+python3 tools/run_adversarial_audit.py
+```
+
+### 4. Verify Spec-to-Code Traceability
 ```bash
 # Global design specification audit (25 requirements)
 python3 tools/audit_specs.py
