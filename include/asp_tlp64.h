@@ -208,6 +208,12 @@ typedef struct __attribute__((packed, aligned(64))) {
     uint32_t crc32;           /* IEEE 802.3 CRC32 checksum */
 } asp_tlp64_t;
 
+#ifdef __cplusplus
+static_assert(sizeof(asp_tlp64_t) == 64, "asp_tlp64_t MUST be exactly 64 bytes");
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(sizeof(asp_tlp64_t) == 64, "asp_tlp64_t MUST be exactly 64 bytes");
+#endif
+
 /* Host Status Response Structure (Command 0xA0) */
 typedef struct __attribute__((packed)) {
     uint8_t  version;         /* Protocol version (0x64) */

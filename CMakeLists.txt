@@ -62,6 +62,7 @@ if(ABSTRACTX_TARGET STREQUAL "host")
 
     add_subdirectory(sim)
     add_subdirectory(examples)
+    add_subdirectory(tests)
 endif()
 
 # Custom helper to describe our targets
