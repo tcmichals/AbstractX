@@ -60,9 +60,18 @@ struct alignas(4) CtfPacketHeader {
     uint32_t events_discarded{0};
 };
 
-#pragma pack(push, 1)
-
-// Stream 0: Coroutine Lifecycle Event (19 bytes payload)
+// Stream 0: Coroutine Lifecycle Event with Name & Awaiter Token (38 bytes payload)
+// Fits within the 40-byte ASP_TLP64_PAYLOAD_SIZE window.
+//
+// Wire layout (packed, 38 B):
+//  [0]     event_id       : uint8  (always 1)
+//  [1..8]  timestamp_us   : uint64
+//  [9..12] task_id        : uint32  (coroutine slot index 1..N)
+//  [13..16]handle_addr    : uint32  (lower 32-bits of coroutine_handle address)
+//  [17]    state          : uint8   (CoroState)
+//  [18]    reason         : uint8   (legacy reason enum, kept for binary compat)
+//  [19..30]coro_name      : char[12] (null-terminated coroutine name)
+//  [21..37]awaiter_token  : char[16] (null-terminated co_await expression)
 struct CoroEventPayload {
     uint8_t  event_id{1};
     uint64_t timestamp_us{0};
@@ -70,7 +79,11 @@ struct CoroEventPayload {
     uint32_t handle_addr{0};
     uint8_t  state{0};
     uint8_t  reason{0};
+    char     coro_name[12]{"?"};
+    char     awaiter_token[16]{"?"};
 };
+
+static_assert(sizeof(CoroEventPayload) == 38, "CoroEventPayload must be exactly 38 bytes");
 
 // Stream 1: IMU Sample Event (27 bytes payload)
 struct ImuSamplePayload {
@@ -169,28 +182,58 @@ public:
         context_ = context;
     }
 
-    // Trace Coroutine Lifecycle Event
+    // Trace Coroutine Lifecycle Event (legacy, no name/token)
     void trace_coro(uint32_t task_id, uint32_t handle_addr, CoroState state, uint8_t reason, uint64_t now_us) noexcept {
-        CoroEventPayload payload{};
-        payload.event_id = 1;
-        payload.timestamp_us = now_us;
-        payload.task_id = task_id;
-        payload.handle_addr = handle_addr;
-        payload.state = static_cast<uint8_t>(state);
-        payload.reason = reason;
+        trace_coro_named(task_id, handle_addr, state, reason, "?", "?", now_us);
+    }
 
+    // Trace Coroutine Lifecycle Event with coroutine name and awaiter token string.
+    // coro_name     : human-readable name (e.g. "imu_pipeline"), truncated to 11 chars
+    // awaiter_token : co_await expression string (e.g. "spi_ring.pop()"), truncated to 15 chars
+    void trace_coro_named(uint32_t task_id, uint32_t handle_addr, CoroState state, uint8_t reason,
+                          const char* coro_name, const char* awaiter_token, uint64_t now_us) noexcept {
+        CoroEventPayload payload{};
+        payload.event_id    = 1;
+        payload.timestamp_us = now_us;
+        payload.task_id     = task_id;
+        payload.handle_addr = handle_addr;
+        payload.state       = static_cast<uint8_t>(state);
+        payload.reason      = reason;
+        // Safe null-terminated copy with hard truncation
+        if (coro_name) {
+            for (size_t i = 0; i < sizeof(payload.coro_name) - 1 && coro_name[i]; ++i)
+                payload.coro_name[i] = coro_name[i];
+        }
+        if (awaiter_token) {
+            for (size_t i = 0; i < sizeof(payload.awaiter_token) - 1 && awaiter_token[i]; ++i)
+                payload.awaiter_token[i] = awaiter_token[i];
+        }
         write_event(&payload, sizeof(payload), now_us);
     }
 
-    static Tlp64 make_coro_tlp(uint32_t task_id, uint32_t handle_addr, CoroState state, uint8_t reason, uint64_t now_us) noexcept {
+    static Tlp64 make_coro_tlp(uint32_t task_id, uint32_t handle_addr, CoroState state, uint8_t reason,
+                               const char* coro_name, const char* awaiter_token, uint64_t now_us) noexcept {
         CoroEventPayload payload{};
-        payload.event_id = 1;
+        payload.event_id    = 1;
         payload.timestamp_us = now_us;
-        payload.task_id = task_id;
+        payload.task_id     = task_id;
         payload.handle_addr = handle_addr;
-        payload.state = static_cast<uint8_t>(state);
-        payload.reason = reason;
+        payload.state       = static_cast<uint8_t>(state);
+        payload.reason      = reason;
+        if (coro_name) {
+            for (size_t i = 0; i < sizeof(payload.coro_name) - 1 && coro_name[i]; ++i)
+                payload.coro_name[i] = coro_name[i];
+        }
+        if (awaiter_token) {
+            for (size_t i = 0; i < sizeof(payload.awaiter_token) - 1 && awaiter_token[i]; ++i)
+                payload.awaiter_token[i] = awaiter_token[i];
+        }
         return Tlp64::make_ctf(Channel::Debug, 0, payload, now_us * 1000ULL);
+    }
+
+    // Legacy overload (no name/token) for backward compat
+    static Tlp64 make_coro_tlp(uint32_t task_id, uint32_t handle_addr, CoroState state, uint8_t reason, uint64_t now_us) noexcept {
+        return make_coro_tlp(task_id, handle_addr, state, reason, "?", "?", now_us);
     }
 
     // Trace IMU Sample Burst
