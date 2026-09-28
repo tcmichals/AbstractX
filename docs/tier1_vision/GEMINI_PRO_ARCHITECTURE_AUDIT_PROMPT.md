@@ -136,38 +136,43 @@ Audit the in-code implementations against the core invariants:
 ## ══════════════════════════════════════════════════════════════════════════
 
 ### System Role & Context
-> AbstractX features an observability framework and real-time visualizer called **AbstractX Studio** ([`tools/visualizer/abstractx_studio.py`](tools/visualizer/abstractx_studio.py)), built with Python and `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenGL) for zero-latency 120 FPS rendering.
+> AbstractX features an observability framework and real-time visualizer called **AbstractX Studio** ([`tools/visualizer/abstractx_studio.py`](tools/visualizer/abstractx_studio.py)), built with Python and `imgui-bundle` (`Dear ImGui` + `ImPlot` + `HelloImGui`) for zero-latency 120 FPS rendering.
 >
-> AbstractX Studio follows a **Two-Level Architecture**:
-> - **Level 1 (Core System Observability)**: Standard across all AbstractX applications. Discovers target topology, visualizes the Dual-Plane execution timeline (Plane 1 ISR/DMA vs Plane 2 Coroutines) with interactive source-code jumping (`__FILE__ : __LINE__`), tracks CPU/SPU load, monitors continuous static memory footprints via **MemBrowse**, and decodes 64-byte CTF 1.8 TLPs via dynamic schemas.
-> - **Level 2 (Extensible Application Plugins)**: Pluggable user domain visualizers (e.g. Primary Flight Display artificial horizon, 3D quadcopter perspective wireframe, Quad-X motor mixer, 8 kHz sensor oscilloscope, or ESC configurators).
+> AbstractX Studio follows an extensible **6-Window Docking Suite** architecture:
+> - **Window 1 (AbstractX Core Studio)**: Silicon topology, Tracealyzer 4-track execution timeline (Core 0, Core 1, SPU, Interrupts), interactive `__FILE__ : __LINE__` source jumping, CPU/SPU load gauges, and continuous static memory footprints via **MemBrowse**.
+> - **Window 2 (User Domain Instruments)**: Pluggable user domain visualizers (Primary Flight Display artificial horizon, 3D quadcopter perspective wireframe, Quad-X motor mixer, 8 kHz IMU oscilloscope).
+> - **Window 3 (TLP Bus Debugger)**: Low-level 64-byte PCIe-style TLP packet stream table, 20-byte wire header decode, color-coded hex dump, and CRC32 verification.
+> - **Window 4 (System Event Log)**: Substring search, severity filtering (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), auto-scrolling console.
+> - **Window 5 (Source Code & Performance Inspector)**: Interactive C++ source code browsing, line-by-line execution latency profiling, deadline budget statuses, overrun warning banners, and concurrency diagnostics.
+> - **Window 6 (FPGA & Hardware Peripherals Inspector)**: SPI0 Auto-DMA throughput/clock/saturation metrics, AXI-Stream TLP Crossbar routing latency (150 MHz / 13.3 ns), and DShot motor pulse generation.
+> - **Dynamic Multi-Window Management**: Focus presets (`Balanced`, `Flight Focus`, `Core Focus`, `Source Focus`, `FPGA Focus`), Maximize/Restore buttons, and native multi-viewport tear-off (`enable_viewports = True`) for multi-monitor workstations.
 
 ### Prompt Instructions (Tier 3)
 ```markdown
-# TASK: Observability Framework & AbstractX Studio GUI Architecture
+# TASK: Observability Framework, Comparative Profiling & AbstractX Studio GUI Architecture
 
-Review the observability architecture, Python visualizer codebase (`tools/visualizer/`), telemetry schema (`trace/barectf_config.yaml`, `trace_schema.json`), and MemBrowse integration:
+Review the observability architecture, comparative profiling study (`docs/tier2_contracts/observability/COMPARATIVE_STUDY_TRACY_TRACEALYZER_ABSTRACTX.md`), Python visualizer codebase (`tools/visualizer/`), telemetry schema (`trace/barectf_config.yaml`, `trace_schema.json`), and MemBrowse integration:
 
-### 1. The Two-Level Studio GUI Architecture Review
-Audit the separation of concerns in `tools/visualizer/`:
-- How cleanly is Level 1 (Core System Telemetry) decoupled from Level 2 (Application Domain Plugins like `flight_plugin.py`)?
-- Does `abstractx_studio.py` duplicate logic found in standalone visualizers (`apps/gps_imu_app/tools/flight_display.py`)?
-- How should the plugin interface be formalized so that third-party developers can create domain visualizers (e.g. rover navigation, robotic gimbal, ESC configurator) without touching core studio code?
+### 1. Comparative Profiling Benchmark: Tracy vs. Tracealyzer vs. AbstractX Studio
+Audit the visualizer against modern embedded profiling requirements:
+- Evaluate why Tracy Profiler's hierarchical call-stack zones cause cognitive overload for embedded loops and why its memory footprint conflicts with freestanding zero-heap invariants.
+- Assess how Percepio Tracealyzer's horizontal swimlane and causality dependency model was adapted for AbstractX's dual-core C++20 coroutine and FPGA architecture.
+- Evaluate the 6-window HelloImGui docking suite, dynamic multi-window decoupling (native OS floating viewports), and focus layout presets.
 
-### 2. Dynamic CTF 1.8 Telemetry & MemBrowse Memory Integration
-Audit the runtime decoding and memory auditing pipelines:
+### 2. Dynamic CTF 1.8 Telemetry, MemBrowse & Hardware Observability
+Audit the runtime decoding, memory auditing, and hardware peripheral pipelines:
 - Dynamic Schema Compilation: Review `tools/visualizer/ctf_schema_loader.py`. How effectively does it compile `struct.Struct` decoders at runtime from YAML/JSON without hardcoding payload offsets?
 - Continuous Memory Tracking: Review `tools/track_memory_membrowse.py` and `.github/workflows/membrowse.yml`. How does it audit ELF sections (`.bss`, `.data`, `.text`) and enforce zero-heap budgets across targets (`build-pico2w`, `build-e907`, `build-host`)?
-- High-Rate Waveform Plotting: Assess how 8 kHz IMU samples and high-rate telemetry are buffered and downsampled for rendering in `ImPlot` without dropping GUI frames.
+- Hardware Peripheral Monitoring: Assess how SPI0 Auto-DMA (10 MHz / 1.25 MB/s) and AXI-Stream Crossbar (150 MHz / 13.3 ns) metrics are exposed in Window 6.
+- Source Code Hotspot Profiling: Review Window 5 line-by-line latency profiling, deadline overrun alerts, and concurrency diagnostics.
 
 ### 3. Deliverables Required for Tier 3:
-1. **AbstractX Studio Plugin SDK Specification**: Formal definition of the `AbstractXStudioPlugin` base class in Python, including lifecycle hooks:
-   - `on_init(self, context)`
-   - `on_tlp_packet(self, tlp_header, payload_dict)`
-   - `render_ui(self, delta_time)`
-   - `render_menu_items(self)`
-2. **Visualizer Directory Refactoring**: Proposed folder structure for `tools/visualizer/` / `sdk/gui/` separating Core Studio, Decoders, and Plugin Packages.
-3. **Standalone vs Studio Unification Plan**: Architectural recipe ensuring standalone visualizers (like `flight_display.py`) simply instantiate the core studio runtime with their plugin pre-selected, eliminating 100% of duplicated GUI setup code.
+1. **Comparative Ergonomics & Feature Recommendations**:
+   - Bezier causality curve rendering on `ImDrawList` canvas between triggering ISRs and coroutines.
+   - Timeline scrubber hover synchronization across `ImPlot` line charts and event trace tables.
+   - Latency jitter distribution histograms (`implot.plot_histogram`) for tail latencies ($p_{95}, p_{99}$).
+2. **AbstractX Studio Plugin SDK Specification**: Formal definition of the `AbstractXStudioPlugin` base class in Python, including lifecycle hooks (`on_init`, `on_tlp_packet`, `render_ui`, `render_menu_items`).
+3. **Visualizer Directory Refactoring & Standalone Unification**: Proposed folder structure separating Core Studio, Decoders, and Plugin Packages, ensuring standalone visualizers (like `flight_display.py`) instantiate the core studio runtime with their plugin pre-selected.
 ```
 
 ---
