@@ -1,6 +1,6 @@
 # AbstractX Visualizer Specification: The Next-Gen Trace & Coroutine Studio
 
-The **AbstractX Visualizer** is a modern, real-time observability and timeline studio designed to surpass **Percepio Tracealyzer** and **Linux LTTng / Trace Compass** by combining **C++20 Coroutine-First Execution Modeling** with **High-Rate Flight Telemetry & TLP Packet Inspection**.
+The **AbstractX Visualizer** is a modern, real-time observability and timeline studio designed to surpass **AbstractX AbstractX Studio** and **Linux LTTng / Trace Compass** by combining **C++20 Coroutine-First Execution Modeling** with **High-Rate Flight Telemetry & TLP Packet Inspection**.
 
 ---
 
@@ -10,7 +10,7 @@ The **AbstractX Visualizer** is a modern, real-time observability and timeline s
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                                 KEY ARCHITECTURAL ADVANTAGES                            │
 ├──────────────────────────┬─────────────────────────────┬────────────────────────────────┤
-│ Feature                  │ Percepio Tracealyzer / LTTng│ AbstractX Visualizer Studio    │
+│ Feature                  │ AbstractX AbstractX Studio / LTTng│ AbstractX Visualizer Studio    │
 ├──────────────────────────┼─────────────────────────────┼────────────────────────────────┤
 │ Execution Paradigm       │ OS Threads & Tasks only     │ C++20 Asynchronous Coroutines │
 │ Suspension Reason Aware  │ Generic blocked state       │ Exact `co_await` token reason  │

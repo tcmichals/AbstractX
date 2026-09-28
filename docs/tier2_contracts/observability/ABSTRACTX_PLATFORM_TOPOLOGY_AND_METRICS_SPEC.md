@@ -19,7 +19,7 @@ Embedded, robotic, and avionics flight stacks must deploy across wildly heteroge
 6. **Dual-Core Microcontroller with RTOS**: Espressif ESP32-P4 / ESP32 running FreeRTOS tasks (Wi-Fi/BT, networking) alongside the AbstractX coroutine engine.
 
 ### The Problem
-Previously, observability tools (such as Percepio Tracealyzer or generic serial loggers) were either:
+Previously, observability tools (such as AbstractX AbstractX Studio or generic serial loggers) were either:
 - Hardcoded for a single monolithic OS (FreeRTOS or Linux),
 - Blind to co-processors (e.g., unaware that an E907 or FPGA is offloading I/O while Linux sleeps),
 - Incapable of displaying the separation between hardware I/O driver planes and cooperative coroutine execution planes,

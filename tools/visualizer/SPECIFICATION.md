@@ -34,7 +34,7 @@ flowchart TD
         direction TB
         subgraph TOP_DOCK["Top Viewport Split"]
             direction LR
-            WIN_CORE["<b>Window 1: AbstractX Core Studio</b><br/>LeftSpace (54% Width)<br/>10-Tab CoreStudioTabBar:<br/>• CPU Gauges & Topology<br/>• Execution Swimlanes & Charts<br/>• Flow Integrity & Pacing Eye<br/>• Simple Trace Viewer<br/>• Dual-Plane Timeline<br/>• TLP Bus Debugger<br/>• System Event Log<br/>• Source Code & RTL Inspector<br/>• FPGA Peripherals<br/>• MemBrowse Memory"]
+            WIN_CORE["<b>Window 1: AbstractX Core Studio</b><br/>LeftSpace (54% Width)<br/>10-Tab CoreStudioTabBar:<br/>• Coroutine Inspector<br/>• CPU Gauges & Topology<br/>• Dual-Plane Timeline<br/>• Flow Integrity & Pacing Eye<br/>• Simple Trace Viewer<br/>• TLP Bus Debugger<br/>• System Event Log<br/>• Source Code & RTL Inspector<br/>• FPGA Peripherals<br/>• MemBrowse Memory"]
             WIN_USER["<b>Window 2: User Domain Instruments</b><br/>MainDockSpace (46% Width)<br/>• Vector PFD Artificial Horizon<br/>• 3D Drone Wireframe Attitude<br/>• Quad-X Motor Demands (M1..M4)<br/>• 8 kHz IMU Oscilloscope (ImPlot)"]
         end
     end
@@ -86,11 +86,11 @@ The visualizer enforces a multi-window docking layout configured via `hello_imgu
 | [WINDOW 1: ABSTRACTX CORE STUDIO]         | [WINDOW 2: USER DOMAIN INSTRUMENTS]                   |
 | (LeftSpace: 54% Width)                    | (MainDockSpace: 46% Width)                            |
 | [CoreStudioTabBar]:                        |                                                       |
-| ├─ [CPU Gauges & Topology]                | ├─ Primary Flight Display (PFD) Artificial Horizon    |
-| │  Core 0 (ARM64): [████░░░░] 22.4%       | │  Pitch ladder (+/-30°), Roll arc (-60°..+60°)       |
-| │  Core 1 (E907) : [██████░░] 34.1%       | │  Aviation Altimeter tape & Airspeed dial            |
-| │  SPU (FPGA)    : [██░░░░░░] 11.2%       | ├─ 3D Quadcopter Perspective Attitude Wireframe       |
-| ├─ [Execution Swimlanes & Charts]         | │  Tait-Bryan Euler orientation (Roll, Pitch, Yaw)    |
+| ├─ [Coroutine Inspector]                  | ├─ Primary Flight Display (PFD) Artificial Horizon    |
+| │  C++20 State Machine | Static Pool      | │  Pitch ladder (+/-30°), Roll arc (-60°..+60°)       |
+| ├─ [CPU Gauges & Topology]                | ├─ 3D Quadcopter Perspective Attitude Wireframe       |
+| │  Core 0 (ARM64): [████░░░░] 22.4%       | │  Tait-Bryan Euler orientation (Roll, Pitch, Yaw)    |
+| ├─ [Dual-Plane Timeline]                  | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
 | ├─ [Flow Integrity & Pacing Eye]          | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
 | │  HoL Matrix | Transit Delay | Eye       | │  M1: 650 µs | M2: 650 µs | M3: 650 µs | M4: 650 µs  |
 | ├─ [Simple Trace Viewer]                  | └─ 8 kHz IMU Oscilloscope (ImPlot Real-Time Waves)    |
@@ -119,10 +119,11 @@ The Core Studio window is a unified engineering workbench with a **10-tab `CoreS
    - **Real-Time CPU Load History Line Chart (`ImPlot`)**: Continuous 30-second rolling window.
    - **Silicon Topology & Interconnect**: Active cores, hardware accelerators, SPSC ring fill, mailbox doorbell latencies.
 
-2. **Execution Swimlanes & Charts**:
-   - **4-Track Silicon Execution Swimlanes**: Horizontal Gantt-style colored execution slices for Core 0 (Host Linux / ARM Cortex-M33), Core 1 (Coroutine Engine), SPU (FPGA AXI-Stream Fabric), and Interrupts (PLIC & Doorbells). Clicking any task span triggers the Anomaly Root-Cause Inspector modal.
-   - **Coroutine Latency & Suspension History (`ImPlot`)**: Multi-line chart tracking execution durations (µs) of `imu_pipeline`, `attitude_ekf`, `flight_control`, and `dma_bridge_worker`.
-   - **SPSC Ring Saturation (`ImPlot`)**: Real-time queue occupancy for `g_sensor_ring` and `g_telemetry_ring`.
+1. **Coroutine Inspector**:
+   - **C++20 State Machine Observability**: Lifts compiler-generated state machines into a human-readable live table showing `task_id`, coroutine name, state (`RUNNING`, `SUSPENDED`), exact `co_await` token (`spi_ring.pop()`, `timer.sleep(20ms)`), duration in state, and source mapping.
+   - **Per-Awaiter Stall / Deadlock Watchdog**: Rows glow red when duration exceeds allocated deadline budget, alerting developers to missed hardware doorbells or stalled rings.
+   - **Static Frame Pool Gauge**: Verifies zero dynamic heap allocation by tracking `.bss` pool utilization (`ABSTRACTX_CORO_POOL_SIZE = 60 KB`) with bump-allocator metrics.
+   - **Spawn Topology Tree**: Displays static parent-child coroutine dependency edges.
 
 3. **Flow Integrity & Pacing Eye**:
    - **Head-of-Line (HoL) Blocking & AXI Crossbar Contention Matrix**: Per-channel stall time, ring fill %, STALLED/NOMINAL status, and upstream hardware engine origin. Stalls ≥ 10 µs are highlighted coral red (`#E06C75`) with one-click `🔍 Drill Down` to the Anomaly Root-Cause Inspector.
@@ -257,7 +258,7 @@ Every requirement below is verified in code with an `@impl` tag:
 The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting single-OS-window internal docking (`enable_viewports = False` by default), multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`, `studio_workbench`), window pop-out via `decouple_window()`, pop-in via `restore_default_layout()`, and layout reset via `runner_params.docking_params.layout_reset = True`.
 
 ### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified 10-Tab Engineering Workbench
-The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with 10 integrated diagnostic tabs: CPU Gauges & Topology, Execution Swimlanes & Charts, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, TLP Bus Debugger, System Event Log, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse Memory. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests.
+The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with 10 integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Dual-Plane Timeline, Flow Integrity & Pacing Eye, Simple Trace Viewer, TLP Bus Debugger, System Event Log, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse Memory. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests.
 
 ### `[SPEC-STUDIO-03]` User Domain Instruments Decoupled Canvas
 The visualizer MUST provide a dedicated primary canvas (`MainDockSpace`) hosting domain-specific user instruments (Vector Primary Flight Display artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU real-time oscilloscope) decoupled from core framework execution.
