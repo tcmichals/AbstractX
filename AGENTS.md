@@ -74,3 +74,20 @@ All platform-specific clock initialization, core allocation, and pinmux are hand
 * Fused state and sensor packets are emitted as 64-byte `Tlp64` binary frames into `g_telemetry_ring`.
 * Every telemetry packet must map to the dynamic barectf/CTF 1.8 schema (`trace_schema.json` and `trace/barectf_config.yaml`).
 * Visualizers and GUI tools (`flight_display.py`, `abstractx_studio.py`) load the schema dynamically to decode fields, units, and widgets without hardcoded offsets.
+
+---
+
+## 8. GUI Architecture Invariants: Studio Workbench vs. USER Floating Canvas
+The AbstractX Visualizer architecture (`abstractx_studio.py` and `flight_display.py`) enforces a strict, permanent separation of concerns between Application Domain and Silicon/Firmware Observability:
+
+### Invariant 1: The USER Window is Strictly a Single Floating Canvas
+1. **Dedicated User Domain**: The USER window contains exclusively application-domain instruments (PFD artificial horizon, 3D attitude wireframe, motor demands, altitude, ground speed, GPS tracking, and IMU scope).
+2. **Zero Firmware Diagnostic Bleed**: The USER window MUST NOT embed low-level firmware plumbing, TLP packet inspectors, system event logs, or coroutine watchdogs.
+3. **Decoupled Floating Canvas**: The USER window is an independent floating canvas window that can be freely dragged, resized, layered on top of the Studio workbench, or moved to a second monitor.
+
+### Invariant 2: AbstractX Studio is the Unified Engineering Workbench
+1. **Unified Observability Foundation**: AbstractX Studio occupies the main desktop workbench, housing all silicon, C++20 coroutine, SPU FPGA switch fabric, and transport diagnostics.
+2. **Tab-First by Default**: All diagnostic surfaces exist as standard tabs in `CoreStudioTabBar` (Coroutine Inspector, CPU Gauges & Topology, TLP Bus Debugger, System Event Log, Flow Integrity, Simple Trace, Timeline, Source Code & RTL, FPGA Peripherals, MemBrowse CI).
+3. **Pop-to-Canvas Movable Windows**: Any diagnostic tab can be popped out onto the desktop canvas via `🗖 Pop to Canvas` to allow simultaneous multi-window comparison (e.g., inspecting coroutine suspensions alongside TLP packet hex streams and CPU load).
+4. **Anti-Clutter Single-Source State**: When a tool is popped out to the canvas, its Studio tab displays a placeholder pointing to the active floating window with a 1-click `🗗 Pop In (Dock to Studio)` button—preventing duplicate rendering, desync, or screen confusion.
+
