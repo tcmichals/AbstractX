@@ -58,6 +58,10 @@ except (ImportError, ValueError):
         from sdk import AbstractXStudioPlugin
 
 class FlightVisualizerPlugin(AbstractXStudioPlugin):
+    """
+    # @impl [SPEC-STUDIO-03] tools/visualizer/flight_plugin.py
+    User Domain Instruments: Primary Flight Display (PFD), 3D Attitude Wireframe, Motor Demands, and 8 kHz IMU Oscilloscope.
+    """
     def __init__(self):
         super().__init__(name="Flight Instruments & Attitude", version="2.0")
         # 3D Quadcopter Geometry Model

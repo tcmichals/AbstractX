@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional
 
 class AbstractXStudioPlugin(ABC):
     """
+    # @impl [SPEC-STUDIO-06] tools/visualizer/sdk/plugin.py
     Base class for AbstractX Studio domain plugins.
     
     Subclasses implement this interface to render custom domain instruments,

@@ -39,6 +39,10 @@ def app_spec_path(repo_root) -> Path:
 def trace_schema_path(repo_root) -> Path:
     return repo_root / "apps" / "gps_imu_app" / "trace_schema.json"
 
+@pytest.fixture(scope="session")
+def studio_spec_path(repo_root) -> Path:
+    return repo_root / "tools" / "visualizer" / "SPECIFICATION.md"
+
 @pytest.fixture
 def sample_tlp64_frame() -> bytes:
     """
