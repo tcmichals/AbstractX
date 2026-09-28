@@ -35,8 +35,11 @@ import socket
 import struct
 import threading
 import argparse
+import subprocess
 import numpy as np
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 try:
     from imgui_bundle import imgui, implot, immapp, hello_imgui
@@ -817,13 +820,28 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
             apply_docking_layout("balanced")
     else:
         # Window is docked inside workbench
-        if imgui.button(f"🗖 Pop Out to Own Canvas##{window_key}"):
+        if imgui.button(f"🗖 Float Canvas##{window_key}"):
             decouple_window(window_title, default_w, default_h)
         imgui.same_line()
-        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Multi-monitor independent canvas")
+        if imgui.button(f"🚀 Dedicated Window (2nd Monitor)##{window_key}"):
+            launch_external_flight_canvas()
+        imgui.same_line()
+        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Single dedicated window or independent dual monitor")
 
     imgui.end_group()
     imgui.separator()
+
+def launch_external_flight_canvas():
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    Launches the Flight Display in a separate, fully decorated native OS window.
+    Provides full native OS titlebar, minimize/maximize buttons, and mouse resize borders
+    that can be freely dragged to a second monitor across both Windows and Linux.
+    """
+    flight_script = REPO_ROOT / "apps" / "gps_imu_app" / "tools" / "flight_display.py"
+    if flight_script.exists():
+        sim_arg = ["--sim"] if g_state.sim_mode else []
+        subprocess.Popen([sys.executable, str(flight_script)] + sim_arg)
 
 def _setup_studio_style():
     """
