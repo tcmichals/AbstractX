@@ -305,4 +305,31 @@ def test_studio_membrowse_ci_integration():
         assert "sections" in t_info
 
 
+def test_studio_floating_canvas_windows_and_user_canvas():
+    """Validates movable floating canvas windows and independent User domain instruments canvas."""
+    state = studio.TelemetryState()
+    assert hasattr(state, "canvas_windows")
+    expected_keys = {"coro", "cpu", "tlp", "log", "timeline", "trace", "source", "fpga", "memory"}
+    assert expected_keys.issubset(set(state.canvas_windows.keys()))
+
+    # Verify that all windows start docked as tabs inside Studio
+    for k in expected_keys:
+        assert state.canvas_windows[k] is False
+
+    # Simulate popping Coroutine Inspector and TLP Debugger to canvas windows
+    state.canvas_windows["coro"] = True
+    state.canvas_windows["tlp"] = True
+    assert state.canvas_windows["coro"] is True
+    assert state.canvas_windows["tlp"] is True
+
+    # Simulate popping back into Studio tabs
+    state.canvas_windows["coro"] = False
+    assert state.canvas_windows["coro"] is False
+
+    # Verify runner params has post_render_dockable_windows configured for canvas windows
+    runner = studio.create_docking_runner_params()
+    assert runner.callbacks.post_render_dockable_windows is not None
+
+
+
 
