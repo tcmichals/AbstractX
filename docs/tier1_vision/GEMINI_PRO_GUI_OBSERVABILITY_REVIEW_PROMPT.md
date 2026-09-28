@@ -64,11 +64,16 @@ To solve this opacity, AbstractX Studio implements a purpose-built observability
 
 Please provide an exhaustive, rigorous review addressing the following five areas:
 
-#### 1. Ergonomic & Usability Audit (Eliminating Visual Clutter)
-AbstractX Studio implements a clean multi-window docking architecture:
-- **Window 1: AbstractX Core Studio**: Unified 10-tab diagnostic workbench featuring Coroutine Inspector, CPU Gauges & Topology, Dual-Plane Timeline, Flow Integrity & Pacing Eye, Simple Trace Viewer, TLP Bus Debugger, System Event Log, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse Memory.
-- **Window 2: User Domain Flight Instruments**: Vector PFD artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU oscilloscope.
-- **Dedicated Decoupled Panes**: TLP Bus Debugger, System Event Log, Source Code & Performance Inspector, FPGA & Hardware Peripherals Inspector.
+#### 1. Ergonomic & Usability Audit (Eliminating Visual Clutter: Windows vs. Tabs)
+AbstractX Studio implements a clean multi-window docking architecture grounded in a strict **Window vs. Tab** ergonomic design:
+- **Dedicated Windows for Concurrent Observability**: High-bandwidth data streams that must be monitored *simultaneously* during operation are implemented as dedicated dockable windows on the 4-pane workbench:
+  - **Window 1: AbstractX Core Studio**: Core execution context and deep-dive analytical tab workbench.
+  - **Window 2: User Domain Flight Instruments**: Vector PFD artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU oscilloscope.
+  - **Window 3: TLP Bus Debugger**: Dedicated bottom pane displaying live 64-byte packet stream table, 20B header breakdown, and color-coded hex dump.
+  - **Window 4: System Event Log**: Dedicated bottom-right pane providing real-time severity filtering, search, and auto-scrolling.
+  *(Duplicate TLP and Event Log tabs are purged from User examples to eliminate feature redundancy).*
+- **Contextual Tabs for Focused Deep-Dives**: Analytical tools sharing the main focal area inside Core Studio: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse CI Report.
+- **Continuous Integration Static Memory Observability**: MemBrowse is structured as a dedicated **CI Task Report & Verifier** (`.github/workflows/membrowse.yml`, `tools/track_memory_membrowse.py`), providing an interactive multi-target matrix, zero-heap symbol audit verification ($0\text{ B}$ dynamic heap), and 1-click local CI analysis execution right from the visualizer.
 
 **Dynamic Window & Resolution Management**:
 - Workflow Focus Presets: `Balanced`, `Flight Focus`, `Core Focus`, `Source Focus`, `FPGA Focus`, `Studio Workbench`.

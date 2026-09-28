@@ -74,34 +74,30 @@ The visualizer enforces a multi-window docking layout configured via `hello_imgu
 * **Single OS Window** (`enable_viewports = False`): The application runs in one OS window by default, providing rock-solid cross-platform stability across Linux (X11 and Wayland) and Windows. Individual dockable windows can be programmatically torn off into floating internal viewports via `decouple_window()`.
 * **Full-Screen Dock Space**: Configured with `hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space`.
 * **Docking Split Hierarchy**:
-  1. `LeftSpace`: Left split from `MainDockSpace` with a ratio of `0.54` (54% width), hosting the **AbstractX Core Studio** (with all 10 diagnostic tabs unified in `CoreStudioTabBar`).
-  2. `BottomSpace`: Bottom split from `MainDockSpace` with a ratio of `0.36` (36% height), available for auxiliary decoupled panes.
-  3. `BottomRightSpace`: Right split from `BottomSpace` with a ratio of `0.50`, available for additional auxiliary panels.
-  4. `MainDockSpace`: The central primary canvas hosting the decoupled **User Domain Instruments**.
+  1. `LeftSpace`: Left split from `MainDockSpace` with a ratio of `0.54` (54% width), hosting the **AbstractX Core Studio** (with core diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse CI Report).
+  2. `MainDockSpace`: Top-Right primary canvas hosting decoupled **User Domain Instruments** (PFD artificial horizon, 3D attitude wireframe, motor mixer, 8 kHz oscilloscope).
+  3. `BottomSpace`: Bottom split from `MainDockSpace` (36% height), hosting the dedicated **TLP Bus Debugger** Window (live 64-byte packet stream table, 20B header breakdown, hex dump).
+  4. `BottomRightSpace`: Right split from `BottomSpace` (50% width), hosting the dedicated **System Event Log** Window (real-time severity filtered log stream).
 
 ```
 +===================================================================================================+
 | ABSTRACTX STUDIO WORKBENCH | Platform: Radxa Cubie A5E (ARM64+E907) | Stream: 8.2 kHz | 0 B Heap |
 +===================================================================================================+
 | [WINDOW 1: ABSTRACTX CORE STUDIO]         | [WINDOW 2: USER DOMAIN INSTRUMENTS]                   |
-| (LeftSpace: 54% Width)                    | (MainDockSpace: 46% Width)                            |
-| [CoreStudioTabBar]:                        |                                                       |
-| ├─ [Coroutine Inspector]                  | ├─ Primary Flight Display (PFD) Artificial Horizon    |
-| │  C++20 State Machine | Static Pool      | │  Pitch ladder (+/-30°), Roll arc (-60°..+60°)       |
-| ├─ [CPU Gauges & Topology]                | ├─ 3D Quadcopter Perspective Attitude Wireframe       |
-| │  Core 0 (ARM64): [████░░░░] 22.4%       | │  Tait-Bryan Euler orientation (Roll, Pitch, Yaw)    |
-| ├─ [Dual-Plane Timeline]                  | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
-| ├─ [Flow Integrity & Pacing Eye]          | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
-| │  HoL Matrix | Transit Delay | Eye       | │  M1: 650 µs | M2: 650 µs | M3: 650 µs | M4: 650 µs  |
-| ├─ [Simple Trace Viewer]                  | └─ 8 kHz IMU Oscilloscope (ImPlot Real-Time Waves)    |
-| ├─ [Dual-Plane Timeline]                  |                                                       |
-| ├─ [TLP Bus Debugger]                     |                                                       |
-| ├─ [System Event Log]                     |                                                       |
-| ├─ [Source Code & RTL Inspector]          |                                                       |
-| │  C++ / SV toggle | Line annotations     |                                                       |
-| ├─ [FPGA Peripherals]                     |                                                       |
-| └─ [MemBrowse Memory]                     |                                                       |
-+-------------------------------------------+-------------------------------------------------------+
+| (LeftSpace: 54% Width)                    | (MainDockSpace: 46% Width, 64% Height)                |
+| [CoreStudioTabBar]:                        | ├─ Primary Flight Display (PFD) Artificial Horizon    |
+| ├─ [Coroutine Inspector]                  | │  Pitch ladder (+/-30°), Roll arc (-60°..+60°)       |
+| │  C++20 State Machine | Static Pool      | ├─ 3D Quadcopter Perspective Attitude Wireframe       |
+| ├─ [CPU Gauges & Topology]                | │  Tait-Bryan Euler orientation (Roll, Pitch, Yaw)    |
+| │  Core 0 (ARM64): [████░░░░] 22.4%       | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
+| ├─ [Flow Integrity & Pacing Eye]          | └─ 8 kHz IMU Oscilloscope (ImPlot Real-Time Waves)    |
+| │  HoL Matrix | Transit Delay | Eye       +-------------------------------------------------------+
+| ├─ [Simple Trace Viewer]                  | [WINDOW 3: TLP BUS DEBUGGER] | [WINDOW 4: EVENT LOG]  |
+| ├─ [Dual-Plane Timeline]                  | (BottomSpace: 23% Width)     | (BottomRight: 23% W)   |
+| ├─ [Source Code & RTL Inspector]          | ├─ 64B Stream Table          | ├─ Severity Filters    |
+| ├─ [FPGA Peripherals]                     | ├─ 20B Header Decode         | ├─ Live Trace Logs     |
+| └─ [MemBrowse CI Report]                  | └─ Color Hex Dump            | └─ Substring Search    |
++-------------------------------------------+------------------------------+------------------------+
 | Status: [ONLINE] | Radxa Cubie A5E | Packets: 124,592 | Rate: 8,240 pkts/s | Dynamic Heap: 0 B    |
 | Layout: [Studio Workbench] [Balanced] [Flight Focus] [Core Studio] [Source] [FPGA] [🔄 Restore]  |
 +===================================================================================================+
@@ -257,17 +253,17 @@ Every requirement below is verified in code with an `@impl` tag:
 ### `[SPEC-STUDIO-01]` Full-Screen Multi-Window Docking Layout & Dynamic Management
 The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting single-OS-window internal docking (`enable_viewports = False` by default), multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`, `studio_workbench`), window pop-out via `decouple_window()`, pop-in via `restore_default_layout()`, and layout reset via `runner_params.docking_params.layout_reset = True`.
 
-### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified 10-Tab Engineering Workbench
-The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with 10 integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Dual-Plane Timeline, Flow Integrity & Pacing Eye, Simple Trace Viewer, TLP Bus Debugger, System Event Log, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse Memory. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests.
+### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified Engineering Workbench
+The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse CI Report. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests.
 
 ### `[SPEC-STUDIO-03]` User Domain Instruments Decoupled Canvas
 The visualizer MUST provide a dedicated primary canvas (`MainDockSpace`) hosting domain-specific user instruments (Vector Primary Flight Display artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU real-time oscilloscope) decoupled from core framework execution.
 
-### `[SPEC-STUDIO-04]` 64-Byte TLP Bus Debugger & Header Inspector
-The visualizer MUST provide a TLP Bus Debugger tab displaying a live 64-byte packet stream table (Seq, Tag, Channel, Timestamp, CRC status), byte-by-byte header breakdown (20B header, 40B payload, 4B CRC32), color-coded raw hex dump, and stream capture controls. This functionality is unified within the Core Studio `CoreStudioTabBar`.
+### `[SPEC-STUDIO-04]` 64-Byte TLP Bus Debugger & Header Inspector Window
+The visualizer MUST provide a dedicated TLP Bus Debugger dockable window (`BottomSpace`) displaying a live 64-byte packet stream table (Seq, Tag, Channel, Timestamp, CRC status), byte-by-byte header breakdown (20B header, 40B payload, 4B CRC32), color-coded raw hex dump, pause/clear stream controls, and pop-out capability. It is concurrently visible alongside Core Studio and User Domain Instruments on the workbench.
 
-### `[SPEC-STUDIO-05]` Real-Time System Event Log & Trace Filter
-The visualizer MUST provide a real-time event log tab within the Core Studio `CoreStudioTabBar`, displaying timestamped events from drivers, coroutines, and the TLP switch fabric, supporting severity filtering (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), substring text search, and auto-scrolling.
+### `[SPEC-STUDIO-05]` Real-Time System Event Log & Trace Filter Window
+The visualizer MUST provide a dedicated System Event Log dockable window (`BottomRightSpace`), displaying timestamped events from drivers, coroutines, and the TLP switch fabric, supporting severity filtering (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), substring text search, auto-scrolling, and pop-out capability. It is concurrently visible alongside Core Studio, User Domain Instruments, and TLP Bus Debugger.
 
 ### `[SPEC-STUDIO-06]` Core-and-Plugin Extensibility SDK
 The visualizer MUST decouple domain instruments from core framework logic using the `AbstractXStudioPlugin` base class, defining standard lifecycle hooks (`on_init`, `on_tlp_packet`, `render_ui`, `render_menu_items`) without requiring direct OpenGL/windowing boilerplate.
@@ -281,8 +277,8 @@ The visualizer MUST ingest 64-byte `asp_tlp64_t` frames asynchronously via a ded
 ### `[SPEC-STUDIO-09]` Standalone Synthetic Flight Simulation Engine
 The visualizer MUST support a standalone `--sim` mode generating realistic multi-rate synthetic telemetry (8 kHz IMU, 50 Hz Magnetometer, 10 Hz GPS, and 100 Hz AHRS state packets) for full offline visual testing without connected hardware.
 
-### `[SPEC-STUDIO-10]` MemBrowse Zero-Heap Static Budget Verification
-The visualizer MUST ingest static section metrics (`.text`, `.rodata`, `.data`, `.bss`) from `memory_metrics.json` and verify compliance with zero-heap invariants, displaying memory budget bars against hardware SRAM and Flash limits and an explicit `0 B` dynamic heap allocation badge.
+### `[SPEC-STUDIO-10]` MemBrowse Zero-Heap Static Budget Verification & CI Report
+The visualizer MUST ingest static section metrics (`.text`, `.rodata`, `.data`, `.bss`) from `memory_metrics.json` generated by continuous integration (`.github/workflows/membrowse.yml` and `tools/track_memory_membrowse.py`). It MUST display a multi-target comparison matrix, detailed RAM/Flash budget bars, zero-heap invariant verification badges (`0 B` dynamic heap), and provide a 1-click interactive action to execute local MemBrowse CI analysis and reload metrics.
 
 ### `[SPEC-STUDIO-11]` Source Code & RTL Inspector with Cross-Language Toggle
 The visualizer MUST provide a Source Code & RTL Inspector tab (within `CoreStudioTabBar`) with a `CPP` / `RTL` mode toggle, allowing developers to view annotated C++20 application/driver source alongside SystemVerilog RTL (`rtl/asp_router.sv`, `rtl/imu/asp_imu_auto_dma.sv`, `rtl/dshot/asp_dshot_core.sv`). Clicking any line MUST safely update `selected_source_line` / `selected_rtl_line` via `imgui.selectable()` without risk of ImGui color-stack underflow. Overrun lines MUST display coral-red badges.
