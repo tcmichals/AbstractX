@@ -7,12 +7,14 @@ This document is the **authoritative architectural design specification** for th
 ## 1. Studio Overview & Objectives
 
 The AbstractX Visualizer Studio is a real-time hardware-software co-design observability workbench built in Python using **`imgui-bundle`** (`Dear ImGui` + `ImPlot` + `HelloImGui`). It provides:
-1. **Architectural Decoupling**: A clean, physical separation between the low-level **AbstractX Core Studio** (Silicon CPU cores, timeline, SPSC rings, memory budgets) and high-level **User Domain Instruments** (PFD, 3D attitude wireframe, motor demands, real-time sensor graphs).
-2. **Full-Screen Multi-Window Docking Layout**: Native HelloImGui docking engine permitting windows to be tiled, docked side-by-side, tabbed, floated across multiple monitors, or toggled via menu bars.
+1. **Architectural Decoupling**: A clean, physical separation between the low-level **AbstractX Core Studio** (Silicon CPU cores, timeline, SPSC rings, memory budgets, flow integrity, RTL inspection) and high-level **User Domain Instruments** (PFD, 3D attitude wireframe, motor demands, real-time sensor graphs).
+2. **Single-Window Internal Docking** (`enable_viewports = False` by default): Rock-solid cross-platform stability across Linux (X11, Wayland) and Windows. Individual windows can be torn off into floating viewports on demand, with a prominent **Pop In (Dock to Studio)** button to return.
 3. **Hardware-Level TLP Bus Inspection**: Dedicated live stream table and byte-level breakdown of 64-byte PCIe-style Transaction Layer Packets (`asp_tlp64_t`), including 20-byte wire header extraction and color-coded hex inspection with IEEE 802.3 CRC32 verification.
 4. **Dynamic Schema-Driven Telemetry Ingestion**: CTF 1.8 / barectf schema decoding without hardcoded byte offsets, dynamically extracting engineering scales and units from metadata.
 5. **Real-Time System Event Logging**: Filterable, low-latency scrolling console capturing driver lifecycle transitions, coroutine yields, hardware mailbox doorbells, and TLP router events.
 6. **Continuous Zero-Heap Auditing**: Static budget tracking (`MemBrowse`) verifying zero dynamic heap usage ($0\text{ B}$) against device physical SRAM and Flash memory maps.
+7. **Real-Time Flow-Integrity & Bus Physics Diagnostics**: Head-of-Line (HoL) blocking contention matrix, packet transit delay (Δt = t_pop − t_latch), inter-arrival pacing eye diagram, and monotonic sequence drift tracking.
+8. **Cross-Language Source & RTL Inspector**: Side-by-side C++20 coroutine source viewer and SystemVerilog RTL viewer with line-level execution annotations and one-click anomaly drill-down.
 
 ```mermaid
 flowchart TD
@@ -28,23 +30,17 @@ flowchart TD
         STATE_STORE["<b>Thread-Safe TelemetryState</b><br/>Mutex-Guarded Lock-Free History"]
     end
 
-    subgraph DOCKING_WORKBENCH["3. HelloImGui 4-Window Docking Workbench"]
+    subgraph DOCKING_WORKBENCH["3. HelloImGui 2-Window Docking Workbench (Single OS Window)"]
         direction TB
         subgraph TOP_DOCK["Top Viewport Split"]
             direction LR
-            WIN_CORE["<b>Window 1: AbstractX Core Studio</b><br/>LeftSpace (36% Width)<br/>• CPU & Silicon Topology<br/>• Dual-Plane Timeline<br/>• Source Scanner (__FILE__:__LINE__)<br/>• MemBrowse RAM/Flash Gauges"]
-            WIN_USER["<b>Window 2: User Domain Instruments</b><br/>MainDockSpace (64% Width)<br/>• Vector PFD Artificial Horizon<br/>• 3D Drone Wireframe Attitude<br/>• Quad-X Motor Demands (M1..M4)<br/>• 8 kHz IMU Oscilloscope (ImPlot)"]
+            WIN_CORE["<b>Window 1: AbstractX Core Studio</b><br/>LeftSpace (54% Width)<br/>10-Tab CoreStudioTabBar:<br/>• CPU Gauges & Topology<br/>• Execution Swimlanes & Charts<br/>• Flow Integrity & Pacing Eye<br/>• Simple Trace Viewer<br/>• Dual-Plane Timeline<br/>• TLP Bus Debugger<br/>• System Event Log<br/>• Source Code & RTL Inspector<br/>• FPGA Peripherals<br/>• MemBrowse Memory"]
+            WIN_USER["<b>Window 2: User Domain Instruments</b><br/>MainDockSpace (46% Width)<br/>• Vector PFD Artificial Horizon<br/>• 3D Drone Wireframe Attitude<br/>• Quad-X Motor Demands (M1..M4)<br/>• 8 kHz IMU Oscilloscope (ImPlot)"]
         end
-        subgraph BOT_DOCK["Bottom Viewport Split (36% Height)"]
-            direction LR
-            WIN_TLP["<b>Window 3: TLP Bus Debugger</b><br/>BottomSpace (50% Width)<br/>• Live 64B Packet Stream Table<br/>• 20B Header Inspector<br/>• Color-Coded Hex Dump<br/>• CRC32 Integrity Verification"]
-            WIN_LOG["<b>Window 4: System Event Log</b><br/>BottomRightSpace (50% Width)<br/>• Filter: ALL, INFO, TLP, CORO, ISR<br/>• Text Search & Auto-Scroll<br/>• Color-Coded Trace Messages"]
-        end
-        TOP_DOCK --> BOT_DOCK
     end
 
     subgraph STATUS_LAYER["4. Global Status Bar"]
-        BAR["<b>Application Status Bar</b><br/>[ONLINE/OFFLINE] | Target Platform | Packet Rate (pkts/s) | Dynamic Heap: 0 B"]
+        BAR["<b>Application Status Bar</b><br/>[ONLINE/OFFLINE] | Target Platform | Packet Rate (pkts/s) | Dynamic Heap: 0 B<br/>Layout Presets | Restore Defaults"]
     end
 
     UDP_PORT --> RCV_THREAD
@@ -55,24 +51,18 @@ flowchart TD
 
     STATE_STORE -.-> WIN_CORE
     STATE_STORE -.-> WIN_USER
-    STATE_STORE -.-> WIN_TLP
-    STATE_STORE -.-> WIN_LOG
     STATE_STORE -.-> BAR
 
     classDef ingStyle fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
     classDef decStyle fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
     classDef winCoreStyle fill:#312e81,stroke:#a5b4fc,stroke-width:2px,color:#ffffff;
     classDef winUserStyle fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#ffffff;
-    classDef winTlpStyle fill:#78350f,stroke:#fbbf24,stroke-width:2px,color:#ffffff;
-    classDef winLogStyle fill:#831843,stroke:#f472b6,stroke-width:2px,color:#ffffff;
     classDef statStyle fill:#111827,stroke:#9ca3af,stroke-width:2px,color:#ffffff;
 
     class UDP_PORT,SIM_GEN,CTF_FILE ingStyle;
     class RCV_THREAD,SCHEMA_LDR,STATE_STORE decStyle;
     class WIN_CORE winCoreStyle;
     class WIN_USER winUserStyle;
-    class WIN_TLP winTlpStyle;
-    class WIN_LOG winLogStyle;
     class BAR statStyle;
 ```
 
@@ -81,40 +71,39 @@ flowchart TD
 ## 2. Multi-Window HelloImGui Docking Architecture
 
 The visualizer enforces a multi-window docking layout configured via `hello_imgui.RunnerParams`:
+* **Single OS Window** (`enable_viewports = False`): The application runs in one OS window by default, providing rock-solid cross-platform stability across Linux (X11 and Wayland) and Windows. Individual dockable windows can be programmatically torn off into floating internal viewports via `decouple_window()`.
 * **Full-Screen Dock Space**: Configured with `hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space`.
 * **Docking Split Hierarchy**:
-  1. `LeftSpace`: Left split from `MainDockSpace` with a ratio of `0.36` (36% width), hosting the low-level **AbstractX Core Studio**.
-  2. `BottomSpace`: Bottom split from `MainDockSpace` with a ratio of `0.36` (36% height), hosting the hardware **TLP Bus Debugger**.
-  3. `BottomRightSpace`: Right split from `BottomSpace` with a ratio of `0.50` (50% width of bottom region), hosting the **System Event Log**.
-  4. `MainDockSpace`: The central, primary canvas hosting the decoupled **User Domain Instruments**.
+  1. `LeftSpace`: Left split from `MainDockSpace` with a ratio of `0.54` (54% width), hosting the **AbstractX Core Studio** (with all 10 diagnostic tabs unified in `CoreStudioTabBar`).
+  2. `BottomSpace`: Bottom split from `MainDockSpace` with a ratio of `0.36` (36% height), available for auxiliary decoupled panes.
+  3. `BottomRightSpace`: Right split from `BottomSpace` with a ratio of `0.50`, available for additional auxiliary panels.
+  4. `MainDockSpace`: The central primary canvas hosting the decoupled **User Domain Instruments**.
 
 ```
 +===================================================================================================+
-| ABSTRACTX STUDIO WORKBENCH | Platform: Radxa Cubie A5E (ARM64+E907) | Stream: 8.2 kHz | 0 B Heap   |
+| ABSTRACTX STUDIO WORKBENCH | Platform: Radxa Cubie A5E (ARM64+E907) | Stream: 8.2 kHz | 0 B Heap |
 +===================================================================================================+
 | [WINDOW 1: ABSTRACTX CORE STUDIO]         | [WINDOW 2: USER DOMAIN INSTRUMENTS]                   |
-| (LeftSpace: 36% Width)                    | (MainDockSpace: 64% Width)                            |
-| ├─ CPU & Silicon Topology                 | ├─ Primary Flight Display (PFD) Artificial Horizon    |
+| (LeftSpace: 54% Width)                    | (MainDockSpace: 46% Width)                            |
+| [CoreStudioTabBar]:                        |                                                       |
+| ├─ [CPU Gauges & Topology]                | ├─ Primary Flight Display (PFD) Artificial Horizon    |
 | │  Core 0 (ARM64): [████░░░░] 22.4%       | │  Pitch ladder (+/-30°), Roll arc (-60°..+60°)       |
 | │  Core 1 (E907) : [██████░░] 34.1%       | │  Aviation Altimeter tape & Airspeed dial            |
 | │  SPU (FPGA)    : [██░░░░░░] 11.2%       | ├─ 3D Quadcopter Perspective Attitude Wireframe       |
-| ├─ SPSC Ring Saturation & Doorbell Latency| │  Tait-Bryan Euler orientation (Roll, Pitch, Yaw)    |
-| ├─ Dual-Plane Execution Timeline          | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
-| │  Plane 1: Hardware DMA / ISR bursts     | │  M1: 650 µs | M2: 650 µs | M3: 650 µs | M4: 650 µs  |
-| │  Plane 2: C++20 Stackless Coroutines    | └─ 8 kHz IMU Oscilloscope (ImPlot Real-Time Waves)    |
-| ├─ Interactive Source Scanner             |                                                       |
-| │  Click event -> Jump to __FILE__:__LINE__|                                                       |
-| └─ MemBrowse Static RAM/Flash Budgets     |                                                       |
-+-------------------------------------------+-------------------------------------------------------+
-| [WINDOW 3: TLP BUS DEBUGGER]              | [WINDOW 4: SYSTEM EVENT LOG]                          |
-| (BottomSpace: 50% Bottom Width)           | (BottomRightSpace: 50% Bottom Width)                  |
-| ├─ Incoming 64-Byte Packet Stream Table   | ├─ Filters: [ALL] [INFO] [TLP] [CORO] [ISR] [WARN]    |
-| │  #0042 | IMU  | Ch:2 | Seq:42 | CRC OK  | ├─ Text Search: [ "doorbell" ] | Auto-Scroll: [X]     |
-| ├─ 20B Header Inspector (Type, Addr, Len) | ├─ [00:01.120] [INFO] [System]: Link established      |
-| ├─ Raw 64-Byte Color-Coded Hex Dump       | ├─ [00:01.121] [TLP ] [Router]: Pkt #42 from Ch:2     |
-| └─ Byte Legend: Header, Payload, CRC32    | ├─ [00:01.122] [CORO] [Engine]: imu_pipeline resumed  |
+| ├─ [Execution Swimlanes & Charts]         | │  Tait-Bryan Euler orientation (Roll, Pitch, Yaw)    |
+| ├─ [Flow Integrity & Pacing Eye]          | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
+| │  HoL Matrix | Transit Delay | Eye       | │  M1: 650 µs | M2: 650 µs | M3: 650 µs | M4: 650 µs  |
+| ├─ [Simple Trace Viewer]                  | └─ 8 kHz IMU Oscilloscope (ImPlot Real-Time Waves)    |
+| ├─ [Dual-Plane Timeline]                  |                                                       |
+| ├─ [TLP Bus Debugger]                     |                                                       |
+| ├─ [System Event Log]                     |                                                       |
+| ├─ [Source Code & RTL Inspector]          |                                                       |
+| │  C++ / SV toggle | Line annotations     |                                                       |
+| ├─ [FPGA Peripherals]                     |                                                       |
+| └─ [MemBrowse Memory]                     |                                                       |
 +-------------------------------------------+-------------------------------------------------------+
 | Status: [ONLINE] | Radxa Cubie A5E | Packets: 124,592 | Rate: 8,240 pkts/s | Dynamic Heap: 0 B    |
+| Layout: [Studio Workbench] [Balanced] [Flight Focus] [Core Studio] [Source] [FPGA] [🔄 Restore]  |
 +===================================================================================================+
 ```
 
@@ -123,98 +112,92 @@ The visualizer enforces a multi-window docking layout configured via `hello_imgu
 ## 3. Window Functional Specifications
 
 ### 3.1 Window 1: AbstractX Core Studio (`LeftSpace`)
-The Core Studio window provides foundational hardware-software co-design visibility across 5 integrated views:
+The Core Studio window is a unified engineering workbench with a **10-tab `CoreStudioTabBar`**, providing complete hardware-software co-design observability:
+
 1. **CPU Gauges & Topology**:
-   - **Analog Radial Dial Gauges**: Rendered via vector draw lists featuring 240-degree sweep arcs, dynamic color-coding (Green < 50%, Amber < 80%, Coral Red $\ge 80\%$), needle indicators, and digital readouts for:
-     - **Core 0 (Host Linux ARM64 / Cortex-M33)**: Total CPU % load.
-     - **Core 1 (Coroutine Engine / XuanTie E907)**: Real-time active duty cycle %.
-     - **SPU (FPGA Switch Fabric)**: Logic LUT utilization % and Auto-DMA rate.
-   - **Real-Time CPU Load History Line Chart (`ImPlot`)**: Continuous scrolling line chart tracking Core 0, Core 1, and SPU loads over the preceding 30-second window.
-   - **Silicon Topology & Interconnect**: Active processing cores, hardware accelerators, SPSC lock-free ring fill, and sub-microsecond mailbox doorbell interrupt latencies.
-2. **Tracealyzer Task Timeline & Line Charts**:
-   - **Task Execution Gantt Ribbons**: Percepio Tracealyzer style colored execution slices representing active coroutine tasks (`imu_pipeline`, `attitude_ekf`, `flight_control`, `spi_dma_burst`). Clicking any task slice targets the interactive source inspector.
-   - **Coroutine Latency & Suspension History Line Chart (`ImPlot`)**: Multi-line waveform tracking execution durations and suspension latencies ($\mu s$) commit-over-commit.
-   - **SPSC Interconnect Saturation Line Chart (`ImPlot`)**: Real-time queue occupancy waveforms for `g_sensor_ring` and `g_telemetry_ring` (0 to 64 packets).
-3. **Simple Trace Viewer (strace / Tracealyzer Event Log)**:
-   - Chronological microsecond-timestamped execution trace table capturing coroutine yields, resumes, `co_await` tokens, hardware DMA completions, and doorbell interrupts.
-   - Interactive filtering by silicon core (`[ALL]`, `[Core 0]`, `[Core 1]`, `[SPU]`, `[ISR]`), substring search, pause stream, and auto-scroll locking.
-   - Direct integration with the Source Code Scanner: selecting any trace event automatically resolves `__FILE__ : __LINE__` and displays the exact C++ source context.
-4. **Dual-Plane Execution Timeline**:
-   - **Plane 1 (Hardware Drivers & ISR/DMA)**: Timed burst execution bars for SPI DMA bursts, I2C ISRs, and hardware doorbell signals.
-   - **Plane 2 (Cooperative Coroutine Loop)**: Stackless coroutine task execution spans (`Task<void>`), displaying exact suspension reasons (`co_await g_sensor_ring.pop()`, `co_await timer.sleep()`).
-5. **MemBrowse Memory Budgets**:
-   - Continuously audits memory metrics exported by `tools/track_memory_membrowse.py`.
-   - Visualizes RAM and Flash utilization against hardware limits defined in `tools/membrowse-targets.json`.
-   - Displays `.text`, `.rodata`, `.data`, and `.bss` section metrics with guaranteed zero dynamic heap reference verification ($0\text{ B}$).
+   - **Analog Radial Dial Gauges**: 240-degree sweep arcs, dynamic color-coding (Green < 50%, Amber < 80%, Coral Red ≥ 80%), needle indicators, and digital readouts for Core 0, Core 1, and SPU.
+   - **Real-Time CPU Load History Line Chart (`ImPlot`)**: Continuous 30-second rolling window.
+   - **Silicon Topology & Interconnect**: Active cores, hardware accelerators, SPSC ring fill, mailbox doorbell latencies.
+
+2. **Execution Swimlanes & Charts**:
+   - **4-Track Silicon Execution Swimlanes**: Horizontal Gantt-style colored execution slices for Core 0 (Host Linux / ARM Cortex-M33), Core 1 (Coroutine Engine), SPU (FPGA AXI-Stream Fabric), and Interrupts (PLIC & Doorbells). Clicking any task span triggers the Anomaly Root-Cause Inspector modal.
+   - **Coroutine Latency & Suspension History (`ImPlot`)**: Multi-line chart tracking execution durations (µs) of `imu_pipeline`, `attitude_ekf`, `flight_control`, and `dma_bridge_worker`.
+   - **SPSC Ring Saturation (`ImPlot`)**: Real-time queue occupancy for `g_sensor_ring` and `g_telemetry_ring`.
+
+3. **Flow Integrity & Pacing Eye**:
+   - **Head-of-Line (HoL) Blocking & AXI Crossbar Contention Matrix**: Per-channel stall time, ring fill %, STALLED/NOMINAL status, and upstream hardware engine origin. Stalls ≥ 10 µs are highlighted coral red (`#E06C75`) with one-click `🔍 Drill Down` to the Anomaly Root-Cause Inspector.
+   - **Transit Delay Plot**: $\Delta t_{\text{transit}} = t_{\text{pop}} - t_{\text{latch}}$ in µs with a 10 µs saturation threshold line and monotonic sequence integrity counters.
+   - **Pacing Eye Diagram**: Inter-arrival deltas folded modulo 125.0 µs (8 kHz primary epoch), exposing clock jitter and drift relative to the upper/lower pacing bounds (±10 µs).
+
+4. **Simple Trace Viewer**:
+   - Chronological µs-timestamped execution trace table capturing coroutine yields, resumes, `co_await` tokens, DMA completions, and doorbell interrupts.
+   - Filtering by silicon core (`ALL`, `Core 0`, `Core 1`, `SPU`, `ISR`), substring search, pause/resume, and auto-scroll locking.
+
+5. **Dual-Plane Execution Timeline**:
+   - **Plane 1 (Hardware Drivers & ISR/DMA)**: Timed execution bars for SPI DMA bursts, I2C ISRs, and hardware doorbell signals.
+   - **Plane 2 (Cooperative Coroutine Loop)**: Stackless `Task<void>` execution spans, displaying exact suspension tokens (`co_await g_sensor_ring.pop()`, `co_await timer.sleep()`).
+
+6. **TLP Bus Debugger**:
+   - Live 64-byte packet stream table (Seq, Tag, Channel, Timestamp, CRC status).
+   - 20-byte wire header inspector (Type, Flags, Tag, Channel, Target Address, Length DW, Sequence, Timestamp ns).
+   - Color-coded raw hex dump (Header: blue, Payload: green, CRC32: orange).
+   - Stream Pause/Resume, buffer clear, and packet counter diagnostics.
+
+7. **System Event Log**:
+   - Real-time severity-filtered log (ALL, INFO, TLP, CORO, ISR, WARN, MEM).
+   - Substring search, auto-scroll pinning, and clipboard copy.
+
+8. **Source Code & RTL Inspector**:
+   - **C++ / RTL toggle**: Switch between C++20 application/driver source (`CPP` mode) and SystemVerilog RTL (`RTL` mode) via `source_view_mode` state.
+   - **CPP mode** file list: `apps/gps_imu_app/src/main.cpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, `include/abstractx/fusion/attitude_filter.hpp`, `targets/allwinner_e907/src/io_processor.cpp`.
+   - **RTL mode** file list: `rtl/asp_router.sv`, `rtl/imu/asp_imu_auto_dma.sv`, `rtl/dshot/asp_dshot_core.sv`.
+   - Line-by-line profiling annotations: execution duration (µs), deadline budget, overrun status badges (Green nominal, Coral Red overrun).
+   - Clickable `imgui.selectable()` rows: clicking any line sets `selected_source_line` / `selected_rtl_line` and `selected_token` safely, without risk of ImGui color-stack underflow.
+
+9. **FPGA & Hardware Peripherals**:
+   - SPI0 Auto-DMA throughput, clock speed (10 MHz), transfer duration, and bus saturation %.
+   - AXI-Stream TLP Crossbar (`asp_router.sv`): 150 MHz operating frequency, 13.3 ns zero-copy routing latency, channel breakdown, stall/backpressure metrics.
+   - DShot ESC Generator: 4-channel DShot600 motor pulse generation at 600 kbit/s, 26.7 µs frame duration.
+
+10. **MemBrowse Memory**:
+    - Continuously audits static section budgets (`.text`, `.rodata`, `.data`, `.bss`) from `memory_metrics.json`.
+    - RAM and Flash utilization gauges against per-target hardware limits.
+    - Zero-dynamic-heap compliance badge: `Dynamic Heap: 0 B`.
 
 ### 3.2 Window 2: User Domain Instruments (`MainDockSpace`)
-A high-framerate (120 FPS) canvas hosting domain-specific user instruments:
-1. **Vector Primary Flight Display (PFD)**:
-   - Dynamic artificial horizon with anti-aliased Sky/Earth tilt polygons rendered via ImGui draw lists.
-   - Pitch ladder calibrated in $\pm 10^\circ$, $\pm 20^\circ$, $\pm 30^\circ$ pitch increments.
-   - Central aircraft reticle crosshairs and roll angle pointer.
-2. **3D Quadcopter Perspective Wireframe**:
-   - Full 3D perspective projection computed via Tait-Bryan rotation matrix:
-     $$\mathbf{R} = \mathbf{R}_z(\psi) \mathbf{R}_y(\theta) \mathbf{R}_x(\phi)$$
-   - Color-coded airframe geometry (Cyan front arms, Coral rear arms) and rotating motor disc indicators.
-3. **Quad-X Motor Mixer Demands**:
-   - Four real-time bar indicators showing throttle actuation demands for $M_1$ (Front-Right CCW), $M_2$ (Rear-Left CCW), $M_3$ (Front-Left CW), and $M_4$ (Rear-Right CW), centered around a 500 µs hover baseline.
-4. **8 kHz IMU Oscilloscope (`ImPlot`)**:
-   - High-throughput scrolling waveform plots displaying Gyroscope ($\Omega_x, \Omega_y, \Omega_z$ in $^\circ/\text{s}$) and Accelerometer ($A_x, A_y, A_z$ in $g$) data streams.
+A high-framerate (120 FPS) canvas hosting domain-specific user instruments, decoupled from core framework execution:
+1. **Vector Primary Flight Display (PFD)**: Anti-aliased Sky/Earth tilt polygons, pitch ladder (±10°/±20°/±30°), central reticle crosshairs, and roll angle pointer.
+2. **3D Quadcopter Perspective Wireframe**: Full 3D perspective via Tait-Bryan rotation ($\mathbf{R} = \mathbf{R}_z(\psi) \mathbf{R}_y(\theta) \mathbf{R}_x(\phi)$), color-coded airframe and motor disc indicators.
+3. **Quad-X Motor Mixer Demands**: Four real-time bar indicators ($M_1$..$M_4$), centered around 500 µs hover baseline.
+4. **8 kHz IMU Oscilloscope (`ImPlot`)**: High-throughput scrolling gyroscope ($\Omega_x, \Omega_y, \Omega_z$ in °/s) and accelerometer ($A_x, A_y, A_z$ in $g$) waveforms.
 
-### 3.3 Window 3: TLP Bus Debugger (`BottomSpace`)
-Low-level transaction inspection for PCIe-style 64-byte Transaction Layer Packets:
-1. **Live Packet Stream Table**:
-   - Tabular view of incoming packets with Sequence Number, Tag name (`IMU`, `GPS`, `AHRS`, `PLAT`), Channel ID, 64-bit Hardware Timestamp (ns), and CRC verification status.
-   - User selectable rows to freeze and inspect arbitrary frames.
-2. **Header Inspector (20-Byte Wire Header)**:
-   - Deconstructs wire fields: `Type` (1B), `Flags` (1B), `Tag` (1B), `Channel` (1B), `Target Address` (4B), `Length DW` (2B), `Sequence` (2B), and `Timestamp ns` (8B).
-3. **Color-Coded 64-Byte Raw Hex Dump**:
-   - 16-byte aligned hex view with ASCII sidebar:
-     - **Blue (`#64b5f6`)**: 20-Byte TLP Header (`0x00..0x13`).
-     - **Green (`#81c784`)**: 40-Byte CTF Telemetry Payload (`0x14..0x3B`).
-     - **Orange (`#ffb74d`)**: 4-Byte IEEE 802.3 CRC32 Trailer (`0x3C..0x3F`).
-4. **Stream Controls**:
-   - Stream Pause/Resume toggle, Packet Buffer Clear, and Packet counter diagnostics.
-
-### 3.4 Window 4: System Event Log (`BottomRightSpace`)
-A high-throughput trace log console:
-1. **Severity Filter Buttons**:
-   - `[ALL]`, `[INFO]`, `[TLP]`, `[CORO]`, `[ISR]`, `[WARN]`.
-2. **Interactive Search & Text Filtering**:
-   - Real-time case-insensitive substring search across log message content and subsystem source identifiers.
-3. **Auto-Scroll Behavior**:
-   - Intelligent auto-scroll pinning to latest output with automatic release when user scrolls upward.
-4. **Buffer Controls**:
-   - Clear Log buffer button and Copy to Clipboard support.
-
-### 3.5 Window 5: Source Code Performance & Hotspot Inspector
-A dedicated code observability window connecting firmware source code to execution performance:
-1. **File & Line Browser**: Interactive browsing of key application and driver files (`apps/gps_imu_app/src/main.cpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, etc.).
-2. **Line-by-Line Profiling Annotations**: Each profiled line displays execution duration ($\mu s$), deadline budget, and status badges (Green for nominal, Coral Red for overruns).
-3. **Root-Cause Diagnostic Card**: Provides immediate hardware/concurrency explanations for timing overruns (e.g., SPSC lock-free ring head pointer contention during DMA burst).
-4. **Tracealyzer Cross-Navigation**: Synchronizes selected code lines with the Tracealyzer timing diagram and Simple Trace table.
-
-### 3.6 Window 6: FPGA & Hardware Peripherals Inspector
-Dedicated hardware telemetry window monitoring synthesizable FPGA fabric and peripheral controllers:
-1. **SPI0 Auto-DMA Engine**: Real-time SPI clock frequency (10.0 MHz), burst throughput (1.25 MB/s), transfer duration, bus saturation duty cycle %, and hardware DIO pin trigger status.
-2. **AXI-Stream TLP Crossbar (`asp_router.sv`)**: Switch operating frequency (150 MHz), 64-byte packet ingress/egress rate, zero-copy routing latency (2 cycles / 13.3 ns), channel breakdown (Ch 0..2), and stall/backpressure metrics.
-3. **DShot ESC Generator**: 4-channel concurrent hardware motor pulse generation (DShot600 @ 600 kbit/s, 26.7 µs frame duration, hardware CRC verification).
-
-### 3.7 Dynamic Multi-Window Management & Focus Layout Presets
-To eliminate visual clutter and accommodate an expanding suite of specialized windows:
-1. **Dynamic Layout Presets**:
-   - `Balanced (4-Pane)`: Standard multi-pane workbench for simultaneous overview.
-   - `Flight Focus`: User Domain Instruments maximized to 100% full screen.
-   - `Core Studio Focus`: AbstractX Core Studio (Tracealyzer, CPU gauges, MemBrowse) maximized to 100%.
-   - `Source Focus`: Source Code & Performance Inspector maximized alongside the Tracealyzer timing diagram.
-   - `FPGA Focus`: FPGA & Hardware Peripherals maximized alongside the TLP Bus Debugger.
-2. **Window Maximize / Restore**: Dedicated `[⛶ Expand Window]` and `[🗗 Restore Panes]` buttons on each window header.
-3. **Multi-Viewport Pop-Out**: Native support (`enable_viewports = True`) allowing any window to be torn off into its own independent desktop OS window for multi-monitor workstations.
+### 3.3 Dynamic Multi-Window Management & Focus Layout Presets
+1. **Dynamic Layout Presets** (status bar chips):
+   - `Studio Workbench`: Standard dual-pane overview with Core Studio and User Domain side-by-side.
+   - `Balanced`: Core Studio + User Instruments at default split ratio.
+   - `Flight Focus`: User Domain Instruments maximized to 100%.
+   - `Core Studio`: AbstractX Core Studio maximized to 100%.
+   - `Source Code`: Source Code & RTL Inspector tab activated, User Instruments hidden.
+   - `FPGA Hardware`: FPGA Peripherals tab activated, User Instruments hidden.
+2. **Window Pop-Out / Pop-In**:
+   - `[🗖 Pop Out Window]` button tears off a dockable window via `decouple_window()`.
+   - `[🗗 Pop In (Dock to Studio)]` floating banner returns the window via `restore_default_layout()`.
+   - High-contrast electric-blue border (`ImVec4(0.25, 0.65, 0.95, 0.9)`, 2.0 px) on all floating viewports.
+3. **Restore Defaults**: `[🔄 Restore Default Layout]` button available in toolbar and status bar; sets `runner_params.docking_params.layout_reset = True` to cleanly re-dock all windows.
 
 ---
 
-## 4. Core-and-Plugin SDK Contract (`tools/visualizer/sdk/plugin.py`)
+## 4. Anomaly Root-Cause Inspector (Drill-Down Modal)
+
+When a timing overrun or HoL contention event is detected, the `_render_anomaly_drill_down_modal()` function opens an interactive diagnostic modal:
+1. **Failure Classification**: `HoL_Blocking`, `Timing_Overrun`, or `Sequence_Jump`.
+2. **Causality Dependency Chain**: Hardware trigger → crossbar routing → lock-free SPSC ring → coroutine receiver.
+3. **Root Cause Diagnosis**: Human-readable explanation of the stall or overrun.
+4. **One-Click Source Jump**: Buttons to jump directly to the originating C++ line (sets `source_view_mode = "CPP"`, `requested_studio_tab = "source"`) or the FPGA SystemVerilog RTL line (sets `source_view_mode = "RTL"`).
+
+---
+
+## 5. Core-and-Plugin SDK Contract (`tools/visualizer/sdk/plugin.py`)
 
 AbstractX Studio decouples domain-specific instruments through the `AbstractXStudioPlugin` base class.
 
@@ -235,7 +218,7 @@ class AbstractXStudioPlugin(ABC):
 
 ---
 
-## 5. Dynamic CTF 1.8 / barectf Schema Decoding
+## 6. Dynamic CTF 1.8 / barectf Schema Decoding
 
 The visualizer strictly prohibits hardcoded byte offsets for telemetry event payloads. All payload parsing is governed by `CtfSchemaLoader` (`tools/visualizer/ctf_schema_loader.py`):
 1. **Schema Ingestion**: Ingests JSON (`trace_schema.json`) or barectf YAML metadata.
@@ -244,7 +227,7 @@ The visualizer strictly prohibits hardcoded byte offsets for telemetry event pay
 
 ---
 
-## 6. Standalone Synthetic Flight Simulation Engine
+## 7. Standalone Synthetic Flight Simulation Engine
 
 To enable developer iteration and CI test execution without physical silicon:
 1. **Synthetic Producer**: Background generator runs when `--sim` is supplied.
@@ -257,33 +240,33 @@ To enable developer iteration and CI test execution without physical silicon:
 
 ---
 
-## 7. Continuous Memory Observability with MemBrowse
+## 8. Continuous Memory Observability with MemBrowse
 
 AbstractX mandates **Freestanding C++20 with Zero Heap** ($0\text{ B}$ dynamic memory during execution):
 1. **Continuous Budget Tracking**: `tools/track_memory_membrowse.py` extracts `.text`, `.rodata`, `.data`, and `.bss` metrics from target ELF binaries.
 2. **Silicon Target Boundaries**: Section totals are evaluated against hardware SRAM and Flash boundaries defined in `tools/membrowse-targets.json`.
-3. **Visualizer Status Verification**: The workbench displays an explicit `Dynamic Heap: 0 B` badge in the status bar and renders static allocation progress gauges in the Core Studio window.
+3. **Visualizer Status Verification**: The workbench displays an explicit `Dynamic Heap: 0 B` badge in the status bar and renders static allocation progress gauges in the Core Studio MemBrowse tab.
 
 ---
 
-## 8. Normative Specification Requirements Matrix
+## 9. Normative Specification Requirements Matrix
 
 Every requirement below is verified in code with an `@impl` tag:
 
 ### `[SPEC-STUDIO-01]` Full-Screen Multi-Window Docking Layout & Dynamic Management
-The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`), window expand/restore toggles, and multi-viewport pop-out (`enable_viewports = True`).
+The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting single-OS-window internal docking (`enable_viewports = False` by default), multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`, `studio_workbench`), window pop-out via `decouple_window()`, pop-in via `restore_default_layout()`, and layout reset via `runner_params.docking_params.layout_reset = True`.
 
-### `[SPEC-STUDIO-02]` AbstractX Core Studio Silicon & Timeline Window
-The visualizer MUST provide a dedicated Core Studio window displaying multi-core silicon topology (Core 0, Core 1, SPU), SPSC ring queue saturation, dual-plane execution timeline (hardware ISR/DMA vs C++20 coroutines), interactive `__FILE__ : __LINE__` source jumping, Tracealyzer multi-track timing diagram, and MemBrowse static memory budget gauges.
+### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified 10-Tab Engineering Workbench
+The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with 10 integrated diagnostic tabs: CPU Gauges & Topology, Execution Swimlanes & Charts, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, TLP Bus Debugger, System Event Log, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse Memory. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests.
 
 ### `[SPEC-STUDIO-03]` User Domain Instruments Decoupled Canvas
 The visualizer MUST provide a dedicated primary canvas (`MainDockSpace`) hosting domain-specific user instruments (Vector Primary Flight Display artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU real-time oscilloscope) decoupled from core framework execution.
 
 ### `[SPEC-STUDIO-04]` 64-Byte TLP Bus Debugger & Header Inspector
-The visualizer MUST provide a low-level TLP bus debugging window (`BottomSpace`) displaying a live 64-byte packet stream table (Seq, Tag, Channel, Timestamp, CRC status), byte-by-byte header breakdown (20B header, 40B payload, 4B CRC32), color-coded raw hex dump, and stream capture controls.
+The visualizer MUST provide a TLP Bus Debugger tab displaying a live 64-byte packet stream table (Seq, Tag, Channel, Timestamp, CRC status), byte-by-byte header breakdown (20B header, 40B payload, 4B CRC32), color-coded raw hex dump, and stream capture controls. This functionality is unified within the Core Studio `CoreStudioTabBar`.
 
 ### `[SPEC-STUDIO-05]` Real-Time System Event Log & Trace Filter
-The visualizer MUST provide a real-time event log window (`BottomRightSpace`) displaying timestamped events from drivers, coroutines, and the TLP switch fabric, supporting severity filtering (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), substring text search, and auto-scrolling.
+The visualizer MUST provide a real-time event log tab within the Core Studio `CoreStudioTabBar`, displaying timestamped events from drivers, coroutines, and the TLP switch fabric, supporting severity filtering (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), substring text search, and auto-scrolling.
 
 ### `[SPEC-STUDIO-06]` Core-and-Plugin Extensibility SDK
 The visualizer MUST decouple domain instruments from core framework logic using the `AbstractXStudioPlugin` base class, defining standard lifecycle hooks (`on_init`, `on_tlp_packet`, `render_ui`, `render_menu_items`) without requiring direct OpenGL/windowing boilerplate.
@@ -300,9 +283,12 @@ The visualizer MUST support a standalone `--sim` mode generating realistic multi
 ### `[SPEC-STUDIO-10]` MemBrowse Zero-Heap Static Budget Verification
 The visualizer MUST ingest static section metrics (`.text`, `.rodata`, `.data`, `.bss`) from `memory_metrics.json` and verify compliance with zero-heap invariants, displaying memory budget bars against hardware SRAM and Flash limits and an explicit `0 B` dynamic heap allocation badge.
 
-### `[SPEC-STUDIO-11]` Source Code Performance & Hotspot Inspector
-The visualizer MUST provide a dedicated Source Code & Performance Inspector window displaying application and driver C++ source code with line numbers, execution latency annotations, timing budget statuses, overrun alerts, and root-cause concurrency diagnostics.
+### `[SPEC-STUDIO-11]` Source Code & RTL Inspector with Cross-Language Toggle
+The visualizer MUST provide a Source Code & RTL Inspector tab (within `CoreStudioTabBar`) with a `CPP` / `RTL` mode toggle, allowing developers to view annotated C++20 application/driver source alongside SystemVerilog RTL (`rtl/asp_router.sv`, `rtl/imu/asp_imu_auto_dma.sv`, `rtl/dshot/asp_dshot_core.sv`). Clicking any line MUST safely update `selected_source_line` / `selected_rtl_line` via `imgui.selectable()` without risk of ImGui color-stack underflow. Overrun lines MUST display coral-red badges.
 
-### `[SPEC-STUDIO-12]` FPGA & Hardware Peripherals Inspector
-The visualizer MUST provide a dedicated FPGA & Hardware Peripherals Inspector window displaying SPI0 Auto-DMA throughput, clock speed, transfer duration, and bus saturation duty cycle, alongside AXI-Stream TLP crossbar routing latency and DShot motor pulse generation metrics.
-
+### `[SPEC-STUDIO-12]` Real-Time Flow-Integrity, Pacing Eye Diagram & HoL Contention Matrix
+The visualizer MUST provide a Flow Integrity & Pacing Eye tab (within `CoreStudioTabBar`) rendering:
+- **HoL Blocking Matrix**: Per-channel (Ch 0..4) AXI-Stream stall time, ring fill %, STALLED/NOMINAL status, and coral-red highlighting for stalls ≥ 10 µs.
+- **Transit Delay Plot**: $\Delta t_{\text{transit}} = t_{\text{pop}} - t_{\text{latch}}$ (µs) with saturation threshold line at 10 µs and monotonic sequence drop counters.
+- **Pacing Eye Diagram**: Inter-arrival intervals folded modulo 125.0 µs (8 kHz primary epoch), exposing jitter and drift.
+- **Anomaly Root-Cause Inspector Modal**: One-click drill-down from any contention/overrun event to the causality chain and direct jump to C++ or RTL source.
