@@ -53,8 +53,8 @@ def test_studio_specification_traceability(repo_root, studio_spec_path):
     coverage = results["coverage"]
     specs = results["specs"]
 
-    assert total == 10, f"Expected 10 studio specs, found {total}"
-    assert implemented == 10, f"Expected 10 implemented studio specs, found {implemented}"
+    assert total == 12, f"Expected 12 studio specs, found {total}"
+    assert implemented == 12, f"Expected 12 implemented studio specs, found {implemented}"
     assert coverage == 100.0, f"Studio spec coverage is {coverage}%, expected 100.0%"
 
     # Validate that every implementation file path actually exists

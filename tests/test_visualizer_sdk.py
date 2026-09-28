@@ -123,15 +123,16 @@ def test_studio_gui_render_memory_tab():
 
 
 def test_studio_docking_workbench_configuration():
-    """Verifies that create_docking_runner_params sets up the 4-window workbench."""
+    """Verifies that create_docking_runner_params sets up the 6-window dynamic workbench."""
     runner = studio.create_docking_runner_params()
     assert runner is not None
     assert runner.app_window_params.window_title == "AbstractX Studio & User Domain Workbench"
     assert runner.imgui_window_params.default_imgui_window_type == hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
+    assert runner.imgui_window_params.enable_viewports is True, "Multi-viewport pop-out must be enabled"
 
-    # Check 4 dockable windows
+    # Check 6 dockable windows
     windows = runner.docking_params.dockable_windows
-    assert len(windows) == 4
+    assert len(windows) == 6, f"Expected 6 dockable windows, found {len(windows)}"
     labels = {w.label: w.dock_space_name for w in windows}
     assert "AbstractX Core Studio" in labels
     assert labels["AbstractX Core Studio"] == "LeftSpace"
@@ -141,6 +142,10 @@ def test_studio_docking_workbench_configuration():
     assert labels["TLP Bus Debugger"] == "BottomSpace"
     assert "System Event Log" in labels
     assert labels["System Event Log"] == "BottomRightSpace"
+    assert "Source Code & Performance Inspector" in labels
+    assert labels["Source Code & Performance Inspector"] == "MainDockSpace"
+    assert "FPGA & Hardware Peripherals" in labels
+    assert labels["FPGA & Hardware Peripherals"] == "BottomSpace"
 
     # Check 3 docking split ratios
     splits = runner.docking_params.docking_splits
@@ -148,6 +153,27 @@ def test_studio_docking_workbench_configuration():
     assert splits[0].new_dock == "LeftSpace"
     assert splits[1].new_dock == "BottomSpace"
     assert splits[2].new_dock == "BottomRightSpace"
+
+    # Test dynamic layout switching
+    studio.apply_docking_layout("source_focus")
+    assert studio.g_state.active_layout_preset == "source_focus"
+    assert studio.g_dockable_windows["source"].is_visible is True
+    assert studio.g_dockable_windows["user"].is_visible is False
+
+    studio.apply_docking_layout("fpga_focus")
+    assert studio.g_state.active_layout_preset == "fpga_focus"
+    assert studio.g_dockable_windows["fpga"].is_visible is True
+    assert studio.g_dockable_windows["user"].is_visible is False
+
+    studio.apply_docking_layout("user_focus")
+    assert studio.g_state.active_layout_preset == "user_focus"
+    assert studio.g_dockable_windows["user"].is_visible is True
+    assert studio.g_dockable_windows["core"].is_visible is False
+
+    studio.apply_docking_layout("balanced")
+    assert studio.g_state.active_layout_preset == "balanced"
+    assert studio.g_dockable_windows["core"].is_visible is True
+    assert studio.g_dockable_windows["user"].is_visible is True
 
 
 def test_studio_docking_workbench_headless_run():
