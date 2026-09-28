@@ -173,3 +173,55 @@ def test_studio_docking_workbench_headless_run():
 
     assert frame_count >= 3, f"Expected at least 3 frames in docking mode, rendered {frame_count}"
 
+
+def test_studio_tracealyzer_and_simple_trace_render():
+    """Renders Tracealyzer line charts, task ribbons, and Simple Trace views in headless mode."""
+    frame_count = 0
+
+    def step_gui():
+        nonlocal frame_count
+        frame_count += 1
+        studio._render_tracealyzer_and_charts()
+        studio._render_simple_trace_view()
+        if frame_count >= 2:
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    runner = hello_imgui.RunnerParams()
+    runner.app_window_params.window_title = "Pytest Studio - Tracealyzer & Simple Trace"
+    runner.app_window_params.window_geometry.size = (900, 700)
+    runner.callbacks.show_gui = step_gui
+
+    implot.create_context()
+    try:
+        immapp.run(runner)
+    finally:
+        implot.destroy_context()
+
+    assert frame_count >= 2, f"Expected at least 2 frames, rendered {frame_count}"
+
+
+def test_studio_simple_trace_event_lifecycle():
+    """Validates the Simple Trace and Tracealyzer buffer APIs in TelemetryState."""
+    state = studio.TelemetryState()
+    assert len(state.simple_trace_events) > 0, "Expected initial seeded trace events"
+    first = state.simple_trace_events[0]
+    assert "time_us" in first
+    assert "core" in first
+    assert "primitive" in first
+    assert "symbol" in first
+    assert "details" in first
+    assert "file" in first
+    assert "line" in first
+
+    # Add a custom event
+    state.add_trace_event(150.0, "Core 1", "co_await", "test_task()", "token=await_test", 1.5, "main.cpp", 50)
+    assert any(ev["symbol"] == "test_task()" for ev in state.simple_trace_events)
+
+    # Test pushing chart metrics
+    state.push_chart_metrics(1.0, 25.0, 35.0, 15.0, 1.1, 4.2, 2.7, 0.9, 18.0, 14.0)
+    assert state.chart_cpu_c0[-1] == 25.0
+    assert state.chart_cpu_c1[-1] == 35.0
+    assert state.chart_cpu_spu[-1] == 15.0
+    assert state.chart_lat_imu[-1] == 1.1
+
+

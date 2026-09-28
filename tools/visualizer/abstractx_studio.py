@@ -29,6 +29,7 @@ Usage:
 """
 
 import sys
+import math
 import time
 import socket
 import struct
@@ -257,12 +258,115 @@ class TelemetryState:
         self.log_search_text = ""
         self.log_auto_scroll = True
 
+        # Tracealyzer & CPU Line Chart History (Last 30 seconds, 60 samples at 2 Hz)
+        self.chart_hist_len = 60
+        self.chart_time = np.linspace(-30.0, 0.0, self.chart_hist_len, dtype=np.float64)
+        self.chart_cpu_c0 = np.full(self.chart_hist_len, 22.4, dtype=np.float64)
+        self.chart_cpu_c1 = np.full(self.chart_hist_len, 34.1, dtype=np.float64)
+        self.chart_cpu_spu = np.full(self.chart_hist_len, 11.2, dtype=np.float64)
+        
+        # Coroutine & Task Latencies (microseconds)
+        self.chart_lat_imu = np.full(self.chart_hist_len, 1.2, dtype=np.float64)
+        self.chart_lat_ekf = np.full(self.chart_hist_len, 4.5, dtype=np.float64)
+        self.chart_lat_ctl = np.full(self.chart_hist_len, 2.8, dtype=np.float64)
+        self.chart_lat_dma = np.full(self.chart_hist_len, 0.8, dtype=np.float64)
+
+        # SPSC Ring Occupancies
+        self.chart_ring_sensor = np.full(self.chart_hist_len, 22.0, dtype=np.float64)
+        self.chart_ring_telem = np.full(self.chart_hist_len, 12.0, dtype=np.float64)
+
+        # Simple Trace Viewer State
+        self.simple_trace_events = []
+        self.simple_trace_paused = False
+        self.simple_trace_filter_core = "ALL"
+        self.simple_trace_search = ""
+        self.simple_trace_auto_scroll = True
+        self.selected_trace_idx = 0
+        self._seed_initial_trace_events()
+
         # Initial seed logs
         self.add_log("INFO", "AbstractX", "AbstractX Studio online. SPSC lock-free rings initialized.")
         self.add_log("INFO", "HAL", "Awaitable drivers registered: SPI0 (DMA), I2C0 (ISR), UART0 (RX).")
         self.add_log("CORO", "Dispatcher", "DomainDispatcher::step() cooperative event loop active.")
         self.add_log("TLP", "asp_router", "FPGA crossbar switch fabric online (64B AXI-Stream TLPs).")
         self.add_log("MEM", "MemBrowse", "Zero-heap verification: 0 bytes dynamic allocation.")
+
+    def _seed_initial_trace_events(self):
+        seeds = [
+            (12.4, "Core 0", "boot_async()", "main()", "ARM64 supervisor boot: SPSC rings ready", 0.0, "apps/gps_imu_app/src/main.cpp", 34),
+            (24.8, "Core 1", "init_async()", "ublox_gps.init()", "UART0 DMA receiver registered @ 115200", 12.5, "include/abstractx/drivers/gps/ublox_gps.hpp", 55),
+            (36.1, "SPU", "CONFIG_DMA", "asp_router.sv", "AXI-Stream TLP switch crossbar mapped to 0x40000100", 0.8, "sim/cocotb/test_asp_sys_regs_cocotb.py", 80),
+            (48.2, "Core 1", "when_all()", "coro::when_all()", "Parallel peripheral boot complete (105 ms)", 0.4, "apps/gps_imu_app/src/main.cpp", 167),
+            (62.5, "ISR", "DMA_DONE", "spi0_dma_isr()", "14B ICM-42688-P burst latched -> g_sensor_ring", 0.8, "include/abstractx/drivers/imu/icm42688p.hpp", 54),
+            (74.0, "Core 1", "co_await", "imu_pipeline()", "co_await g_sensor_ring.pop() -> resumed", 1.2, "apps/gps_imu_app/src/main.cpp", 42),
+            (88.3, "Core 1", "resume()", "attitude_ekf()", "Mahony quaternion kinematics updated", 4.5, "include/abstractx/fusion/attitude_filter.hpp", 88),
+            (99.1, "Core 1", "yield", "flight_control()", "Quad-X motor demands dispatched", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
+            (112.0, "Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e907/main.cpp", 47),
+            (125.4, "Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
+        ]
+        for t_us, core, prim, sym, det, lat, fpath, line in seeds:
+            self.simple_trace_events.append({
+                "time_us": t_us,
+                "core": core,
+                "primitive": prim,
+                "symbol": sym,
+                "details": det,
+                "duration_us": lat,
+                "file": fpath,
+                "line": line
+            })
+
+    def add_trace_event(self, timestamp_us: float, core: str, primitive: str, 
+                        symbol: str, details: str, duration_us: float, file_path: str, line_no: int):
+        with self.lock:
+            if self.simple_trace_paused:
+                return
+            if len(self.simple_trace_events) > 400:
+                self.simple_trace_events.pop(0)
+            self.simple_trace_events.append({
+                "time_us": timestamp_us,
+                "core": core,
+                "primitive": primitive,
+                "symbol": symbol,
+                "details": details,
+                "duration_us": duration_us,
+                "file": file_path,
+                "line": line_no
+            })
+
+    def push_chart_metrics(self, t_rel: float, c0: float, c1: float, spu: float,
+                           lat_imu: float, lat_ekf: float, lat_ctl: float, lat_dma: float,
+                           q_sensor: float, q_telem: float):
+        with self.lock:
+            self.chart_time[:-1] = self.chart_time[1:]
+            self.chart_time[-1] = t_rel
+            
+            self.chart_cpu_c0[:-1] = self.chart_cpu_c0[1:]
+            self.chart_cpu_c0[-1] = c0
+            
+            self.chart_cpu_c1[:-1] = self.chart_cpu_c1[1:]
+            self.chart_cpu_c1[-1] = c1
+            
+            self.chart_cpu_spu[:-1] = self.chart_cpu_spu[1:]
+            self.chart_cpu_spu[-1] = spu
+            
+            self.chart_lat_imu[:-1] = self.chart_lat_imu[1:]
+            self.chart_lat_imu[-1] = lat_imu
+            
+            self.chart_lat_ekf[:-1] = self.chart_lat_ekf[1:]
+            self.chart_lat_ekf[-1] = lat_ekf
+            
+            self.chart_lat_ctl[:-1] = self.chart_lat_ctl[1:]
+            self.chart_lat_ctl[-1] = lat_ctl
+            
+            self.chart_lat_dma[:-1] = self.chart_lat_dma[1:]
+            self.chart_lat_dma[-1] = lat_dma
+
+            self.chart_ring_sensor[:-1] = self.chart_ring_sensor[1:]
+            self.chart_ring_sensor[-1] = q_sensor
+
+            self.chart_ring_telem[:-1] = self.chart_ring_telem[1:]
+            self.chart_ring_telem[-1] = q_telem
 
     def add_log(self, level: str, source: str, message: str):
         with self.lock:
@@ -385,6 +489,41 @@ def udp_receiver_thread(port: int, sim_mode: bool):
             sim_payload = struct.pack("<2hHiH4H", int(roll * 100), int(pitch * 100), int(yaw * 100), int(alt * 1000), int(spd * 100), m1, m2, m3, m4)
             sim_frame = sim_hdr + sim_payload + (b"\x00" * (40 - len(sim_payload))) + b"\xde\xad\xbe\xef"
             g_state.add_tlp_packet(sim_frame, 0x10, 4, 2, sim_seq, sim_ts, True)
+
+            # Periodically update Tracealyzer chart metrics and simple trace events (at 20 Hz)
+            if g_state.packet_count % 10 == 0:
+                c0 = float(np.clip(22.0 + 3.5 * np.sin(t * 0.7) + np.random.normal(0, 0.4), 0.0, 100.0))
+                c1 = float(np.clip(34.0 + 5.0 * np.cos(t * 0.9) + np.random.normal(0, 0.5), 0.0, 100.0))
+                spu = float(np.clip(11.2 + 2.0 * np.sin(t * 1.5) + np.random.normal(0, 0.2), 0.0, 100.0))
+
+                lat_imu = float(max(0.4, 1.2 + 0.3 * np.sin(t * 2.0) + np.random.normal(0, 0.05)))
+                lat_ekf = float(max(1.0, 4.5 + 0.8 * np.cos(t * 1.8) + np.random.normal(0, 0.1)))
+                lat_ctl = float(max(0.8, 2.8 + 0.5 * np.sin(t * 1.2) + np.random.normal(0, 0.08)))
+                lat_dma = float(max(0.2, 0.8 + 0.15 * np.cos(t * 3.0) + np.random.normal(0, 0.02)))
+
+                q_sensor = float(np.clip(20.0 + 10.0 * np.sin(t * 2.0), 0.0, 64.0))
+                q_telem = float(np.clip(10.0 + 5.0 * np.cos(t * 3.0), 0.0, 64.0))
+
+                with g_state.lock:
+                    g_state.linux_total_cpu = c0
+                    g_state.e907_active_duty_pct = c1
+                    g_state.e907_wfi_sleep_pct = 100.0 - c1
+                    g_state.fpga_lut_utilization_pct = spu
+
+                g_state.push_chart_metrics(t, c0, c1, spu, lat_imu, lat_ekf, lat_ctl, lat_dma, q_sensor, q_telem)
+
+            if g_state.packet_count % 25 == 0:
+                us_now = float((time.time() % 1000) * 1e4)
+                trace_pool = [
+                    ("Core 1", "co_await", "imu_pipeline()", "co_await g_sensor_ring.pop()", 1.2, "apps/gps_imu_app/src/main.cpp", 42),
+                    ("Core 1", "resume()", "attitude_ekf()", "attitude_ekf.update(gyro, accel)", 4.5, "include/abstractx/fusion/attitude_filter.hpp", 88),
+                    ("Core 1", "yield", "flight_control()", "quad_mixer.compute_demands(tau)", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
+                    ("SPU", "DMA_BURST", "spi_dma_burst()", "Burst 14B from ICM42688P (SPI0)", 0.8, "include/abstractx/drivers/imu/icm42688p.hpp", 54),
+                    ("Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e907/main.cpp", 47),
+                    ("Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
+                ]
+                ev = trace_pool[(g_state.packet_count // 25) % len(trace_pool)]
+                g_state.add_trace_event(us_now, ev[0], ev[1], ev[2], ev[3], ev[4], ev[5], ev[6])
 
             if g_state.packet_count % 40 == 0:
                 g_state.add_log("TLP", "asp_router", f"TLP 64B frame Seq #{sim_seq} routed on Ch 2 (AHRS_STATE)")
@@ -519,8 +658,108 @@ def _render_status_bar():
     imgui.same_line()
     imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s | Dynamic Heap: 0 B")
 
+def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct: float, 
+                      label: str, sublabel: str, unit: str = "%", max_val: float = 100.0) -> None:
+    """Draws an analog radial dial gauge with dynamic color grading and needle."""
+    dl = imgui.get_window_draw_list()
+    a_min = math.radians(140)
+    a_max = math.radians(400)
+    
+    # Outer circle dial background
+    c_bg_circle = imgui.color_convert_float4_to_u32(imgui.ImVec4(0.08, 0.10, 0.14, 0.95))
+    c_border = imgui.color_convert_float4_to_u32(imgui.ImVec4(0.20, 0.24, 0.32, 1.0))
+    dl.add_circle_filled(imgui.ImVec2(center_x, center_y), radius + 8.0, c_bg_circle, 36)
+    dl.add_circle(imgui.ImVec2(center_x, center_y), radius + 8.0, c_border, 36, 1.5)
+
+    # Background track arc
+    c_track = imgui.color_convert_float4_to_u32(imgui.ImVec4(0.16, 0.20, 0.26, 1.0))
+    dl.path_arc_to(imgui.ImVec2(center_x, center_y), radius, a_min, a_max, 32)
+    dl.path_stroke(c_track, 7.0, 0)
+    
+    # Active value sweep arc with color thresholds
+    val_clamped = max(0.0, min(value_pct, max_val))
+    val_ratio = val_clamped / max_val
+    val_sweep = a_min + (val_ratio * (a_max - a_min))
+    
+    if val_ratio < 0.50:
+        c_val = imgui.color_convert_float4_to_u32(imgui.ImVec4(0.2, 0.85, 0.45, 1.0)) # Emerald green
+    elif val_ratio < 0.80:
+        c_val = imgui.color_convert_float4_to_u32(imgui.ImVec4(1.0, 0.75, 0.2, 1.0))  # Amber/yellow
+    else:
+        c_val = imgui.color_convert_float4_to_u32(imgui.ImVec4(1.0, 0.3, 0.3, 1.0))   # Coral red
+        
+    dl.path_arc_to(imgui.ImVec2(center_x, center_y), radius, a_min, val_sweep, 32)
+    dl.path_stroke(c_val, 7.0, 0)
+    
+    # Needle indicator dot on perimeter
+    nx = center_x + (radius - 1.0) * math.cos(val_sweep)
+    ny = center_y + (radius - 1.0) * math.sin(val_sweep)
+    c_needle = imgui.color_convert_float4_to_u32(imgui.ImVec4(1.0, 1.0, 1.0, 0.95))
+    dl.add_circle_filled(imgui.ImVec2(nx, ny), 3.5, c_needle)
+
+    # Central digital readout
+    val_str = f"{value_pct:.1f}{unit}"
+    c_text = imgui.color_convert_float4_to_u32(imgui.ImVec4(1.0, 1.0, 1.0, 1.0))
+    c_sub = imgui.color_convert_float4_to_u32(imgui.ImVec4(0.65, 0.75, 0.85, 1.0))
+    
+    t_width = len(val_str) * 7.5
+    dl.add_text(imgui.ImVec2(center_x - t_width / 2.0, center_y - 8.0), c_text, val_str)
+
+    # Labels below gauge
+    lbl_w = len(label) * 6.5
+    dl.add_text(imgui.ImVec2(center_x - lbl_w / 2.0, center_y + radius + 12.0), c_text, label)
+    sub_w = len(sublabel) * 5.8
+    dl.add_text(imgui.ImVec2(center_x - sub_w / 2.0, center_y + radius + 26.0), c_sub, sublabel)
+
 def _render_core_cpu_and_topology():
-    """Renders Silicon Cores, Platform Architecture, and CPU/SPU Utilization."""
+    """Renders Silicon Cores, Radial CPU Gauges, Platform Architecture, and CPU Load Line Chart."""
+    # Top Section: 3 Radial CPU Dial Gauges
+    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Silicon Processor Real-Time Load Gauges]")
+    imgui.columns(3, "cpu_gauge_cols", False)
+    
+    # Col 1: Core 0
+    cur_pos = imgui.get_cursor_screen_pos()
+    col_w = imgui.get_column_width()
+    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 45.0, 36.0, 
+                      g_state.linux_total_cpu, "Core 0 (Host)", f"Linux {g_state.linux_total_cpu:.1f}%")
+    imgui.dummy(imgui.ImVec2(col_w, 120.0))
+    imgui.next_column()
+
+    # Col 2: Core 1
+    cur_pos = imgui.get_cursor_screen_pos()
+    col_w = imgui.get_column_width()
+    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 45.0, 36.0, 
+                      g_state.e907_active_duty_pct, "Core 1 (Coro)", f"Duty {g_state.e907_active_duty_pct:.1f}%")
+    imgui.dummy(imgui.ImVec2(col_w, 120.0))
+    imgui.next_column()
+
+    # Col 3: SPU
+    cur_pos = imgui.get_cursor_screen_pos()
+    col_w = imgui.get_column_width()
+    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 45.0, 36.0, 
+                      g_state.fpga_lut_utilization_pct, "SPU (FPGA)", f"Logic {g_state.fpga_lut_utilization_pct:.1f}%")
+    imgui.dummy(imgui.ImVec2(col_w, 120.0))
+    imgui.next_column()
+
+    imgui.columns(1)
+    imgui.separator()
+
+    # Line Chart: Per-Processor CPU Load History (Last 30s)
+    if implot.begin_plot("Silicon Cores CPU Load History (Last 30s)", imgui.ImVec2(-1, 180)):
+        implot.setup_axes("Time (s)", "CPU / Duty (%)", implot.AxisFlags_.auto_fit, implot.AxisFlags_.none)
+        implot.setup_axis_limits(implot.ImAxis_.y1, 0.0, 100.0, imgui.Cond_.always)
+        with g_state.lock:
+            t_data = np.copy(g_state.chart_time)
+            c0_data = np.copy(g_state.chart_cpu_c0)
+            c1_data = np.copy(g_state.chart_cpu_c1)
+            spu_data = np.copy(g_state.chart_cpu_spu)
+        implot.plot_line("Core 0 (Host Linux / M33)", t_data, c0_data)
+        implot.plot_line("Core 1 (Coroutine Engine)", t_data, c1_data)
+        implot.plot_line("SPU (FPGA Switch Fabric)", t_data, spu_data)
+        implot.end_plot()
+
+    imgui.separator()
+    # Middle Section: Platform Topology & Processing Roles
     imgui.columns(3, "topo_cols", False)
     imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Platform Architecture]")
     imgui.text(f"Arch Name : {g_state.platform_arch}")
@@ -536,51 +775,180 @@ def _render_core_cpu_and_topology():
     imgui.text_colored(imgui.ImVec4(1.0, 0.7, 0.2, 1.0), "[Hardware Accelerators & Rings]")
     for accel in g_state.hardware_accels:
         imgui.text(f" ✓ {accel}")
-    imgui.text("SPSC Ring : 64 Descriptors (Zero-Copy)")
-    imgui.columns(1)
-    imgui.separator()
-
-    # Per-Processor SPU/CPU & Process Utilization
-    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "[Per-Processor SPU/CPU & Task Duty Cycles]")
-    imgui.columns(3, "cpu_cols", False)
-
-    # Core 0: Host / Core 0
-    imgui.text_colored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), "Core 0: Host Linux / M33")
-    imgui.text(f"Total CPU: {g_state.linux_total_cpu:.1f}%")
-    imgui.progress_bar(g_state.linux_total_cpu / 100.0, imgui.ImVec2(-1, 0), f"{g_state.linux_total_cpu:.1f}%")
-    imgui.text(f"AbstractX Process: {g_state.linux_abstractx_cpu:.1f}%")
-    imgui.text(f"OS Background    : {g_state.linux_external_cpu:.1f}%")
-    imgui.next_column()
-
-    # Core 1: XuanTie E907 / RP2350 Core 1
-    imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.4, 1.0), "Core 1: Coroutine Engine")
-    imgui.text(f"Active Duty: {g_state.e907_active_duty_pct:.1f}% (148 µs/ms)")
-    imgui.progress_bar(g_state.e907_active_duty_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.e907_active_duty_pct:.1f}%")
-    imgui.text(f"WFI Sleep Duty   : {g_state.e907_wfi_sleep_pct:.1f}%")
-    imgui.next_column()
-
-    # SPU / FPGA Fabric
-    imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "SPU: FPGA Switch Fabric")
-    imgui.text(f"Logic LUT: {g_state.fpga_lut_utilization_pct:.1f}% (3,640 / 20k)")
-    imgui.progress_bar(g_state.fpga_lut_utilization_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.fpga_lut_utilization_pct:.1f}%")
-    imgui.text(f"Auto-DMA Rate    : {g_state.fpga_dma_bw_mbps:.1f} Mbps")
-    imgui.columns(1)
-    imgui.separator()
-
-    # SPSC Queue Saturation
-    imgui.columns(2, "spsc_cols", False)
-    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[SPSC TLP Ring Saturation & Latency]")
-    imgui.text("Sensor Queue (g_sensor_ring):")
-    imgui.progress_bar(g_state.sensor_ring_fill / 64.0, imgui.ImVec2(-1, 0), f"{g_state.sensor_ring_fill} / 64 pkts")
-    imgui.text("Telemetry Queue (g_telemetry_ring):")
-    imgui.progress_bar(g_state.telemetry_ring_fill / 64.0, imgui.ImVec2(-1, 0), f"{g_state.telemetry_ring_fill} / 64 pkts")
-    imgui.next_column()
-
-    imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[Interconnect Timing]")
+    imgui.text(f"SPSC Ring : 64 Descriptors (Zero-Copy)")
     imgui.text(f"Avg Doorbell Latency: {g_state.rtt_latency_us:.1f} µs")
-    imgui.text("Protocol: Symmetrical 64-byte TLP")
-    imgui.text("Wire Transport: Lock-Free SPSC")
     imgui.columns(1)
+
+def _render_tracealyzer_and_charts():
+    """Renders FreeRTOS Tracealyzer style Task Gantt ribbons & live latency line charts."""
+    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "Tracealyzer Task Execution Gantt & Real-Time Performance")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Continuous stackless coroutine task timeline with exact suspension tracking.")
+    imgui.separator()
+
+    # Task Execution Ribbon / Gantt Bar (Tracealyzer style)
+    imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[Active Task Execution Slices & State Transitions]")
+    tasks = [
+        {"name": "imu_pipeline", "lat": g_state.chart_lat_imu[-1], "state": "RUNNING (8 kHz)", "col": (0.2, 0.8, 1.0, 1.0), "file": "apps/gps_imu_app/src/main.cpp", "line": 42, "token": "co_await g_sensor_ring.pop()"},
+        {"name": "attitude_ekf", "lat": g_state.chart_lat_ekf[-1], "state": "AWAIT TIMER (1 ms)", "col": (0.3, 0.9, 0.4, 1.0), "file": "include/abstractx/fusion/attitude_filter.hpp", "line": 88, "token": "co_await timer.sleep(1ms)"},
+        {"name": "flight_control", "lat": g_state.chart_lat_ctl[-1], "state": "RUNNING (100 Hz)", "col": (1.0, 0.7, 0.2, 1.0), "file": "apps/gps_imu_app/src/main.cpp", "line": 98, "token": "quad_mixer.compute_demands()"},
+        {"name": "spi_dma_burst", "lat": g_state.chart_lat_dma[-1], "state": "DMA BURST (Auto-IP)", "col": (0.8, 0.4, 1.0, 1.0), "file": "include/abstractx/drivers/imu/icm42688p.hpp", "line": 54, "token": "SPI0 Auto-DMA Transfer"},
+    ]
+
+    imgui.columns(len(tasks), "tracealyzer_task_cols", True)
+    for t in tasks:
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(t["col"][0] * 0.4, t["col"][1] * 0.4, t["col"][2] * 0.4, 0.8))
+        if imgui.button(f"[{t['name']}]\n{t['state']}\nLat: {t['lat']:.2f} µs", imgui.ImVec2(-1, 56)):
+            with g_state.lock:
+                g_state.selected_event_name = t['name']
+                g_state.selected_source_file = t['file']
+                g_state.selected_source_line = t['line']
+                g_state.selected_token = t['token']
+        imgui.pop_style_color()
+        imgui.next_column()
+    imgui.columns(1)
+    imgui.separator()
+
+    # Line Chart 1: Coroutine Task Latency & Suspension History (Tracealyzer style)
+    if implot.begin_plot("Tracealyzer Coroutine Latency & Suspension Duration (µs)", imgui.ImVec2(-1, 180)):
+        implot.setup_axes("Time Window (s)", "Execution Time (µs)", implot.AxisFlags_.auto_fit, implot.AxisFlags_.auto_fit)
+        with g_state.lock:
+            t_data = np.copy(g_state.chart_time)
+            lat_imu = np.copy(g_state.chart_lat_imu)
+            lat_ekf = np.copy(g_state.chart_lat_ekf)
+            lat_ctl = np.copy(g_state.chart_lat_ctl)
+            lat_dma = np.copy(g_state.chart_lat_dma)
+        implot.plot_line("imu_pipeline (µs)", t_data, lat_imu)
+        implot.plot_line("attitude_ekf (µs)", t_data, lat_ekf)
+        implot.plot_line("flight_control (µs)", t_data, lat_ctl)
+        implot.plot_line("spi_dma_burst (µs)", t_data, lat_dma)
+        implot.end_plot()
+
+    # Line Chart 2: SPSC Lock-Free Interconnect Queue Saturation
+    if implot.begin_plot("SPSC Lock-Free Interconnect Saturation (pkts / 64)", imgui.ImVec2(-1, 150)):
+        implot.setup_axes("Time Window (s)", "Queue Depth", implot.AxisFlags_.auto_fit, implot.AxisFlags_.none)
+        implot.setup_axis_limits(implot.ImAxis_.y1, 0.0, 64.0, imgui.Cond_.always)
+        with g_state.lock:
+            q_sensor = np.copy(g_state.chart_ring_sensor)
+            q_telem = np.copy(g_state.chart_ring_telem)
+        implot.plot_line("Sensor Queue (g_sensor_ring)", t_data, q_sensor)
+        implot.plot_line("Telemetry Queue (g_telemetry_ring)", t_data, q_telem)
+        implot.end_plot()
+
+    # Source Code Scanner Sub-Pane
+    imgui.text_colored(imgui.ImVec4(1.0, 1.0, 0.2, 1.0), f">> [Source Code Inspector] Selected: {g_state.selected_event_name} -> {g_state.selected_source_file}:{g_state.selected_source_line}")
+    imgui.begin_child("TracealyzerSourcePreview", imgui.ImVec2(-1, 80), True)
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"// Source location: {g_state.selected_source_file}")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line - 1}:   // Processing event loop")
+    imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), f"-> {g_state.selected_source_line}:       {g_state.selected_token};")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line + 1}:   attitude_ekf.update(sample.gyro, sample.accel);")
+    imgui.end_child()
+
+def _render_simple_trace_view():
+    """Renders strace / Tracealyzer style simple execution trace table with click-to-inspect."""
+    imgui.begin_group()
+    cores = ["ALL", "Core 0", "Core 1", "SPU", "ISR"]
+    for c in cores:
+        if c == g_state.simple_trace_filter_core:
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
+        if imgui.button(c):
+            g_state.simple_trace_filter_core = c
+        if c == g_state.simple_trace_filter_core:
+            imgui.pop_style_color()
+        imgui.same_line()
+
+    imgui.same_line(0, 12)
+    _, g_state.simple_trace_search = imgui.input_text("Search", g_state.simple_trace_search, 48)
+    imgui.same_line()
+    _, g_state.simple_trace_paused = imgui.checkbox("Pause Trace", g_state.simple_trace_paused)
+    imgui.same_line()
+    if imgui.button("Clear Trace"):
+        with g_state.lock:
+            g_state.simple_trace_events.clear()
+            g_state.selected_trace_idx = 0
+    imgui.same_line()
+    _, g_state.simple_trace_auto_scroll = imgui.checkbox("Auto-Scroll", g_state.simple_trace_auto_scroll)
+    imgui.end_group()
+    imgui.separator()
+
+    # Simple Trace Table Region
+    imgui.begin_child("SimpleTraceChild", imgui.ImVec2(-1, 260), True)
+    imgui.columns(6, "simple_trace_cols", True)
+    imgui.text("Offset (µs)")
+    imgui.next_column()
+    imgui.text("Core")
+    imgui.next_column()
+    imgui.text("Primitive")
+    imgui.next_column()
+    imgui.text("Symbol / Task")
+    imgui.next_column()
+    imgui.text("Context & Arguments")
+    imgui.next_column()
+    imgui.text("Lat (µs)")
+    imgui.next_column()
+    imgui.separator()
+
+    with g_state.lock:
+        events = list(g_state.simple_trace_events)
+        sel_idx = g_state.selected_trace_idx
+
+    flt_core = g_state.simple_trace_filter_core
+    flt_search = g_state.simple_trace_search.lower()
+
+    col_core_map = {
+        "Core 0": imgui.ImVec4(0.4, 0.8, 1.0, 1.0),
+        "Core 1": imgui.ImVec4(0.3, 1.0, 0.4, 1.0),
+        "SPU": imgui.ImVec4(1.0, 0.8, 0.2, 1.0),
+        "ISR": imgui.ImVec4(1.0, 0.4, 0.4, 1.0),
+    }
+
+    for idx, ev in enumerate(events):
+        if flt_core != "ALL" and ev["core"] != flt_core:
+            continue
+        if flt_search and (flt_search not in ev["symbol"].lower() and flt_search not in ev["details"].lower() and flt_search not in ev["primitive"].lower()):
+            continue
+
+        is_sel = (idx == sel_idx)
+        clicked, _ = imgui.selectable(f"+{ev['time_us']:.1f}", is_sel, imgui.SelectableFlags_.span_all_columns)
+        if clicked:
+            with g_state.lock:
+                g_state.selected_trace_idx = idx
+                g_state.selected_event_name = ev['symbol']
+                g_state.selected_source_file = ev['file']
+                g_state.selected_source_line = ev['line']
+                g_state.selected_token = f"{ev['primitive']}: {ev['details']}"
+        imgui.next_column()
+
+        c_col = col_core_map.get(ev["core"], imgui.ImVec4(0.8, 0.8, 0.8, 1.0))
+        imgui.text_colored(c_col, f"[{ev['core']}]")
+        imgui.next_column()
+
+        imgui.text_colored(imgui.ImVec4(0.9, 0.7, 0.3, 1.0), ev["primitive"])
+        imgui.next_column()
+
+        imgui.text(ev["symbol"])
+        imgui.next_column()
+
+        imgui.text_colored(imgui.ImVec4(0.7, 0.7, 0.7, 1.0), ev["details"])
+        imgui.next_column()
+
+        imgui.text(f"{ev['duration_us']:.1f}")
+        imgui.next_column()
+
+    if g_state.simple_trace_auto_scroll and imgui.get_scroll_y() >= imgui.get_scroll_max_y() - 20:
+        imgui.set_scroll_here_y(1.0)
+
+    imgui.columns(1)
+    imgui.end_child()
+
+    imgui.spacing()
+    # Source Code Inspector Sub-Pane
+    imgui.text_colored(imgui.ImVec4(1.0, 1.0, 0.2, 1.0), f">> [Source Code Inspector] Selected: {g_state.selected_event_name} -> {g_state.selected_source_file}:{g_state.selected_source_line}")
+    imgui.begin_child("SimpleTraceSourcePreview", imgui.ImVec2(-1, 80), True)
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"// Source location: {g_state.selected_source_file}")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line - 1}:   // Trace context")
+    imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), f"-> {g_state.selected_source_line}:       {g_state.selected_token};")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line + 1}:   // Coroutine resumption point")
+    imgui.end_child()
 
 def _render_core_timeline():
     """Renders Dual-Plane Execution Timeline & Source Scanner."""
@@ -702,8 +1070,16 @@ def _render_core_studio_window():
     """
     g_state.update_rates()
     if imgui.begin_tab_bar("CoreStudioTabBar"):
-        if imgui.begin_tab_item("CPU & Silicon Cores")[0]:
+        if imgui.begin_tab_item("CPU Gauges & Topology")[0]:
             _render_core_cpu_and_topology()
+            imgui.end_tab_item()
+
+        if imgui.begin_tab_item("Tracealyzer & Line Charts")[0]:
+            _render_tracealyzer_and_charts()
+            imgui.end_tab_item()
+
+        if imgui.begin_tab_item("Simple Trace Viewer")[0]:
+            _render_simple_trace_view()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Dual-Plane Timeline")[0]:

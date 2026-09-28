@@ -123,21 +123,29 @@ The visualizer enforces a multi-window docking layout configured via `hello_imgu
 ## 3. Window Functional Specifications
 
 ### 3.1 Window 1: AbstractX Core Studio (`LeftSpace`)
-The Core Studio window provides foundational hardware-software co-design visibility:
-1. **CPU & Silicon Topology**:
-   - Multi-processor utilization bars tracking Core 0 (Linux Host / ARM Cortex-M33 / RISC-V), Core 1 (Coroutine Engine / XuanTie E907 / RP2350 Core 1), and SPU (FPGA Hardware Fabric).
-   - Interconnect ring queue fill monitors (`SpscTlpRing`, `MpscIsrQueue`) showing current element occupancy and saturation warnings.
-   - Mailbox doorbell interrupt latency tracking (sub-microsecond measurement).
-2. **Dual-Plane Execution Timeline**:
+The Core Studio window provides foundational hardware-software co-design visibility across 5 integrated views:
+1. **CPU Gauges & Topology**:
+   - **Analog Radial Dial Gauges**: Rendered via vector draw lists featuring 240-degree sweep arcs, dynamic color-coding (Green < 50%, Amber < 80%, Coral Red $\ge 80\%$), needle indicators, and digital readouts for:
+     - **Core 0 (Host Linux ARM64 / Cortex-M33)**: Total CPU % load.
+     - **Core 1 (Coroutine Engine / XuanTie E907)**: Real-time active duty cycle %.
+     - **SPU (FPGA Switch Fabric)**: Logic LUT utilization % and Auto-DMA rate.
+   - **Real-Time CPU Load History Line Chart (`ImPlot`)**: Continuous scrolling line chart tracking Core 0, Core 1, and SPU loads over the preceding 30-second window.
+   - **Silicon Topology & Interconnect**: Active processing cores, hardware accelerators, SPSC lock-free ring fill, and sub-microsecond mailbox doorbell interrupt latencies.
+2. **Tracealyzer Task Timeline & Line Charts**:
+   - **Task Execution Gantt Ribbons**: Percepio Tracealyzer style colored execution slices representing active coroutine tasks (`imu_pipeline`, `attitude_ekf`, `flight_control`, `spi_dma_burst`). Clicking any task slice targets the interactive source inspector.
+   - **Coroutine Latency & Suspension History Line Chart (`ImPlot`)**: Multi-line waveform tracking execution durations and suspension latencies ($\mu s$) commit-over-commit.
+   - **SPSC Interconnect Saturation Line Chart (`ImPlot`)**: Real-time queue occupancy waveforms for `g_sensor_ring` and `g_telemetry_ring` (0 to 64 packets).
+3. **Simple Trace Viewer (strace / Tracealyzer Event Log)**:
+   - Chronological microsecond-timestamped execution trace table capturing coroutine yields, resumes, `co_await` tokens, hardware DMA completions, and doorbell interrupts.
+   - Interactive filtering by silicon core (`[ALL]`, `[Core 0]`, `[Core 1]`, `[SPU]`, `[ISR]`), substring search, pause stream, and auto-scroll locking.
+   - Direct integration with the Source Code Scanner: selecting any trace event automatically resolves `__FILE__ : __LINE__` and displays the exact C++ source context.
+4. **Dual-Plane Execution Timeline**:
    - **Plane 1 (Hardware Drivers & ISR/DMA)**: Timed burst execution bars for SPI DMA bursts, I2C ISRs, and hardware doorbell signals.
    - **Plane 2 (Cooperative Coroutine Loop)**: Stackless coroutine task execution spans (`Task<void>`), displaying exact suspension reasons (`co_await g_sensor_ring.pop()`, `co_await timer.sleep()`).
-3. **Interactive Source Code Scanner**:
-   - Clicking any timeline event or driver transition interrogates the source mapping and jumps directly to `__FILE__ : __LINE__`.
-   - Embeds an inline source inspector highlighting the C++ suspension or resume token.
-4. **MemBrowse Memory Budgets**:
+5. **MemBrowse Memory Budgets**:
    - Continuously audits memory metrics exported by `tools/track_memory_membrowse.py`.
    - Visualizes RAM and Flash utilization against hardware limits defined in `tools/membrowse-targets.json`.
-   - Displays `.text`, `.rodata`, `.data`, and `.bss` section metrics with guaranteed zero dynamic heap reference verification.
+   - Displays `.text`, `.rodata`, `.data`, and `.bss` section metrics with guaranteed zero dynamic heap reference verification ($0\text{ B}$).
 
 ### 3.2 Window 2: User Domain Instruments (`MainDockSpace`)
 A high-framerate (120 FPS) canvas hosting domain-specific user instruments:
