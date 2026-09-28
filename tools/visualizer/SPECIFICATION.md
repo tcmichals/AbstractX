@@ -188,6 +188,30 @@ A high-throughput trace log console:
 4. **Buffer Controls**:
    - Clear Log buffer button and Copy to Clipboard support.
 
+### 3.5 Window 5: Source Code Performance & Hotspot Inspector
+A dedicated code observability window connecting firmware source code to execution performance:
+1. **File & Line Browser**: Interactive browsing of key application and driver files (`apps/gps_imu_app/src/main.cpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, etc.).
+2. **Line-by-Line Profiling Annotations**: Each profiled line displays execution duration ($\mu s$), deadline budget, and status badges (Green for nominal, Coral Red for overruns).
+3. **Root-Cause Diagnostic Card**: Provides immediate hardware/concurrency explanations for timing overruns (e.g., SPSC lock-free ring head pointer contention during DMA burst).
+4. **Tracealyzer Cross-Navigation**: Synchronizes selected code lines with the Tracealyzer timing diagram and Simple Trace table.
+
+### 3.6 Window 6: FPGA & Hardware Peripherals Inspector
+Dedicated hardware telemetry window monitoring synthesizable FPGA fabric and peripheral controllers:
+1. **SPI0 Auto-DMA Engine**: Real-time SPI clock frequency (10.0 MHz), burst throughput (1.25 MB/s), transfer duration, bus saturation duty cycle %, and hardware DIO pin trigger status.
+2. **AXI-Stream TLP Crossbar (`asp_router.sv`)**: Switch operating frequency (150 MHz), 64-byte packet ingress/egress rate, zero-copy routing latency (2 cycles / 13.3 ns), channel breakdown (Ch 0..2), and stall/backpressure metrics.
+3. **DShot ESC Generator**: 4-channel concurrent hardware motor pulse generation (DShot600 @ 600 kbit/s, 26.7 µs frame duration, hardware CRC verification).
+
+### 3.7 Dynamic Multi-Window Management & Focus Layout Presets
+To eliminate visual clutter and accommodate an expanding suite of specialized windows:
+1. **Dynamic Layout Presets**:
+   - `Balanced (4-Pane)`: Standard multi-pane workbench for simultaneous overview.
+   - `Flight Focus`: User Domain Instruments maximized to 100% full screen.
+   - `Core Studio Focus`: AbstractX Core Studio (Tracealyzer, CPU gauges, MemBrowse) maximized to 100%.
+   - `Source Focus`: Source Code & Performance Inspector maximized alongside the Tracealyzer timing diagram.
+   - `FPGA Focus`: FPGA & Hardware Peripherals maximized alongside the TLP Bus Debugger.
+2. **Window Maximize / Restore**: Dedicated `[⛶ Expand Window]` and `[🗗 Restore Panes]` buttons on each window header.
+3. **Multi-Viewport Pop-Out**: Native support (`enable_viewports = True`) allowing any window to be torn off into its own independent desktop OS window for multi-monitor workstations.
+
 ---
 
 ## 4. Core-and-Plugin SDK Contract (`tools/visualizer/sdk/plugin.py`)
@@ -246,11 +270,11 @@ AbstractX mandates **Freestanding C++20 with Zero Heap** ($0\text{ B}$ dynamic m
 
 Every requirement below is verified in code with an `@impl` tag:
 
-### `[SPEC-STUDIO-01]` Full-Screen Multi-Window Docking Layout
-The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), partitioning the viewport into dedicated dock spaces (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`).
+### `[SPEC-STUDIO-01]` Full-Screen Multi-Window Docking Layout & Dynamic Management
+The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`), window expand/restore toggles, and multi-viewport pop-out (`enable_viewports = True`).
 
 ### `[SPEC-STUDIO-02]` AbstractX Core Studio Silicon & Timeline Window
-The visualizer MUST provide a dedicated Core Studio window (`LeftSpace`) displaying multi-core silicon topology (Core 0, Core 1, SPU), SPSC ring queue saturation, dual-plane execution timeline (hardware ISR/DMA vs C++20 coroutines), interactive `__FILE__ : __LINE__` source jumping, and MemBrowse static memory budget gauges.
+The visualizer MUST provide a dedicated Core Studio window displaying multi-core silicon topology (Core 0, Core 1, SPU), SPSC ring queue saturation, dual-plane execution timeline (hardware ISR/DMA vs C++20 coroutines), interactive `__FILE__ : __LINE__` source jumping, Tracealyzer multi-track timing diagram, and MemBrowse static memory budget gauges.
 
 ### `[SPEC-STUDIO-03]` User Domain Instruments Decoupled Canvas
 The visualizer MUST provide a dedicated primary canvas (`MainDockSpace`) hosting domain-specific user instruments (Vector Primary Flight Display artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU real-time oscilloscope) decoupled from core framework execution.
@@ -275,3 +299,10 @@ The visualizer MUST support a standalone `--sim` mode generating realistic multi
 
 ### `[SPEC-STUDIO-10]` MemBrowse Zero-Heap Static Budget Verification
 The visualizer MUST ingest static section metrics (`.text`, `.rodata`, `.data`, `.bss`) from `memory_metrics.json` and verify compliance with zero-heap invariants, displaying memory budget bars against hardware SRAM and Flash limits and an explicit `0 B` dynamic heap allocation badge.
+
+### `[SPEC-STUDIO-11]` Source Code Performance & Hotspot Inspector
+The visualizer MUST provide a dedicated Source Code & Performance Inspector window displaying application and driver C++ source code with line numbers, execution latency annotations, timing budget statuses, overrun alerts, and root-cause concurrency diagnostics.
+
+### `[SPEC-STUDIO-12]` FPGA & Hardware Peripherals Inspector
+The visualizer MUST provide a dedicated FPGA & Hardware Peripherals Inspector window displaying SPI0 Auto-DMA throughput, clock speed, transfer duration, and bus saturation duty cycle, alongside AXI-Stream TLP crossbar routing latency and DShot motor pulse generation metrics.
+

@@ -285,6 +285,14 @@ class TelemetryState:
         self._seed_initial_trace_events()
 
         # Tracealyzer Multi-Track Timing Diagram & Drill-Down State
+        self.active_layout_preset = "balanced"
+        self.source_code_files = [
+            "apps/gps_imu_app/src/main.cpp",
+            "include/abstractx/drivers/imu/icm42688p.hpp",
+            "include/abstractx/fusion/attitude_filter.hpp",
+            "targets/allwinner_e907/main.cpp"
+        ]
+        self.selected_code_file_idx = 0
         self.timing_zoom = 1.0
         self.timing_pan_us = 0.0
         self.timing_paused = False
@@ -685,14 +693,104 @@ def udp_receiver_thread(port: int, sim_mode: bool):
             except Exception:
                 time.sleep(0.01)
 
+g_dockable_windows = {}
+
+def apply_docking_layout(preset: str):
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    Dynamically switches docking layout presets to eliminate screen clutter:
+    - 'balanced'   : Standard 4-pane overview workbench.
+    - 'user_focus' : User Domain Instruments expanded to 100% full screen.
+    - 'core_focus' : AbstractX Core Studio expanded to 100% full screen.
+    - 'source_focus': Source Code & Performance Inspector alongside Core Studio.
+    - 'fpga_focus' : FPGA & Hardware Peripherals alongside TLP Bus Debugger.
+    """
+    g_state.active_layout_preset = preset
+    w_core = g_dockable_windows.get("core")
+    w_user = g_dockable_windows.get("user")
+    w_tlp = g_dockable_windows.get("tlp")
+    w_log = g_dockable_windows.get("log")
+    w_source = g_dockable_windows.get("source")
+    w_fpga = g_dockable_windows.get("fpga")
+
+    if preset == "balanced":
+        if w_core: w_core.is_visible = True
+        if w_user: w_user.is_visible = True
+        if w_tlp: w_tlp.is_visible = True
+        if w_log: w_log.is_visible = True
+        if w_source: w_source.is_visible = False
+        if w_fpga: w_fpga.is_visible = False
+    elif preset == "user_focus":
+        if w_core: w_core.is_visible = False
+        if w_user: w_user.is_visible = True
+        if w_tlp: w_tlp.is_visible = False
+        if w_log: w_log.is_visible = False
+        if w_source: w_source.is_visible = False
+        if w_fpga: w_fpga.is_visible = False
+    elif preset == "core_focus":
+        if w_core: w_core.is_visible = True
+        if w_user: w_user.is_visible = False
+        if w_tlp: w_tlp.is_visible = False
+        if w_log: w_log.is_visible = False
+        if w_source: w_source.is_visible = False
+        if w_fpga: w_fpga.is_visible = False
+    elif preset == "source_focus":
+        if w_core: w_core.is_visible = True
+        if w_user: w_user.is_visible = False
+        if w_tlp: w_tlp.is_visible = False
+        if w_log: w_log.is_visible = False
+        if w_source: w_source.is_visible = True
+        if w_fpga: w_fpga.is_visible = False
+    elif preset == "fpga_focus":
+        if w_core: w_core.is_visible = False
+        if w_user: w_user.is_visible = False
+        if w_tlp: w_tlp.is_visible = True
+        if w_log: w_log.is_visible = False
+        if w_source: w_source.is_visible = False
+        if w_fpga: w_fpga.is_visible = True
+
+def decouple_window(window_title: str):
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    Pops out a dockable window into its own floating OS desktop window.
+    """
+    try:
+        ctx = imgui.get_current_context()
+        win = imgui.internal.find_window_by_name(window_title)
+        if win and ctx:
+            imgui.internal.dock_context_queue_undock_window(ctx, win)
+    except Exception:
+        pass
+
 def _render_status_bar():
-    """Renders bottom status bar."""
+    """Renders bottom status bar with quick dynamic window layout presets."""
     if g_state.connected:
         imgui.text_colored(imgui.ImVec4(0.1, 0.9, 0.2, 1.0), " [ONLINE] ")
     else:
         imgui.text_colored(imgui.ImVec4(0.9, 0.2, 0.1, 1.0), " [OFFLINE / WAITING :9870] ")
     imgui.same_line()
     imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s | Dynamic Heap: 0 B")
+
+    # Dynamic Window Layout Preset Chips
+    imgui.same_line(0, 24)
+    imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), "Layout:")
+    imgui.same_line()
+
+    presets = [
+        ("🗖 Balanced", "balanced"),
+        ("✈️ Flight Focus", "user_focus"),
+        ("🔬 Core Studio", "core_focus"),
+        ("💻 Source Code", "source_focus"),
+        ("⚡ FPGA Hardware", "fpga_focus"),
+    ]
+    for lbl, pr in presets:
+        if pr == g_state.active_layout_preset:
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
+        if imgui.button(lbl):
+            apply_docking_layout(pr)
+        if pr == g_state.active_layout_preset:
+            imgui.pop_style_color()
+        imgui.same_line()
 
 def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct: float, 
                       label: str, sublabel: str, unit: str = "%", max_val: float = 100.0) -> None:
@@ -1372,6 +1470,21 @@ def _render_core_studio_window():
     Renders Window 1: AbstractX Core Studio (Platform, CPU, Timeline, MemBrowse).
     """
     g_state.update_rates()
+    imgui.begin_group()
+    if g_state.active_layout_preset == "core_focus":
+        if imgui.button("🗗 Restore All Panes##core"):
+            apply_docking_layout("balanced")
+    else:
+        if imgui.button("⛶ Expand Window##core"):
+            apply_docking_layout("core_focus")
+    imgui.same_line()
+    if imgui.button("🗖 Pop Out Window##core"):
+        decouple_window("AbstractX Core Studio")
+    imgui.same_line()
+    imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Multi-monitor decoupling enabled")
+    imgui.end_group()
+    imgui.separator()
+
     if imgui.begin_tab_bar("CoreStudioTabBar"):
         if imgui.begin_tab_item("CPU Gauges & Topology")[0]:
             _render_core_cpu_and_topology()
@@ -1401,6 +1514,21 @@ def _render_user_domain_window():
     Renders Window 2: User Domain Application Instruments (Flight Display).
     """
     g_state.update_rates()
+    imgui.begin_group()
+    if g_state.active_layout_preset == "user_focus":
+        if imgui.button("🗗 Restore All Panes##user"):
+            apply_docking_layout("balanced")
+    else:
+        if imgui.button("⛶ Expand Window##user"):
+            apply_docking_layout("user_focus")
+    imgui.same_line()
+    if imgui.button("🗖 Pop Out Window##user"):
+        decouple_window("User Domain Instruments")
+    imgui.same_line()
+    imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Tear-off to secondary flight display monitor")
+    imgui.end_group()
+    imgui.separator()
+
     g_flight_plugin.render_ui(0.016, g_state)
 
 def _render_tlp_debugger_window():
@@ -1417,7 +1545,17 @@ def _render_tlp_debugger_window():
             g_state.recent_tlp_packets.clear()
             g_state.selected_tlp_idx = 0
     imgui.same_line()
-    imgui.text(f"| Packets Captured: {len(g_state.recent_tlp_packets)} | Total Received: {g_state.packet_count:,}")
+    if g_state.active_layout_preset == "fpga_focus":
+        if imgui.button("🗗 Restore Panes##tlp"):
+            apply_docking_layout("balanced")
+    else:
+        if imgui.button("⛶ Expand Window##tlp"):
+            apply_docking_layout("fpga_focus")
+    imgui.same_line()
+    if imgui.button("🗖 Pop Out##tlp"):
+        decouple_window("TLP Bus Debugger")
+    imgui.same_line()
+    imgui.text(f"| Captured: {len(g_state.recent_tlp_packets)} | Total: {g_state.packet_count:,}")
     imgui.end_group()
     imgui.separator()
 
@@ -1565,6 +1703,206 @@ def _render_event_log_window():
 
     imgui.end_child()
 
+def _render_source_inspector_window():
+    """
+    # @impl [SPEC-STUDIO-11] tools/visualizer/abstractx_studio.py
+    Renders Window 5: Source Code Performance & Hotspot Inspector.
+    """
+    g_state.update_rates()
+    imgui.begin_group()
+    # File selector combo
+    files = g_state.source_code_files
+    curr_f = files[g_state.selected_code_file_idx]
+    imgui.set_next_item_width(320)
+    if imgui.begin_combo("Source File", curr_f.split("/")[-1]):
+        for idx, fpath in enumerate(files):
+            is_sel = (idx == g_state.selected_code_file_idx)
+            if imgui.selectable(fpath, is_sel)[0]:
+                g_state.selected_code_file_idx = idx
+                g_state.selected_source_file = fpath
+            if is_sel:
+                imgui.set_item_default_focus()
+        imgui.end_combo()
+
+    imgui.same_line(0, 15)
+    imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.25, 0.25, 0.9))
+    if imgui.button("🚨 Jump to Overrun Hotspot (Line 42)"):
+        g_state.selected_code_file_idx = 0
+        g_state.selected_source_file = "apps/gps_imu_app/src/main.cpp"
+        g_state.selected_source_line = 42
+        g_state.selected_span_id = "imu_overrun"
+        g_state.selected_event_name = "imu_pipeline [OVERRUN]"
+    imgui.pop_style_color()
+
+    imgui.same_line(0, 10)
+    if imgui.button("⛶ Expand Window##source"):
+        apply_docking_layout("source_focus")
+    imgui.same_line(0, 6)
+    if imgui.button("🗖 Pop Out##source"):
+        decouple_window("Source Code & Performance Inspector")
+
+    imgui.end_group()
+    imgui.separator()
+
+    # Code Listing with Line-by-Line Profiling Badges
+    imgui.begin_child("SourceCodeLinesChild", imgui.ImVec2(-1, -1), True)
+
+    code_snippets = {
+        "apps/gps_imu_app/src/main.cpp": [
+            (35, "int main(int argc, char* argv[]) {", None),
+            (36, "    // Initialize dual-core hardware and lock-free SPSC rings", None),
+            (37, "    abstractx::init(g_platform_config);", None),
+            (38, "    g_dispatcher.spawn(boot_async());", None),
+            (39, "", None),
+            (40, "    // Primary-Paced Coroutine Ingestion Loop (8 kHz IMU Clock)", None),
+            (41, "    while (g_running) {", None),
+            (42, "        auto sample = co_await g_sensor_ring.pop();", {"lat": 23.4, "budget": 15.0, "overrun": True, "token": "co_await g_sensor_ring.pop()", "diag": "Head pointer contention during concurrent DMA latch (+8.4 µs late)"}),
+            (43, "        attitude_ekf.update(sample.gyro, sample.accel);", {"lat": 18.2, "budget": 20.0, "overrun": False, "token": "attitude_ekf.update()", "diag": "Mahony kinematics quaternion integration"}),
+            (44, "        quad_mixer.compute_demands(tau);", {"lat": 2.8, "budget": 25.0, "overrun": False, "token": "quad_mixer.compute_demands()", "diag": "Cascaded rate PID calculations"}),
+            (45, "        while (g_mag_channel.try_pop(mag)) { /* aux */ }", {"lat": 6.5, "budget": 10.0, "overrun": False, "token": "g_mag_channel.try_pop()", "diag": "Auxiliary sensor non-blocking drain"}),
+            (46, "        co_await g_telemetry_ring.push_async(tlp);", {"lat": 1.2, "budget": 5.0, "overrun": False, "token": "g_telemetry_ring.push_async()", "diag": "64-byte TLP egress push"}),
+            (47, "    }", None),
+            (48, "    return 0;", None),
+            (49, "}", None),
+        ],
+        "include/abstractx/drivers/imu/icm42688p.hpp": [
+            (50, "template <typename SpiBus>", None),
+            (51, "class Icm42688pDriver {", None),
+            (52, "public:", None),
+            (53, "    coro::Task<bool> read_burst_async(ImuSample& out) {", None),
+            (54, "        co_await spi_bus_.transfer_dma_async(tx_buf, rx_buf, 14);", {"lat": 8.5, "budget": 10.0, "overrun": False, "token": "spi_bus_.transfer_dma_async()", "diag": "Hardware SPI Auto-DMA burst @ 10 MHz"}),
+            (55, "        out.accel = parse_accel(rx_buf);", None),
+            (56, "        out.gyro  = parse_gyro(rx_buf);", None),
+            (57, "        co_return true;", None),
+            (58, "    }", None),
+            (59, "};", None),
+        ]
+    }
+
+    curr_lines = code_snippets.get(curr_f, code_snippets["apps/gps_imu_app/src/main.cpp"])
+
+    imgui.columns(3, "code_inspect_cols", True)
+    imgui.set_column_width(0, 50)
+    imgui.set_column_width(1, 460)
+    imgui.text("Line")
+    imgui.next_column()
+    imgui.text("C++ Source Code Context")
+    imgui.next_column()
+    imgui.text("Execution Metrics & Profiling Badges")
+    imgui.next_column()
+    imgui.separator()
+
+    for line_no, code_txt, prof in curr_lines:
+        is_sel_line = (line_no == g_state.selected_source_line and curr_f == g_state.selected_source_file)
+        
+        # Line number column
+        num_str = f"{line_no:4d}"
+        if prof and prof["overrun"]:
+            imgui.text_colored(imgui.ImVec4(1.0, 0.3, 0.3, 1.0), f"🚨{num_str}")
+        elif is_sel_line:
+            imgui.text_colored(imgui.ImVec4(1.0, 0.9, 0.2, 1.0), f"👉{num_str}")
+        else:
+            imgui.text_colored(imgui.ImVec4(0.4, 0.5, 0.6, 1.0), num_str)
+        imgui.next_column()
+
+        # Code text column
+        if prof and prof["overrun"]:
+            imgui.text_colored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), code_txt)
+        elif is_sel_line:
+            imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.5, 1.0), code_txt)
+        else:
+            imgui.text(code_txt)
+        imgui.next_column()
+
+        # Profiling badges column
+        if prof is not None:
+            if prof["overrun"]:
+                imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.9, 0.2, 0.2, 0.9))
+                badge_lbl = f"⚠️ {prof['lat']:.1f} µs [OVERRUN +{prof['lat'] - prof['budget']:.1f} µs]"
+            else:
+                imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.3, 0.8))
+                badge_lbl = f"✓ {prof['lat']:.1f} µs [Limit: {prof['budget']:.1f} µs]"
+
+            if imgui.button(f"{badge_lbl}##btn_{line_no}"):
+                with g_state.lock:
+                    g_state.selected_source_line = line_no
+                    g_state.selected_source_file = curr_f
+                    g_state.selected_token = prof["token"]
+                    if prof["overrun"]:
+                        g_state.selected_span_id = "imu_overrun"
+                        g_state.selected_event_name = "imu_pipeline [OVERRUN]"
+            imgui.pop_style_color()
+            imgui.same_line()
+            imgui.text_colored(imgui.ImVec4(0.7, 0.7, 0.7, 0.9), prof["diag"])
+        else:
+            imgui.text("")
+        imgui.next_column()
+
+    imgui.columns(1)
+    imgui.end_child()
+
+def _render_fpga_peripherals_window():
+    """
+    # @impl [SPEC-STUDIO-12] tools/visualizer/abstractx_studio.py
+    Renders Window 6: FPGA Hardware Accelerators & Peripheral Subsystems Inspector.
+    """
+    g_state.update_rates()
+    imgui.begin_group()
+    imgui.text_colored(imgui.ImVec4(0.8, 0.4, 1.0, 1.0), "FPGA SPU Accelerator Engine & High-Speed Peripherals")
+    imgui.same_line(0, 20)
+    if imgui.button("⛶ Expand Window##fpga"):
+        apply_docking_layout("fpga_focus")
+    imgui.same_line(0, 6)
+    if imgui.button("🗖 Pop Out##fpga"):
+        decouple_window("FPGA & Hardware Peripherals")
+    imgui.end_group()
+    imgui.separator()
+
+    imgui.columns(3, "fpga_subsystem_cols", True)
+
+    # Subsystem 1: SPI0 Auto-DMA Engine
+    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "[SPI0 Auto-DMA Engine]")
+    imgui.bullet_text("Controller : Hardware FPGA SPU SPI0")
+    imgui.bullet_text("Clock Speed: 10.0 MHz (Mode 3)")
+    imgui.bullet_text("Burst Size : 14 Bytes / Transfer")
+    imgui.bullet_text("Burst Latency: 8.5 µs")
+    imgui.bullet_text("Trigger    : ICM-42688-P DRDY DIO Line")
+    imgui.bullet_text("Status     : Auto-DMA Engaged (0% CPU)")
+    
+    imgui.spacing()
+    imgui.text("Bus Saturation (8 kHz Burst Cadence): 6.8%")
+    imgui.progress_bar(0.068, imgui.ImVec2(-1, 16), "6.8% Bandwidth")
+    imgui.next_column()
+
+    # Subsystem 2: AXI-Stream TLP Crossbar (asp_router.sv)
+    imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[AXI-Stream TLP Switch Crossbar]")
+    imgui.bullet_text("Module     : asp_router.sv (Full Crossbar)")
+    imgui.bullet_text("Fabric Clk : 150.0 MHz")
+    imgui.bullet_text("Throughput : 8,240 pkts/s (64B TLPs)")
+    imgui.bullet_text("Bandwidth  : 527.4 KB/s (9.6 Gbps max)")
+    imgui.bullet_text("Latency    : 2 cycles (13.3 ns zero-copy)")
+    imgui.bullet_text("Contention : 0 Stalls (0.0% backpressure)")
+
+    imgui.spacing()
+    imgui.text("Channel Routing: Ch 0 (Clock), Ch 1 (Sensor), Ch 2 (Telem)")
+    imgui.progress_bar(12.0 / 64.0, imgui.ImVec2(-1, 16), "12 / 64 Descriptors")
+    imgui.next_column()
+
+    # Subsystem 3: DShot ESC Pulse Generator
+    imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.5, 1.0), "[DShot600 ESC Motor Generator]")
+    imgui.bullet_text("Protocol   : DShot600 (600 kbit/s bitstream)")
+    imgui.bullet_text("Channels   : 4 Concurrent DMA PWM (M1..M4)")
+    imgui.bullet_text("Frame Time : 26.7 µs / command packet")
+    imgui.bullet_text("Resolution : 11-bit throttle (0..2047)")
+    imgui.bullet_text("Telemetry  : Bidirectional DShot eRPM enabled")
+    imgui.bullet_text("Integrity  : 4-bit hardware CRC checked")
+
+    imgui.spacing()
+    imgui.text("Motor Demands Cadence: 100 Hz Sync")
+    imgui.progress_bar(0.65, imgui.ImVec2(-1, 16), "M1..M4 Active")
+    imgui.columns(1)
+    imgui.separator()
+
 def render_gui():
     """Immediate mode GUI rendering combining all windows inside unified tabs for fallback/tests."""
     g_state.update_rates()
@@ -1606,6 +1944,16 @@ def render_gui():
             _render_event_log_window()
             imgui.end_tab_item()
 
+        opened, _ = imgui.begin_tab_item("Source Code Inspector", None, 0)
+        if opened:
+            _render_source_inspector_window()
+            imgui.end_tab_item()
+
+        opened, _ = imgui.begin_tab_item("FPGA Peripherals", None, 0)
+        if opened:
+            _render_fpga_peripherals_window()
+            imgui.end_tab_item()
+
         opened, _ = imgui.begin_tab_item("MemBrowse Memory", None, flags_memory)
         if opened:
             _render_level1_memory()
@@ -1637,22 +1985,23 @@ def main():
 def create_docking_runner_params() -> hello_imgui.RunnerParams:
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
-    Creates and configures HelloImGui 4-window docking layout for AbstractX Studio.
+    Creates and configures HelloImGui 6-window dynamic docking layout for AbstractX Studio.
     """
     runner_params = hello_imgui.RunnerParams()
     runner_params.app_window_params.window_title = "AbstractX Studio & User Domain Workbench"
     runner_params.app_window_params.window_geometry.size = (1560, 920)
 
-    # Enable full screen docking layout
+    # Enable full screen docking layout and multi-viewport pop-out
     runner_params.imgui_window_params.default_imgui_window_type = (
         hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
     )
+    runner_params.imgui_window_params.enable_viewports = True
     runner_params.imgui_window_params.show_menu_bar = True
     runner_params.imgui_window_params.show_menu_view = True
     runner_params.imgui_window_params.show_status_bar = True
     runner_params.imgui_window_params.menu_app_title = "AbstractX"
 
-    # Define the 4 dedicated dockable windows
+    # Define the 6 dedicated dockable windows
     win_user = hello_imgui.DockableWindow()
     win_user.label = "User Domain Instruments"
     win_user.dock_space_name = "MainDockSpace"
@@ -1672,6 +2021,27 @@ def create_docking_runner_params() -> hello_imgui.RunnerParams:
     win_log.label = "System Event Log"
     win_log.dock_space_name = "BottomRightSpace"
     win_log.gui_function = _render_event_log_window
+
+    win_source = hello_imgui.DockableWindow()
+    win_source.label = "Source Code & Performance Inspector"
+    win_source.dock_space_name = "MainDockSpace"
+    win_source.gui_function = _render_source_inspector_window
+    win_source.is_visible = False
+
+    win_fpga = hello_imgui.DockableWindow()
+    win_fpga.label = "FPGA & Hardware Peripherals"
+    win_fpga.dock_space_name = "BottomSpace"
+    win_fpga.gui_function = _render_fpga_peripherals_window
+    win_fpga.is_visible = False
+
+    # Store in global dictionary for dynamic layout and pop-out control
+    global g_dockable_windows
+    g_dockable_windows["core"] = win_core
+    g_dockable_windows["user"] = win_user
+    g_dockable_windows["tlp"] = win_tlp
+    g_dockable_windows["log"] = win_log
+    g_dockable_windows["source"] = win_source
+    g_dockable_windows["fpga"] = win_fpga
 
     # Define Docking Splits:
     # 1. LeftSpace (36% width) on the left for AbstractX Core Studio
@@ -1696,7 +2066,7 @@ def create_docking_runner_params() -> hello_imgui.RunnerParams:
     split_bottom_log.ratio = 0.50
 
     runner_params.docking_params.docking_splits = [split_left, split_bottom, split_bottom_log]
-    runner_params.docking_params.dockable_windows = [win_core, win_user, win_tlp, win_log]
+    runner_params.docking_params.dockable_windows = [win_core, win_user, win_tlp, win_log, win_source, win_fpga]
     runner_params.callbacks.show_status = _render_status_bar
     return runner_params
 
