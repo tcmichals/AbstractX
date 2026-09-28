@@ -127,8 +127,9 @@ def test_studio_docking_workbench_configuration():
     runner = studio.create_docking_runner_params()
     assert runner is not None
     assert runner.app_window_params.window_title == "AbstractX Studio & User Domain Workbench"
-    assert runner.imgui_window_params.default_imgui_window_type == hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
-    assert runner.imgui_window_params.enable_viewports is True, "Multi-viewport pop-out must be enabled"
+    assert runner.imgui_window_params.enable_viewports is False, "Single dedicated window mode by default for cross-platform portability"
+    runner_multi = studio.create_docking_runner_params(enable_viewports=True)
+    assert runner_multi.imgui_window_params.enable_viewports is True, "Multi-viewport enabled when requested"
 
     # Check 6 dockable windows
     windows = runner.docking_params.dockable_windows
