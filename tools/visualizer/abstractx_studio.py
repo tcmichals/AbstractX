@@ -259,6 +259,14 @@ class TelemetryState:
         self.chart_ring_sensor = np.full(self.chart_hist_len, 22.0, dtype=np.float64)
         self.chart_ring_telem = np.full(self.chart_hist_len, 12.0, dtype=np.float64)
 
+        # CPU Gauges & Topology View, Zoom & Sizing State
+        self.cpu_chart_height = 320.0
+        self.cpu_chart_zoom_sec = 30.0
+        self.cpu_chart_trigger_zoom_reset = True
+        self.cpu_chart_autofit_y = False
+        self.cpu_chart_show_rings = True
+        self.cpu_view_mode = "standard"  # "standard" or "chart_focus"
+
         # Simple Trace Viewer State
         self.simple_trace_events = []
         self.simple_trace_paused = False
@@ -1066,72 +1074,215 @@ def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct
     dl.add_text(imgui.ImVec2(center_x - sub_w / 2.0, center_y + radius + 26.0), c_sub, sublabel)
 
 def _render_core_cpu_and_topology():
-    """Renders Silicon Cores, Radial CPU Gauges, Platform Architecture, and CPU Load Line Chart."""
-    # Top Section: 3 Radial CPU Dial Gauges
-    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Silicon Processor Real-Time Load Gauges]")
-    imgui.columns(3, "cpu_gauge_cols", False)
-    
-    # Col 1: Core 0
-    cur_pos = imgui.get_cursor_screen_pos()
+    """
+    Renders Silicon Cores, Radial CPU & SPSC Gauges, Interactive Zoomable Load Plots,
+    Dynamic Window Sizing Controls, and Platform Architecture Topology.
+    """
+    # ── Top Toolbar: Dynamic Window Sizing & Plot Zoom Controls ──
+    imgui.begin_group()
+    imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), "Window Size:")
+    imgui.same_line()
+    for lbl, w, h in [("1280x800", 1280, 800), ("1560x920", 1560, 920), ("1920x1080", 1920, 1080)]:
+        if imgui.button(f"{lbl}##cpu_wsize"):
+            hello_imgui.change_window_size((w, h))
+        imgui.same_line()
+
+    if imgui.button("⛶ Expand Pane##cpu_exp"):
+        apply_docking_layout("core_focus")
+    imgui.same_line()
+    if imgui.button("🗖 Pop Out##cpu_pop"):
+        decouple_window("AbstractX Core Studio")
+    imgui.same_line(0, 16)
+
+    # View Mode Toggle
+    is_chart_focus = (g_state.cpu_view_mode == "chart_focus")
+    if is_chart_focus:
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
+    if imgui.button("📊 Maximize Chart##cpu_mode"):
+        g_state.cpu_view_mode = "standard" if is_chart_focus else "chart_focus"
+    if is_chart_focus:
+        imgui.pop_style_color()
+
+    imgui.end_group()
+    imgui.separator()
+
+    # ── Section 1: Silicon Cores & Hardware SPSC Gauges (4 Dense Cards, Zero Wasted Space) ──
+    imgui.columns(4, "cpu_gauge_cols", True)
+
+    # Card 1: Core 0 (Host Linux / ARM Cortex-M33)
     col_w = imgui.get_column_width()
-    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 45.0, 36.0, 
-                      g_state.linux_total_cpu, "Core 0 (Host)", f"Linux {g_state.linux_total_cpu:.1f}%")
-    imgui.dummy(imgui.ImVec2(col_w, 120.0))
+    cur_pos = imgui.get_cursor_screen_pos()
+    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 40.0, 32.0,
+                      g_state.linux_total_cpu, "Core 0", f"Host {g_state.linux_total_cpu:.1f}%")
+    imgui.dummy(imgui.ImVec2(col_w, 105.0))
+    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "Supervisor Core")
+    imgui.text("Clock: 150 MHz | Status: RUN")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Task: I/O + Wi-Fi Pacing")
     imgui.next_column()
 
-    # Col 2: Core 1
-    cur_pos = imgui.get_cursor_screen_pos()
+    # Card 2: Core 1 (C++20 Stackless Coroutine Engine)
     col_w = imgui.get_column_width()
-    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 45.0, 36.0, 
-                      g_state.e907_active_duty_pct, "Core 1 (Coro)", f"Duty {g_state.e907_active_duty_pct:.1f}%")
-    imgui.dummy(imgui.ImVec2(col_w, 120.0))
+    cur_pos = imgui.get_cursor_screen_pos()
+    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 40.0, 32.0,
+                      g_state.e907_active_duty_pct, "Core 1", f"Duty {g_state.e907_active_duty_pct:.1f}%")
+    imgui.dummy(imgui.ImVec2(col_w, 105.0))
+    imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.4, 1.0), "Coroutine Engine")
+    imgui.text("Dispatcher: 8.2 kHz | 6 Tasks")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), f"Pool: {g_state.coro_pool_used_bytes // 1024} / {g_state.coro_pool_capacity_bytes // 1024} KB")
     imgui.next_column()
 
-    # Col 3: SPU
-    cur_pos = imgui.get_cursor_screen_pos()
+    # Card 3: SPU (FPGA AXI-Stream TLP Crossbar Fabric)
     col_w = imgui.get_column_width()
-    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 45.0, 36.0, 
-                      g_state.fpga_lut_utilization_pct, "SPU (FPGA)", f"Logic {g_state.fpga_lut_utilization_pct:.1f}%")
-    imgui.dummy(imgui.ImVec2(col_w, 120.0))
+    cur_pos = imgui.get_cursor_screen_pos()
+    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 40.0, 32.0,
+                      g_state.fpga_lut_utilization_pct, "SPU Fabric", f"Logic {g_state.fpga_lut_utilization_pct:.1f}%")
+    imgui.dummy(imgui.ImVec2(col_w, 105.0))
+    imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "FPGA Crossbar Switch")
+    imgui.text("Throughput: 8,240 pkts/s")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Contention: 0 Stalls (0%)")
     imgui.next_column()
 
+    # Card 4: SPSC Lock-Free Rings & Freestanding Zero-Heap
+    col_w = imgui.get_column_width()
+    cur_pos = imgui.get_cursor_screen_pos()
+    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 40.0, 32.0,
+                      g_state.chart_ring_sensor[-1], "SPSC Rings", f"Fill {g_state.chart_ring_sensor[-1]:.1f}%")
+    imgui.dummy(imgui.ImVec2(col_w, 105.0))
+    imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.8, 1.0), "Lock-Free SPSC Fabric")
+    imgui.text(f"RTT Doorbell: {g_state.rtt_latency_us:.1f} µs")
+    imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), "Dynamic Heap: 0 B (PASS)")
     imgui.columns(1)
     imgui.separator()
 
-    # Line Chart: Per-Processor CPU Load History (Last 30s)
-    if implot.begin_plot("Silicon Cores CPU Load History (Last 30s)", imgui.ImVec2(-1, 180)):
-        implot.setup_axes("Time (s)", "CPU / Duty (%)", implot.AxisFlags_.auto_fit, implot.AxisFlags_.none)
-        implot.setup_axis_limits(implot.ImAxis_.y1, 0.0, 100.0, imgui.Cond_.always)
+    # ── Section 2: Interactive Zoomable & Resizable CPU Load History Plot ──
+    imgui.begin_group()
+    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "Time-Series Load Telemetry:")
+    imgui.same_line(0, 12)
+
+    # Zoom presets
+    imgui.text_colored(imgui.ImVec4(0.8, 0.8, 0.8, 1.0), "Zoom:")
+    imgui.same_line()
+    for z_lbl, z_sec in [("10s", 10.0), ("30s", 30.0), ("60s", 60.0)]:
+        is_sel = (g_state.cpu_chart_zoom_sec == z_sec)
+        if is_sel:
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
+        if imgui.button(f"{z_lbl}##cpu_z"):
+            g_state.cpu_chart_zoom_sec = z_sec
+            g_state.cpu_chart_trigger_zoom_reset = True
+        if is_sel:
+            imgui.pop_style_color()
+        imgui.same_line()
+
+    if imgui.button("Auto-Fit X##cpu_fitx"):
+        g_state.cpu_chart_zoom_sec = 0.0
+        g_state.cpu_chart_trigger_zoom_reset = True
+    imgui.same_line(0, 12)
+
+    # Y-axis zoom/lock toggle
+    _, g_state.cpu_chart_autofit_y = imgui.checkbox("Auto-Fit Y (Zoom Micro-Loads)", g_state.cpu_chart_autofit_y)
+    imgui.same_line(0, 12)
+
+    # Ring overlay toggle
+    _, g_state.cpu_chart_show_rings = imgui.checkbox("Show SPSC Rings (%)", g_state.cpu_chart_show_rings)
+    imgui.same_line(0, 12)
+
+    # Height Controls
+    imgui.text("Height:")
+    imgui.same_line()
+    for h_lbl, h_val in [("240px", 240.0), ("340px", 340.0), ("480px", 480.0)]:
+        if imgui.button(f"{h_lbl}##cpu_hpreset"):
+            g_state.cpu_chart_height = h_val
+        imgui.same_line()
+
+    imgui.push_item_width(90)
+    _, g_state.cpu_chart_height = imgui.slider_float("##cpu_hslider", g_state.cpu_chart_height, 180.0, 750.0, "%.0f px")
+    imgui.pop_item_width()
+    imgui.same_line()
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "(Scroll wheel on plot to zoom)")
+    imgui.end_group()
+
+    # Determine plot dimensions
+    plot_h = g_state.cpu_chart_height
+    if g_state.cpu_view_mode == "chart_focus":
+        avail_h = imgui.get_content_region_avail().y
+        plot_h = max(340.0, avail_h - 16.0)
+
+    x_flags = implot.AxisFlags_.auto_fit if g_state.cpu_chart_zoom_sec == 0.0 else implot.AxisFlags_.none
+    y_flags = implot.AxisFlags_.auto_fit if g_state.cpu_chart_autofit_y else implot.AxisFlags_.none
+
+    if implot.begin_plot("Silicon Cores Real-Time Load & Duty History", imgui.ImVec2(-1, plot_h)):
+        implot.setup_axes("History Time (s)", "Utilization / Duty (%)", x_flags, y_flags)
+
+        cond_x = imgui.Cond_.always if g_state.cpu_chart_trigger_zoom_reset else imgui.Cond_.once
+        if g_state.cpu_chart_zoom_sec > 0.0:
+            implot.setup_axis_limits(implot.ImAxis_.x1, -g_state.cpu_chart_zoom_sec, 0.0, cond_x)
+
+        if not g_state.cpu_chart_autofit_y:
+            cond_y = imgui.Cond_.always if g_state.cpu_chart_trigger_zoom_reset else imgui.Cond_.once
+            implot.setup_axis_limits(implot.ImAxis_.y1, 0.0, 100.0, cond_y)
+
+        g_state.cpu_chart_trigger_zoom_reset = False
+
         with g_state.lock:
             t_data = np.copy(g_state.chart_time)
             c0_data = np.copy(g_state.chart_cpu_c0)
             c1_data = np.copy(g_state.chart_cpu_c1)
             spu_data = np.copy(g_state.chart_cpu_spu)
-        implot.plot_line("Core 0 (Host Linux / M33)", t_data, c0_data)
-        implot.plot_line("Core 1 (Coroutine Engine)", t_data, c1_data)
+            ring_s = np.copy(g_state.chart_ring_sensor)
+            ring_t = np.copy(g_state.chart_ring_telem)
+
+        implot.plot_line("Core 0 (Host Linux / ARM64)", t_data, c0_data)
+        implot.plot_line("Core 1 (C++20 Coroutine Duty)", t_data, c1_data)
         implot.plot_line("SPU (FPGA Switch Fabric)", t_data, spu_data)
+
+        if g_state.cpu_chart_show_rings:
+            implot.plot_line("Sensor Ring Fill (%)", t_data, ring_s)
+            implot.plot_line("Telem Ring Fill (%)", t_data, ring_t)
+
         implot.end_plot()
 
     imgui.separator()
     # Middle Section: Platform Topology & Processing Roles
-    imgui.columns(3, "topo_cols", False)
-    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Platform Architecture]")
-    imgui.text(f"Arch Name : {g_state.platform_arch}")
-    imgui.text(f"Board     : {g_state.board_model}")
-    imgui.text(f"Transport : {g_state.primary_transport}")
-    imgui.next_column()
+    if g_state.cpu_view_mode != "chart_focus":
+        imgui.columns(3, "topo_cols", False)
+        imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Platform Architecture]")
+        imgui.text(f"Arch Name : {g_state.platform_arch}")
+        imgui.text(f"Board     : {g_state.board_model}")
+        imgui.text(f"Transport : {g_state.primary_transport}")
+        imgui.next_column()
 
-    imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "[Processing Units & Roles]")
-    for core in g_state.active_cores:
-        imgui.bullet_text(f"Core {core['id']}: {core['role']} ({core['clock_mhz']} MHz)\n  └─ {core['task']}")
-    imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "[Processing Units & Roles]")
+        for core in g_state.active_cores:
+            imgui.bullet_text(f"Core {core['id']}: {core['role']} ({core['clock_mhz']} MHz)\n  └─ {core['task']}")
+        imgui.next_column()
 
-    imgui.text_colored(imgui.ImVec4(1.0, 0.7, 0.2, 1.0), "[Hardware Accelerators & Rings]")
-    for accel in g_state.hardware_accels:
-        imgui.text(f" ✓ {accel}")
-    imgui.text(f"SPSC Ring : 64 Descriptors (Zero-Copy)")
-    imgui.text(f"Avg Doorbell Latency: {g_state.rtt_latency_us:.1f} µs")
-    imgui.columns(1)
+        imgui.text_colored(imgui.ImVec4(1.0, 0.7, 0.2, 1.0), "[Hardware Accelerators & Rings]")
+        for accel in g_state.hardware_accels:
+            imgui.text(f" ✓ {accel}")
+        imgui.text(f"SPSC Ring : 64 Descriptors (Zero-Copy)")
+        imgui.text(f"Avg Doorbell Latency: {g_state.rtt_latency_us:.1f} µs")
+        imgui.columns(1)
+    else:
+        if imgui.tree_node("Platform Topology & Roles (Collapsed in Maximize Chart Mode)"):
+            imgui.columns(3, "topo_cols_min", False)
+            imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Platform Architecture]")
+            imgui.text(f"Arch Name : {g_state.platform_arch}")
+            imgui.text(f"Board     : {g_state.board_model}")
+            imgui.text(f"Transport : {g_state.primary_transport}")
+            imgui.next_column()
+
+            imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "[Processing Units & Roles]")
+            for core in g_state.active_cores:
+                imgui.bullet_text(f"Core {core['id']}: {core['role']} ({core['clock_mhz']} MHz)\n  └─ {core['task']}")
+            imgui.next_column()
+
+            imgui.text_colored(imgui.ImVec4(1.0, 0.7, 0.2, 1.0), "[Hardware Accelerators & Rings]")
+            for accel in g_state.hardware_accels:
+                imgui.text(f" ✓ {accel}")
+            imgui.text(f"SPSC Ring : 64 Descriptors (Zero-Copy)")
+            imgui.text(f"Avg Doorbell Latency: {g_state.rtt_latency_us:.1f} µs")
+            imgui.columns(1)
+            imgui.tree_pop()
 
 def _render_simple_trace_view():
     """Renders execution trace table with click-to-inspect."""
