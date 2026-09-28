@@ -13,7 +13,7 @@ extern "C" {
 /*
  * ASP SPI vChip profile constants
  * Source of truth:
- *   docs/ASP_SPI_REGISTER_MAP.md
+ *   docs/protocol/ASP_SPI_REGISTER_MAP.md
  */
 
 /* Command bytes */

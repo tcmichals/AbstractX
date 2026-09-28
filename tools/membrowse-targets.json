@@ -1,0 +1,38 @@
+{
+  "project": "AbstractX",
+  "repository": "github.com/tcmichals/AbstractX",
+  "targets": [
+    {
+      "name": "pico2w_rp2350_gps_imu_app",
+      "display_name": "Raspberry Pi Pico 2 W (Dual Cortex-M33)",
+      "platform": "rp2350",
+      "architecture": "arm_cortex_m33",
+      "binary_path": "build-pico2w/apps/gps_imu_app/gps_imu_app.elf",
+      "map_path": "build-pico2w/apps/gps_imu_app/gps_imu_app.elf.map",
+      "ram_budget_bytes": 524288,
+      "flash_budget_bytes": 4194304,
+      "max_allowed_growth_bytes": 4096
+    },
+    {
+      "name": "allwinner_e907_gps_imu_app",
+      "display_name": "Radxa Cubie A5E (XuanTie E907 RISC-V)",
+      "platform": "allwinner_a5e_e907",
+      "architecture": "riscv32_e907",
+      "binary_path": "build-e907/apps/gps_imu_app/gps_imu_app",
+      "map_path": "build-e907/apps/gps_imu_app/gps_imu_app.map",
+      "ram_budget_bytes": 65536,
+      "flash_budget_bytes": 1048576,
+      "max_allowed_growth_bytes": 2048
+    },
+    {
+      "name": "desktop_sitl_gps_imu_app",
+      "display_name": "Desktop SITL Simulation (Host Linux)",
+      "platform": "linux_host",
+      "architecture": "x86_64",
+      "binary_path": "build-host/apps/gps_imu_app/gps_imu_app",
+      "ram_budget_bytes": 16777216,
+      "flash_budget_bytes": 33554432,
+      "max_allowed_growth_bytes": 16384
+    }
+  ]
+}

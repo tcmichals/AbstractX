@@ -1,4 +1,29 @@
-# AbstractX: Deterministic Asynchronous Architecture for Hardware-Software Co-Design
+# AbstractX: The Agentic Framework for Hardware-Software Co-Design
+
+> **Welcome to AbstractX, an AI-native, specification-driven architecture built from the ground up for agentic programming.**
+>
+> AbstractX pairs **C++20 stackless coroutines** with **FPGA hardware auto-DMA engines** and **PCIe-style Transaction Layer Packets (TLPs)**, but its true superpower is **how it is built**. This framework is engineered to eliminate the hallucination, drift, and memory leaks that typically plague AI-generated firmware.
+>
+> By treating Markdown specifications as the absolute **Single Source of Truth (SSOT)** and enforcing a rigid set of zero-heap invariants, AbstractX creates a perfect, tightly constrained playground for autonomous coding agents.
+>
+> **Here, humans design the architecture, and AI agents write the implementation.**
+
+---
+
+### 🤖 The Agentic Development Loop
+
+* **1. You Write the Contract**: Every feature starts as a Markdown specification ([`SPECIFICATION.md`](docs/SPEC_TEMPLATE.md)) detailing memory maps, multi-rate timing, and architectural invariants.
+* **2. Agents Generate the Code**: AI assistants (configured via [`AGENTS.md`](AGENTS.md)) translate the specs into freestanding C++20 or SystemVerilog, tagging every block with `// @impl [SPEC-*]`.
+* **3. The System Audits the Agent**: The 5-stage Sashiko adversarial pipeline ([`tools/run_adversarial_audit.py`](tools/run_adversarial_audit.py)) and [`tools/audit_specs.py`](tools/audit_specs.py) ruthlessly verify that the agent respected the zero-heap constraints, avoided blocking delays, and achieved 100% traceability.
+* **4. Zero-Tolerance Hallucination Gate**: If the AI hallucinates a `malloc()` or a blocking `sleep()`, the CI/CD pipeline immediately catches it and rejects the commit.
+
+> [!IMPORTANT]
+> **Why Agentic Guardrails Matter in Mission-Critical Embedded Systems**:
+> The strict rules, freestanding C++20 invariants, and 3-Tier folder structures aren't just pedantic formatting—they are the **deterministic guardrails** that make autonomous AI generation actually safe, reproducible, and verifiable for aerospace, robotics, and deep-embedded firmware.
+
+---
+
+## Deterministic Concurrency for Hardware-Software Co-Design
 
 AbstractX is a **hardware-software co-design architecture** for real-time aerospace, robotics, and embedded systems. It applies a single, unified concurrency paradigm symmetrically across **FPGA switch fabrics, real-time coprocessors, bare-metal microcontrollers, and Linux hosts**.
 
@@ -22,8 +47,14 @@ By pairing **C++20 stackless coroutines** with **hardware auto-DMA engines and P
 > 1. **Target A (Processor)**: Freestanding C++20 coroutines, lock-free SPSC channels, and zero dynamic heap.
 > 2. **Target B (FPGA RTL)**: Autonomous SystemVerilog Auto-DMA state machine, hardware DRDY pin trigger, and 9.57 µs doorbell.
 > 3. **AI Adversarial Audit**: 5-stage automated invariant verification enforcing Sashiko safety rules (`tools/run_adversarial_audit.py`).
-> 4. **Dual Verification**: 100% pass rate across CppUTest SITL suites (< 3 ms) and Cocotb Verilator co-simulations.
-> 5. **Symmetrical Telemetry Mirror**: Live Primary Flight Display (PFD) visualizer mirrors both pipelines identically over UDP port 9870.
+> 4. **Dual Verification**: 100% pass rate across CppUTest SITL suites (under 3 ms) and Cocotb Verilator co-simulations.
+> 5. **AbstractX Studio GUI (Dear ImGui Bundle)**: Real-time 120 FPS hardware-software observability suite mirroring both pipelines identically over UDP port 9870.
+
+### 🖥️ Real-Time Observability: AbstractX Studio
+AbstractX includes **AbstractX Studio**, a high-performance, hardware-accelerated GUI built on **`imgui-bundle`** (`Dear ImGui` + `ImPlot` + GLFW/OpenGL):
+* **Level 1 (Core System Platform Observability)**: Dynamic target topology discovery, Dual-Plane Gantt execution timeline (ISR/DMA vs C++20 coroutines) with interactive source jumping (`__FILE__ : __LINE__`), live SPU/CPU & process utilization, and continuous zero-heap **MemBrowse** memory tracking.
+* **Level 2 (Extensible Application Plugins)**: Pluggable domain instruments (e.g. [`flight_plugin.py`](tools/visualizer/flight_plugin.py) featuring vector Primary Flight Display artificial horizon, 3D attitude perspective wireframe, Quad-X motor mixer, navigation tapes, and 8 kHz IMU oscilloscope).
+* **Zero Hardcoded Offsets**: Dynamic runtime schema compilation from CTF 1.8 schemas (`trace_schema.json` and `trace/barectf_config.yaml`).
 
 ---
 
@@ -191,20 +222,20 @@ sequenceDiagram
     participant HW as Hardware Bus (SPI DMA / PIO)
     participant Driver as Non-Blocking Driver (DMA/ISR)
     participant Ring as Lock-Free SPSC Ring
-    participant Loop as Main Dispatch Event Loop (Coroutines)
+    participant EventLoop as Main Dispatch Event Loop (Coroutines)
 
-    Loop->>Loop: stream_processor_task awaits next sample
-    Note over Loop: co_await g_primary_channel.pop()<br/>Task suspends cooperatively (0 CPU wasted)
+    EventLoop->>EventLoop: stream_processor_task awaits next sample
+    Note over EventLoop: co_await g_primary_channel.pop()<br/>Task suspends cooperatively (0 CPU wasted)
     
     HW->>Driver: Physical Sensor DRDY Interrupt (DIO)
     Driver->>HW: Dispatches autonomous DMA burst clocking
     HW-->>Driver: Burst transfer complete
     Driver->>Ring: Places 64B TLP event onto event ring
-    Driver->>Loop: Signals event loop doorbell
+    Driver->>EventLoop: Signals event loop doorbell
     
-    Note over Loop: Event loop prioritizes & awakens coroutine handle
-    Ring-->>Loop: pop() -> SampleData
-    Loop->>Loop: Executes linear processing & control actuation
+    Note over EventLoop: Event loop prioritizes & awakens coroutine handle
+    Ring-->>EventLoop: pop() -> SampleData
+    EventLoop->>EventLoop: Executes linear processing & control actuation
 ```
 
 ### The Software Advantage: Linear Code, Cooperative Priorities & C++20 Coroutines
@@ -249,7 +280,7 @@ Task<void> sensor_lifecycle_task(hal::ISpi& spi, hal::ITimer& timer) {
     }
 }
 ```
-* **Compiler-Generated State Machines**: The C++20 compiler automatically transforms the coroutine into a tiny static state machine (< 120 bytes in BSS). 
+* **Compiler-Generated State Machines**: The C++20 compiler automatically transforms the coroutine into a tiny static state machine (under 120 bytes in BSS). 
 * **Zero Dynamic Heap (`0 B`)**: Frame memory is statically pooled at compile time.
 
 #### 2. Cooperative Priorities Without Preemption Jitter
@@ -272,9 +303,9 @@ auto [spi_ok, i2c_ok, uart_ok] = co_await coro::when_all(
 
 ### The Primary-Paced Channel Pattern
 Heterogeneous physical data sources operate at vastly differing hardware sample rates:
-* **Primary High-Rate Stream**: 1 kHz – 8 kHz (SPI DMA / PIO) $\to$ The high-speed **Physical Clock Pacer**
-* **Auxiliary Medium-Rate Stream**: 50 Hz – 100 Hz (I2C / CAN) $\to$ Periodic auxiliary telemetry / reference
-* **Low-Rate Configuration / Navigation Stream**: 5 Hz – 10 Hz (UART) $\to$ Low-frequency updates
+* **Primary High-Rate Stream**: 1 kHz – 8 kHz (SPI DMA / PIO) → The high-speed **Physical Clock Pacer**
+* **Auxiliary Medium-Rate Stream**: 50 Hz – 100 Hz (I2C / CAN) → Periodic auxiliary telemetry / reference
+* **Low-Rate Configuration / Navigation Stream**: 5 Hz – 10 Hz (UART) → Low-frequency updates
 
 AbstractX eliminates the legacy nightmare of modulus tick counters (`if (++tick % 80 == 0)`), fragmented callback state machines, and spinlocks by introducing the **Primary-Paced Channel Pattern**:
 
@@ -368,8 +399,9 @@ graph TD
 
 ### Target Hardware Execution Matrix
 
-| Metric | Raspberry Pi Pico 2 W | Espressif ESP32-P4 | Radxa Cubie A5E (Linux + E907) | AMD Zynq-7000 / Gowin Tang |
+| Metric | [Raspberry Pi Pico 2 W](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [Espressif ESP32-P4 (Waveshare)](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [Radxa Cubie A5E (Linux + E907)](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [AMD Zynq / Gowin Tang](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
 | :--- | :--- | :--- | :--- | :--- |
+| **Hardware & Errata Spec** | [`PICO2W_DUAL_CORE_SPEC`](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [`ESP32P4_WAVESHARE_SPEC`](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [`E907_COPROCESSOR_SPEC`](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [`TANG9K_PINOUT_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
 | **Silicon Architecture** | Dual ARM Cortex-M33 @ 150 MHz | Dual RISC-V @ 400 MHz | Quad AArch64 A55 + RISC-V E907 | Dual ARM Cortex-A9 + FPGA Fabric |
 | **Floating-Point Engine** | Hardware single-precision FPU | Hardware single/double FPU | Hardware ARM NEON FPU | Hardware VFPv3 FPU + FPGA DSPs |
 | **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E907 Coprocessor (PLIC) | FPGA Logic (`asp_imu_auto_dma.sv`) |
@@ -445,7 +477,7 @@ flowchart TD
     class SPSC_HOST,CORO_HOST hostStyle;
 ```
 
-```
+```text
 0                   1                   2                   3
  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
@@ -473,9 +505,9 @@ flowchart TD
 
 ---
 
-## 5. Telemetry, Dynamic Barectf CTF 1.8 & Observability Studio
+## 5. Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio (Dear ImGui Bundle)
 
-Real-time embedded loops must **never perform string formatting or blocking socket operations**. Instead, AbstractX adopts the **Common Trace Format (CTF 1.8) via Barectf** as the universal binary telemetry format across both silicon and software.
+Real-time embedded loops must **never perform string formatting or blocking socket operations**. Instead, AbstractX adopts the **Common Trace Format (CTF 1.8) via Barectf** as the universal binary telemetry format across both silicon and software, rendered at 120 FPS in **AbstractX Studio** via `imgui-bundle`.
 
 ### Unified Design Pattern & Tooling Across FPGA and Software
 By utilizing the exact same 64-byte `Tlp64` CTF 1.8 binary structure across both domains:
@@ -528,36 +560,53 @@ flowchart LR
 ### 1. Dynamic YAML/JSON Trace Schema
 The telemetry format is completely self-describing via [`trace/barectf_config.yaml`](file:///home/tcmichals/ssdData/projects/home/AbstractX/trace/barectf_config.yaml) and [`apps/gps_imu_app/trace_schema.json`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/trace_schema.json). Every field specifies:
 * Primitive binary types (`uint32`, `int16`, `int32`, `uint8`)
-* Scaling multipliers (e.g. `0.01` for centidegrees $\to$ degrees, `1e-7` for coordinates)
+* Scaling multipliers (e.g. `0.01` for centidegrees → degrees, `1e-7` for coordinates)
 * Physical engineering units (`deg`, `m`, `m/s`, `g`, `deg/s`, `us`)
 * UI widget bindings (`artificial_horizon`, `altimeter`, `compass`, `oscilloscope`, `throttle_bar`)
 
-### 2. The AbstractX Observability Studio (`abstractx_studio.py`)
-Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot`):
-* **Window 1: Platform Topology Graph**: Live diagram of active cores, accelerators, and SPSC queue saturation.
-* **Window 2: Dual-Plane Execution Timeline & Source Scanner**: Correlating hardware driver latency against coroutine execution, with interactive jumping to `__FILE__` : `__LINE__`.
-* **Window 3: Multi-Core Utilization**: Real-time CPU/SPU and duty-cycle breakdown.
-* **Window 4: Real-Time Oscilloscope**: High-frequency sensor waveforms.
+### 2. The AbstractX Studio GUI Framework (`imgui-bundle`)
+Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenGL) for zero-overhead, 120 FPS desktop rendering:
+* **Two-Level Modular Architecture**:
+  * **Level 1 (Core System Platform Observability)**:
+    - **Platform Topology Tab**: Live graph of discovered processor cores, hardware coprocessors, clock frequencies, and lock-free SPSC ring queue saturation.
+    - **Dual-Plane Execution Timeline & Source Scanner**: Correlating hardware driver latency (Plane 1) against cooperative coroutine tasks (Plane 2), with interactive one-click jumping to exact C++ source locations (`__FILE__` : `__LINE__`).
+    - **Multi-Core Utilization**: Real-time breakdown of CPU/SPU cores, host process load, and mailbox doorbell latency.
+    - **Continuous Memory Observability**: Real-time SRAM and Flash footprint gauges powered by MemBrowse.
+    - **Dynamic CTF / TLP Inspector**: Byte-level inspection of 64-byte binary frames and decoded fields.
+  * **Level 2 (Extensible Application Plugins)**:
+    - Domain-specific instruments plug directly into the studio tab bar. For example, the reference flight plugin ([`tools/visualizer/flight_plugin.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/visualizer/flight_plugin.py)) adds:
+      * **Primary Flight Display (PFD)**: Vector-rendered artificial horizon with sky/ground polygons, roll reticle, and pitch ladder.
+      * **3D Quadcopter Perspective Wireframe**: Real-time 3D Tait-Bryan rotation matrix projecting quadcopter arms and spinning motor discs.
+      * **Quad-X Motor Mixer Demands**: Real-time M1–M4 throttle levels (1000..2000 µs) with hover reference lines.
+      * **High-Rate Sensor Oscilloscope**: 8 kHz accelerometer and gyroscope waveform plotting via `ImPlot`.
 
 ```bash
-# Launch live Observability Studio (listening on UDP port 9870)
+# Launch AbstractX Studio (listening on UDP port 9870)
 python3 tools/visualizer/abstractx_studio.py --port 9870
+
+# Or launch in standalone simulation mode without hardware
+python3 tools/visualizer/abstractx_studio.py --sim
 ```
 
-### 3. Extensible Telemetry & Domain-Specific Visualizer Plugins
-AbstractX cleanly separates real-time execution from telemetry display. Downstream applications consume the dynamic barectf CTF 1.8 schema to render customized engineering views. For example, the reference application in `apps/gps_imu_app/` includes a dedicated domain visualizer ([`apps/gps_imu_app/tools/flight_display.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/tools/flight_display.py)):
-* **3D Attitude Orientation Model**: Real-time perspective wireframe driven by streaming unit quaternions.
-* **Primary Flight Display & Tape Gauges**: Artificial horizon, digital altitude tape, and heading indicators.
-* **Actuator & Channel Demands**: Real-time multi-channel output level meters.
-* **Multi-Rate Stream Health Monitors**: Live Hz diagnostics tracking arrival rates across all hardware channels.
+### 3. Standalone Domain Displays (Launcher Mode)
+Downstream applications can also launch their domain visualizers as standalone applications. For example, [`apps/gps_imu_app/tools/flight_display.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/tools/flight_display.py) launches the Level 2 flight instruments directly in a dedicated window:
 
 ```bash
-# Launch reference application visualizer
+# Launch standalone flight display
 python3 apps/gps_imu_app/tools/flight_display.py --port 9870
 
-# Or run in simulated telemetry mode without hardware
+# Or run in simulated telemetry mode
 python3 apps/gps_imu_app/tools/flight_display.py --sim
 ```
+
+### 4. Continuous Firmware Footprint Tracking with MemBrowse
+Because AbstractX strictly enforces **Freestanding C++20 with Zero Dynamic Heap**, all task frames, queues, and SPSC rings reside in static `.bss` and `.data` sections. We integrate **MemBrowse** to track memory consumption over time and block pull requests that exceed hardware SRAM/Flash budgets:
+* **Local Audit Tool ([`tools/track_memory_membrowse.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/track_memory_membrowse.py))**: Extracts symbol footprints across target ELFs (`build-pico2w`, `build-e907`, `build-host`), verifies zero heap references, and exports JSON metrics.
+* **MemBrowse GitHub Action ([`.github/workflows/membrowse.yml`](file:///home/tcmichals/ssdData/projects/home/AbstractX/.github/workflows/membrowse.yml))**: Automatically runs `membrowse/membrowse-action@main` on every PR/push to visualize firmware growth.
+* **Studio Memory Tab**: Visualizes RAM/Flash budget gauges live in `abstractx_studio.py`.
+
+> [!TIP]
+> **Complete Observability Guide**: For end-to-end architecture documentation, the 3-pillar pipeline, two-level visualizer plugins, MemBrowse setup, and Python `.venv` instructions, read [`docs/tier2_contracts/observability/README.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/tier2_contracts/observability/README.md).
 
 ---
 
@@ -626,7 +675,7 @@ flowchart LR
    Total Specifications: 10 | Implemented: 10 | Coverage: 100.0% [SUCCESS]
    ```
 5. **Sashiko-Grade Adversarial Audit & CppUTest Verification (`tools/run_adversarial_audit.py`)**:
-   Eliminates AI hallucinations and driver regressions by enforcing a 5-stage decomposed adversarial review gate ([Full Guide](docs/SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md)):
+   Eliminates AI hallucinations and driver regressions by enforcing a 5-stage decomposed adversarial review gate ([Full Guide](docs/verification/SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md)):
    ```bash
    $ python3 tools/run_adversarial_audit.py
    [PASS] Stage 1 (Zero-Heap & Freestanding): 0 issues found
@@ -653,6 +702,14 @@ AbstractX/
 │       ├── platforms/
 │       │   └── allwinner_e907/       # Companion XuanTie E907 coprocessor firmware (Allwinner A5E)
 │       └── src/main.cpp              # 100% linear C++20 coroutine application code
+├── docs/                             # 3-Tier specification & architecture hierarchy
+│   ├── README.md                     # Central documentation hub index (3-tier navigation)
+│   ├── DESIGN_SPECIFICATION.md       # Root system specification (SSOT)
+│   ├── SPEC_TEMPLATE.md              # Standard application & driver specification template
+│   ├── tier1_vision/                 # Tier 1: Abstract vision, mathematical models & system invariants
+│   ├── tier2_contracts/              # Tier 2: Protocol contracts, HAL interfaces & observability schemas
+│   ├── tier3_targets/                # Tier 3: Concrete silicon BSPs, hardware pinouts & errata
+│   └── verification/                 # Adversarial review gates, CppUTest contracts & evidence
 ├── include/abstractx/                # Freestanding C++20 public headers (0 heap allocations)
 │   ├── abstractx.hpp                 # Unified runtime master API (init, spawn, step, run)
 │   ├── coro.hpp                      # C++20 stackless coroutine task primitives
@@ -680,8 +737,12 @@ AbstractX/
 │   ├── run_adversarial_audit.py      # 5-Stage Sashiko-grade adversarial firmware audit tool
 │   ├── create_app_spec.py            # Automated SPECIFICATION.md generator
 │   ├── generate_io_config.py         # Compiles io_processor.yaml -> constexpr C++ headers
+│   ├── setup_venv.sh                 # Automated Python venv & dependency installer
+│   ├── track_memory_membrowse.py     # Continuous zero-heap & ELF footprint tracker
 │   └── visualizer/                   # Observability Studio & dynamic CTF schema loader
-│       ├── abstractx_studio.py       # Multi-window Dear ImGui real-time dashboard
+│       ├── abstractx_studio.py       # Two-Level Dear ImGui real-time dashboard
+│       ├── flight_plugin.py          # Level 2 flight instruments & 3D wireframe plugin
+│       ├── sdk/plugin.py             # AbstractXStudioPlugin standard base class SDK
 │       └── ctf_schema_loader.py      # Dynamic barectf YAML/JSON binary decoder
 └── trace/                            # Trace subsystem specifications
     └── barectf_config.yaml           # Authoritative Common Trace Format 1.8 schema
@@ -691,7 +752,24 @@ AbstractX/
 
 ## 8. Quickstart: Building & Running
 
-### 1. Build Host SITL Application & Test Suite
+### 1. Set Up Python Virtual Environment (`.venv`)
+Modern Linux distributions (Ubuntu 24.04/Debian 12, PEP 668) require virtual environments for Python packages (`imgui-bundle`, `numpy`). You can set up the environment automatically:
+
+```bash
+# Automated setup (creates .venv, installs dependencies, verifies import):
+./tools/setup_venv.sh
+source .venv/bin/activate
+```
+
+Or manually:
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r tools/visualizer/requirements.txt
+```
+*(For detailed architecture notes, two-level visualizer plugins, and MemBrowse integration, see the [Observability & Tooling Guide](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/tier2_contracts/observability/README.md).)*
+
+### 2. Build Host SITL Application & Test Suite
 ```bash
 # Configure Release build
 cmake -B build -DCMAKE_BUILD_TYPE=Release
@@ -700,18 +778,18 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target gps_imu_app
 ```
 
-### 2. Run the 23-Test Verification Suite
+### 3. Run the 23-Test Verification Suite
 ```bash
 ctest --test-dir build --output-on-failure
 ```
-*Result: 100% tests passed (0 failures) in < 0.9 seconds.*
+*Result: 100% tests passed (0 failures) in under 0.9 seconds.*
 
-### 3. Run the 5-Stage Sashiko-Grade Adversarial Firmware Audit
+### 4. Run the 5-Stage Sashiko-Grade Adversarial Firmware Audit
 ```bash
 python3 tools/run_adversarial_audit.py
 ```
 
-### 4. Verify Spec-to-Code Traceability
+### 5. Verify Spec-to-Code Traceability
 ```bash
 # Global design specification audit (25 requirements)
 python3 tools/audit_specs.py
@@ -721,13 +799,26 @@ python3 tools/audit_specs.py apps/gps_imu_app/SPECIFICATION.md
 ```
 *Result: 100.0% traceability coverage verified.*
 
-### 4. Run the Reference Application
+### 6. Track Memory Footprints with MemBrowse
+```bash
+# Audit target ELF footprints against zero-heap budgets
+python3 tools/track_memory_membrowse.py
+```
+
+### 7. Run the Reference Application
 ```bash
 ./build/apps/gps_imu_app/gps_imu_app
 ```
 
-### 5. Launch the Visualizer Display
-In a separate terminal:
+### 8. Launch AbstractX Studio or Flight Display
+In a separate terminal (with `.venv` activated):
 ```bash
+# Launch AbstractX Studio (Level 1: System Topology + Level 2: Flight Plugin)
+python3 tools/visualizer/abstractx_studio.py --port 9870
+
+# Or launch standalone Level 2 Flight Display
 python3 apps/gps_imu_app/tools/flight_display.py --port 9870
+
+# Or test in standalone simulation mode without hardware
+python3 tools/visualizer/abstractx_studio.py --sim
 ```

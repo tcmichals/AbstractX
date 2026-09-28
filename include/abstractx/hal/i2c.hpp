@@ -85,7 +85,7 @@ public:
     // ------------------------------------------------------------------------
     // Isolated Synchronous Fallbacks (Pre-scheduler bare-metal setup only)
     // NOTE: MUST NOT be called inside coroutines or the reactive event loop!
-    // See docs/DESIGN_RULES.md Section 12.
+    // See docs/architecture/DESIGN_RULES.md Section 12.
     // ------------------------------------------------------------------------
     virtual bool write_read_sync(uint8_t slave_addr,
                                  std::span<const uint8_t> tx_data,

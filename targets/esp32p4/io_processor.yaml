@@ -1,0 +1,99 @@
+# targets/esp32p4/io_processor.yaml
+# ==============================================================================
+# AbstractX Target I/O Processor Configuration: Espressif ESP32-P4
+# Hardware: Waveshare ESP32-P4-WiFi6 (SKU 32021, ESP32-P4NRW32X v3.x)
+# ==============================================================================
+version: '1.0'
+
+target:
+  name: "esp32p4"
+  description: "Waveshare ESP32-P4-WiFi6 (Dual RISC-V HP Cores @ 400 MHz + ESP32-C6 Wi-Fi 6)"
+  io_domain_core: 0       # Core 0: ioProcessor + GDMA + Video (CSI/H.264) + SDMMC + Wi-Fi 6
+  coro_domain_core: 1     # Core 1: Cooperative C++20 Flight Coroutines (Internal L2 SRAM)
+  doorbell: "esp_ipc"     # Hardware IPC Mailbox / Doorbell ISR
+
+io_processor:
+  max_channels: 4
+  rings:
+    ingress_rx_ring:
+      name: "g_sensor_ring"
+      capacity: 64
+      type: "SpscTlpRing"
+      memory_region: "L2_SRAM"   # Jitter-free, immune to APM-560 PSRAM bus stalls
+    egress_tx_ring:
+      name: "g_tx_ring"
+      capacity: 64
+      type: "SpscTlpRing"
+      memory_region: "L2_SRAM"
+
+  channels:
+    # --------------------------------------------------------------------------
+    # Channel 0: 8 kHz SPI Auto-DMA IMU Burst on DRDY
+    # --------------------------------------------------------------------------
+    - id: 0
+      name: "imu_auto_dma"
+      description: "ICM-42688-P 8 kHz Accelerometer and Gyroscope burst read"
+      auto_mode: true
+      
+      trigger:
+        mode: "gpio_edge"
+        pin: 6              # GPIO 6 DRDY rising edge interrupt
+        edge: "rising"
+        
+      bus:
+        type: "spi"
+        index: 2            # SPI2_HOST
+        speed_hz: 12000000  # 12 MHz
+        mode: "mode3"
+        cs_pin: 10          # GPIO 10
+        sck_pin: 7          # GPIO 7
+        mosi_pin: 8         # GPIO 8
+        miso_pin: 9         # GPIO 9
+        dma_channel: 1      # Workaround for [DMA-767]: Avoid Channel 0
+        
+      transfer:
+        tx_cmd: [0x9D]      # 0x80 | 0x1D (ACCEL_DATA_X1 read)
+        tx_len: 1
+        rx_len: 15          # 1B status + 6B accel + 6B gyro + 2B temp
+        
+      tlp_output:
+        channel: 2          # Channel::Telemetry (0x02)
+        tag: 1              # Tag 1 = IMU
+        type: "dma_stream"
+
+    # --------------------------------------------------------------------------
+    # Channel 1: 10 Hz UART GPS Streaming
+    # --------------------------------------------------------------------------
+    - id: 1
+      name: "gps_uart"
+      description: "U-Blox UBX binary packet receiver"
+      auto_mode: false
+      
+      bus:
+        type: "uart"
+        index: 1            # UART1
+        baud_rate: 115200
+        tx_pin: 11          # GPIO 11
+        rx_pin: 12          # GPIO 12
+        rx_buffer_size: 1024
+
+    # --------------------------------------------------------------------------
+    # Channel 2: 4-Bit SDMMC Slot 0 MicroSD Flight & Video Logging
+    # --------------------------------------------------------------------------
+    - id: 2
+      name: "sdcard_logger"
+      description: "MicroSD TF card logging via SDMMC Host Slot 0"
+      auto_mode: false
+      
+      bus:
+        type: "sdmmc"
+        slot: 0             # SDMMC_HOST_SLOT_0 (Leaves Slot 1 for C6 Wi-Fi)
+        width: 4            # 4-bit bus
+        clk_pin: 43
+        cmd_pin: 44
+        d0_pin: 39
+        d1_pin: 40
+        d2_pin: 41
+        d3_pin: 42
+        speed_khz: 40000    # 40 MHz high-speed mode
+        buffer_alignment: 64 # Workaround for [MSPI-750]: 64-byte cacheline aligned

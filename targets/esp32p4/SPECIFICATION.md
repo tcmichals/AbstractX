@@ -56,7 +56,7 @@ graph TD
 
 ---
 
-## 2. Hardware Pinout & Peripheral Assignments
+## 2. Hardware Pinout & Peripheral Assignments (Waveshare ESP32-P4-WiFi6 SKU 32021)
 
 | Peripheral | Signal | ESP32-P4 Pin (GPIO) | Architectural Function |
 | :--- | :--- | :--- | :--- |
@@ -67,16 +67,24 @@ graph TD
 | **IMU Interrupt** | `IMU_DRDY` | **GPIO 6** / **Pin 3** | Data-Ready Rising Edge Interrupt from IMU |
 | **UART1 (GPS Bus)**| `UART1_TX` | **GPIO 11** | Transmits configuration commands to GPS |
 | | `UART1_RX` | **GPIO 12** | Receives UBX binary frames (115200–921600 baud) |
+| **MicroSD (SDMMC Slot 0)** | `SD_CLK` | **GPIO 43** | SDMMC 4-Bit Bus Clock (TF Card Slot) |
+| | `SD_CMD` | **GPIO 44** | Command / Response Line |
+| | `SD_D0..D3` | **GPIO 39..42**| 4-Bit Data Lines (Internal Pullups) |
+| **MIPI-CSI Camera** | `CSI_D0/D1` | **Dedicated D-PHY**| 2-lane MIPI-CSI (OV5647 5MP Camera) |
+| **Wi-Fi 6 Co-Processor** | `SDIO_SLAVE` | **SDMMC Slot 1** | Onboard ESP32-C6 (802.11ax / BT 5) |
+
+> [!IMPORTANT]
+> **Silicon Errata & Video-to-SDCard Guide**: For complete analysis of **[DMA-767]**, **[MSPI-750]**, **[APM-560]**, and the video recording pipeline, read the [ESP32-P4 Waveshare & Errata Specification](../../docs/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md).
 
 ---
 
 ## 3. ESP-IDF API Recipe for HAL Implementations
 
-When implementing HAL drivers under `targets/esp32p4/src/`, AI agents must use standard **ESP-IDF (v5.x+)** APIs:
+When implementing HAL drivers under `targets/esp32p4/src/`, AI agents must use standard **ESP-IDF (v5.4.1+ / v6.0+)** APIs:
 
 ### 3.1 SPI Master & GDMA Burst (`hal_spi.cpp`)
 * **Header**: `#include "driver/spi_master.h"`
-* **Bus Initialization**:
+* **Bus Initialization** (Workaround for `[DMA-767]`: lock to Channel 1):
   ```c
   spi_bus_config_t buscfg = {};
   buscfg.mosi_io_num = 8;
@@ -85,7 +93,8 @@ When implementing HAL drivers under `targets/esp32p4/src/`, AI agents must use s
   buscfg.quadwp_io_num = -1;
   buscfg.quadhd_io_num = -1;
   buscfg.max_transfer_sz = 4096;
-  spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+  // Use SPI_DMA_CH1 to avoid [DMA-767] Channel 0 transaction ID conflict on v3.0 silicon
+  spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH1);
   ```
 * **Device Interface & Mode 3**:
   ```c
