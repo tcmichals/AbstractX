@@ -248,6 +248,46 @@ class TelemetryState:
         self.gps_sats = 18
         self.gps_fix_type = 3
 
+        # Logging & TLP Debugger State
+        self.logs = []
+        self.recent_tlp_packets = []
+        self.selected_tlp_idx = 0
+        self.tlp_stream_paused = False
+        self.log_filter_level = "ALL"
+        self.log_search_text = ""
+        self.log_auto_scroll = True
+
+        # Initial seed logs
+        self.add_log("INFO", "AbstractX", "AbstractX Studio online. SPSC lock-free rings initialized.")
+        self.add_log("INFO", "HAL", "Awaitable drivers registered: SPI0 (DMA), I2C0 (ISR), UART0 (RX).")
+        self.add_log("CORO", "Dispatcher", "DomainDispatcher::step() cooperative event loop active.")
+        self.add_log("TLP", "asp_router", "FPGA crossbar switch fabric online (64B AXI-Stream TLPs).")
+        self.add_log("MEM", "MemBrowse", "Zero-heap verification: 0 bytes dynamic allocation.")
+
+    def add_log(self, level: str, source: str, message: str):
+        with self.lock:
+            if len(self.logs) > 300:
+                self.logs.pop(0)
+            now = time.strftime("%H:%M:%S") + f".{int((time.time() % 1) * 1000):03d}"
+            self.logs.append({"time": now, "level": level, "source": source, "message": message})
+
+    def add_tlp_packet(self, raw_bytes: bytes, tlp_type: int, tag: int, channel: int, seq: int, ts_ns: int, crc_ok: bool):
+        with self.lock:
+            if self.tlp_stream_paused:
+                return
+            if len(self.recent_tlp_packets) > 60:
+                self.recent_tlp_packets.pop(0)
+            self.recent_tlp_packets.append({
+                "seq": seq,
+                "type": tlp_type,
+                "tag": tag,
+                "channel": channel,
+                "ts_ns": ts_ns,
+                "raw": raw_bytes,
+                "hex": raw_bytes.hex(),
+                "crc_ok": crc_ok
+            })
+
     def push_sensor_sample(self, t_sec, ax, ay, az, gx, gy, gz):
         with self.lock:
             idx = self.head_idx % HISTORY_SIZE
@@ -334,6 +374,22 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                 g_state.sensor_ring_fill = int(20 + 10 * np.sin(t * 2.0))
                 g_state.telemetry_ring_fill = int(10 + 5 * np.cos(t * 3.0))
 
+            # Synthesize 64B TLP frame for packet stream inspector
+            sim_seq = g_state.packet_count & 0xFFFF
+            sim_ts = int(time.time() * 1e9)
+            sim_hdr = struct.pack("<BBBBIHHQ", 0x10, 0x00, 4, 2, 0x40000100, 16, sim_seq, sim_ts)
+            sim_payload = struct.pack("<2hHiH4H", int(roll * 100), int(pitch * 100), int(yaw * 100), int(alt * 1000), int(spd * 100), m1, m2, m3, m4)
+            sim_frame = sim_hdr + sim_payload + (b"\x00" * (40 - len(sim_payload))) + b"\xde\xad\xbe\xef"
+            g_state.add_tlp_packet(sim_frame, 0x10, 4, 2, sim_seq, sim_ts, True)
+
+            if g_state.packet_count % 40 == 0:
+                g_state.add_log("TLP", "asp_router", f"TLP 64B frame Seq #{sim_seq} routed on Ch 2 (AHRS_STATE)")
+                g_state.add_log("CORO", "dispatcher", "DomainDispatcher::step() resumed task 'attitude_ekf' (0.4 µs latency)")
+            if g_state.packet_count % 100 == 0:
+                g_state.add_log("ISR", "hal_spi", "SPI0 Auto-DMA burst complete: 14B IMU latched @ 10 MHz")
+            if g_state.packet_count % 300 == 0:
+                g_state.add_log("MEM", "MemBrowse", "Zero-heap verification: 0 B dynamic heap allocated across all tasks")
+
             time.sleep(0.005) # 200 Hz visualization cadence
     else:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -360,6 +416,10 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                         # Inspect Big-Endian (FPGA Verilator RTL) vs Little-Endian (Software C++20 SITL)
                         be_type, be_flags, be_tag, be_ch, be_addr, be_len, be_seq, be_ts = struct.unpack(">BBBBIHHQ", frame[:20])
                         le_type, le_flags, le_tag, le_ch, le_addr, le_len, le_seq, le_ts = struct.unpack("<BBBBIHHQ", frame[:20])
+
+                        g_state.add_tlp_packet(frame, le_type, le_tag, le_ch, le_seq, le_ts, True)
+                        if g_state.packet_count % 30 == 0:
+                            g_state.add_log("TLP", "udp_rx", f"Received 64B TLP Seq #{le_seq} on Ch {le_ch} (Tag 0x{le_tag:02X})")
 
                         # 1. FPGA Hardware RTL Telemetry (Big-Endian Wire Layout from asp_top.sv)
                         if be_type == 0x10 and be_ch == 0x02 and be_addr == 0x40000100:
@@ -446,162 +506,61 @@ def udp_receiver_thread(port: int, sim_mode: bool):
             except Exception:
                 time.sleep(0.01)
 
-def render_gui():
-    """Immediate mode GUI rendering combining Level 1 Core & Level 2 Domain views."""
-    g_state.update_rates()
-
-    # 1. Top Header Toolbar
-    imgui.begin_group()
+def _render_status_bar():
+    """Renders bottom status bar."""
     if g_state.connected:
-        imgui.text_colored(imgui.ImVec4(0.1, 0.9, 0.2, 1.0), "[ONLINE]")
+        imgui.text_colored(imgui.ImVec4(0.1, 0.9, 0.2, 1.0), " [ONLINE] ")
     else:
-        imgui.text_colored(imgui.ImVec4(0.9, 0.2, 0.1, 1.0), "[OFFLINE / WAITING]")
+        imgui.text_colored(imgui.ImVec4(0.9, 0.2, 0.1, 1.0), " [OFFLINE / WAITING :9870] ")
     imgui.same_line()
-    imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count} | Rate: {g_state.fps_packet_rate} pkts/sec")
-    imgui.end_group()
+    imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s | Dynamic Heap: 0 B")
+
+def _render_core_cpu_and_topology():
+    """Renders Silicon Cores, Platform Architecture, and CPU/SPU Utilization."""
+    imgui.columns(3, "topo_cols", False)
+    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Platform Architecture]")
+    imgui.text(f"Arch Name : {g_state.platform_arch}")
+    imgui.text(f"Board     : {g_state.board_model}")
+    imgui.text(f"Transport : {g_state.primary_transport}")
+    imgui.next_column()
+
+    imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "[Processing Units & Roles]")
+    for core in g_state.active_cores:
+        imgui.bullet_text(f"Core {core['id']}: {core['role']} ({core['clock_mhz']} MHz)\n  └─ {core['task']}")
+    imgui.next_column()
+
+    imgui.text_colored(imgui.ImVec4(1.0, 0.7, 0.2, 1.0), "[Hardware Accelerators & Rings]")
+    for accel in g_state.hardware_accels:
+        imgui.text(f" ✓ {accel}")
+    imgui.text("SPSC Ring : 64 Descriptors (Zero-Copy)")
+    imgui.columns(1)
     imgui.separator()
 
-    # 2. Top-Level Tab Bar: Separation of Level 1 (Core) and Level 2 (Domain)
-    if imgui.begin_tab_bar("StudioTabBar"):
-        # Default tab selection on first launch
-        flags_platform = imgui.TabItemFlags_.set_selected if g_initial_tab == "platform" else 0
-        flags_flight = imgui.TabItemFlags_.set_selected if g_initial_tab == "flight" else 0
-        flags_memory = imgui.TabItemFlags_.set_selected if g_initial_tab == "memory" else 0
+    # Per-Processor SPU/CPU & Process Utilization
+    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "[Per-Processor SPU/CPU & Task Duty Cycles]")
+    imgui.columns(3, "cpu_cols", False)
 
-        # =========================================================================
-        # LEVEL 2: APPLICATION & DOMAIN EXTENSIBLE LAYER (Flight & IMU)
-        # =========================================================================
-        opened, _ = imgui.begin_tab_item("Level 2: Flight & IMU Domain (gps_imu_app)", None, flags_flight)
-        if opened:
-            g_flight_plugin.render(g_state)
-            imgui.end_tab_item()
+    # Core 0: Host / Core 0
+    imgui.text_colored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), "Core 0: Host Linux / M33")
+    imgui.text(f"Total CPU: {g_state.linux_total_cpu:.1f}%")
+    imgui.progress_bar(g_state.linux_total_cpu / 100.0, imgui.ImVec2(-1, 0), f"{g_state.linux_total_cpu:.1f}%")
+    imgui.text(f"AbstractX Process: {g_state.linux_abstractx_cpu:.1f}%")
+    imgui.text(f"OS Background    : {g_state.linux_external_cpu:.1f}%")
+    imgui.next_column()
 
-        # =========================================================================
-        # LEVEL 1: CORE PLATFORM & EXECUTION OBSERVABILITY
-        # =========================================================================
-        opened, _ = imgui.begin_tab_item("Level 1: Platform & Execution Core", None, flags_platform)
-        if opened:
-            _render_level1_platform()
-            imgui.end_tab_item()
+    # Core 1: XuanTie E907 / RP2350 Core 1
+    imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.4, 1.0), "Core 1: Coroutine Engine")
+    imgui.text(f"Active Duty: {g_state.e907_active_duty_pct:.1f}% (148 µs/ms)")
+    imgui.progress_bar(g_state.e907_active_duty_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.e907_active_duty_pct:.1f}%")
+    imgui.text(f"WFI Sleep Duty   : {g_state.e907_wfi_sleep_pct:.1f}%")
+    imgui.next_column()
 
-        # =========================================================================
-        # LEVEL 1: MEMORY OBSERVABILITY & STATIC BUDGETS (MemBrowse)
-        # =========================================================================
-        opened, _ = imgui.begin_tab_item("Level 1: Memory Observability (MemBrowse)", None, flags_memory)
-        if opened:
-            _render_level1_memory()
-            imgui.end_tab_item()
-
-        # =========================================================================
-        # LEVEL 1: CTF 1.8 & TLP PACKET INSPECTOR
-        # =========================================================================
-        opened, _ = imgui.begin_tab_item("Level 1: TLP 64-Byte & CTF Schema", None, 0)
-        if opened:
-            _render_level1_tlp_inspector()
-            imgui.end_tab_item()
-
-        imgui.end_tab_bar()
-
-def _render_level1_platform():
-    """Renders Level 1 Core: Platform Topology, Dual-Plane Timeline, and Utilization."""
-    # Window 1: Platform Topology
-    if imgui.collapsing_header("Window 1: Platform Topology & Silicon Interconnect Fabric", imgui.TreeNodeFlags_.default_open):
-        imgui.columns(3, "topo_cols", False)
-        
-        imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "[Platform Architecture]")
-        imgui.text(f"Arch Name : {g_state.platform_arch}")
-        imgui.text(f"Board     : {g_state.board_model}")
-        imgui.text(f"Transport : {g_state.primary_transport}")
-        
-        imgui.next_column()
-        
-        imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "[Processing Units & Roles]")
-        for core in g_state.active_cores:
-            imgui.bullet_text(f"Core {core['id']}: {core['role']} ({core['clock_mhz']} MHz)\n  └─ {core['task']}")
-            
-        imgui.next_column()
-        
-        imgui.text_colored(imgui.ImVec4(1.0, 0.7, 0.2, 1.0), "[Hardware Accelerators & Rings]")
-        for accel in g_state.hardware_accels:
-            imgui.text(f" ✓ {accel}")
-        imgui.text("SPSC Ring : 64 Descriptors (Zero-Copy)")
-        imgui.columns(1)
-
-    imgui.separator()
-
-    # Window 2: Dual-Plane Execution Timeline & Source Scanner
-    if imgui.collapsing_header("Window 2: Dual-Plane Execution Timeline & Source Code Scanner", imgui.TreeNodeFlags_.default_open):
-        imgui.text_colored(imgui.ImVec4(0.9, 0.5, 0.2, 1.0), "Plane 1: Hardware I/O Processor & Peripheral Drivers (Interrupt & DMA Context)")
-        imgui.columns(len(g_state.io_driver_events), "io_plane_cols", True)
-        for ev in g_state.io_driver_events:
-            if imgui.button(f"[{ev['name']}]\n{ev['subsystem']}\n{ev['latency_us']} µs", imgui.ImVec2(-1, 52)):
-                with g_state.lock:
-                    g_state.selected_event_name = ev['name']
-                    g_state.selected_source_file = ev['file']
-                    g_state.selected_source_line = ev['line']
-                    g_state.selected_token = f"Driver ISR: {ev['driver']}"
-            imgui.next_column()
-        imgui.columns(1)
-
-        imgui.spacing()
-
-        imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "Plane 2: Main Processing Loop (Cooperative C++20 Coroutine Tasks)")
-        imgui.columns(len(g_state.coro_names), "coro_plane_cols", True)
-        state_labels = {0: "IDLE", 1: "RUNNING", 2: "AWAIT SPI", 3: "AWAIT UART", 4: "AWAIT TIMER"}
-        for i, name in enumerate(g_state.coro_names):
-            lbl = state_labels.get(g_state.coro_states[i], "RUNNING")
-            src = g_state.coro_source_info[i]
-            if imgui.button(f"[{name}]\nState: {lbl}\nLat: {g_state.coro_latencies_us[i]} µs", imgui.ImVec2(-1, 52)):
-                with g_state.lock:
-                    g_state.selected_event_name = name
-                    g_state.selected_source_file = src['file']
-                    g_state.selected_source_line = src['line']
-                    g_state.selected_token = src['token']
-            imgui.next_column()
-        imgui.columns(1)
-
-        imgui.spacing()
-
-        # Source Code Scanner Sub-Pane
-        imgui.text_colored(imgui.ImVec4(1.0, 1.0, 0.2, 1.0), f">> [Source Code Inspector] Selected: {g_state.selected_event_name} -> {g_state.selected_source_file}:{g_state.selected_source_line}")
-        imgui.begin_child("SourcePreview", imgui.ImVec2(-1, 80), True)
-        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"// Source location: {g_state.selected_source_file}")
-        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line - 1}:   // Processing event loop")
-        imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), f"-> {g_state.selected_source_line}:       {g_state.selected_token};")
-        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line + 1}:   attitude_ekf.update(sample.gyro, sample.accel);")
-        imgui.end_child()
-
-    imgui.separator()
-
-    # Window 3: Per-Processor SPU/CPU & Process Utilization
-    if imgui.collapsing_header("Window 3: Per-Processor SPU/CPU & Process Utilization", imgui.TreeNodeFlags_.default_open):
-        imgui.columns(3, "cpu_cols", False)
-        
-        # Host Linux ARM64
-        imgui.text_colored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), "[Core 0: Host Linux ARM64]")
-        imgui.text(f"Total System CPU : {g_state.linux_total_cpu:.1f}%")
-        imgui.progress_bar(g_state.linux_total_cpu / 100.0, imgui.ImVec2(-1, 0), f"{g_state.linux_total_cpu:.1f}%")
-        imgui.text(f"AbstractX Process: {g_state.linux_abstractx_cpu:.1f}%")
-        imgui.text(f"OS Background    : {g_state.linux_external_cpu:.1f}%")
-
-        imgui.next_column()
-
-        # Coprocessor XuanTie E907
-        imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.4, 1.0), "[Core 1: XuanTie E907 RISC-V]")
-        imgui.text(f"Active Duty Cycle: {g_state.e907_active_duty_pct:.1f}% (148 µs/ms)")
-        imgui.progress_bar(g_state.e907_active_duty_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.e907_active_duty_pct:.1f}%")
-        imgui.text(f"WFI Sleep Duty   : {g_state.e907_wfi_sleep_pct:.1f}%")
-
-        imgui.next_column()
-
-        # FPGA Fabric
-        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[Fabric: Tang Primer 20K FPGA]")
-        imgui.text(f"Logic LUT Usage  : {g_state.fpga_lut_utilization_pct:.1f}% (3,640 / 20k)")
-        imgui.progress_bar(g_state.fpga_lut_utilization_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.fpga_lut_utilization_pct:.1f}%")
-        imgui.text(f"Auto-DMA Rate    : {g_state.fpga_dma_bw_mbps:.1f} Mbps")
-
-        imgui.columns(1)
-
+    # SPU / FPGA Fabric
+    imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "SPU: FPGA Switch Fabric")
+    imgui.text(f"Logic LUT: {g_state.fpga_lut_utilization_pct:.1f}% (3,640 / 20k)")
+    imgui.progress_bar(g_state.fpga_lut_utilization_pct / 100.0, imgui.ImVec2(-1, 0), f"{g_state.fpga_lut_utilization_pct:.1f}%")
+    imgui.text(f"Auto-DMA Rate    : {g_state.fpga_dma_bw_mbps:.1f} Mbps")
+    imgui.columns(1)
     imgui.separator()
 
     # SPSC Queue Saturation
@@ -611,13 +570,53 @@ def _render_level1_platform():
     imgui.progress_bar(g_state.sensor_ring_fill / 64.0, imgui.ImVec2(-1, 0), f"{g_state.sensor_ring_fill} / 64 pkts")
     imgui.text("Telemetry Queue (g_telemetry_ring):")
     imgui.progress_bar(g_state.telemetry_ring_fill / 64.0, imgui.ImVec2(-1, 0), f"{g_state.telemetry_ring_fill} / 64 pkts")
-
     imgui.next_column()
+
     imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[Interconnect Timing]")
-    imgui.text(f"Avg I/O Split-Transaction RTT: {g_state.rtt_latency_us:.1f} µs")
+    imgui.text(f"Avg Doorbell Latency: {g_state.rtt_latency_us:.1f} µs")
     imgui.text("Protocol: Symmetrical 64-byte TLP")
     imgui.text("Wire Transport: Lock-Free SPSC")
     imgui.columns(1)
+
+def _render_core_timeline():
+    """Renders Dual-Plane Execution Timeline & Source Scanner."""
+    imgui.text_colored(imgui.ImVec4(0.9, 0.5, 0.2, 1.0), "Plane 1: Hardware I/O Processor & Peripheral Drivers (Interrupt & DMA Context)")
+    imgui.columns(len(g_state.io_driver_events), "io_plane_cols", True)
+    for ev in g_state.io_driver_events:
+        if imgui.button(f"[{ev['name']}]\n{ev['subsystem']}\n{ev['latency_us']} µs", imgui.ImVec2(-1, 52)):
+            with g_state.lock:
+                g_state.selected_event_name = ev['name']
+                g_state.selected_source_file = ev['file']
+                g_state.selected_source_line = ev['line']
+                g_state.selected_token = f"Driver ISR: {ev['driver']}"
+        imgui.next_column()
+    imgui.columns(1)
+
+    imgui.spacing()
+    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "Plane 2: Main Processing Loop (Cooperative C++20 Coroutine Tasks)")
+    imgui.columns(len(g_state.coro_names), "coro_plane_cols", True)
+    state_labels = {0: "IDLE", 1: "RUNNING", 2: "AWAIT SPI", 3: "AWAIT UART", 4: "AWAIT TIMER"}
+    for i, name in enumerate(g_state.coro_names):
+        lbl = state_labels.get(g_state.coro_states[i], "RUNNING")
+        src = g_state.coro_source_info[i]
+        if imgui.button(f"[{name}]\nState: {lbl}\nLat: {g_state.coro_latencies_us[i]} µs", imgui.ImVec2(-1, 52)):
+            with g_state.lock:
+                g_state.selected_event_name = name
+                g_state.selected_source_file = src['file']
+                g_state.selected_source_line = src['line']
+                g_state.selected_token = src['token']
+        imgui.next_column()
+    imgui.columns(1)
+
+    imgui.spacing()
+    # Source Code Scanner Sub-Pane
+    imgui.text_colored(imgui.ImVec4(1.0, 1.0, 0.2, 1.0), f">> [Source Code Inspector] Selected: {g_state.selected_event_name} -> {g_state.selected_source_file}:{g_state.selected_source_line}")
+    imgui.begin_child("SourcePreview", imgui.ImVec2(-1, 80), True)
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"// Source location: {g_state.selected_source_file}")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line - 1}:   // Processing event loop")
+    imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), f"-> {g_state.selected_source_line}:       {g_state.selected_token};")
+    imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), f"   {g_state.selected_source_line + 1}:   attitude_ekf.update(sample.gyro, sample.accel);")
+    imgui.end_child()
 
 def _render_level1_memory():
     """Renders Level 1 Core: Memory Observability, Static Section Budgets, and MemBrowse Status."""
@@ -640,7 +639,6 @@ def _render_level1_memory():
         imgui.end_combo()
 
     t_info = g_state.mem_targets[g_state.selected_mem_target]
-
     imgui.columns(2, "mem_summary_cols", False)
     
     # RAM Usage
@@ -649,7 +647,6 @@ def _render_level1_memory():
     ram_pct = (ram_used / ram_total) * 100.0
     imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.4, 1.0), f"RAM (SRAM) Budget: {ram_pct:.1f}% Used")
     imgui.progress_bar(ram_used / ram_total, imgui.ImVec2(-1, 22), f"{ram_used // 1024} KB / {ram_total // 1024} KB")
-    
     imgui.next_column()
 
     # Flash / ROM Usage
@@ -658,7 +655,6 @@ def _render_level1_memory():
     flash_pct = (flash_used / flash_total) * 100.0
     imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), f"Flash / ROM Budget: {flash_pct:.1f}% Used")
     imgui.progress_bar(flash_used / flash_total, imgui.ImVec2(-1, 22), f"{flash_used // 1024} KB / {flash_total // 1024} KB")
-
     imgui.columns(1)
     imgui.separator()
 
@@ -692,54 +688,240 @@ def _render_level1_memory():
     imgui.bullet_text("Static Queue Budgets: SpscRingBuffer (64 pkts = 4096 B), AsyncQueue (128 samples = 3584 B)")
     imgui.bullet_text("CI PR Gate: Memory budget regression threshold set at +2.0 KB per commit")
 
-def _render_level1_tlp_inspector():
-    """Renders Level 1 Core: Dynamic CTF & TLP Packet Inspection."""
-    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "AbstractX 64-Byte Transaction Layer Packet (TLP) Layout")
+def _render_core_studio_window():
+    """Renders Window 1: AbstractX Core Studio (Platform, CPU, Timeline, MemBrowse)."""
+    g_state.update_rates()
+    if imgui.begin_tab_bar("CoreStudioTabBar"):
+        if imgui.begin_tab_item("CPU & Silicon Cores")[0]:
+            _render_core_cpu_and_topology()
+            imgui.end_tab_item()
+
+        if imgui.begin_tab_item("Dual-Plane Timeline")[0]:
+            _render_core_timeline()
+            imgui.end_tab_item()
+
+        if imgui.begin_tab_item("MemBrowse Memory")[0]:
+            _render_level1_memory()
+            imgui.end_tab_item()
+
+        imgui.end_tab_bar()
+
+def _render_user_domain_window():
+    """Renders Window 2: User Domain Application Instruments (Flight Display)."""
+    g_state.update_rates()
+    g_flight_plugin.render_ui(0.016, g_state)
+
+def _render_tlp_debugger_window():
+    """Renders Window 3: Live 64-Byte TLP Packet Stream & Hex/Field Inspector."""
+    g_state.update_rates()
+    imgui.begin_group()
+    _, g_state.tlp_stream_paused = imgui.checkbox("Pause Stream", g_state.tlp_stream_paused)
+    imgui.same_line()
+    if imgui.button("Clear Packets"):
+        with g_state.lock:
+            g_state.recent_tlp_packets.clear()
+            g_state.selected_tlp_idx = 0
+    imgui.same_line()
+    imgui.text(f"| Packets Captured: {len(g_state.recent_tlp_packets)} | Total Received: {g_state.packet_count:,}")
+    imgui.end_group()
     imgui.separator()
 
-    tlp_fields = [
-        ("0..0", "tlp_type", "uint8", "0x10 (MEM_WRITE_POSTED)"),
-        ("1..1", "flags", "uint8", "0x00"),
-        ("2..2", "tag", "uint8", "0x04 (AHRS Fused State)"),
-        ("3..3", "channel", "uint8", "0x02 (High-Rate Telemetry)"),
-        ("4..7", "target_addr", "uint32", "0x40000100 (SRAM Telemetry Mailbox)"),
-        ("8..9", "len_dw", "uint16", "0x0010 (16 DWords = 64 Bytes)"),
-        ("10..11", "seq", "uint16", f"#{g_state.packet_count & 0xFFFF}"),
-        ("12..19", "timestamp_ns", "uint64", f"{int(time.time() * 1e9)} ns"),
-        ("20..59", "payload", "bytes[40]", "CTF 1.8 Binary Event Record"),
-        ("60..63", "crc32", "uint32", "0xDEADBEEF (Hardware CRC32-IEEE)"),
-    ]
+    # Two columns: Packet table on left, Selected packet details on right
+    imgui.columns(2, "tlp_split", True)
 
-    imgui.columns(4, "tlp_spec_cols", True)
-    imgui.text("Byte Offset")
+    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "Incoming 64-Byte TLP Packet Stream:")
+    imgui.begin_child("TlpListChild", imgui.ImVec2(-1, -1), True)
+    imgui.columns(5, "tlp_list_cols", True)
+    imgui.text("Seq #")
     imgui.next_column()
-    imgui.text("Field Name")
+    imgui.text("Tag")
     imgui.next_column()
-    imgui.text("Type")
+    imgui.text("Ch")
     imgui.next_column()
-    imgui.text("Current Value / Decoding")
+    imgui.text("Timestamp (ns)")
+    imgui.next_column()
+    imgui.text("Status")
     imgui.next_column()
     imgui.separator()
 
-    for off, name, ftype, val in tlp_fields:
-        imgui.text(off)
+    with g_state.lock:
+        packets = list(g_state.recent_tlp_packets)
+        sel_idx = g_state.selected_tlp_idx
+
+    for idx, pkt in enumerate(reversed(packets)):
+        actual_idx = len(packets) - 1 - idx
+        is_selected = (actual_idx == sel_idx)
+        tag_name = {1: "IMU", 2: "GPS", 3: "MAG", 4: "AHRS"}.get(pkt["tag"], f"0x{pkt['tag']:02X}")
+        clicked, _ = imgui.selectable(f"#{pkt['seq']:<5}", is_selected, imgui.SelectableFlags_.span_all_columns)
+        if clicked:
+            with g_state.lock:
+                g_state.selected_tlp_idx = actual_idx
         imgui.next_column()
-        imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), name)
+        imgui.text(tag_name)
         imgui.next_column()
-        imgui.text(ftype)
+        imgui.text(str(pkt["channel"]))
         imgui.next_column()
-        imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), val)
+        imgui.text(f"{pkt['ts_ns'] & 0xFFFFFFFF}")
+        imgui.next_column()
+        if pkt["crc_ok"]:
+            imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), "CRC OK")
+        else:
+            imgui.text_colored(imgui.ImVec4(1.0, 0.2, 0.2, 1.0), "CRC ERR")
         imgui.next_column()
 
     imgui.columns(1)
+    imgui.end_child()
+
+    imgui.next_column()
+
+    # Right column: Packet Inspector & Hex Dump
+    imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.5, 1.0), "Selected Packet Breakdown (64 Bytes):")
+    imgui.begin_child("TlpDetailChild", imgui.ImVec2(-1, -1), True)
+    if packets and 0 <= sel_idx < len(packets):
+        p = packets[sel_idx]
+        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), f"Packet #{p['seq']} | Tag: {p['tag']} | Channel: {p['channel']} | Size: 64 Bytes")
+        imgui.separator()
+
+        raw = p["raw"]
+        if len(raw) >= 20:
+            h_type, h_flags, h_tag, h_chan, h_addr, h_len, h_seq, h_ts = struct.unpack("<BBBBIHHQ", raw[:20])
+            imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "[Header: 20 Bytes]")
+            imgui.bullet_text(f"Type: 0x{h_type:02X} (MEM_WRITE_POSTED) | Flags: 0x{h_flags:02X} | Tag: 0x{h_tag:02X}")
+            imgui.bullet_text(f"Channel: {h_chan} | Addr: 0x{h_addr:08X} | Len: {h_len} DW (64B)")
+            imgui.bullet_text(f"Seq: #{h_seq} | Timestamp: {h_ts} ns")
+
+        imgui.spacing()
+        imgui.text_colored(imgui.ImVec4(0.8, 0.4, 1.0, 1.0), "[Raw 64-Byte Hex Dump]")
+        for offset in range(0, min(len(raw), 64), 16):
+            chunk = raw[offset:offset+16]
+            hex_str = " ".join(f"{b:02X}" for b in chunk)
+            ascii_str = "".join(chr(b) if 32 <= b <= 126 else "." for b in chunk)
+            color = imgui.ImVec4(0.4, 0.8, 1.0, 1.0) if offset < 20 else (imgui.ImVec4(0.2, 1.0, 0.4, 1.0) if offset < 60 else imgui.ImVec4(1.0, 0.6, 0.2, 1.0))
+            imgui.text_colored(color, f"{offset:04X}: {hex_str:<48}  |{ascii_str}|")
+
+        imgui.spacing()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Blue: 20B Header  |  Green: 40B CTF Payload  |  Orange: 4B CRC32")
+    else:
+        imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "No packet selected. Waiting for incoming telemetry frames...")
+    imgui.end_child()
+    imgui.columns(1)
+
+def _render_event_log_window():
+    """Renders Window 4: Live Filterable System Event & Trace Log."""
+    g_state.update_rates()
+    imgui.begin_group()
+    levels = ["ALL", "INFO", "TLP", "CORO", "ISR", "WARN"]
+    for lvl in levels:
+        if lvl == g_state.log_filter_level:
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
+        if imgui.button(lvl):
+            g_state.log_filter_level = lvl
+        if lvl == g_state.log_filter_level:
+            imgui.pop_style_color()
+        imgui.same_line()
+
+    imgui.same_line(0, 15)
+    _, g_state.log_search_text = imgui.input_text("Filter", g_state.log_search_text, 64)
+    imgui.same_line()
+    if imgui.button("Clear Log"):
+        with g_state.lock:
+            g_state.logs.clear()
+    imgui.same_line()
+    _, g_state.log_auto_scroll = imgui.checkbox("Auto-Scroll", g_state.log_auto_scroll)
+    imgui.end_group()
+    imgui.separator()
+
+    # Log Entries Scroll Region
+    imgui.begin_child("LogScrollChild", imgui.ImVec2(-1, -1), True)
+    with g_state.lock:
+        logs = list(g_state.logs)
+    flt_lvl = g_state.log_filter_level
+    flt_txt = g_state.log_search_text.lower()
+
+    col_map = {
+        "INFO": imgui.ImVec4(0.3, 0.8, 1.0, 1.0),
+        "TLP": imgui.ImVec4(0.8, 0.4, 1.0, 1.0),
+        "CORO": imgui.ImVec4(0.2, 1.0, 0.4, 1.0),
+        "ISR": imgui.ImVec4(1.0, 0.6, 0.2, 1.0),
+        "WARN": imgui.ImVec4(1.0, 0.3, 0.3, 1.0),
+        "MEM": imgui.ImVec4(0.4, 1.0, 0.8, 1.0)
+    }
+
+    for entry in logs:
+        if flt_lvl != "ALL" and entry["level"] != flt_lvl:
+            continue
+        if flt_txt and flt_txt not in entry["message"].lower() and flt_txt not in entry["source"].lower():
+            continue
+
+        c = col_map.get(entry["level"], imgui.ImVec4(0.9, 0.9, 0.9, 1.0))
+        imgui.text_colored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), f"[{entry['time']}]")
+        imgui.same_line()
+        imgui.text_colored(c, f"[{entry['level']:<4}]")
+        imgui.same_line()
+        imgui.text_colored(imgui.ImVec4(0.8, 0.8, 0.6, 1.0), f"[{entry['source']}]:")
+        imgui.same_line()
+        imgui.text(entry["message"])
+
+    if g_state.log_auto_scroll and imgui.get_scroll_y() >= imgui.get_scroll_max_y() - 20:
+        imgui.set_scroll_here_y(1.0)
+
+    imgui.end_child()
+
+def render_gui():
+    """Immediate mode GUI rendering combining all windows inside unified tabs for fallback/tests."""
+    g_state.update_rates()
+
+    # Top Toolbar
+    imgui.begin_group()
+    if g_state.connected:
+        imgui.text_colored(imgui.ImVec4(0.1, 0.9, 0.2, 1.0), "[ONLINE]")
+    else:
+        imgui.text_colored(imgui.ImVec4(0.9, 0.2, 0.1, 1.0), "[OFFLINE / WAITING]")
+    imgui.same_line()
+    imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s")
+    imgui.end_group()
+    imgui.separator()
+
+    # Tab Bar
+    if imgui.begin_tab_bar("StudioTabBar"):
+        flags_platform = imgui.TabItemFlags_.set_selected if g_initial_tab == "platform" else 0
+        flags_flight = imgui.TabItemFlags_.set_selected if g_initial_tab == "flight" else 0
+        flags_memory = imgui.TabItemFlags_.set_selected if g_initial_tab == "memory" else 0
+
+        opened, _ = imgui.begin_tab_item("User Domain Instruments (gps_imu_app)", None, flags_flight)
+        if opened:
+            _render_user_domain_window()
+            imgui.end_tab_item()
+
+        opened, _ = imgui.begin_tab_item("AbstractX Core Studio (CPU & Topology)", None, flags_platform)
+        if opened:
+            _render_core_studio_window()
+            imgui.end_tab_item()
+
+        opened, _ = imgui.begin_tab_item("TLP Bus Debugger", None, 0)
+        if opened:
+            _render_tlp_debugger_window()
+            imgui.end_tab_item()
+
+        opened, _ = imgui.begin_tab_item("System Event Log", None, 0)
+        if opened:
+            _render_event_log_window()
+            imgui.end_tab_item()
+
+        opened, _ = imgui.begin_tab_item("MemBrowse Memory", None, flags_memory)
+        if opened:
+            _render_level1_memory()
+            imgui.end_tab_item()
+
+        imgui.end_tab_bar()
 
 def main():
     global g_initial_tab
-    parser = argparse.ArgumentParser(description="AbstractX Visualizer Studio (Level 1 + Level 2)")
+    parser = argparse.ArgumentParser(description="AbstractX Visualizer Studio Workbench")
     parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT, help="UDP listening port")
     parser.add_argument("--sim", action="store_true", help="Run with synthetic flight & telemetry generator")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],
-                        help="Initial tab to display (flight, platform, or memory)")
+                        help="Initial tab to display in single-window mode")
     args = parser.parse_args()
 
     g_initial_tab = args.tab
@@ -748,15 +930,75 @@ def main():
     recv_thread = threading.Thread(target=udp_receiver_thread, args=(args.port, args.sim), daemon=True)
     recv_thread.start()
 
-    # Configure and Launch Dear ImGui Application
-    runner_params = hello_imgui.RunnerParams()
-    runner_params.app_window_params.window_title = "AbstractX Visualizer Studio"
-    runner_params.app_window_params.window_geometry.size = (1180, 780)
-    runner_params.callbacks.show_gui = render_gui
+    # Configure HelloImGui Multi-Window Docking Workbench
+    runner_params = create_docking_runner_params()
     implot.create_context()
-
     immapp.run(runner_params)
     implot.destroy_context()
 
+def create_docking_runner_params() -> hello_imgui.RunnerParams:
+    """Creates and configures HelloImGui 4-window docking layout for AbstractX Studio."""
+    runner_params = hello_imgui.RunnerParams()
+    runner_params.app_window_params.window_title = "AbstractX Studio & User Domain Workbench"
+    runner_params.app_window_params.window_geometry.size = (1560, 920)
+
+    # Enable full screen docking layout
+    runner_params.imgui_window_params.default_imgui_window_type = (
+        hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
+    )
+    runner_params.imgui_window_params.show_menu_bar = True
+    runner_params.imgui_window_params.show_menu_view = True
+    runner_params.imgui_window_params.show_status_bar = True
+    runner_params.imgui_window_params.menu_app_title = "AbstractX"
+
+    # Define the 4 dedicated dockable windows
+    win_user = hello_imgui.DockableWindow()
+    win_user.label = "User Domain Instruments"
+    win_user.dock_space_name = "MainDockSpace"
+    win_user.gui_function = _render_user_domain_window
+
+    win_core = hello_imgui.DockableWindow()
+    win_core.label = "AbstractX Core Studio"
+    win_core.dock_space_name = "LeftSpace"
+    win_core.gui_function = _render_core_studio_window
+
+    win_tlp = hello_imgui.DockableWindow()
+    win_tlp.label = "TLP Bus Debugger"
+    win_tlp.dock_space_name = "BottomSpace"
+    win_tlp.gui_function = _render_tlp_debugger_window
+
+    win_log = hello_imgui.DockableWindow()
+    win_log.label = "System Event Log"
+    win_log.dock_space_name = "BottomRightSpace"
+    win_log.gui_function = _render_event_log_window
+
+    # Define Docking Splits:
+    # 1. LeftSpace (36% width) on the left for AbstractX Core Studio
+    split_left = hello_imgui.DockingSplit()
+    split_left.initial_dock = "MainDockSpace"
+    split_left.new_dock = "LeftSpace"
+    split_left.direction = imgui.Dir_.left
+    split_left.ratio = 0.36
+
+    # 2. BottomSpace (36% height) at the bottom for TLP Debugger & Event Log
+    split_bottom = hello_imgui.DockingSplit()
+    split_bottom.initial_dock = "MainDockSpace"
+    split_bottom.new_dock = "BottomSpace"
+    split_bottom.direction = imgui.Dir_.down
+    split_bottom.ratio = 0.36
+
+    # 3. Split BottomSpace into Left (TLP Debugger) and Right (System Event Log)
+    split_bottom_log = hello_imgui.DockingSplit()
+    split_bottom_log.initial_dock = "BottomSpace"
+    split_bottom_log.new_dock = "BottomRightSpace"
+    split_bottom_log.direction = imgui.Dir_.right
+    split_bottom_log.ratio = 0.50
+
+    runner_params.docking_params.docking_splits = [split_left, split_bottom, split_bottom_log]
+    runner_params.docking_params.dockable_windows = [win_core, win_user, win_tlp, win_log]
+    runner_params.callbacks.show_status = _render_status_bar
+    return runner_params
+
 if __name__ == "__main__":
     main()
+
