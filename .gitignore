@@ -10,6 +10,7 @@ hw/qmtech_zynq7020/pico_bld/
 __pycache__/
 *.pyc
 .venv/
+abstractx_context_for_gemini.txt
 
 # Simulation artifacts
 results.xml
@@ -52,6 +53,7 @@ examples/dual_processor_io_and_processing
 !.vscode/*.json
 !docs/evidence/**/*.json
 !apps/gps_imu_app/trace_schema.json
+!tools/membrowse-targets.json
 !**/*.lushay.json
 !**/*.cst
 !**/*.sv

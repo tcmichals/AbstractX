@@ -1,125 +1,104 @@
-# AbstractX Protocol, Hardware & Pinout Documentation
+# AbstractX Architecture & Documentation Hub
 
 Welcome to the AbstractX documentation hub. This repository defines the universal asynchronous hardware offloader and heterogeneous interconnect framework across FPGAs (Gowin / Zynq), Microcontrollers (RP2350, ESP32-P4, STM32), and Linux Hosts.
 
----
+The technical documentation follows a **3-Tiered Taxonomy** to eliminate narrative overlap and enforce a strict **Markdown-Driven Single Source of Truth (SSOT)**:
 
-## Architecture Specifications & Protocol Stack
-
-1. **[`ABSTRACTX_DESIGN_GOALS.md`](ABSTRACTX_DESIGN_GOALS.md)**  
-   *Why*: Authoritative statement of what AbstractX is (and is not), non-negotiable invariants, and 3-layer architecture.
-
-2. **[`PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md`](PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md)**  
-   *Why*: Technical whitepaper on the 3 eras of embedded concurrency, the 5-flow async runtime, and zero-heap C++20 coroutines with split-transaction dispatchers.
-
-3. **[`SCHEDULER_VS_COROUTINE_ANALYSIS.md`](SCHEDULER_VS_COROUTINE_ANALYSIS.md)**  
-   *Why*: Deep-dive comparative analysis of traditional C cooperative schedulers (INAV / Betaflight) and sub-state driver fragmentation vs AbstractX C++20 coroutines.
-
-4. **[`ABSTRACTX_SOFTWARE_ENVIRONMENTS.md`](ABSTRACTX_SOFTWARE_ENVIRONMENTS.md)**  
-   *Why*: Foundational guide to the **3 Execution Environments**: (1) Linux Multi-Threaded I/O Workers (SITL), (2) Multi-Core MCU Interrupt/DMA Offloading (RP2350 / ESP32-P4), and (3) FPGA Hardware Offloader.
-
-5. **[`COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md`](COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md)**  
-   *Why*: Comprehensive guide to the C++20 Coroutine execution engine (`abstractx/coro.hpp`), split-transaction dispatchers, concurrency combinators (`when_all` / `when_any`), multi-rate I/O interleaving, and Linux SITL architecture.
-
-6. **[`PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
-   *Why*: Target offloader architecture detailing hardware offload mechanisms across silicon targets (FPGA fixed 64B, RP2350 compact 24B, ESP32-P4 variable, STM32 DMA, Linux zero-copy).
-
-7. **[`ASP_SPEC_DIRECTION.md`](ASP_SPEC_DIRECTION.md)**  
-   *Why*: Protocol direction specifying the 64-byte TLP (`asp-tlp-64b`) frame architecture.
-
-8. **[`ASP_PROTOCOL.md`](ASP_PROTOCOL.md)**  
-   *Why*: Normative specifications for 64-byte TLP headers, PCIe operations (`MemRd`, `MemWr`, `CplD`, `DMA_Stream`), and packet structures.
-
-9. **[`ASP_SPI_TRANSPORT.md`](ASP_SPI_TRANSPORT.md)**  
-   *Why*: Physical layer transport specifications for Dual-SPI and Single-SPI modes up to 50 MHz.
-
-10. **[`ASP_SPI_REGISTER_MAP.md`](ASP_SPI_REGISTER_MAP.md)**  
-    *Why*: Command byte mapping (`0xA1 TLP_WRITE_BURST`, `0xA2 TLP_READ_BURST`) and Wishbone register space.
-
-11. **[`LINUX_DEVICE_TREE_GUIDE.md`](LINUX_DEVICE_TREE_GUIDE.md)**  
-    *Why*: Linux Device Tree node (`.dts`) and Overlay (`.dtbo`) reference for enabling Dual-SPI 2x mode (`spi-tx-bus-width = <2>`, `spi-rx-bus-width = <2>`).
-
-12. **[`ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
-    *Why*: Parallel vector router fabric and Wishbone master gateway architecture.
-
-13. **[`IMU_AUTO_DMA_IP_SPEC.md`](IMU_AUTO_DMA_IP_SPEC.md)**  
-    *Why*: Hardware IMU SPI Master & Auto-DMA IP core for zero-CPU-overhead timestamped sensor telemetry streams.
-
-14. **[`ABSTRACTX_PLATFORM_TOPOLOGY_AND_METRICS_SPEC.md`](ABSTRACTX_PLATFORM_TOPOLOGY_AND_METRICS_SPEC.md)**  
-    *Why*: Authoritative specification for the unified Platform Topology Table (`PlatformTopologyTable`), Linux multi-target configurations (Standard Linux, Linux+E907, Linux+E907+FPGA), dynamic identity packets, and the 3-window studio layout.
-
-15. **[`SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md`](SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md)**  
-    *Why*: Authoritative guide for Sashiko-grade decomposed 5-stage adversarial review, sensor/transport symmetry, and CppUTest executable contracts for AI-assisted firmware development.
-
-16. **[`ABSTRACTX_VISUALIZER_SPECIFICATION.md`](ABSTRACTX_VISUALIZER_SPECIFICATION.md)**  
-    *Why*: Architecture specification for the real-time Observability Studio (Python + Dear ImGui Bundle) featuring Dual-Plane Gantt execution, interactive source code scanner, and per-processor SPU/CPU & OS process utilization.
-
-17. **[`HOW_TO_CTF_PING_PONG_TRACING.md`](HOW_TO_CTF_PING_PONG_TRACING.md)**  
-    *Why*: Step-by-step engineering guide for the 1 KB ping-pong buffer architecture, binary CTF 1.8 packet generation, and UDP / File / Shared SRAM sinks.
-
-18. **[`E907_COPROCESSOR_ARCHITECTURE.md`](E907_COPROCESSOR_ARCHITECTURE.md)**  
-    *Why*: Heterogeneous co-processor architecture for the Allwinner XuanTie E907 RISC-V core communicating with Linux via shared SRAM A3/C and `sun6i-msgbox` hardware doorbells.
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│      TIER 1: ABSTRACT VISION & ARCHITECTURAL INVARIANTS                │
+│      • docs/tier1_vision/SYSTEM_INVARIANTS.md                          │
+│      • Zero dynamic heap, single shared stack, Primary-Paced channels  │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │ Governs
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│      TIER 2: SYSTEM CONTRACTS, PROTOCOL & OBSERVABILITY                │
+│      • docs/tier2_contracts/TLP_BUS_SPECIFICATION.md                   │
+│      • docs/tier2_contracts/HAL_INTERFACES.md                          │
+│      • docs/tier2_contracts/OBSERVABILITY_SCHEMA.md                    │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │ Implemented by
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│      TIER 3: CONCRETE TARGET BSPS, HARDWARE & APPLICATIONS             │
+│      • docs/tier3_targets/bsp/ (Pico 2 W, ESP32-P4, Allwinner E907)    │
+│      • docs/tier3_targets/hardware/ (Waveshare P4 Errata, Tang Pinouts)│
+│      • apps/gps_imu_app/ (Reference Flight Application)                │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## FPGA Pinout Maps & Hardware Rationale
+## Tier 1: Abstract Vision & Architectural Invariants ([`tier1_vision/`](tier1_vision/))
 
-14. **[`TANG9K_PINOUT.md`](TANG9K_PINOUT.md)**  
-    *Why*: Physical pinout map and header layout for **Tang Nano 9K FPGA** (`GW1NR-9`).
-   - **4 Motor Channels (`o_motor_pins[3:0]`)**: Configured for Quadcopter DShot150/300/600 & 1-wire ESC Serial Passthrough (`serial_4way.c`), saving FPGA logic resources.
-   - **NeoPixel WS2812B RGB Pin**: Mapped to **Pin 37**.
-   - **4 Dedicated Hardware Debug Pins (`o_debug_pins[3:0]`)**: Mapped to **Pins 42, 48, 49, 50** for logic analyzer / oscilloscope scoping.
-   - **1 Hz FPGA Heartbeat Blinker**: Mapped to **LED 1 (Pin 10)** for instant visual confirmation of hardware clock & reset state.
-   - **Linux Dynamic LED Control**: **LEDs 2..6 (Pins 11, 13, 14, 15, 16)** kept unassigned to internal fast signals so Linux or FreeRTOS can toggle them dynamically over PCIe TLP register `0x4000000C` (`REG_SYS_LED_CTRL`).
+Defines the permanent, non-negotiable laws and execution models of the AbstractX framework:
 
-15. **[`PRIMER20K_PINOUT.md`](PRIMER20K_PINOUT.md)**  
-    *Why*: Physical pinout map and header layout for **Tang Primer 20K FPGA** (`GW2A-18`).
-    - **4 Motor Channels**: Pins T6, T7, P6, R7.
-    - **NeoPixel WS2812B RGB Pin**: Pin A15.
-    - **4 Hardware Debug Pins**: Pins P8, R8, T8, T9.
-    - **1 Hz FPGA Heartbeat Blinker**: LED 1 (Pin L14).
-    - **Linux Dynamic LED Control**: LEDs 2..6 (Pins L16, N14, N16, M14, M15).
-
----
-
-## Hardware Identity & Central Timestamp Registers (`0x40000000..0x40000014`)
-
-| Register Address | Name | Type | Reset / Expected | Description / Architectural Rationale |
-|---|---|---|---|---|
-| **`0x40000000`** | `REG_SYS_ID_REV` | RO | `0xABF10164` | **PCIe Device ID (0xABF1), Rev (0x01), Arch (0x64)** for driver link verification. |
-| **`0x40000004`** | `REG_SYS_VENDOR_ID` | RO | `0x19981ACC` | **PCIe Subsystem Vendor (0x1998) & Vendor ID (0x1ACC)**. |
-| **`0x40000008`** | `REG_SYS_SCRATCH` | R/W | `0xCAFEBABE` | **Host Loopback Scratchpad** for R/W bus verification. |
-| **`0x4000000C`** | `REG_SYS_LED_CTRL` | R/W | `0x0000003E` | **Linux-Controllable Onboard LEDs 2..6** (Bits 1..5). |
-| **`0x40000010`** | `REG_SYS_TIME_LOW` | RO | Monotonic Counter | **Master Timestamp Nanoseconds [31:0]**; latches high 32 bits into shadow. |
-| **`0x40000014`** | `REG_SYS_TIME_HIGH` | RO | Monotonic Counter | **Atomic Shadow Master Timestamp Nanoseconds [63:32]** for tear-free 64-bit reads. |
+1. **[`tier1_vision/SYSTEM_INVARIANTS.md`](tier1_vision/SYSTEM_INVARIANTS.md)**  
+   *Why*: **Master Tier 1 Document**. Authoritative definition of what AbstractX is/is not, the 3-layer architecture, zero-heap freestanding invariants, queue safety rules, and the 3 execution environments.
+2. **[`tier1_vision/COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md`](tier1_vision/COROUTINE_FLIGHT_CONTROLLER_ARCHITECTURE.md)**  
+   *Why*: The C++20 stackless coroutine task graph (`abstractx/coro.hpp`), split-transaction dispatchers, and concurrency combinators (`when_all` / `when_any`).
+3. **[`tier1_vision/PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](tier1_vision/PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
+   *Why*: Silicon offloader architecture detailing hardware offload mechanisms across silicon targets.
+4. **[`tier1_vision/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](tier1_vision/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
+   *Why*: Parallel vector router fabric and Wishbone gateway architecture.
+5. **[`tier1_vision/PROMPT_MARKDOWN_DRIVEN_ARCHITECTURE.md`](tier1_vision/PROMPT_MARKDOWN_DRIVEN_ARCHITECTURE.md)**  
+   *Why*: Principles and rules for specification-driven development.
+6. **[`tier1_vision/historical/`](tier1_vision/historical/)**  
+   *Why*: Preserved historical whitepapers, design goals, and comparative scheduler analyses (`PROTOTHREADS_TO_COROUTINE_WHITEPAPER.md`, `SCHEDULER_VS_COROUTINE_ANALYSIS.md`, `ABSTRACTX_DESIGN_GOALS.md`, `DESIGN_RULES.md`).
 
 ---
 
-## PWM Receiver Decoder & Input Capture Core (`0x40000300..0x40000310`)
+## Tier 2: System Contracts, Protocol & Observability ([`tier2_contracts/`](tier2_contracts/))
 
-| Register Address | Name | Type | Description |
-|---|---|---|---|
-| **`0x40000300`** | `REG_PWM_DEC_CTRL` | RO | **CTRL & Status**: `[31:16]`=ID (`0x0001`), `[15:8]`=`NUM_CHANNELS` (4), `[7:0]`=Channel Ready Flags |
-| **`0x40000304`** | `REG_PWM_DEC_CH1`  | RO | **Channel 1 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
-| **`0x40000308`** | `REG_PWM_DEC_CH2`  | RO | **Channel 2 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
-| **`0x4000030C`** | `REG_PWM_DEC_CH3`  | RO | **Channel 3 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
-| **`0x40000310`** | `REG_PWM_DEC_CH4`  | RO | **Channel 4 Measured Pulse Width**: `[15:0]` Pulse width in $\mu\text{s}$ (1000–2000), `[31:16]` Error Flags |
+Defines universal integration boundaries, binary framing, HAL contracts, and the telemetry ecosystem:
 
----
-
-## Verification & Interactive Test Tooling
-
-16. **[`tools/test_asp_pcie.py`](../tools/test_asp_pcie.py)**  
-    *Why*: Executable Python test utility supporting hardware `/dev/spidevX.Y` and `--mock` PC simulation modes.
-    - `python3 tools/test_asp_pcie.py --mode rainbow`: WS2812B NeoPixel RGB animated rainbow wave.
-    - `python3 tools/test_asp_pcie.py --mode pwm_sweep`: 1000 µs to 2000 µs Servo PWM / DShot motor sweep.
-    - `python3 tools/test_asp_pcie.py --mode led_chase`: Knight-rider chaser pattern across onboard LEDs.
-    - `python3 tools/test_asp_pcie.py --mode cli`: Interactive shell to read/write any register, control motors, and drive RGB colors.
+1. **[`tier2_contracts/TLP_BUS_SPECIFICATION.md`](tier2_contracts/TLP_BUS_SPECIFICATION.md)**  
+   *Why*: **Universal Data Plane Specification**. Fixed 64-byte TLP headers, packet operations (`MemRd`, `MemWr`, `CplD`, `DMA_Stream`), Wishbone gateway address map, and Dual-SPI 50 MHz physical transport.
+2. **[`tier2_contracts/HAL_INTERFACES.md`](tier2_contracts/HAL_INTERFACES.md)**  
+   *Why*: **Symmetrical HAL Contracts**. Non-blocking awaitable HAL interfaces (`ISpi`, `II2c`, `IUart`, `ITimer`, `IMailbox`) and the zero-blocking driver mandate.
+3. **[`tier2_contracts/OBSERVABILITY_SCHEMA.md`](tier2_contracts/OBSERVABILITY_SCHEMA.md)**  
+   *Why*: **Universal Observability Contracts**. Dynamic CTF 1.8 schema engine, `PlatformTopologyTable`, and the Two-Level AbstractX Studio architecture.
+4. **[`tier2_contracts/observability/README.md`](tier2_contracts/observability/README.md)**  
+   *Why*: Comprehensive Observability & Tooling Guide, MemBrowse continuous tracking, and Python `.venv` setup.
+5. **[`tier2_contracts/FCPROTOCOL_SPECIFICATION.md`](tier2_contracts/FCPROTOCOL_SPECIFICATION.md)**  
+   *Why*: MSP and Mavlink compatible telemetry frame bridging.
 
 ---
 
-## Governance, Verification & Engineering Logs
+## Tier 3: Concrete Target BSPs, Peripherals & Applications ([`tier3_targets/`](tier3_targets/))
 
-17. **[`ENGINEERING_LOG.md`](ENGINEERING_LOG.md)**: Chronological history of engineering milestones, commit hashes, bitstream results, and git archive branches.
-18. **[`ASP_REQUIREMENTS.md`](ASP_REQUIREMENTS.md)**: Requirements, quality gates, and definition-of-done.
-19. **[`ASP_VALIDATION_MATRIX.md`](ASP_VALIDATION_MATRIX.md)**: Verification test matrix across synthesis, timing closure, and TLP protocol tests.
+Documents specific silicon targets, hardware pinouts, auto-DMA cores, and errata workarounds:
+
+### Target Board Support Packages ([`tier3_targets/bsp/`](tier3_targets/bsp/))
+1. **[`tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md`](tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md)**: RP2350 Dual Cortex-M33 AMP topology and CYW43439 Wi-Fi.
+2. **[`tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md`](tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md)**: Allwinner XuanTie E907 RISC-V coprocessor + shared SRAM.
+3. **[`tier3_targets/bsp/LINUX_DEVICE_TREE_GUIDE.md`](tier3_targets/bsp/LINUX_DEVICE_TREE_GUIDE.md)**: Linux Device Tree overlays for Dual-SPI 2x mode.
+
+### Hardware Pinouts, IP Cores & Errata ([`tier3_targets/hardware/`](tier3_targets/hardware/))
+1. **[`tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md`](tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md)**: Waveshare ESP32-P4-WiFi6 (SKU 32021) hardware architecture, silicon errata analysis ([DMA-767], [MSPI-750], [APM-560]), and non-blocking Video-to-SDCard DMA pipeline.
+2. **[`tier3_targets/hardware/IMU_AUTO_DMA_IP_SPEC.md`](tier3_targets/hardware/IMU_AUTO_DMA_IP_SPEC.md)**: Hardware IMU SPI Master & Auto-DMA IP core with 64-bit nanosecond timestamp latching.
+3. **[`tier3_targets/hardware/TANG9K_PINOUT.md`](tier3_targets/hardware/TANG9K_PINOUT.md)**: Tang Nano 9K FPGA header map and motor assignments.
+4. **[`tier3_targets/hardware/PRIMER20K_PINOUT.md`](tier3_targets/hardware/PRIMER20K_PINOUT.md)**: Tang Primer 20K FPGA header map.
+5. **[`tier3_targets/hardware/HARDWARE_DEBUGGING_PICO2W_ESP32P4.md`](tier3_targets/hardware/HARDWARE_DEBUGGING_PICO2W_ESP32P4.md)**: Bare-metal debugging and logic analyzer workflows.
+
+---
+
+## Verification & Quality Gates ([`verification/`](verification/))
+
+1. **[`verification/SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md`](verification/SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md)**: 5-Stage Sashiko adversarial review and CppUTest contracts.
+2. **[`verification/AXIS_TESTING_FRAMEWORK.md`](verification/AXIS_TESTING_FRAMEWORK.md)**: AXI-Stream VIP simulation and Cocotb testbenches.
+3. **[`verification/E2E_VERIFICATION.md`](verification/E2E_VERIFICATION.md)**: End-to-end verification methodology.
+4. **[`verification/ASP_VALIDATION_MATRIX.md`](verification/ASP_VALIDATION_MATRIX.md)**: Timing closure and protocol compliance matrix.
+5. **[`verification/ASP_REQUIREMENTS.md`](verification/ASP_REQUIREMENTS.md)**: Quality gates and definition of done.
+6. **[`verification/ASP_RELEASE_PROCESS.md`](verification/ASP_RELEASE_PROCESS.md)**: Release tagging checklist.
+7. **[`verification/BUILD.md`](verification/BUILD.md)**: Detailed multi-target build manual.
+8. **[`verification/ENGINEERING_LOG.md`](verification/ENGINEERING_LOG.md)**: Chronological commit history and bitstream revisions.
+9. **[`verification/evidence/`](verification/evidence/)**: Empirical test logs, JSON summaries, and waveforms.
+
+---
+
+## Authoritative System Specification (SSOT) & Standard Template
+
+* **[`DESIGN_SPECIFICATION.md`](DESIGN_SPECIFICATION.md)**: Root Single Source of Truth containing all audited `[SPEC-*]` requirements.
+* **[`SPEC_TEMPLATE.md`](SPEC_TEMPLATE.md)**: Standard template for authoring new specifications for drivers, targets, and applications.

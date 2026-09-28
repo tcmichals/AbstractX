@@ -121,6 +121,52 @@ python3 tools/visualizer/abstractx_studio.py --port 9870
 
 # 3. Or launch standalone with synthetic multi-plane simulation
 python3 tools/visualizer/abstractx_studio.py --sim
+
+# 4. Or launch directly into Level 2 Flight & IMU domain tab
+python3 apps/gps_imu_app/tools/flight_display.py --sim
 ```
+
+---
+
+## 5. Two-Level GUI Architecture
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        ABSTRACTX STUDIO (imgui-bundle)                 │
+├────────────────────────────────────────────────────────────────────────┤
+│ Level 1: Core AbstractX Framework Layer (Standard across all apps)     │
+│   • 64-byte TLP Ingestion (UDP, Serial, Shared SRAM)                   │
+│   • Platform Topology & Interconnect (Cores, SPU/CPU%, SPSC Rings)     │
+│   • Dual-Plane Timeline (Hardware ISR/DMA vs C++20 Tasks)              │
+│   • Source Inspector: Jump to __FILE__ : __LINE__ on co_await          │
+│   • Memory Observability & Static Section Budgets (MemBrowse)          │
+├────────────────────────────────────────────────────────────────────────┤
+│ Level 2: User & Domain Extensible Layer (Pluggable App Modules)        │
+│   • Pluggable tab interface (e.g. tools/visualizer/flight_plugin.py)   │
+│   • For gps_imu_app:                                                   │
+│       - Primary Flight Display (PFD) Artificial Horizon & Pitch Ladder │
+│       - 3D Quadcopter Perspective Wireframe (Tait-Bryan rotation)      │
+│       - Quad-X Motor Mixer Demand Bars (100..1000 µs)                  │
+│       - Aviation Navigation Gauges & Stream Rates (IMU/Mag/GPS/AHRS)   │
+│       - 8 kHz IMU Oscilloscope (ImPlot real-time waveforms)            │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Continuous Memory Observability with MemBrowse
+
+Because AbstractX strictly enforces **Freestanding C++20 with Zero Heap** (no `malloc`, no `operator new`, no dynamic STL), all runtime memory is statically pooled in `.bss` and `.data`. 
+
+### MemBrowse Integration Workflow
+1. **Target Definitions (`tools/membrowse-targets.json`)**:
+   Specifies target ELF binary paths, linker maps, and strict RAM/Flash budgets for RP2350 (520 KB SRAM / 4 MB Flash), XuanTie E907 (64 KB SRAM A3/C), ESP32-P4, and Host SITL.
+2. **Local Static Tracker (`tools/track_memory_membrowse.py`)**:
+   Extracts section sizes (`.text`, `.rodata`, `.data`, `.bss`, `.stack`), verifies zero dynamic heap references in symbol tables, and exports `tools/visualizer/memory_metrics.json`.
+3. **Live Studio Visualization (Tab 3)**:
+   AbstractX Studio dynamically reads memory metrics to display real-time RAM/Flash saturation gauges and section tables.
+4. **CI/CD Continuous Tracking**:
+   The `membrowse-action` GitHub Action tracks memory footprint trends commit-over-commit and gates PRs against memory bloat.
+
 
 

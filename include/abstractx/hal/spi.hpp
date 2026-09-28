@@ -95,7 +95,7 @@ public:
     // ------------------------------------------------------------------------
     // Isolated Synchronous Fallbacks (Pre-scheduler bare-metal setup only)
     // NOTE: MUST NOT be called inside coroutines or the reactive event loop!
-    // See docs/DESIGN_RULES.md Section 12.
+    // See docs/architecture/DESIGN_RULES.md Section 12.
     // ------------------------------------------------------------------------
     virtual uint8_t transfer_byte(uint8_t tx) = 0;
     virtual bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) = 0;
