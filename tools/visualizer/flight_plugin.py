@@ -207,7 +207,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         # 4. 8 kHz IMU Oscilloscope (ImPlot)
         # -------------------------------------------------------------
         if implot.begin_plot("8 kHz ICM-42688-P High-Rate Sensor Waveforms", imgui.ImVec2(-1, 220)):
-            implot.setup_axes("Time (s)", "Dynamic Amplitude", implot.ImPlotAxisFlags_.auto_fit, implot.ImPlotAxisFlags_.auto_fit)
+            implot.setup_axes("Time (s)", "Dynamic Amplitude", implot.AxisFlags_.auto_fit, implot.AxisFlags_.auto_fit)
             with state.lock:
                 t_data = np.copy(state.time_history)
                 ax_data = np.copy(state.accel_x)
@@ -326,7 +326,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         dl.add_text(imgui.ImVec2(p_min.x + 8, p_min.y + 24), col_white, f"PITCH: {pitch_deg:+5.1f}°")
 
         # Frame border
-        dl.add_rect(p_min, p_max, col_border, 0.0, 0, 1.5)
+        dl.add_rect(p_min, p_max, col_border, rounding=0.0, thickness=1.5)
         dl.pop_clip_rect()
 
         # Advance imgui cursor
@@ -412,7 +412,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         dl.add_text(imgui.ImVec2(p_min.x + 8, p_min.y + 8), col_white, f"HEADING: {yaw_deg:05.1f}°")
         dl.add_text(imgui.ImVec2(p_min.x + 8, p_min.y + 24), col_front, "Cyan: Front  |  Red: Rear")
 
-        dl.add_rect(p_min, p_max, col_border, 0.0, 0, 1.5)
+        dl.add_rect(p_min, p_max, col_border, rounding=0.0, thickness=1.5)
         dl.pop_clip_rect()
 
         imgui.dummy(imgui.ImVec2(width, height))
