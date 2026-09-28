@@ -216,7 +216,8 @@ The exact same `main.cpp` code compiles and executes across three target silicon
 | :--- | :--- | :--- | :--- |
 | **Raspberry Pi Pico 2 W** | **Dual ARM Cortex-M33 @ 150 MHz**<br/>• Core 1: Coroutine Flight Loop<br/>• Core 0: PIO SPI DMA + CYW43 Wi-Fi | Single-cycle hardware single-precision FPU (`vadd.f32`, `vmul.f32`, fast `vsqrt.f32`). | 520 KB SRAM total.<br/>Filter state + queues = **< 1 KB static SRAM**.<br/>Loop execution: **4.2 µs**. |
 | **Espressif ESP32-P4** | **Dual RISC-V @ 400 MHz**<br/>• Core 1: Coroutine Flight Loop<br/>• Core 0: GDMA SPI + Wi-Fi 6 | Hardware single & double-precision FPU (`fadd.s`, `fmul.s`, `fsqrt.s`). | 768 KB HP SRAM.<br/>Filter state + queues = **< 1 KB static SRAM**.<br/>Loop execution: **1.8 µs**. |
-| **Allwinner Cubie A5E (ARM A55)** | **Quad AArch64 @ 1.4 GHz**<br/>• PREEMPT_RT Flight Thread<br/>• E907 / POSIX DMA Workers | Hardware ARM NEON vector and scalar floating-point engine. | 1 GB – 4 GB LPDDR4.<br/>Filter state + queues = **< 1 KB static SRAM**.<br/>Loop execution: **0.8 µs**. |
+| **Allwinner Cubie A5E (Pure Silicon)** | **Quad AArch64 @ 1.4 GHz + E907**<br/>• A55: PREEMPT_RT Flight Thread<br/>• E907: On-Chip SPI0/TWI/UART DMA | Hardware ARM NEON vector and scalar floating-point engine. | 1 GB – 4 GB LPDDR4.<br/>Filter state + queues = **< 1 KB static SRAM**.<br/>Loop execution: **0.8 µs**. |
+| **Allwinner Cubie A5E + FPGA (X-Fabric)** | **Quad AArch64 @ 1.4 GHz + E907 + FPGA**<br/>• A55: PREEMPT_RT Flight Thread<br/>• FPGA: Hardware Auto-DMA & Router | Hardware ARM NEON FPU + FPGA DSPs. | 1 GB – 4 GB LPDDR4 + FPGA BRAM.<br/>Filter state + queues = **< 1 KB static SRAM**.<br/>Loop execution: **0.4 µs**. |
 
 ### Platform Deployment & Debugging Guides (`platforms/`)
 

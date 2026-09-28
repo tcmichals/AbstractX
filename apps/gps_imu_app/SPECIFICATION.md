@@ -127,7 +127,8 @@ The application code in `src/main.cpp` and `include/abstractx/fusion/attitude_fi
 | :--- | :--- | :--- | :--- | :--- |
 | **Raspberry Pi Pico 2 W** | Dual ARM Cortex-M33 @ 150 MHz | Core 1: Coroutines<br/>Core 0: PIO SPI DMA + Wi-Fi | Hardware single-precision FPU (`vadd.f32`, `vmul.f32`, `vsqrt.f32`) | SRAM Budget: 520 KB<br/>Filter + Queues: < 1 KB static SRAM |
 | **Espressif ESP32-P4** | Dual RISC-V RV32IMAFDC @ 400 MHz | Core 1: Coroutines<br/>Core 0: GDMA SPI + Wi-Fi 6 | Hardware single/double FPU (`fadd.s`, `fmul.s`, `fsqrt.s`) | SRAM Budget: 768 KB HP SRAM<br/>Filter + Queues: < 1 KB static SRAM |
-| **Allwinner Cubie A5E** | Quad AArch64 Cortex-A55 @ 1.4 GHz | PREEMPT_RT Flight Thread<br/>E907 / POSIX DMA Worker | Hardware ARM NEON vector/scalar FPU | LPDDR4: 1 GB – 4 GB<br/>Filter + Queues: < 1 KB static SRAM |
+| **Allwinner Cubie A5E (Pure Silicon)** | Quad AArch64 A55 + XuanTie E907 (No FPGA) | A55: PREEMPT_RT Coroutines<br/>E907: On-Chip SPI/I2C/UART DMA | Hardware ARM NEON vector/scalar FPU | LPDDR4: 1 GB – 4 GB<br/>Filter + Queues: < 1 KB static SRAM |
+| **Allwinner Cubie A5E + FPGA (X-Fabric)** | Quad AArch64 A55 + E907 + FPGA Fabric | A55: PREEMPT_RT Coroutines<br/>FPGA: Auto-DMA + Crossbar Switch | Hardware ARM NEON FPU + FPGA DSPs | LPDDR4: 1 GB – 4 GB + FPGA BRAM<br/>Filter + Queues: < 1 KB static SRAM |
 
 ### Invariant Rules:
 1. **Zero Dynamic Allocation**: `operator new` and `malloc` are strictly banned during flight execution. All coroutine frames and queues are statically sized.

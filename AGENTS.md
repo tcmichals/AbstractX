@@ -63,7 +63,9 @@ When building applications that ingest multiple sensors running at different rat
 Applications written against `abstractx::` MUST compile and run identically across all supported platforms without target preprocessor conditionals:
 1. **Raspberry Pi Pico 2 W**: Dual ARM Cortex-M33 @ 150 MHz, hardware single-precision FPU, Core 1 coroutine engine, Core 0 PIO/DMA + Wi-Fi.
 2. **Espressif ESP32-P4**: Dual RISC-V RV32IMAFDC @ 400 MHz, hardware FPU, Core 1 coroutines, Core 0 GDMA + Wi-Fi 6.
-3. **Allwinner Cubie A5E (ARM Cortex-A55 Linux) & Desktop SITL**: Quad AArch64 @ 1.4 GHz, NEON FPU, PREEMPT_RT or coprocessor.
+3. **Allwinner Cubie A5E (Pure Silicon / No FPGA)**: Quad AArch64 @ 1.4 GHz Linux + XuanTie E907 RISC-V coprocessor, shared SRAM rings + `sun6i-msgbox`, driving on-chip SPI0, TWI0, UART2.
+4. **Allwinner Cubie A5E + FPGA (Hardware X-Fabric)**: Quad AArch64 @ 1.4 GHz + XuanTie E907 + Gowin/Zynq FPGA AXI-Stream crossbar switch fabric (`asp_router.sv`).
+5. **Desktop SITL**: Native Linux x86_64 / AArch64 under GDB/ASan with software loopback.
 
 All platform-specific clock initialization, core allocation, and pinmux are handled autonomously inside `abstractx::init(config)`.
 
