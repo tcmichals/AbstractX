@@ -88,6 +88,10 @@ class StreamDescriptor:
         self.events: Dict[int, EventDescriptor] = {}
 
 class CtfSchema:
+    """
+    # @impl [SPEC-STUDIO-07] tools/visualizer/ctf_schema_loader.py
+    Dynamic CTF 1.8 / barectf Schema Loader and struct decoder without hardcoded offsets.
+    """
     def __init__(self, schema_path: str):
         self.path = Path(schema_path)
         self.streams: Dict[int, StreamDescriptor] = {}

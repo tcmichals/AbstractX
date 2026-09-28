@@ -323,7 +323,11 @@ g_flight_plugin = FlightVisualizerPlugin()
 g_initial_tab = "platform"
 
 def udp_receiver_thread(port: int, sim_mode: bool):
-    """Background worker receiving live 64B TLP frames or synthesizing flight data."""
+    """
+    # @impl [SPEC-STUDIO-08] tools/visualizer/abstractx_studio.py
+    # @impl [SPEC-STUDIO-09] tools/visualizer/abstractx_studio.py
+    Background worker receiving live 64B TLP frames or synthesizing flight data.
+    """
     if sim_mode:
         print("[Simulator] Running synthetic multi-rate flight & telemetry simulation...")
         start_time = time.time()
@@ -619,7 +623,10 @@ def _render_core_timeline():
     imgui.end_child()
 
 def _render_level1_memory():
-    """Renders Level 1 Core: Memory Observability, Static Section Budgets, and MemBrowse Status."""
+    """
+    # @impl [SPEC-STUDIO-10] tools/visualizer/abstractx_studio.py
+    Renders Level 1 Core: Memory Observability, Static Section Budgets, and MemBrowse Status.
+    """
     imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "MemBrowse Embedded Memory Observability & Static Section Footprint")
     imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0),
                        "AbstractX enforces Zero Heap & No Dynamic Allocation (Freestanding C++20). "
@@ -689,7 +696,10 @@ def _render_level1_memory():
     imgui.bullet_text("CI PR Gate: Memory budget regression threshold set at +2.0 KB per commit")
 
 def _render_core_studio_window():
-    """Renders Window 1: AbstractX Core Studio (Platform, CPU, Timeline, MemBrowse)."""
+    """
+    # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
+    Renders Window 1: AbstractX Core Studio (Platform, CPU, Timeline, MemBrowse).
+    """
     g_state.update_rates()
     if imgui.begin_tab_bar("CoreStudioTabBar"):
         if imgui.begin_tab_item("CPU & Silicon Cores")[0]:
@@ -707,12 +717,18 @@ def _render_core_studio_window():
         imgui.end_tab_bar()
 
 def _render_user_domain_window():
-    """Renders Window 2: User Domain Application Instruments (Flight Display)."""
+    """
+    # @impl [SPEC-STUDIO-03] tools/visualizer/abstractx_studio.py
+    Renders Window 2: User Domain Application Instruments (Flight Display).
+    """
     g_state.update_rates()
     g_flight_plugin.render_ui(0.016, g_state)
 
 def _render_tlp_debugger_window():
-    """Renders Window 3: Live 64-Byte TLP Packet Stream & Hex/Field Inspector."""
+    """
+    # @impl [SPEC-STUDIO-04] tools/visualizer/abstractx_studio.py
+    Renders Window 3: Live 64-Byte TLP Packet Stream & Hex/Field Inspector.
+    """
     g_state.update_rates()
     imgui.begin_group()
     _, g_state.tlp_stream_paused = imgui.checkbox("Pause Stream", g_state.tlp_stream_paused)
@@ -807,7 +823,10 @@ def _render_tlp_debugger_window():
     imgui.columns(1)
 
 def _render_event_log_window():
-    """Renders Window 4: Live Filterable System Event & Trace Log."""
+    """
+    # @impl [SPEC-STUDIO-05] tools/visualizer/abstractx_studio.py
+    Renders Window 4: Live Filterable System Event & Trace Log.
+    """
     g_state.update_rates()
     imgui.begin_group()
     levels = ["ALL", "INFO", "TLP", "CORO", "ISR", "WARN"]
@@ -937,7 +956,10 @@ def main():
     implot.destroy_context()
 
 def create_docking_runner_params() -> hello_imgui.RunnerParams:
-    """Creates and configures HelloImGui 4-window docking layout for AbstractX Studio."""
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    Creates and configures HelloImGui 4-window docking layout for AbstractX Studio.
+    """
     runner_params = hello_imgui.RunnerParams()
     runner_params.app_window_params.window_title = "AbstractX Studio & User Domain Workbench"
     runner_params.app_window_params.window_geometry.size = (1560, 920)

@@ -41,13 +41,13 @@ def run_traceability_audit(spec_file=None, root_dir=None):
                 }
 
     # 2. Scan codebase for @impl tags
-    scan_dirs = ["include", "targets", "apps", "examples", "sim"]
+    scan_dirs = ["include", "targets", "apps", "examples", "sim", "tools"]
     for s_dir in scan_dirs:
         dir_path = root_dir / s_dir
         if not dir_path.exists():
             continue
 
-        for ext in ["*.hpp", "*.cpp", "*.h", "*.c", "*.S", "*.sv"]:
+        for ext in ["*.hpp", "*.cpp", "*.h", "*.c", "*.S", "*.sv", "*.py"]:
             for file_path in dir_path.rglob(ext):
                 rel_path = file_path.relative_to(root_dir)
                 try:

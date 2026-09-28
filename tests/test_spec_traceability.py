@@ -42,3 +42,26 @@ def test_reference_application_specification_traceability(repo_root, app_spec_pa
     assert total == 10, f"Expected 10 reference app specs, found {total}"
     assert implemented == 10, f"Expected 10 implemented reference app specs, found {implemented}"
     assert coverage == 100.0, f"Reference app coverage is {coverage}%, expected 100.0%"
+
+def test_studio_specification_traceability(repo_root, studio_spec_path):
+    """Proves 100% implementation coverage for tools/visualizer/SPECIFICATION.md"""
+    assert studio_spec_path.exists(), f"Studio specification missing: {studio_spec_path}"
+
+    results = run_traceability_audit(studio_spec_path, repo_root)
+    total = results["total"]
+    implemented = results["implemented"]
+    coverage = results["coverage"]
+    specs = results["specs"]
+
+    assert total == 10, f"Expected 10 studio specs, found {total}"
+    assert implemented == 10, f"Expected 10 implemented studio specs, found {implemented}"
+    assert coverage == 100.0, f"Studio spec coverage is {coverage}%, expected 100.0%"
+
+    # Validate that every implementation file path actually exists
+    for spec_id, data in specs.items():
+        assert len(data["implementations"]) > 0, f"Spec {spec_id} has no implementing files"
+        for impl in data["implementations"]:
+            rel_file = impl.split(":")[0]
+            full_path = repo_root / rel_file
+            assert full_path.exists(), f"Implementation file referenced by {spec_id} not found: {rel_file}"
+
