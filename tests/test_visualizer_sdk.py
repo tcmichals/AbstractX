@@ -155,6 +155,12 @@ def test_studio_docking_workbench_configuration():
     assert splits[1].new_dock == "BottomSpace"
     assert splits[2].new_dock == "BottomRightSpace"
 
+    # Check that TLP and Log are visible by default as dedicated windows
+    tlp_win = [w for w in windows if w.label == "TLP Bus Debugger"][0]
+    log_win = [w for w in windows if w.label == "System Event Log"][0]
+    assert tlp_win.is_visible is True
+    assert log_win.is_visible is True
+
     # Test dynamic layout switching
     studio.apply_docking_layout("source_focus")
     assert studio.g_state.active_layout_preset == "source_focus"
@@ -170,11 +176,15 @@ def test_studio_docking_workbench_configuration():
     assert studio.g_state.active_layout_preset == "user_focus"
     assert studio.g_dockable_windows["user"].is_visible is True
     assert studio.g_dockable_windows["core"].is_visible is False
+    assert studio.g_dockable_windows["tlp"].is_visible is False
+    assert studio.g_dockable_windows["log"].is_visible is False
 
     studio.apply_docking_layout("balanced")
     assert studio.g_state.active_layout_preset == "balanced"
     assert studio.g_dockable_windows["core"].is_visible is True
     assert studio.g_dockable_windows["user"].is_visible is True
+    assert studio.g_dockable_windows["tlp"].is_visible is True
+    assert studio.g_dockable_windows["log"].is_visible is True
 
 
 def test_studio_docking_workbench_headless_run():
@@ -277,6 +287,22 @@ def test_studio_coroutine_inspector_and_watchdog_model():
     assert len(state.coro_topology) >= 5
     assert ("app_main", "imu_pipeline") in state.coro_topology
     assert ("imu_pipeline", "sensor_fusion") in state.coro_topology
+
+
+def test_studio_membrowse_ci_integration():
+    """Validates that MemBrowse CI metrics are ingested, loaded, and audited for zero dynamic heap."""
+    state = studio.TelemetryState()
+    assert hasattr(state, "load_membrowse_metrics")
+    assert hasattr(state, "run_membrowse_analysis")
+    assert state.membrowse_status_msg != ""
+    assert len(state.mem_targets) > 0
+
+    # Validate that all targets have zero-heap compliance audited
+    for t_name, t_info in state.mem_targets.items():
+        assert "ram_used_bytes" in t_info
+        assert "flash_used_bytes" in t_info
+        assert "zero_heap_compliant" in t_info
+        assert "sections" in t_info
 
 
 
