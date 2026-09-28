@@ -120,3 +120,56 @@ def test_studio_gui_render_memory_tab():
         implot.destroy_context()
 
     assert frame_count >= 3, f"Expected at least 3 frames, rendered {frame_count}"
+
+
+def test_studio_docking_workbench_configuration():
+    """Verifies that create_docking_runner_params sets up the 4-window workbench."""
+    runner = studio.create_docking_runner_params()
+    assert runner is not None
+    assert runner.app_window_params.window_title == "AbstractX Studio & User Domain Workbench"
+    assert runner.imgui_window_params.default_imgui_window_type == hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
+
+    # Check 4 dockable windows
+    windows = runner.docking_params.dockable_windows
+    assert len(windows) == 4
+    labels = {w.label: w.dock_space_name for w in windows}
+    assert "AbstractX Core Studio" in labels
+    assert labels["AbstractX Core Studio"] == "LeftSpace"
+    assert "User Domain Instruments" in labels
+    assert labels["User Domain Instruments"] == "MainDockSpace"
+    assert "TLP Bus Debugger" in labels
+    assert labels["TLP Bus Debugger"] == "BottomSpace"
+    assert "System Event Log" in labels
+    assert labels["System Event Log"] == "BottomRightSpace"
+
+    # Check 3 docking split ratios
+    splits = runner.docking_params.docking_splits
+    assert len(splits) == 3
+    assert splits[0].new_dock == "LeftSpace"
+    assert splits[1].new_dock == "BottomSpace"
+    assert splits[2].new_dock == "BottomRightSpace"
+
+
+def test_studio_docking_workbench_headless_run():
+    """Runs 3 frames of the full 4-window docking workbench in headless mode."""
+    frame_count = 0
+    runner = studio.create_docking_runner_params()
+    runner.app_window_params.window_geometry.size = (900, 600)
+
+    # Inject frame exit callback into CustomBackground or BeforeImGuiRender
+    def on_before_imgui():
+        nonlocal frame_count
+        frame_count += 1
+        if frame_count >= 3:
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    runner.callbacks.before_imgui_render = on_before_imgui
+
+    implot.create_context()
+    try:
+        immapp.run(runner)
+    finally:
+        implot.destroy_context()
+
+    assert frame_count >= 3, f"Expected at least 3 frames in docking mode, rendered {frame_count}"
+
