@@ -399,16 +399,17 @@ graph TD
 
 ### Target Hardware Execution Matrix
 
-| Metric | [Raspberry Pi Pico 2 W](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [Espressif ESP32-P4 (Waveshare)](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [Radxa Cubie A5E (Linux + E907)](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [AMD Zynq / Gowin Tang](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Hardware & Errata Spec** | [`PICO2W_DUAL_CORE_SPEC`](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [`ESP32P4_WAVESHARE_SPEC`](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [`E907_COPROCESSOR_SPEC`](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [`TANG9K_PINOUT_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
-| **Silicon Architecture** | Dual ARM Cortex-M33 @ 150 MHz | Dual RISC-V @ 400 MHz | Quad AArch64 A55 + RISC-V E907 | Dual ARM Cortex-A9 + FPGA Fabric |
-| **Floating-Point Engine** | Hardware single-precision FPU | Hardware single/double FPU | Hardware ARM NEON FPU | Hardware VFPv3 FPU + FPGA DSPs |
-| **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E907 Coprocessor (PLIC) | FPGA Logic (`asp_imu_auto_dma.sv`) |
-| **Tier 2 Coroutine Engine** | Core 1 (Coroutine Dispatcher) | Core 1 (Coroutine Dispatcher) | Core 0 (Linux PREEMPT_RT Thread) | Core 0 (Linux Userspace / RTOS) |
-| **Inter-Domain Bridge** | Hardware SIO FIFO Doorbell | Hardware IPC Mailbox | Shared SRAM A3/C + `sun6i-msgbox`| AXI-Stream DMA Descriptor Rings |
-| **Static Memory Footprint** | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) |
-| **Loop Step Latency** | **4.2 µs** | **1.8 µs** | **0.8 µs** | **0.4 µs** (Hardware Offloaded) |
+| Metric | [Raspberry Pi Pico 2 W](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [Espressif ESP32-P4 (Waveshare)](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [Radxa Cubie A5E (Pure Silicon)](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [Radxa Cubie A5E + FPGA](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [AMD Zynq / Gowin Tang](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Hardware & Errata Spec** | [`PICO2W_DUAL_CORE_SPEC`](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [`ESP32P4_WAVESHARE_SPEC`](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [`E907_COPROCESSOR_SPEC`](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [`A5E_FPGA_XFABRIC_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [`TANG9K_PINOUT_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
+| **Silicon Architecture** | Dual ARM Cortex-M33 @ 150 MHz | Dual RISC-V @ 400 MHz | Quad AArch64 A55 + RISC-V E907 (No FPGA) | Quad AArch64 A55 + E907 + FPGA Fabric | Dual ARM Cortex-A9 + FPGA Fabric |
+| **Floating-Point Engine** | Hardware single-precision FPU | Hardware single/double FPU | Hardware ARM NEON FPU | Hardware ARM NEON FPU + FPGA DSPs | Hardware VFPv3 FPU + FPGA DSPs |
+| **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E907 (On-Chip SPI0/TWI/UART DMA) | FPGA Logic (`asp_imu_auto_dma.sv` + AXI) | FPGA Logic (`asp_imu_auto_dma.sv`) |
+| **Tier 2 Coroutine Engine** | Core 1 (Coroutine Dispatcher) | Core 1 (Coroutine Dispatcher) | Core 0 (Linux PREEMPT_RT Thread) | Core 0 (Linux Userspace / E907) | Core 0 (Linux Userspace / RTOS) |
+| **Inter-Domain Bridge** | Hardware SIO FIFO Doorbell | Hardware IPC Mailbox | Shared SRAM A3/C + `sun6i-msgbox` | AXI-Stream TLP Descriptors & DMA | AXI-Stream DMA Descriptor Rings |
+| **FPGA Requirement** | None (0 LUTs) | None (0 LUTs) | **None (Pure SoC Silicon, 0 LUTs)** | **Gowin / AMD FPGA (~9k–85k LUTs)** | Gowin / AMD FPGA (~9k–85k LUTs) |
+| **Static Memory Footprint** | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) |
+| **Loop Step Latency** | **4.2 µs** | **1.8 µs** | **0.8 µs** | **0.4 µs** (Hardware Offloaded) | **0.4 µs** (Hardware Offloaded) |
 
 ---
 

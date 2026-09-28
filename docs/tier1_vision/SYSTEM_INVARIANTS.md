@@ -76,15 +76,16 @@ All code under `include/`, `apps/`, and `targets/` must compile freestanding wit
 
 ---
 
-## 4. The 3 Software Environments
+## 4. The 4 Execution Environments
 
-| Feature | Environment 1: Linux SITL / Host | Environment 2: Dual-Core MCU (Pico 2 W / ESP32-P4) | Environment 3: FPGA Hardware Offloader (Tang / Zynq) |
-| :--- | :--- | :--- | :--- |
-| **I/O Engine** | POSIX Worker Threads (`epoll`) | Core 0 (Autonomous DMA / PIO / Wi-Fi) | SystemVerilog Auto-DMA (`asp_imu_auto_dma.sv`) |
-| **Coroutine Engine** | Main Coroutine Loop | Core 1 (Isolated C++20 Coroutine Dispatcher) | Host SBC / MCU Coroutine Application |
-| **Doorbell Bridge** | `eventfd` / Linux pipe | Hardware FIFO / IPC Mailbox Interrupt | Physical DIO Pin / Interrupt Line |
-| **Memory Isolation** | Host RAM | Internal L2 SRAM (Zero PSRAM dependence) | On-Chip Block RAM / FIFO Buffer |
-| **Typical Jitter** | `< 20 µs` (PREEMPT_RT) | `< 0.2 µs` (Dedicated Hardware Core) | `< 0.01 µs` (Hardware Clock Cycle Deterministic) |
+| Feature | Environment 1: Linux SITL / Host | Environment 2: Dual-Core MCU (Pico 2 W / ESP32-P4) | Environment 3: Heterogeneous Coprocessor (Radxa Cubie A5E Pure Silicon) | Environment 4: FPGA Hardware Offloader (A5E + FPGA / Tang / Zynq) |
+| :--- | :--- | :--- | :--- | :--- |
+| **I/O Engine** | POSIX Worker Threads (`epoll`) | Core 0 (Autonomous DMA / PIO / Wi-Fi) | XuanTie E907 (On-Chip SPI0/TWI/UART DMA) | SystemVerilog Auto-DMA (`asp_imu_auto_dma.sv` + AXI) |
+| **Coroutine Engine** | Main Coroutine Loop | Core 1 (Isolated C++20 Coroutine Dispatcher) | ARM Cortex-A55 (PREEMPT_RT Thread) | Host SBC / MCU Coroutine Application |
+| **Doorbell Bridge** | `eventfd` / Linux pipe | Hardware FIFO / IPC Mailbox Interrupt | Shared SRAM A3/C + `sun6i-msgbox` | Physical DIO Pin / Interrupt Line |
+| **Memory Isolation** | Host RAM | Internal L2 SRAM (Zero PSRAM dependence) | Banked Internal SRAM (No PSRAM) | On-Chip Block RAM / FIFO Buffer |
+| **FPGA Requirement** | None (0 LUTs) | None (0 LUTs) | **None (Pure Silicon, 0 LUTs)** | Gowin / AMD FPGA (~9k–85k LUTs) |
+| **Typical Jitter** | `< 20 µs` (PREEMPT_RT) | `< 0.2 µs` (Dedicated Hardware Core) | `< 0.5 µs` (Dedicated RISC-V Core) | `< 0.01 µs` (Hardware Clock Cycle Deterministic) |
 
 ---
 

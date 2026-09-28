@@ -238,7 +238,7 @@ graph TD
 | Feature | Topology 1: Native Linux IIO | Topology 2: Coprocessor Offload (AMP) | Topology 3: FPGA Hardware Offload |
 | :--- | :--- | :--- | :--- |
 | **I/O Engine Execution** | Linux User-Space Reactor (`targets/linux/`) | Dedicated Coprocessor (`pico2w_rp2350`, `allwinner_e907`, `esp32p4`) | FPGA Logic Fabric / Soft-Core (Zynq, Cyclone V, PCIe) |
-| **Typical Silicon** | Standard Linux SBC (CM4, BeagleBone, x86_64 SITL) | Heterogeneous SoCs (Cortex-A7 + E907, A53 + M4/M7, RP2350) | FPGA SoC (Zynq-7000 / UltraScale+, Cyclone V, PCIe Add-in Card) |
+| **Typical Silicon** | Standard Linux SBC (CM4, BeagleBone, x86_64 SITL) | Heterogeneous SoCs (Cortex-A55 + E907 Pure Silicon on Radxa Cubie A5E, RP2350, ESP32-P4) | FPGA SoC / Offloader (Radxa Cubie A5E + FPGA X-Fabric, Zynq-7000, Gowin Tang) |
 | **Transport Medium** | POSIX `eventfd` + `etl::queue_spsc_isr` | Shared Banked SRAM / Hardware Mailbox FIFO | AXI DMA / PCIe BAR Memory Window (`pcie_bar_map.hpp`) |
 | **DRDY Latency & Jitter** | ~5–25 µs (Kernel TTY / gpiod epoll jitter) | **Deterministic sub-microsecond (&lt; 500 ns)** | **Zero-jitter hardware clock (&lt; 10 ns)** |
 | **Bus Parallelism** | Worker threads (`SpiWorker`, `I2cWorker`) | Hardware DMA channels running independently | Fully parallel FPGA hardware state machines |
