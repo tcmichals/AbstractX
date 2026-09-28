@@ -71,14 +71,14 @@ Establish an ironclad, repeatable workflow for how new features, drivers, and ta
 ### PILLAR 3: Comparative Profiling Benchmark & Observability Workbench (AbstractX Studio)
 The visualizer has evolved from an ad-hoc flight display into **AbstractX Studio** (`tools/visualizer/abstractx_studio.py`), a multi-window HelloImGui docking workbench built with Python and `imgui-bundle` (`Dear ImGui` + `ImPlot` + `HelloImGui`).
 
-#### A. conventional profiling tools vs. AbstractX AbstractX Studio vs. AbstractX Studio
-Firmware developers previously evaluated **conventional profiling tools** and **AbstractX AbstractX Studio**:
-- **conventional profiling tools** is ImGui-based and fast, but proved difficult to use for embedded firmware: its deep hierarchical call-stack zones create immense clutter for multi-kHz cyclic loops, its target agent requires dynamic memory and heavy networking, and it has no awareness of FPGA crossbars or hardware TLPs.
-- **AbstractX Studio** has the ideal visualization paradigm (horizontal task/ISR swimlanes, execution time budgets, causality predecessor/successor chains, and clear issue drill-down), but is proprietary, expensive, tied to legacy RTOS threading models, and lacks modern C++20 coroutine, FPGA, and memory budget integration.
-
-Evaluate how AbstractX Studio combines the best of both worlds:
-1. **Four Silicon Swimlanes**: Core 0 (Linux / M33), Core 1 (Coroutine Engine), SPU (FPGA AXI Crossbar), and Interrupts (PLIC ISRs/Doorbells).
-2. **Issue Drill-Down Inspector**: Computes budget utilization %, traces causality chains (`Predecessor ──▶ Active Task ──▶ Successor`), diagnoses root cause, and inspects C++ source code.
+#### A. RTOS Task Scheduling vs. C++20 Coroutine Observability
+AbstractX rejects legacy RTOS threading and task scheduling in favor of freestanding C++20 stackless coroutines and FPGA Auto-DMA hardware:
+- Traditional RTOS profilers track thread preemption and task priorities, but are completely blind to C++20 coroutine state machines, awaiter suspension tokens, and static frame pool memory.
+- In an RTOS, every task requires a dedicated 1-4 KB call stack and blocks silently on semaphores without indicating why or what it is waiting for.
+- AbstractX Studio provides native co-design observability through:
+  1. **C++20 Coroutine State & Suspension Inspector**: Live state machines, awaiter tokens, per-awaiter stall watchdogs, and static frame pool metrics.
+  2. **Dual-Plane Execution Timeline**: Physical hardware I/O (Plane 1) decoupled from stackless coroutines (Plane 2).
+  3. **Flow Integrity & Pacing Eye**: 8 kHz IMU primary-paced eye diagram, queue saturation, and transit delay tracking.
 3. **Synchronized Real-Time Line Charts**: High-speed `ImPlot` multi-line graphs tracking task latencies and SPSC lock-free queue depths against deadline threshold lines.
 4. **Static Memory Observability**: MemBrowse zero-heap verification ($0\text{ B}$ dynamic heap badge and static ELF section bars).
 
@@ -120,6 +120,6 @@ Please structure your response as an **Executive Architecture & Refactoring Plan
 1. **Executive Strategy Summary**: High-level architectural evaluation and key strengths.
 2. **Deduplication & Directory Taxonomy**: The clean folder tree and file migration map across Tiers 1, 2, and 3.
 3. **The Spec ➔ Code ➔ Validate ➔ Feature Blueprint**: Step-by-step developer guidelines and the `SPEC_TEMPLATE.md` standard.
-4. **AbstractX Studio Architecture & Comparative Benchmark**: Evaluation of conventional profiling tools vs AbstractX Studio vs AbstractX Studio, dynamic multi-window docking, and concrete Python/ImGui recommendations.
+4. **AbstractX Studio Architecture & Comparative Benchmark**: Evaluation of RTOS task models vs. C++20 coroutines in AbstractX Studio, dynamic multi-window docking, and concrete Python/ImGui recommendations.
 5. **AbstractX Studio SDK & Unification Architecture**: Clean Python plugin interface and folder layout.
 ```
