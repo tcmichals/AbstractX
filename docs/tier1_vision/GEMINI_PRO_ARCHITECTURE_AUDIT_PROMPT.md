@@ -139,7 +139,7 @@ Audit the in-code implementations against the core invariants:
 > AbstractX features an observability framework and real-time visualizer called **AbstractX Studio** ([`tools/visualizer/abstractx_studio.py`](tools/visualizer/abstractx_studio.py)), built with Python and `imgui-bundle` (`Dear ImGui` + `ImPlot` + `HelloImGui`) for zero-latency 120 FPS rendering.
 >
 > AbstractX Studio follows an extensible **6-Window Docking Suite** architecture:
-> - **Window 1 (AbstractX Core Studio)**: Silicon topology, Tracealyzer 4-track execution timeline (Core 0, Core 1, SPU, Interrupts), interactive `__FILE__ : __LINE__` source jumping, CPU/SPU load gauges, and continuous static memory footprints via **MemBrowse**.
+> - **Window 1 (AbstractX Core Studio)**: Silicon topology, C++20 Coroutine Inspector (state machines, co_await tokens, stall watchdogs), interactive `__FILE__ : __LINE__` source jumping, CPU/SPU load gauges, and continuous static memory footprints via **MemBrowse**.
 > - **Window 2 (User Domain Instruments)**: Pluggable user domain visualizers (Primary Flight Display artificial horizon, 3D quadcopter perspective wireframe, Quad-X motor mixer, 8 kHz IMU oscilloscope).
 > - **Window 3 (TLP Bus Debugger)**: Low-level 64-byte PCIe-style TLP packet stream table, 20-byte wire header decode, color-coded hex dump, and CRC32 verification.
 > - **Window 4 (System Event Log)**: Substring search, severity filtering (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), auto-scrolling console.
@@ -151,12 +151,12 @@ Audit the in-code implementations against the core invariants:
 ```markdown
 # TASK: Observability Framework, Comparative Profiling & AbstractX Studio GUI Architecture
 
-Review the observability architecture, comparative profiling study (`docs/tier2_contracts/observability/COMPARATIVE_STUDY_TRACY_TRACEALYZER_ABSTRACTX.md`), Python visualizer codebase (`tools/visualizer/`), telemetry schema (`trace/barectf_config.yaml`, `trace_schema.json`), and MemBrowse integration:
+Review the observability architecture, comparative profiling study (`docs/tier2_contracts/observability/RTOS_VS_CPP20_COROUTINES_OBSERVABILITY.md`), Python visualizer codebase (`tools/visualizer/`), telemetry schema (`trace/barectf_config.yaml`, `trace_schema.json`), and MemBrowse integration:
 
-### 1. Comparative Profiling Benchmark: Tracy vs. Tracealyzer vs. AbstractX Studio
+### 1. Comparative Profiling Benchmark: conventional profiling tools vs. AbstractX Studio vs. AbstractX Studio
 Audit the visualizer against modern embedded profiling requirements:
-- Evaluate why Tracy Profiler's hierarchical call-stack zones cause cognitive overload for embedded loops and why its memory footprint conflicts with freestanding zero-heap invariants.
-- Assess how Percepio Tracealyzer's horizontal swimlane and causality dependency model was adapted for AbstractX's dual-core C++20 coroutine and FPGA architecture.
+- Evaluate why conventional profiling tools's hierarchical call-stack zones cause cognitive overload for embedded loops and why its memory footprint conflicts with freestanding zero-heap invariants.
+- Assess how AbstractX AbstractX Studio's horizontal swimlane and causality dependency model was adapted for AbstractX's dual-core C++20 coroutine and FPGA architecture.
 - Evaluate the 6-window HelloImGui docking suite, dynamic multi-window decoupling (native OS floating viewports), and focus layout presets.
 
 ### 2. Dynamic CTF 1.8 Telemetry, MemBrowse & Hardware Observability

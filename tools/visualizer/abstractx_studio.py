@@ -261,7 +261,7 @@ class TelemetryState:
         self.log_search_text = ""
         self.log_auto_scroll = True
 
-        # Tracealyzer & CPU Line Chart History (Last 30 seconds, 60 samples at 2 Hz)
+        # AbstractX Studio & CPU Line Chart History (Last 30 seconds, 60 samples at 2 Hz)
         self.chart_hist_len = 60
         self.chart_time = np.linspace(-30.0, 0.0, self.chart_hist_len, dtype=np.float64)
         self.chart_cpu_c0 = np.full(self.chart_hist_len, 22.4, dtype=np.float64)
@@ -368,32 +368,6 @@ class TelemetryState:
             ("app_main", "telem_egress"),
             ("app_main", "flight_monitor"),
             ("imu_pipeline", "sensor_fusion"),  # imu_pipeline feeds sensor_fusion via g_imu_channel
-        ]
-
-
-        self.timing_spans = [
-            # Track 0: Core 0 [Host Linux / M33]
-            {"id": "c0_sup", "track": 0, "name": "linux_supervisor", "start_us": 0.0, "dur_us": 45.0, "budget_us": 80.0, "overrun": False, "col": (0.2, 0.6, 0.9, 0.9), "file": "apps/gps_imu_app/src/main.cpp", "line": 34, "token": "DomainDispatcher::step() event loop", "pred": "Linux scheduler", "succ": "udp_sink", "diag": "Normal supervisor cadence (100 Hz)"},
-            {"id": "c0_udp", "track": 0, "name": "udp_telemetry_sink", "start_us": 120.0, "dur_us": 28.0, "budget_us": 40.0, "overrun": False, "col": (0.3, 0.7, 1.0, 0.9), "file": "apps/gps_imu_app/src/main.cpp", "line": 216, "token": "sock.sendto(tlp_frame)", "pred": "telemetry_egress", "succ": "Network egress", "diag": "64B TLP emitted over UDP :9870"},
-            {"id": "c0_dma", "track": 0, "name": "dma_bridge_worker", "start_us": 220.0, "dur_us": 18.0, "budget_us": 35.0, "overrun": False, "col": (0.2, 0.5, 0.8, 0.9), "file": "targets/allwinner_e907/main.cpp", "line": 47, "token": "remoteproc shared SRAM drain", "pred": "E907 Doorbell", "succ": "Linux user ring", "diag": "Zero-copy shared SRAM A3/C latch"},
-
-            # Track 1: Core 1 [Coroutine Engine]
-            {"id": "c1_imu1", "track": 1, "name": "imu_pipeline", "start_us": 15.0, "dur_us": 12.5, "budget_us": 15.0, "overrun": False, "col": (0.2, 0.8, 1.0, 0.9), "file": "apps/gps_imu_app/src/main.cpp", "line": 42, "token": "co_await g_sensor_ring.pop()", "pred": "spi0_dma_tc_isr", "succ": "attitude_ekf", "diag": "8 kHz primary pacer tick on schedule"},
-            {"id": "c1_ekf1", "track": 1, "name": "attitude_ekf", "start_us": 35.0, "dur_us": 18.2, "budget_us": 20.0, "overrun": False, "col": (0.3, 0.9, 0.4, 0.9), "file": "include/abstractx/fusion/attitude_filter.hpp", "line": 88, "token": "attitude_ekf.update(gyro, accel)", "pred": "imu_pipeline", "succ": "flight_control", "diag": "Mahony quaternion kinematics convergence"},
-            {"id": "c1_ctl1", "track": 1, "name": "flight_control", "start_us": 62.0, "dur_us": 22.0, "budget_us": 25.0, "overrun": False, "col": (1.0, 0.7, 0.2, 0.9), "file": "apps/gps_imu_app/src/main.cpp", "line": 98, "token": "quad_mixer.compute_demands(tau)", "pred": "attitude_ekf", "succ": "dshot_pulse", "diag": "Cascaded rate/attitude PID solver"},
-            {"id": "c1_aux", "track": 1, "name": "mag_gps_drain", "start_us": 95.0, "dur_us": 6.5, "budget_us": 10.0, "overrun": False, "col": (0.4, 0.8, 0.6, 0.9), "file": "apps/gps_imu_app/src/main.cpp", "line": 55, "token": "while (g_mag_channel.try_pop(m))", "pred": "I2C ISR", "succ": "imu_pipeline", "diag": "Non-blocking auxiliary drain"},
-            {"id": "imu_overrun", "track": 1, "name": "imu_pipeline [OVERRUN]", "start_us": 140.0, "dur_us": 23.4, "budget_us": 15.0, "overrun": True, "col": (1.0, 0.3, 0.3, 0.95), "file": "apps/gps_imu_app/src/main.cpp", "line": 42, "token": "co_await g_sensor_ring.pop() [OVERRUN: 23.4 µs vs 15.0 µs budget]", "pred": "spi0_dma_tc_isr", "succ": "attitude_ekf", "diag": "ALERT: Task overran 15.0 µs deadline by +8.4 µs due to lock-free ring head contention!"},
-            {"id": "c1_ekf2", "track": 1, "name": "attitude_ekf", "start_us": 175.0, "dur_us": 14.1, "budget_us": 20.0, "overrun": False, "col": (0.3, 0.9, 0.4, 0.9), "file": "include/abstractx/fusion/attitude_filter.hpp", "line": 88, "token": "attitude_ekf.update(gyro, accel)", "pred": "imu_pipeline", "succ": "telemetry_egress", "diag": "Recovered baseline timing window"},
-
-            # Track 2: SPU [FPGA Hardware Fabric]
-            {"id": "spu_dma", "track": 2, "name": "spi0_auto_dma", "start_us": 2.0, "dur_us": 8.5, "budget_us": 10.0, "overrun": False, "col": (0.9, 0.5, 0.2, 0.9), "file": "include/abstractx/drivers/imu/icm42688p.hpp", "line": 54, "token": "Hardware Auto-DMA 14B Burst", "pred": "DRDY pin trigger", "succ": "spi0_dma_tc_isr", "diag": "Hardware SPI DMA burst @ 10 MHz"},
-            {"id": "spu_rt", "track": 2, "name": "asp_router_crossbar", "start_us": 72.0, "dur_us": 4.2, "budget_us": 8.0, "overrun": False, "col": (0.8, 0.4, 1.0, 0.9), "file": "sim/cocotb/test_asp_sys_regs_cocotb.py", "line": 80, "token": "asp_router.sv AXI-Stream Crossbar", "pred": "Ring push", "succ": "Host shared SRAM", "diag": "64-byte TLP crossbar routing (zero-copy)"},
-            {"id": "spu_dshot", "track": 2, "name": "dshot600_pulse", "start_us": 105.0, "dur_us": 16.0, "budget_us": 20.0, "overrun": False, "col": (0.7, 0.3, 0.9, 0.9), "file": "apps/gps_imu_app/src/main.cpp", "line": 152, "token": "4-CH DShot300/600 hardware burst", "pred": "flight_control", "succ": "Physical ESCs", "diag": "16-bit CRC hardware pulse generation"},
-
-            # Track 3: Interrupts [Hardware PLIC & Mailbox Doorbells]
-            {"id": "isr_spi", "track": 3, "name": "spi0_dma_tc_isr", "start_us": 10.5, "dur_us": 2.4, "budget_us": 4.0, "overrun": False, "col": (1.0, 0.4, 0.4, 0.9), "file": "include/abstractx/drivers/imu/icm42688p.hpp", "line": 54, "token": "PLIC ISR: SPI0 DMA Complete", "pred": "spi0_auto_dma", "succ": "imu_pipeline", "diag": "Interrupt response latency 0.8 µs"},
-            {"id": "isr_mb", "track": 3, "name": "sun6i_msgbox_doorbell", "start_us": 52.0, "dur_us": 1.8, "budget_us": 3.0, "overrun": False, "col": (1.0, 0.5, 0.3, 0.9), "file": "targets/allwinner_e907/main.cpp", "line": 47, "token": "sun6i-msgbox hardware doorbell IRQ", "pred": "Core 0 signal", "succ": "dma_bridge_worker", "diag": "Inter-core doorbell latency 1.1 µs"},
-            {"id": "isr_uart", "track": 3, "name": "uart0_gps_rx_isr", "start_us": 92.0, "dur_us": 3.1, "budget_us": 5.0, "overrun": False, "col": (0.9, 0.3, 0.5, 0.9), "file": "include/abstractx/drivers/gps/ublox_gps.hpp", "line": 55, "token": "UART0 FIFO RX threshold ISR", "pred": "U-Blox M10 byte", "succ": "mag_gps_drain", "diag": "UBX protocol packet decoded"},
         ]
 
         # Initial seed logs
@@ -609,7 +583,7 @@ def udp_receiver_thread(port: int, sim_mode: bool):
             sim_frame = sim_hdr + sim_payload + (b"\x00" * (40 - len(sim_payload))) + b"\xde\xad\xbe\xef"
             g_state.add_tlp_packet(sim_frame, 0x10, 4, 2, sim_seq, sim_ts, True)
 
-            # Periodically update Tracealyzer chart metrics and simple trace events (at 20 Hz)
+            # Periodically update AbstractX Studio chart metrics and simple trace events (at 20 Hz)
             if g_state.packet_count % 10 == 0:
                 c0 = float(np.clip(22.0 + 3.5 * np.sin(t * 0.7) + np.random.normal(0, 0.4), 0.0, 100.0))
                 c1 = float(np.clip(34.0 + 5.0 * np.cos(t * 0.9) + np.random.normal(0, 0.5), 0.0, 100.0))
@@ -873,7 +847,11 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         ]
         for lbl, w, h in presets:
             if imgui.button(f"{lbl}##{window_key}"):
-                imgui.set_window_size(imgui.ImVec2(float(w), float(h)), 0)
+                hello_imgui.change_window_size((w, h))
+                try:
+                    imgui.set_window_size(window_title, imgui.ImVec2(float(w), float(h)), imgui.Cond_.always)
+                except Exception:
+                    pass
             imgui.same_line()
 
         # Continuous width & height sliders
@@ -883,7 +861,11 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         ch_h, new_h = imgui.slider_int(f"H##{window_key}", int(cur_size.y), 350, 1600)
         imgui.pop_item_width()
         if ch_w or ch_h:
-            imgui.set_window_size(imgui.ImVec2(float(new_w), float(new_h)), 0)
+            hello_imgui.change_window_size((new_w, new_h))
+            try:
+                imgui.set_window_size(window_title, imgui.ImVec2(float(new_w), float(new_h)), imgui.Cond_.always)
+            except Exception:
+                pass
 
         imgui.same_line(0, 14)
         imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.7, 0.4, 0.9))
@@ -898,7 +880,14 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         if imgui.button(f"🚀 Dedicated Window (2nd Monitor)##{window_key}"):
             launch_external_flight_canvas()
         imgui.same_line()
-        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Single dedicated window or independent dual monitor")
+        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Single dedicated window or dual monitor")
+        imgui.same_line(0, 14)
+        imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), "Window Size:")
+        imgui.same_line()
+        for lbl, w, h in [("1280x800", 1280, 800), ("1560x920", 1560, 920), ("1920x1080", 1920, 1080)]:
+            if imgui.button(f"{lbl}##docked_{window_key}"):
+                hello_imgui.change_window_size((w, h))
+            imgui.same_line()
 
     imgui.end_group()
     imgui.separator()
@@ -973,6 +962,14 @@ def _render_status_bar():
     imgui.same_line(0, 12)
     if imgui.button("🗖 Pop Out Flight Canvas"):
         decouple_window("User Domain Instruments", 1280.0, 820.0)
+
+    imgui.same_line(0, 16)
+    imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), "Window Size:")
+    imgui.same_line()
+    for lbl, w, h in [("1280x800", 1280, 800), ("1560x920", 1560, 920), ("1920x1080", 1920, 1080)]:
+        if imgui.button(f"{lbl}##status_size"):
+            hello_imgui.change_window_size((w, h))
+        imgui.same_line()
 
 def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct: float, 
                       label: str, sublabel: str, unit: str = "%", max_val: float = 100.0) -> None:
@@ -1094,351 +1091,6 @@ def _render_core_cpu_and_topology():
     imgui.text(f"SPSC Ring : 64 Descriptors (Zero-Copy)")
     imgui.text(f"Avg Doorbell Latency: {g_state.rtt_latency_us:.1f} µs")
     imgui.columns(1)
-
-def _render_tracealyzer_and_charts():
-    """
-    # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
-    Renders Dual-Plane Execution Swimlanes, Real-Time Flow-Integrity Inspector,
-    Interactive Issue Drill-Down Inspector, and Synchronized Real-Time Line Charts.
-    """
-    imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "Dual-Plane Execution Swimlanes & Flow-Integrity Inspector")
-    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0),
-                       "Deterministic execution swimlanes across silicon cores and hardware planes. Click any task span or overrun to drill down.")
-    imgui.separator()
-
-    # Toolbar: Zoom controls, Pan scrubber, Pause & Overrun Filters, Jump to Issue
-    imgui.begin_group()
-    imgui.text_colored(imgui.ImVec4(0.9, 0.7, 0.2, 1.0), "Timeline Controls:")
-    imgui.same_line()
-    zoom_levels = [0.5, 1.0, 2.0, 4.0]
-    for z in zoom_levels:
-        is_active = (abs(g_state.timing_zoom - z) < 0.05)
-        if is_active:
-            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
-        if imgui.button(f"{z}x"):
-            g_state.timing_zoom = z
-        if is_active:
-            imgui.pop_style_color()
-        imgui.same_line()
-
-    imgui.same_line(0, 12)
-    imgui.set_next_item_width(140)
-    changed_pan, g_state.timing_pan_us = imgui.slider_float("Pan (µs)", g_state.timing_pan_us, 0.0, 200.0, "%.0f µs")
-    imgui.same_line(0, 12)
-    _, g_state.timing_paused = imgui.checkbox("Freeze Timeline", g_state.timing_paused)
-    imgui.same_line(0, 10)
-    _, g_state.timing_show_overruns_only = imgui.checkbox("Overruns Only", g_state.timing_show_overruns_only)
-
-    imgui.same_line(0, 15)
-    # Quick Jump to Overrun button (Styled in alert red/coral)
-    imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.25, 0.25, 0.9))
-    imgui.push_style_color(imgui.Col_.button_hovered, imgui.ImVec4(1.0, 0.35, 0.35, 1.0))
-    if imgui.button("🚨 Jump to Overrun (+8.4µs)"):
-        g_state.timing_pan_us = 50.0
-        g_state.timing_zoom = 1.2
-        g_state.selected_span_id = "imu_overrun"
-        g_state.selected_event_name = "imu_pipeline [OVERRUN]"
-        g_state.selected_source_file = "apps/gps_imu_app/src/main.cpp"
-        g_state.selected_source_line = 42
-        g_state.selected_token = "co_await g_sensor_ring.pop() [OVERRUN: 23.4 µs vs 15.0 µs budget]"
-    imgui.pop_style_color(2)
-
-    imgui.same_line(0, 8)
-    if imgui.button("Reset View"):
-        g_state.timing_pan_us = 0.0
-        g_state.timing_zoom = 1.0
-        g_state.timing_show_overruns_only = False
-    imgui.end_group()
-    imgui.separator()
-
-    # Multi-Track Swimlanes (Tracealyzer style)
-    tracks = [
-        {"id": 0, "name": "Core 0", "sub": "Host Linux / M33", "col": imgui.ImVec4(0.2, 0.6, 0.9, 1.0)},
-        {"id": 1, "name": "Core 1", "sub": "Coroutine Engine", "col": imgui.ImVec4(0.2, 0.9, 0.5, 1.0)},
-        {"id": 2, "name": "SPU", "sub": "FPGA Switch & DMA", "col": imgui.ImVec4(0.8, 0.4, 1.0, 1.0)},
-        {"id": 3, "name": "Interrupts", "sub": "PLIC & Doorbells", "col": imgui.ImVec4(1.0, 0.4, 0.4, 1.0)},
-    ]
-
-    sidebar_w = 160.0
-    ruler_h = 24.0
-    track_h = 32.0
-    total_canvas_h = ruler_h + len(tracks) * track_h + 8.0
-
-    canvas_pos = imgui.get_cursor_screen_pos()
-    avail_w = imgui.get_content_region_avail().x
-    timeline_w = max(avail_w - sidebar_w - 12.0, 240.0)
-
-    draw_list = imgui.get_window_draw_list()
-
-    # Base background for timing canvas
-    p_min = canvas_pos
-    p_max = imgui.ImVec2(canvas_pos.x + avail_w, canvas_pos.y + total_canvas_h)
-    draw_list.add_rect_filled(p_min, p_max, imgui.get_color_u32(imgui.ImVec4(0.06, 0.09, 0.14, 0.95)), 4.0)
-    draw_list.add_rect(p_min, p_max, imgui.get_color_u32(imgui.ImVec4(0.2, 0.28, 0.38, 0.8)), 4.0, 1.0)
-
-    # Time scale & calculations
-    visible_us = 260.0 / max(g_state.timing_zoom, 0.1)
-    scale_px = timeline_w / visible_us
-    t_min = g_state.timing_pan_us
-    t_max = t_min + visible_us
-
-    timeline_start_x = canvas_pos.x + sidebar_w
-
-    # Draw Time Ruler at the top
-    ruler_bg_min = imgui.ImVec2(timeline_start_x, canvas_pos.y)
-    ruler_bg_max = imgui.ImVec2(canvas_pos.x + avail_w, canvas_pos.y + ruler_h)
-    draw_list.add_rect_filled(ruler_bg_min, ruler_bg_max, imgui.get_color_u32(imgui.ImVec4(0.1, 0.15, 0.22, 0.9)), 0.0)
-    draw_list.add_line(imgui.ImVec2(canvas_pos.x, canvas_pos.y + ruler_h),
-                       imgui.ImVec2(canvas_pos.x + avail_w, canvas_pos.y + ruler_h),
-                       imgui.get_color_u32(imgui.ImVec4(0.3, 0.4, 0.5, 0.8)), 1.0)
-
-    # Draw Ruler Ticks and Vertical Grid Lines
-    tick_step = 25.0 if visible_us <= 150.0 else (50.0 if visible_us <= 350.0 else 100.0)
-    curr_tick = (int(t_min / tick_step)) * tick_step
-    while curr_tick <= t_max + tick_step:
-        x_tick = timeline_start_x + (curr_tick - t_min) * scale_px
-        if timeline_start_x <= x_tick <= canvas_pos.x + avail_w:
-            # Vertical grid line across all tracks
-            draw_list.add_line(imgui.ImVec2(x_tick, canvas_pos.y + ruler_h),
-                               imgui.ImVec2(x_tick, canvas_pos.y + total_canvas_h - 4.0),
-                               imgui.get_color_u32(imgui.ImVec4(0.25, 0.35, 0.45, 0.25)), 1.0)
-            # Ruler tick mark & label
-            draw_list.add_line(imgui.ImVec2(x_tick, canvas_pos.y + ruler_h - 6.0),
-                               imgui.ImVec2(x_tick, canvas_pos.y + ruler_h),
-                               imgui.get_color_u32(imgui.ImVec4(0.6, 0.7, 0.8, 0.9)), 1.0)
-            draw_list.add_text(imgui.ImVec2(x_tick + 3.0, canvas_pos.y + 4.0),
-                               imgui.get_color_u32(imgui.ImVec4(0.7, 0.8, 0.9, 0.9)),
-                               f"+{curr_tick:.0f}µs")
-        curr_tick += tick_step
-
-    # Draw Swimlane Rows
-    tracks_y = canvas_pos.y + ruler_h
-    for trk in tracks:
-        row_y0 = tracks_y + trk["id"] * track_h
-        row_y1 = row_y0 + track_h
-        row_bg = imgui.ImVec4(0.08, 0.12, 0.18, 0.6) if trk["id"] % 2 == 0 else imgui.ImVec4(0.05, 0.08, 0.12, 0.6)
-        draw_list.add_rect_filled(imgui.ImVec2(canvas_pos.x, row_y0), imgui.ImVec2(canvas_pos.x + avail_w, row_y1),
-                                  imgui.get_color_u32(row_bg), 0.0)
-        draw_list.add_line(imgui.ImVec2(canvas_pos.x, row_y1), imgui.ImVec2(canvas_pos.x + avail_w, row_y1),
-                           imgui.get_color_u32(imgui.ImVec4(0.2, 0.25, 0.35, 0.4)), 1.0)
-
-        # Track Label in Sidebar
-        draw_list.add_text(imgui.ImVec2(canvas_pos.x + 8.0, row_y0 + 4.0),
-                           imgui.get_color_u32(trk["col"]), f"[{trk['name']}]")
-        draw_list.add_text(imgui.ImVec2(canvas_pos.x + 8.0, row_y0 + 17.0),
-                           imgui.get_color_u32(imgui.ImVec4(0.5, 0.6, 0.7, 0.8)), trk["sub"])
-
-    # Draw Task Execution Spans (Clipped to Timeline Area)
-    draw_list.push_clip_rect(imgui.ImVec2(timeline_start_x, tracks_y),
-                             imgui.ImVec2(canvas_pos.x + avail_w - 4.0, canvas_pos.y + total_canvas_h - 4.0), True)
-
-    with g_state.lock:
-        spans = list(g_state.timing_spans)
-        sel_span_id = g_state.selected_span_id
-        show_overruns_only = g_state.timing_show_overruns_only
-
-    hovered_span = None
-
-    for sp in spans:
-        if show_overruns_only and not sp["overrun"]:
-            continue
-        
-        # Calculate screen coordinates
-        x0 = timeline_start_x + (sp["start_us"] - t_min) * scale_px
-        x1 = x0 + max(sp["dur_us"] * scale_px, 6.0)
-        y0 = tracks_y + sp["track"] * track_h + 3.0
-        y1 = y0 + track_h - 6.0
-
-        if x1 < timeline_start_x or x0 > canvas_pos.x + avail_w:
-            continue
-
-        is_selected = (sp["id"] == sel_span_id)
-        is_overrun = sp["overrun"]
-
-        # Color scheme
-        if is_overrun:
-            fill_col = imgui.ImVec4(0.92, 0.25, 0.25, 0.95)
-            border_col = imgui.ImVec4(1.0, 0.95, 0.4, 1.0) if is_selected else imgui.ImVec4(1.0, 0.6, 0.6, 0.9)
-            border_thick = 2.5 if is_selected else 1.8
-        else:
-            c = sp["col"]
-            fill_col = imgui.ImVec4(c[0], c[1], c[2], 0.85)
-            border_col = imgui.ImVec4(1.0, 0.95, 0.4, 1.0) if is_selected else imgui.ImVec4(1.0, 1.0, 1.0, 0.3)
-            border_thick = 2.0 if is_selected else 1.0
-
-        # Draw Span Box
-        draw_list.add_rect_filled(imgui.ImVec2(x0, y0), imgui.ImVec2(x1, y1), imgui.get_color_u32(fill_col), 3.0)
-        draw_list.add_rect(imgui.ImVec2(x0, y0), imgui.ImVec2(x1, y1), imgui.get_color_u32(border_col), 3.0, border_thick)
-
-        # Label inside span if wide enough
-        box_w = x1 - x0
-        if box_w >= 28.0:
-            prefix = "⚠️ " if is_overrun else ""
-            txt = f"{prefix}{sp['name']}"
-            if box_w < 70.0 and len(txt) > 8:
-                txt = txt[:8] + ".."
-            draw_list.add_text(imgui.ImVec2(x0 + 4.0, y0 + (track_h - 6.0 - 14.0) * 0.5),
-                               imgui.get_color_u32(imgui.ImVec4(1.0, 1.0, 1.0, 0.95)), txt)
-
-        # Check Mouse Hover & Click
-        if imgui.is_mouse_hovering_rect(imgui.ImVec2(x0, y0), imgui.ImVec2(x1, y1)):
-            hovered_span = sp
-            if imgui.is_mouse_clicked(0):
-                with g_state.lock:
-                    g_state.selected_span_id = sp["id"]
-                    g_state.selected_event_name = sp["name"]
-                    g_state.selected_source_file = sp["file"]
-                    g_state.selected_source_line = sp["line"]
-                    g_state.selected_token = sp["token"]
-
-    draw_list.pop_clip_rect()
-
-    # Advance ImGui layout cursor beyond the custom canvas
-    imgui.dummy(imgui.ImVec2(-1, total_canvas_h))
-
-    # Render Hover Tooltip
-    if hovered_span is not None:
-        imgui.begin_tooltip()
-        trk_name = tracks[hovered_span["track"]]["name"]
-        if hovered_span["overrun"]:
-            imgui.text_colored(imgui.ImVec4(1.0, 0.3, 0.3, 1.0), f"🚨 [OVERRUN] {hovered_span['name']}")
-        else:
-            imgui.text_colored(imgui.ImVec4(0.3, 0.9, 0.4, 1.0), f"✓ {hovered_span['name']}")
-        imgui.separator()
-        imgui.text(f"Domain    : {trk_name} ({tracks[hovered_span['track']]['sub']})")
-        imgui.text(f"Timestamp : t = +{hovered_span['start_us']:.1f} µs")
-        imgui.text(f"Duration  : {hovered_span['dur_us']:.1f} µs  (Budget: {hovered_span['budget_us']:.1f} µs)")
-        if hovered_span["overrun"]:
-            imgui.text_colored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0),
-                               f"Overrun   : +{hovered_span['dur_us'] - hovered_span['budget_us']:.1f} µs (+{(hovered_span['dur_us'] / hovered_span['budget_us'] - 1.0) * 100:.1f}%)")
-        else:
-            imgui.text_colored(imgui.ImVec4(0.4, 0.9, 0.5, 1.0),
-                               f"Margin    : {hovered_span['budget_us'] - hovered_span['dur_us']:.1f} µs within limit")
-        imgui.separator()
-        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), f"Predecessor: {hovered_span['pred']}")
-        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), f"Successor  : {hovered_span['succ']}")
-        imgui.text_colored(imgui.ImVec4(1.0, 0.9, 0.4, 1.0), "👉 Click to inspect issue & C++ source")
-        imgui.end_tooltip()
-
-    imgui.spacing()
-    # Find selected span
-    sel_sp = next((s for s in spans if s["id"] == sel_span_id), spans[4])
-
-    # Header Alert Card
-    if sel_sp["overrun"]:
-        imgui.push_style_color(imgui.Col_.child_bg, imgui.ImVec4(0.25, 0.08, 0.08, 0.7))
-        imgui.begin_child("IssueAlertHeader", imgui.ImVec2(-1, 32), True)
-        imgui.text_colored(imgui.ImVec4(1.0, 0.35, 0.35, 1.0),
-                           f"🚨 CRITICAL TIMING OVERRUN: '{sel_sp['name']}' exceeded {sel_sp['budget_us']:.1f} µs deadline by +{sel_sp['dur_us'] - sel_sp['budget_us']:.1f} µs ({(sel_sp['dur_us'] / sel_sp['budget_us']) * 100.0:.1f}% budget)")
-        imgui.end_child()
-        imgui.pop_style_color()
-    else:
-        imgui.push_style_color(imgui.Col_.child_bg, imgui.ImVec4(0.08, 0.2, 0.12, 0.7))
-        imgui.begin_child("IssueAlertHeader", imgui.ImVec2(-1, 32), True)
-        imgui.text_colored(imgui.ImVec4(0.3, 0.95, 0.5, 1.0),
-                           f"✅ NOMINAL EXECUTION: '{sel_sp['name']}' completed within deadline ({sel_sp['dur_us']:.1f} µs / {sel_sp['budget_us']:.1f} µs, {(sel_sp['dur_us'] / sel_sp['budget_us']) * 100.0:.1f}% budget)")
-        imgui.end_child()
-        imgui.pop_style_color()
-
-    # Drill-Down Breakdown (2 Columns)
-    imgui.columns(2, "drill_down_cols", True)
-
-    # Left Column: Metrics & Budget Utilization
-    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "[Execution Timing Metrics]")
-    imgui.text(f"Task Name     : {sel_sp['name']}")
-    imgui.text(f"Execution Time: {sel_sp['dur_us']:.1f} µs")
-    imgui.text(f"Deadline Limit: {sel_sp['budget_us']:.1f} µs")
-    if sel_sp["overrun"]:
-        imgui.text_colored(imgui.ImVec4(1.0, 0.3, 0.3, 1.0), f"Deadline Delta: +{sel_sp['dur_us'] - sel_sp['budget_us']:.1f} µs (VIOLATION)")
-    else:
-        imgui.text_colored(imgui.ImVec4(0.3, 0.9, 0.4, 1.0), f"Deadline Delta: -{sel_sp['budget_us'] - sel_sp['dur_us']:.1f} µs (Margin OK)")
-    
-    util_ratio = sel_sp["dur_us"] / max(sel_sp["budget_us"], 0.1)
-    bar_prog = min(util_ratio, 1.0)
-    bar_lbl = f"{util_ratio * 100.0:.1f}% Budget"
-    if util_ratio > 1.0:
-        imgui.push_style_color(imgui.Col_.plot_histogram, imgui.ImVec4(0.9, 0.2, 0.2, 1.0))
-    elif util_ratio > 0.8:
-        imgui.push_style_color(imgui.Col_.plot_histogram, imgui.ImVec4(0.9, 0.7, 0.2, 1.0))
-    else:
-        imgui.push_style_color(imgui.Col_.plot_histogram, imgui.ImVec4(0.2, 0.8, 0.4, 1.0))
-    imgui.progress_bar(bar_prog, imgui.ImVec2(-1, 20), bar_lbl)
-    imgui.pop_style_color()
-
-    imgui.next_column()
-
-    # Right Column: Execution Causality Chain & Diagnostic
-    imgui.text_colored(imgui.ImVec4(0.9, 0.7, 0.2, 1.0), "[Execution Causality Chain]")
-    # Flow breadcrumbs
-    imgui.text_colored(imgui.ImVec4(0.5, 0.7, 0.9, 1.0), f"1. Trigger / Predecessor : {sel_sp['pred']}")
-    active_col = imgui.ImVec4(1.0, 0.3, 0.3, 1.0) if sel_sp["overrun"] else imgui.ImVec4(0.3, 0.9, 0.4, 1.0)
-    imgui.text_colored(active_col, f"2. Active Task Execution : {sel_sp['name']}  ──▶")
-    imgui.text_colored(imgui.ImVec4(0.5, 0.7, 0.9, 1.0), f"3. Delayed / Successor   : {sel_sp['succ']}")
-    imgui.spacing()
-    imgui.text_colored(imgui.ImVec4(1.0, 0.85, 0.3, 1.0), "[Root Cause Diagnosis]")
-    imgui.bullet_text(sel_sp["diag"])
-
-    if sel_sp["overrun"]:
-        imgui.same_line()
-        if imgui.button("🔍 Root-Cause Drill-Down Inspector##btn_drill"):
-            g_state.active_anomaly_modal = True
-            g_state.selected_anomaly_info = {
-                "type": "Timing_Overrun",
-                "channel": "Ch 1 (ICM-42688-P IMU)",
-                "stall_us": sel_sp["dur_us"] - sel_sp["budget_us"],
-                "hw": "asp_imu_auto_dma.sv:112",
-                "consumer": f"{sel_sp['name']} ({sel_sp['file']}:{sel_sp['line']})",
-                "diag": sel_sp["diag"]
-            }
-
-    imgui.columns(1)
-    imgui.separator()
-
-    # Interactive Source Code Scanner & Context Preview
-    imgui.text_colored(imgui.ImVec4(1.0, 1.0, 0.2, 1.0),
-                       f">> [C++ Source Code Inspector] {sel_sp['file']}:{sel_sp['line']}")
-    imgui.begin_child("ExecutionSourcePreview", imgui.ImVec2(-1, 88), True)
-    imgui.text_colored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), f"// Source: {sel_sp['file']}")
-    imgui.text_colored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), f"   {sel_sp['line'] - 1}:   // Processing event loop")
-    hl_col = imgui.ImVec4(1.0, 0.3, 0.3, 1.0) if sel_sp["overrun"] else imgui.ImVec4(0.2, 1.0, 0.4, 1.0)
-    imgui.text_colored(hl_col, f"-> {sel_sp['line']}:       {sel_sp['token']};")
-    imgui.text_colored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), f"   {sel_sp['line'] + 1}:   attitude_ekf.update(sample.gyro, sample.accel);")
-    imgui.end_child()
-    imgui.separator()
-
-    # Line Chart 1: Coroutine Task Latency & Suspension History with Deadline Limits
-    if implot.begin_plot("Coroutine Latency & Suspension History (µs)", imgui.ImVec2(-1, 180)):
-        implot.setup_axes("Time Window (s)", "Execution Time (µs)", implot.AxisFlags_.auto_fit, implot.AxisFlags_.auto_fit)
-        with g_state.lock:
-            t_data = np.copy(g_state.chart_time)
-            lat_imu = np.copy(g_state.chart_lat_imu)
-            lat_ekf = np.copy(g_state.chart_lat_ekf)
-            lat_ctl = np.copy(g_state.chart_lat_ctl)
-            lat_dma = np.copy(g_state.chart_lat_dma)
-        implot.plot_line("imu_pipeline (µs)", t_data, lat_imu)
-        implot.plot_line("attitude_ekf (µs)", t_data, lat_ekf)
-        implot.plot_line("flight_control (µs)", t_data, lat_ctl)
-        implot.plot_line("spi_dma_burst (µs)", t_data, lat_dma)
-        # Plot 15 µs IMU Deadline Threshold reference
-        t_ref = np.array([-30.0, 0.0], dtype=np.float64)
-        dl_ref = np.array([15.0, 15.0], dtype=np.float64)
-        implot.plot_line("IMU Deadline (15.0 µs)", t_ref, dl_ref)
-        implot.end_plot()
-
-    # Line Chart 2: SPSC Lock-Free Interconnect Queue Saturation
-    if implot.begin_plot("SPSC Lock-Free Interconnect Saturation (pkts / 64)", imgui.ImVec2(-1, 150)):
-        implot.setup_axes("Time Window (s)", "Queue Depth", implot.AxisFlags_.auto_fit, implot.AxisFlags_.none)
-        implot.setup_axis_limits(implot.ImAxis_.y1, 0.0, 64.0, imgui.Cond_.always)
-        with g_state.lock:
-            q_sensor = np.copy(g_state.chart_ring_sensor)
-            q_telem = np.copy(g_state.chart_ring_telem)
-        implot.plot_line("Sensor Queue (g_sensor_ring)", t_data, q_sensor)
-        implot.plot_line("Telemetry Queue (g_telemetry_ring)", t_data, q_telem)
-        # 75% High Watermark Warning Reference (48 pkts)
-        t_ref = np.array([-30.0, 0.0], dtype=np.float64)
-        q_warn = np.array([48.0, 48.0], dtype=np.float64)
-        implot.plot_line("Warning Limit (75% = 48 pkts)", t_ref, q_warn)
-        implot.end_plot()
 
 def _render_simple_trace_view():
     """Renders execution trace table with click-to-inspect."""
@@ -1997,6 +1649,51 @@ def _render_flow_integrity_and_eye_diagram():
 
     imgui.text_colored(imgui.ImVec4(0.3, 0.9, 0.4, 1.0), "Eye Opening: 89.2 µs Nominal Safety Margin | Peak Jitter: ±4.8 µs")
     imgui.columns(1)
+    imgui.separator()
+
+    # Section 3: SPSC Queue Saturation & Coroutine Pacing Latency History
+    imgui.columns(2, "flow_saturation_cols", True)
+
+    # Left: SPSC Lock-Free Interconnect Queue Saturation
+    imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "[SPSC Lock-Free Interconnect Queue Saturation (pkts / 64)]")
+    if implot.begin_plot("SPSC Lock-Free Interconnect Saturation (pkts / 64)##flow_spsc", imgui.ImVec2(-1, 180)):
+        implot.setup_axes("Time Window (s)", "Queue Depth", implot.AxisFlags_.auto_fit, implot.AxisFlags_.none)
+        implot.setup_axis_limits(implot.ImAxis_.y1, 0.0, 64.0, imgui.Cond_.always)
+        with g_state.lock:
+            t_data = np.copy(g_state.chart_time)
+            q_sensor = np.copy(g_state.chart_ring_sensor)
+            q_telem = np.copy(g_state.chart_ring_telem)
+        implot.plot_line("Sensor Queue (g_sensor_ring)", t_data, q_sensor)
+        implot.plot_line("Telemetry Queue (g_telemetry_ring)", t_data, q_telem)
+        # 75% High Watermark Warning Reference (48 pkts)
+        t_ref = np.array([-30.0, 0.0], dtype=np.float64)
+        q_warn = np.array([48.0, 48.0], dtype=np.float64)
+        implot.plot_line("Warning Limit (75% = 48 pkts)", t_ref, q_warn)
+        implot.end_plot()
+
+    imgui.next_column()
+
+    # Right: Coroutine Latency & Suspension History with Deadline Limits
+    imgui.text_colored(imgui.ImVec4(0.9, 0.7, 0.2, 1.0), "[Coroutine Latency & Suspension History (µs)]")
+    if implot.begin_plot("Coroutine Latency & Suspension History (µs)##flow_coro_lat", imgui.ImVec2(-1, 180)):
+        implot.setup_axes("Time Window (s)", "Execution Time (µs)", implot.AxisFlags_.auto_fit, implot.AxisFlags_.auto_fit)
+        with g_state.lock:
+            t_data = np.copy(g_state.chart_time)
+            lat_imu = np.copy(g_state.chart_lat_imu)
+            lat_ekf = np.copy(g_state.chart_lat_ekf)
+            lat_ctl = np.copy(g_state.chart_lat_ctl)
+            lat_dma = np.copy(g_state.chart_lat_dma)
+        implot.plot_line("imu_pipeline (µs)", t_data, lat_imu)
+        implot.plot_line("attitude_ekf (µs)", t_data, lat_ekf)
+        implot.plot_line("flight_control (µs)", t_data, lat_ctl)
+        implot.plot_line("spi_dma_burst (µs)", t_data, lat_dma)
+        # Plot 15 µs IMU Deadline Threshold reference
+        t_ref = np.array([-30.0, 0.0], dtype=np.float64)
+        dl_ref = np.array([15.0, 15.0], dtype=np.float64)
+        implot.plot_line("IMU Deadline (15.0 µs)", t_ref, dl_ref)
+        implot.end_plot()
+
+    imgui.columns(1)
 
 def _render_anomaly_drill_down_modal():
     """
@@ -2087,7 +1784,6 @@ def _render_core_studio_window():
     # Determine requested tab activation flags
     flag_coro    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "coro"     else 0
     flag_cpu     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "cpu"      else 0
-    flag_charts  = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "charts"   else 0
     flag_flow    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "flow"     else 0
     flag_trace   = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "trace"    else 0
     flag_timeline= imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "timeline" else 0
@@ -2108,10 +1804,6 @@ def _render_core_studio_window():
 
         if imgui.begin_tab_item("CPU Gauges & Topology", None, flag_cpu)[0]:
             _render_core_cpu_and_topology()
-            imgui.end_tab_item()
-
-        if imgui.begin_tab_item("Execution Swimlanes & Charts", None, flag_charts)[0]:
-            _render_tracealyzer_and_charts()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Flow Integrity & Pacing Eye", None, flag_flow)[0]:
@@ -2720,6 +2412,10 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
     runner_params = hello_imgui.RunnerParams()
     runner_params.app_window_params.window_title = "AbstractX Studio & User Domain Workbench"
     runner_params.app_window_params.window_geometry.size = (1560, 920)
+    runner_params.app_window_params.resizable = True
+    runner_params.app_window_params.restore_previous_geometry = True
+    runner_params.app_window_params.borderless_resizable = True
+    runner_params.app_window_params.handle_edge_insets = True
 
     # Enable full screen docking layout
     runner_params.imgui_window_params.default_imgui_window_type = (
@@ -2735,7 +2431,6 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
     win_user = hello_imgui.DockableWindow()
     win_user.label = "User Domain Instruments"
     win_user.dock_space_name = "MainDockSpace"
-    win_user.window_size = imgui.ImVec2(1280, 820)
     win_user.gui_function = _render_user_domain_window
 
     win_core = hello_imgui.DockableWindow()

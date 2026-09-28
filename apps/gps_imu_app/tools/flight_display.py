@@ -57,6 +57,8 @@ def main():
     runner_params = abstractx_studio.hello_imgui.RunnerParams()
     runner_params.app_window_params.window_title = "AbstractX Flight Display & Attitude Visualizer (imgui-bundle)"
     runner_params.app_window_params.window_geometry.size = (1180, 780)
+    runner_params.app_window_params.resizable = True
+    runner_params.app_window_params.restore_previous_geometry = True
     runner_params.callbacks.show_gui = abstractx_studio.render_gui
     abstractx_studio.implot.create_context()
 

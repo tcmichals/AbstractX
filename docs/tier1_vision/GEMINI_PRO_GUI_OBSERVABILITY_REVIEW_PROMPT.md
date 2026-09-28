@@ -18,16 +18,16 @@
 ```markdown
 # TASK: Expert Architectural & Ergonomic Review of AbstractX Studio GUI
 
-You are a **Principal Embedded Systems Architect & Developer Tooling Specialist** with deep expertise in real-time operating systems (FreeRTOS, Zephyr), bare-metal heterogeneous silicon (dual-core ARM Cortex-M/RISC-V + FPGA), freestanding C++20 stackless coroutines, and modern high-performance GUI profiling tools (**Dear ImGui**, **ImPlot**, **Tracy Profiler**, and **Percepio Tracealyzer**).
+You are a **Principal Embedded Systems Architect & Developer Tooling Specialist** with deep expertise in real-time operating systems (FreeRTOS, Zephyr), bare-metal heterogeneous silicon (dual-core ARM Cortex-M/RISC-V + FPGA), freestanding C++20 stackless coroutines, and modern high-performance GUI profiling tools (**Dear ImGui**, **ImPlot**, **conventional profiling tools**, and **AbstractX AbstractX Studio**).
 
 You are reviewing the architecture, design specifications, and implementation of **AbstractX Studio** (`tools/visualizer/abstractx_studio.py`), the observability workbench for the AbstractX framework.
 
 The relevant files in the attached repository bundle (`abstractx_context_for_gemini.txt`) are:
 - `tools/visualizer/SPECIFICATION.md`: The authoritative architectural specification defining requirements `[SPEC-STUDIO-01]` through `[SPEC-STUDIO-12]`.
 - `tools/visualizer/abstractx_studio.py`: The complete 6-window HelloImGui docking workbench implementation.
-- `docs/tier2_contracts/observability/COMPARATIVE_STUDY_TRACY_TRACEALYZER_ABSTRACTX.md`: The comparative architectural study across Tracy, Tracealyzer, and AbstractX Studio.
+- `docs/tier2_contracts/observability/RTOS_VS_CPP20_COROUTINES_OBSERVABILITY.md`: The comparative architectural study across conventional profiling tools, AbstractX Studio, and AbstractX Studio.
 - `tools/visualizer/ctf_schema_loader.py` & `tools/visualizer/flight_plugin.py`: Dynamic CTF 1.8 schema engine and decoupled flight instrument plugin.
-- `tests/test_visualizer_sdk.py`: The automated test suite verifying docking layouts, headless execution, and Tracealyzer timeline logic.
+- `tests/test_visualizer_sdk.py`: The automated test suite verifying docking layouts, headless execution, and AbstractX Studio timeline logic.
 
 ---
 
@@ -41,19 +41,19 @@ AbstractX is a hardware-software co-design platform operating under strict real-
 
 ---
 
-### THE CORE PROBLEM: TRACY VS. TRACEALYZER VS. ABSTRACTX STUDIO
+### THE CORE PROBLEM: conventional profiling tools VS. AbstractX Studio VS. ABSTRACTX STUDIO
 
 Firmware engineers previously evaluated existing industry profilers:
-- **Tracy Profiler**: Built with Dear ImGui and capable of 120 FPS, but tailored for high-performance desktop C++ and game engines. For bare-metal embedded loops running at 8 kHz:
+- **conventional profiling tools**: Built with Dear ImGui and capable of 120 FPS, but tailored for high-performance desktop C++ and game engines. For bare-metal embedded loops running at 8 kHz:
   - Deep hierarchical call stacks produce overwhelming visual noise and clutter.
   - Complex mouse/keyboard navigation (edge-dragging, nested zone zoom) causes cognitive fatigue.
-  - Tracy's target client library requires dynamic memory and socket streaming, directly violating AbstractX's Zero-Heap invariant.
-  - Tracy has zero awareness of FPGA crossbars, hardware DMA completions, or 64-byte packet transports.
-- **Percepio Tracealyzer**: The de facto RTOS gold standard for embedded software:
+  - conventional profiling tools's target client library requires dynamic memory and socket streaming, directly violating AbstractX's Zero-Heap invariant.
+  - conventional profiling tools has zero awareness of FPGA crossbars, hardware DMA completions, or 64-byte packet transports.
+- **AbstractX AbstractX Studio**: The de facto RTOS gold standard for embedded software:
   - Mirrors embedded thinking via horizontal task/ISR swimlanes, execution deadlines, and causality predecessor/successor chains.
-  - However, Tracealyzer is an expensive, closed-source commercial tool tied to legacy RTOS thread primitives (semaphores, mutexes). It has no awareness of C++20 stackless coroutines (`co_await` suspension reasons), FPGA AXI fabrics, or decoupled live flight instruments.
+  - However, AbstractX Studio is an expensive, closed-source commercial tool tied to legacy RTOS thread primitives (semaphores, mutexes). It has no awareness of C++20 stackless coroutines (`co_await` suspension reasons), FPGA AXI fabrics, or decoupled live flight instruments.
 
-AbstractX Studio implements a purpose-built hybrid that captures Tracealyzer's swimlane clarity and Tracy's fluid vector plotting while adding native co-design observability.
+AbstractX Studio implements a purpose-built hybrid that captures AbstractX Studio's swimlane clarity and conventional profiling tools's fluid vector plotting while adding native co-design observability.
 
 ---
 
@@ -63,7 +63,7 @@ Please provide an exhaustive, rigorous review addressing the following five area
 
 #### 1. Ergonomic & Usability Audit (Eliminating Visual Clutter)
 AbstractX Studio has transitioned to a **6-Window Docking Suite**:
-- **Window 1: AbstractX Core Studio**: Multi-core silicon topology, Tracealyzer 4-track execution timeline (Core 0, Core 1, SPU, Interrupts), interactive `__FILE__ : __LINE__` source jumping, CPU/SPU load gauges, and MemBrowse static memory budget gauges.
+- **Window 1: AbstractX Core Studio**: Multi-core silicon topology, C++20 Coroutine Inspector (state machines, co_await tokens, stall watchdogs), interactive `__FILE__ : __LINE__` source jumping, CPU/SPU load gauges, and MemBrowse static memory budget gauges.
 - **Window 2: User Domain Flight Instruments**: Vector PFD artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU oscilloscope.
 - **Window 3: 64-Byte TLP Bus Debugger**: Live packet stream table, 20-byte wire header decode, color-coded hex dump, and IEEE CRC32 verification.
 - **Window 4: Real-Time System Event Log**: Substring search, severity filtering (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), auto-scrolling console.
@@ -81,8 +81,8 @@ AbstractX Studio has transitioned to a **6-Window Docking Suite**:
 
 ---
 
-#### 2. Tracealyzer Timing Diagram & Issue Drill-Down
-Evaluate the implementation in `_render_tracealyzer_and_charts()`:
+#### 2. Silicon Execution Swimlanes & Issue Drill-Down
+Evaluate the implementation in `_render_execution_swimlanes_and_charts()`:
 - **4 Silicon Swimlanes**: Core 0 (Linux / M33), Core 1 (Coroutine Engine), SPU (FPGA AXI Crossbar), Interrupts (PLIC ISRs/Doorbells).
 - **Microsecond Time Ruler**: Zoom presets (1x, 2x, 5x, 10x), pan scrubber, freeze toggle, and overrun filter.
 - **Visual Overrun Alerting**: Glowing coral red spans (`#E06C75`) with red badge indicators when execution exceeds deadline budgets.
@@ -112,7 +112,7 @@ Evaluate the new Source Code & Performance Inspector:
 
 **Questions**:
 - How can this view be enhanced to help embedded firmware engineers immediately spot subtle timing bugs (e.g., unexpected cache misses, SPI bus stalls, priority inversions)?
-- How should source file switching and line highlighting interact with clicks from the Tracealyzer timeline and system event log?
+- How should source file switching and line highlighting interact with clicks from the AbstractX Studio timeline and system event log?
 
 ---
 
@@ -130,9 +130,9 @@ AbstractX Studio defines `AbstractXStudioPlugin` in `tools/visualizer/SPECIFICAT
 ### DELIVERABLES REQUIRED
 
 Please format your response into five structured sections:
-1. **Executive Evaluation**: High-level verdict on the AbstractX Studio architecture relative to Tracy and Tracealyzer.
+1. **Executive Evaluation**: High-level verdict on the AbstractX Studio architecture relative to conventional profiling tools and AbstractX Studio.
 2. **Ergonomic & Dynamic Windowing Critique**: Assessment of the 6-window suite, focus presets, maximize/restore behavior, and multi-viewport pop-out.
-3. **Tracealyzer Parity Code Implementations**:
+3. **AbstractX observability parity Code Implementations**:
    - Production-ready Python code for Bezier causality curves on `imgui.ImDrawList`.
    - Production-ready Python code for `ImPlot` latency jitter histograms ($p_{95}, p_{99}$).
    - Scrubber cross-window synchronization logic.

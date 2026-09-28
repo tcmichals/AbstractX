@@ -201,20 +201,20 @@ def test_studio_docking_workbench_headless_run():
     assert frame_count >= 3, f"Expected at least 3 frames in docking mode, rendered {frame_count}"
 
 
-def test_studio_tracealyzer_and_simple_trace_render():
-    """Renders Tracealyzer line charts, task ribbons, and Simple Trace views in headless mode."""
+def test_studio_coroutine_and_simple_trace_render():
+    """Renders AbstractX Studio Coroutine Inspector and Simple Trace views in headless mode."""
     frame_count = 0
 
     def step_gui():
         nonlocal frame_count
         frame_count += 1
-        studio._render_tracealyzer_and_charts()
+        studio._render_coroutine_inspector()
         studio._render_simple_trace_view()
         if frame_count >= 2:
             hello_imgui.get_runner_params().app_shall_exit = True
 
     runner = hello_imgui.RunnerParams()
-    runner.app_window_params.window_title = "Pytest Studio - Tracealyzer & Simple Trace"
+    runner.app_window_params.window_title = "Pytest Studio - AbstractX Coroutine & Simple Trace"
     runner.app_window_params.window_geometry.size = (900, 700)
     runner.callbacks.show_gui = step_gui
 
@@ -228,7 +228,7 @@ def test_studio_tracealyzer_and_simple_trace_render():
 
 
 def test_studio_simple_trace_event_lifecycle():
-    """Validates the Simple Trace and Tracealyzer buffer APIs in TelemetryState."""
+    """Validates the Simple Trace and AbstractX Studio buffer APIs in TelemetryState."""
     state = studio.TelemetryState()
     assert len(state.simple_trace_events) > 0, "Expected initial seeded trace events"
     first = state.simple_trace_events[0]
@@ -252,23 +252,31 @@ def test_studio_simple_trace_event_lifecycle():
     assert state.chart_lat_imu[-1] == 1.1
 
 
-def test_studio_tracealyzer_drill_down_model():
-    """Validates the Tracealyzer timing diagram spans, overrun detection, and causality drill-down."""
+def test_studio_coroutine_inspector_and_watchdog_model():
+    """Validates C++20 Coroutine Inspector state, frame memory pool, watchdog budget limits, and topology."""
     state = studio.TelemetryState()
-    assert len(state.timing_spans) >= 10, "Expected at least 10 execution spans across silicon tracks"
+    assert len(state.coro_frames) >= 5, "Expected active coroutine frames in TelemetryState"
 
-    # Verify silicon tracks 0..3 are all represented
-    tracks = {sp["track"] for sp in state.timing_spans}
-    assert tracks == {0, 1, 2, 3}, f"Expected tracks 0, 1, 2, 3, got {tracks}"
+    # Verify frame structure matches C++20 coroutine inspection contract
+    for f in state.coro_frames:
+        assert "task_id" in f
+        assert "name" in f
+        assert "state" in f
+        assert "awaiter" in f
+        assert "duration_us" in f
+        assert "budget_us" in f
+        assert "file" in f
+        assert "line" in f
 
-    # Check overrun span detection
-    overrun_spans = [sp for sp in state.timing_spans if sp["overrun"]]
-    assert len(overrun_spans) >= 1, "Expected at least one timing overrun span"
-    ov = overrun_spans[0]
-    assert ov["dur_us"] > ov["budget_us"], "Overrun span duration must exceed allocated deadline budget"
-    assert "pred" in ov and "succ" in ov, "Tracealyzer causality chain (pred, succ) must be defined"
-    assert "diag" in ov, "Root cause diagnosis must be present"
-    assert "file" in ov and "line" in ov, "Source code mapping must be present"
+    # Verify static bump-pool allocation metrics (zero dynamic heap)
+    assert state.coro_pool_used_bytes > 0
+    assert state.coro_pool_capacity_bytes >= state.coro_pool_used_bytes
+    assert state.coro_pool_capacity_bytes == 61440  # 60 KB static pool
+
+    # Verify parent-child spawn topology
+    assert len(state.coro_topology) >= 5
+    assert ("app_main", "imu_pipeline") in state.coro_topology
+    assert ("imu_pipeline", "sensor_fusion") in state.coro_topology
 
 
 

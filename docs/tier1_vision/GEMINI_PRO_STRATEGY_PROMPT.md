@@ -24,7 +24,7 @@ AbstractX is a hardware-software co-design framework for aerospace and real-time
 
 The core invariant of this project is: **Markdown Drives the Code (Single Source of Truth - SSOT)**. Markdown specifications (`SPECIFICATION.md`) are not post-hoc documentation; they are authoritative architectural plans, memory maps, and contracts that drive code generation, automated verification, and feature rollout.
 
-Please review the entire attached codebase, technical specifications (`tools/visualizer/SPECIFICATION.md`), target configurations, tests, and the comparative profiling study (`docs/tier2_contracts/observability/COMPARATIVE_STUDY_TRACY_TRACEALYZER_ABSTRACTX.md`) to deliver an exhaustive **Master Strategy & Architecture Blueprint** addressing the following four pillars:
+Please review the entire attached codebase, technical specifications (`tools/visualizer/SPECIFICATION.md`), target configurations, tests, and the comparative profiling study (`docs/tier2_contracts/observability/RTOS_VS_CPP20_COROUTINES_OBSERVABILITY.md`) to deliver an exhaustive **Master Strategy & Architecture Blueprint** addressing the following four pillars:
 
 ---
 
@@ -71,10 +71,10 @@ Establish an ironclad, repeatable workflow for how new features, drivers, and ta
 ### PILLAR 3: Comparative Profiling Benchmark & Observability Workbench (AbstractX Studio)
 The visualizer has evolved from an ad-hoc flight display into **AbstractX Studio** (`tools/visualizer/abstractx_studio.py`), a multi-window HelloImGui docking workbench built with Python and `imgui-bundle` (`Dear ImGui` + `ImPlot` + `HelloImGui`).
 
-#### A. Tracy Profiler vs. Percepio Tracealyzer vs. AbstractX Studio
-Firmware developers previously evaluated **Tracy Profiler** and **Percepio Tracealyzer**:
-- **Tracy** is ImGui-based and fast, but proved difficult to use for embedded firmware: its deep hierarchical call-stack zones create immense clutter for multi-kHz cyclic loops, its target agent requires dynamic memory and heavy networking, and it has no awareness of FPGA crossbars or hardware TLPs.
-- **Tracealyzer** has the ideal visualization paradigm (horizontal task/ISR swimlanes, execution time budgets, causality predecessor/successor chains, and clear issue drill-down), but is proprietary, expensive, tied to legacy RTOS threading models, and lacks modern C++20 coroutine, FPGA, and memory budget integration.
+#### A. conventional profiling tools vs. AbstractX AbstractX Studio vs. AbstractX Studio
+Firmware developers previously evaluated **conventional profiling tools** and **AbstractX AbstractX Studio**:
+- **conventional profiling tools** is ImGui-based and fast, but proved difficult to use for embedded firmware: its deep hierarchical call-stack zones create immense clutter for multi-kHz cyclic loops, its target agent requires dynamic memory and heavy networking, and it has no awareness of FPGA crossbars or hardware TLPs.
+- **AbstractX Studio** has the ideal visualization paradigm (horizontal task/ISR swimlanes, execution time budgets, causality predecessor/successor chains, and clear issue drill-down), but is proprietary, expensive, tied to legacy RTOS threading models, and lacks modern C++20 coroutine, FPGA, and memory budget integration.
 
 Evaluate how AbstractX Studio combines the best of both worlds:
 1. **Four Silicon Swimlanes**: Core 0 (Linux / M33), Core 1 (Coroutine Engine), SPU (FPGA AXI Crossbar), and Interrupts (PLIC ISRs/Doorbells).
@@ -84,7 +84,7 @@ Evaluate how AbstractX Studio combines the best of both worlds:
 
 #### B. Dynamic Multi-Window Docking Suite (6 Windows)
 To eliminate visual clutter and accommodate an expanding suite of specialized tools:
-1. **Window 1: AbstractX Core Studio**: Platform topology, Tracealyzer timing diagram, CPU/SPU gauges, MemBrowse memory bars.
+1. **Window 1: AbstractX Core Studio**: Platform topology, C++20 Coroutine Inspector, CPU/SPU gauges, MemBrowse memory bars.
 2. **Window 2: User Domain Flight Instruments**: Vector PFD artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU real-time oscilloscope.
 3. **Window 3: 64-Byte TLP Bus Debugger**: Live packet stream table, 20-byte wire header decode, color-coded hex dump, CRC32 verification.
 4. **Window 4: Real-Time System Event Log**: Substring filter, severity levels (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), auto-scroll.
@@ -120,6 +120,6 @@ Please structure your response as an **Executive Architecture & Refactoring Plan
 1. **Executive Strategy Summary**: High-level architectural evaluation and key strengths.
 2. **Deduplication & Directory Taxonomy**: The clean folder tree and file migration map across Tiers 1, 2, and 3.
 3. **The Spec ➔ Code ➔ Validate ➔ Feature Blueprint**: Step-by-step developer guidelines and the `SPEC_TEMPLATE.md` standard.
-4. **AbstractX Studio Architecture & Comparative Benchmark**: Evaluation of Tracy vs Tracealyzer vs AbstractX Studio, dynamic multi-window docking, and concrete Python/ImGui recommendations.
+4. **AbstractX Studio Architecture & Comparative Benchmark**: Evaluation of conventional profiling tools vs AbstractX Studio vs AbstractX Studio, dynamic multi-window docking, and concrete Python/ImGui recommendations.
 5. **AbstractX Studio SDK & Unification Architecture**: Clean Python plugin interface and folder layout.
 ```
