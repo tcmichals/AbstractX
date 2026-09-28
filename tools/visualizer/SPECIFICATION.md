@@ -68,16 +68,24 @@ flowchart TD
 
 ---
 
-## 2. Multi-Window HelloImGui Docking Architecture
+## 2. Multi-Window Docking Architecture & Canvas Separation Rules
 
-The visualizer enforces a multi-window docking layout configured via `hello_imgui.RunnerParams`:
-* **Single OS Window** (`enable_viewports = False`): The application runs in one OS window by default, providing rock-solid cross-platform stability across Linux (X11 and Wayland) and Windows. Individual dockable windows can be programmatically torn off into floating internal viewports via `decouple_window()`.
-* **Full-Screen Dock Space**: Configured with `hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space`.
-* **Docking Split Hierarchy**:
-  1. `LeftSpace`: Left split from `MainDockSpace` with a ratio of `0.54` (54% width), hosting the **AbstractX Core Studio** (with core diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse CI Report).
-  2. `MainDockSpace`: Top-Right primary canvas hosting decoupled **User Domain Instruments** (PFD artificial horizon, 3D attitude wireframe, motor mixer, 8 kHz oscilloscope).
-  3. `BottomSpace`: Bottom split from `MainDockSpace` (36% height), hosting the dedicated **TLP Bus Debugger** Window (live 64-byte packet stream table, 20B header breakdown, hex dump).
-  4. `BottomRightSpace`: Right split from `BottomSpace` (50% width), hosting the dedicated **System Event Log** Window (real-time severity filtered log stream).
+The visualizer enforces a strict architectural boundary between the **AbstractX Studio Workbench** and the **USER Domain Canvas**, configured via `hello_imgui.RunnerParams`:
+
+### 2.1 Firm Architectural Rules: USER Window vs. AbstractX Studio
+1. **Rule 1: USER Window is Strictly a Single Floating Canvas**
+   - The USER window contains exclusively high-level application instruments (vector PFD artificial horizon, 3D attitude quadcopter wireframe, motor demands, altitude, speed, GPS track, and IMU scope).
+   - Low-level firmware diagnostics (TLP packet hex sniffers, system event logs, MemBrowse memory gates, coroutine state machines) are strictly forbidden from bleeding into the USER window.
+   - Decoupled by default: floats on top of the workbench so developers and pilots can drag it, resize it, layer it over Studio, or park it on a second monitor.
+2. **Rule 2: AbstractX Studio is the Engineering Workbench Foundation**
+   - AbstractX Studio occupies the main desktop workspace, housing all low-level hardware, C++20 coroutine, FPGA switch fabric, and transport diagnostics.
+   - Tab-first by default: all diagnostic tools are organized into `CoreStudioTabBar` tabs to keep the workbench clean.
+3. **Rule 3: Movable Canvas Windows ("Pop to Canvas")**
+   - Every diagnostic tab in AbstractX Studio features a `🗖 Pop to Canvas` button.
+   - Clicking it detaches that tool into an independent, movable floating window on the canvas, allowing simultaneous multi-tool inspection (e.g. Coroutine Inspector side-by-side with TLP Debugger and CPU Gauges).
+4. **Rule 4: Anti-Clutter Single-Source State**
+   - When a tool is popped out to the canvas, its Studio tab renders a placeholder directing the user to the active floating window, equipped with a 1-click `🗗 Pop In (Dock to Studio)` button to prevent desync or duplicate rendering.
+
 
 ```
 +===================================================================================================+
