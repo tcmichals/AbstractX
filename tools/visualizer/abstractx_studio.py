@@ -699,11 +699,12 @@ def apply_docking_layout(preset: str):
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
     Dynamically switches docking layout presets to eliminate screen clutter:
-    - 'balanced'   : Standard 4-pane overview workbench.
-    - 'user_focus' : User Domain Instruments expanded to 100% full screen.
-    - 'core_focus' : AbstractX Core Studio expanded to 100% full screen.
-    - 'source_focus': Source Code & Performance Inspector alongside Core Studio.
-    - 'fpga_focus' : FPGA & Hardware Peripherals alongside TLP Bus Debugger.
+    - 'balanced'        : Standard multi-pane overview workbench.
+    - 'studio_workbench': Studio diagnostic workbench (Core + TLP + Log + Source + FPGA) with User Flight Canvas popped out.
+    - 'user_focus'      : User Domain Instruments expanded to 100% full screen.
+    - 'core_focus'      : AbstractX Core Studio expanded to 100% full screen.
+    - 'source_focus'    : Source Code & Performance Inspector alongside Core Studio.
+    - 'fpga_focus'      : FPGA & Hardware Peripherals alongside TLP Bus Debugger.
     """
     g_state.active_layout_preset = preset
     w_core = g_dockable_windows.get("core")
@@ -720,6 +721,14 @@ def apply_docking_layout(preset: str):
         if w_log: w_log.is_visible = True
         if w_source: w_source.is_visible = False
         if w_fpga: w_fpga.is_visible = False
+    elif preset == "studio_workbench":
+        if w_core: w_core.is_visible = True
+        if w_user: w_user.is_visible = True
+        if w_tlp: w_tlp.is_visible = True
+        if w_log: w_log.is_visible = True
+        if w_source: w_source.is_visible = True
+        if w_fpga: w_fpga.is_visible = True
+        decouple_window("User Domain Instruments", 1280.0, 820.0)
     elif preset == "user_focus":
         if w_core: w_core.is_visible = False
         if w_user: w_user.is_visible = True
@@ -749,21 +758,85 @@ def apply_docking_layout(preset: str):
         if w_source: w_source.is_visible = False
         if w_fpga: w_fpga.is_visible = True
 
-def decouple_window(window_title: str):
+def decouple_window(window_title: str, default_width: float = 1280.0, default_height: float = 820.0):
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
-    Pops out a dockable window into its own floating OS desktop window.
+    Pops out a dockable window into its own floating OS desktop window / viewport,
+    setting an immediate generous, comfortable size.
     """
     try:
         ctx = imgui.get_current_context()
         win = imgui.internal.find_window_by_name(window_title)
         if win and ctx:
             imgui.internal.dock_context_queue_undock_window(ctx, win)
+            imgui.set_window_size(window_title, imgui.ImVec2(default_width, default_height), 0)
     except Exception:
         pass
 
+def _render_window_sizing_bar(window_title: str, window_key: str, default_w: float = 1280.0, default_h: float = 820.0):
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    Renders dynamic sizing controls for both docked and popped-out windows.
+    When popped out: provides instant size presets (800x600, 1024x720, 1280x820, 1600x960, 1920x1080),
+    continuous width & height pixel sliders, and a 1-click re-dock button.
+    When docked: provides 1-click pop-out to its own dedicated canvas.
+    """
+    is_docked = imgui.is_window_docked()
+    cur_size = imgui.get_window_size()
+
+    imgui.begin_group()
+    if not is_docked:
+        imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 POPPED OUT CANVAS")
+        imgui.same_line(0, 10)
+        imgui.text(f"| Size: {int(cur_size.x)}x{int(cur_size.y)} px")
+        imgui.same_line(0, 14)
+
+        presets = [
+            ("800x600", 800, 600),
+            ("1024x720", 1024, 720),
+            ("1280x820", 1280, 820),
+            ("1600x960", 1600, 960),
+            ("1920x1080", 1920, 1080),
+        ]
+        for lbl, w, h in presets:
+            if imgui.button(f"{lbl}##{window_key}"):
+                imgui.set_window_size(imgui.ImVec2(float(w), float(h)), 0)
+            imgui.same_line()
+
+        # Continuous width & height sliders
+        imgui.push_item_width(90)
+        ch_w, new_w = imgui.slider_int(f"W##{window_key}", int(cur_size.x), 500, 2560)
+        imgui.same_line()
+        ch_h, new_h = imgui.slider_int(f"H##{window_key}", int(cur_size.y), 350, 1600)
+        imgui.pop_item_width()
+        if ch_w or ch_h:
+            imgui.set_window_size(imgui.ImVec2(float(new_w), float(new_h)), 0)
+
+        imgui.same_line(0, 14)
+        if imgui.button(f"🗗 Re-Dock into Studio##{window_key}"):
+            apply_docking_layout("balanced")
+    else:
+        # Window is docked inside workbench
+        if imgui.button(f"🗖 Pop Out to Own Canvas##{window_key}"):
+            decouple_window(window_title, default_w, default_h)
+        imgui.same_line()
+        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Multi-monitor independent canvas")
+
+    imgui.end_group()
+    imgui.separator()
+
+def _setup_studio_style():
+    """
+    Configures Dear ImGui style for AbstractX Studio:
+    Increases window border hover padding to 10px so resizing floating/popped-out windows
+    from any edge or corner is easy and forgiving.
+    """
+    style = imgui.get_style()
+    style.window_border_hover_padding = 10.0
+    style.window_border_size = 2.0
+
 def _render_status_bar():
-    """Renders bottom status bar with quick dynamic window layout presets."""
+    """Renders bottom status bar with quick dynamic window layout presets and canvas pop-out."""
     if g_state.connected:
         imgui.text_colored(imgui.ImVec4(0.1, 0.9, 0.2, 1.0), " [ONLINE] ")
     else:
@@ -772,12 +845,13 @@ def _render_status_bar():
     imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s | Dynamic Heap: 0 B")
 
     # Dynamic Window Layout Preset Chips
-    imgui.same_line(0, 24)
+    imgui.same_line(0, 20)
     imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), "Layout:")
     imgui.same_line()
 
     presets = [
-        ("🗖 Balanced", "balanced"),
+        ("🗖 Studio Workbench", "studio_workbench"),
+        ("🗗 Balanced", "balanced"),
         ("✈️ Flight Focus", "user_focus"),
         ("🔬 Core Studio", "core_focus"),
         ("💻 Source Code", "source_focus"),
@@ -791,6 +865,10 @@ def _render_status_bar():
         if pr == g_state.active_layout_preset:
             imgui.pop_style_color()
         imgui.same_line()
+
+    imgui.same_line(0, 16)
+    if imgui.button("🗖 Pop Out Flight Canvas"):
+        decouple_window("User Domain Instruments", 1280.0, 820.0)
 
 def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct: float, 
                       label: str, sublabel: str, unit: str = "%", max_val: float = 100.0) -> None:
@@ -1511,24 +1589,12 @@ def _render_core_studio_window():
 def _render_user_domain_window():
     """
     # @impl [SPEC-STUDIO-03] tools/visualizer/abstractx_studio.py
-    Renders Window 2: User Domain Application Instruments (Flight Display).
+    Renders Window 2: User Domain Application Instruments (Flight Display Canvas).
+    Supports docked full-screen, tiled workbench, or floating flight canvas within
+    the single dedicated application window across both Windows and Linux.
     """
     g_state.update_rates()
-    imgui.begin_group()
-    if g_state.active_layout_preset == "user_focus":
-        if imgui.button("🗗 Restore All Panes##user"):
-            apply_docking_layout("balanced")
-    else:
-        if imgui.button("⛶ Expand Window##user"):
-            apply_docking_layout("user_focus")
-    imgui.same_line()
-    if imgui.button("🗖 Pop Out Window##user"):
-        decouple_window("User Domain Instruments")
-    imgui.same_line()
-    imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Tear-off to secondary flight display monitor")
-    imgui.end_group()
-    imgui.separator()
-
+    _render_window_sizing_bar("User Domain Instruments", "user", 1280.0, 820.0)
     g_flight_plugin.render_ui(0.016, g_state)
 
 def _render_tlp_debugger_window():
@@ -1968,6 +2034,8 @@ def main():
     parser.add_argument("--sim", action="store_true", help="Run with synthetic flight & telemetry generator")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],
                         help="Initial tab to display in single-window mode")
+    parser.add_argument("--viewports", action="store_true",
+                        help="Enable experimental multi-viewport secondary OS windows")
     args = parser.parse_args()
 
     g_initial_tab = args.tab
@@ -1977,25 +2045,27 @@ def main():
     recv_thread.start()
 
     # Configure HelloImGui Multi-Window Docking Workbench
-    runner_params = create_docking_runner_params()
+    runner_params = create_docking_runner_params(enable_viewports=args.viewports)
     implot.create_context()
     immapp.run(runner_params)
     implot.destroy_context()
 
-def create_docking_runner_params() -> hello_imgui.RunnerParams:
+def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.RunnerParams:
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
     Creates and configures HelloImGui 6-window dynamic docking layout for AbstractX Studio.
+    Defaults to single dedicated OS window for rock-solid portability across Windows and Linux,
+    with support for internal floating windows with dedicated size controls and presets.
     """
     runner_params = hello_imgui.RunnerParams()
     runner_params.app_window_params.window_title = "AbstractX Studio & User Domain Workbench"
     runner_params.app_window_params.window_geometry.size = (1560, 920)
 
-    # Enable full screen docking layout and multi-viewport pop-out
+    # Enable full screen docking layout
     runner_params.imgui_window_params.default_imgui_window_type = (
         hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
     )
-    runner_params.imgui_window_params.enable_viewports = True
+    runner_params.imgui_window_params.enable_viewports = enable_viewports
     runner_params.imgui_window_params.show_menu_bar = True
     runner_params.imgui_window_params.show_menu_view = True
     runner_params.imgui_window_params.show_status_bar = True
@@ -2005,6 +2075,7 @@ def create_docking_runner_params() -> hello_imgui.RunnerParams:
     win_user = hello_imgui.DockableWindow()
     win_user.label = "User Domain Instruments"
     win_user.dock_space_name = "MainDockSpace"
+    win_user.window_size = imgui.ImVec2(1280, 820)
     win_user.gui_function = _render_user_domain_window
 
     win_core = hello_imgui.DockableWindow()
@@ -2068,6 +2139,7 @@ def create_docking_runner_params() -> hello_imgui.RunnerParams:
     runner_params.docking_params.docking_splits = [split_left, split_bottom, split_bottom_log]
     runner_params.docking_params.dockable_windows = [win_core, win_user, win_tlp, win_log, win_source, win_fpga]
     runner_params.callbacks.show_status = _render_status_bar
+    runner_params.callbacks.setup_imgui_style = _setup_studio_style
     return runner_params
 
 if __name__ == "__main__":
