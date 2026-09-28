@@ -225,3 +225,23 @@ def test_studio_simple_trace_event_lifecycle():
     assert state.chart_lat_imu[-1] == 1.1
 
 
+def test_studio_tracealyzer_drill_down_model():
+    """Validates the Tracealyzer timing diagram spans, overrun detection, and causality drill-down."""
+    state = studio.TelemetryState()
+    assert len(state.timing_spans) >= 10, "Expected at least 10 execution spans across silicon tracks"
+
+    # Verify silicon tracks 0..3 are all represented
+    tracks = {sp["track"] for sp in state.timing_spans}
+    assert tracks == {0, 1, 2, 3}, f"Expected tracks 0, 1, 2, 3, got {tracks}"
+
+    # Check overrun span detection
+    overrun_spans = [sp for sp in state.timing_spans if sp["overrun"]]
+    assert len(overrun_spans) >= 1, "Expected at least one timing overrun span"
+    ov = overrun_spans[0]
+    assert ov["dur_us"] > ov["budget_us"], "Overrun span duration must exceed allocated deadline budget"
+    assert "pred" in ov and "succ" in ov, "Tracealyzer causality chain (pred, succ) must be defined"
+    assert "diag" in ov, "Root cause diagnosis must be present"
+    assert "file" in ov and "line" in ov, "Source code mapping must be present"
+
+
+
