@@ -267,6 +267,20 @@ class TelemetryState:
         self.cpu_chart_show_rings = True
         self.cpu_view_mode = "standard"  # "standard" or "chart_focus"
 
+        # Floating canvas window states (so user can pop any tab out onto canvas as a movable window)
+        self.canvas_windows = {
+            "coro": False,
+            "cpu": False,
+            "tlp": False,
+            "log": False,
+            "timeline": False,
+            "trace": False,
+            "source": False,
+            "fpga": False,
+            "memory": False,
+        }
+        self.user_canvas_floated_on_startup = False
+
         # Simple Trace Viewer State
         self.simple_trace_events = []
         self.simple_trace_paused = False
@@ -876,7 +890,10 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
 
     imgui.begin_group()
     if not is_docked:
-        imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 FLOATING CANVAS")
+        if window_key == "user":
+            imgui.text_colored(imgui.ImVec4(0.2, 0.9, 0.5, 1.0), "🗖 USER FLOATING CANVAS (Layered over Studio)")
+        else:
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 FLOATING CANVAS")
         imgui.same_line(0, 10)
         imgui.text(f"| Size: {int(cur_size.x)}x{int(cur_size.y)} px")
         imgui.same_line(0, 14)
@@ -1090,8 +1107,8 @@ def _render_core_cpu_and_topology():
     if imgui.button("⛶ Expand Pane##cpu_exp"):
         apply_docking_layout("core_focus")
     imgui.same_line()
-    if imgui.button("🗖 Pop Out##cpu_pop"):
-        decouple_window("AbstractX Core Studio")
+    if imgui.button("🗖 Pop to Canvas##cpu_pop"):
+        g_state.canvas_windows["cpu"] = True
     imgui.same_line(0, 16)
 
     # View Mode Toggle
@@ -1309,6 +1326,9 @@ def _render_simple_trace_view():
             g_state.selected_trace_idx = 0
     imgui.same_line()
     _, g_state.simple_trace_auto_scroll = imgui.checkbox("Auto-Scroll", g_state.simple_trace_auto_scroll)
+    imgui.same_line()
+    if imgui.button("🗖 Pop to Canvas##trace_pop"):
+        g_state.canvas_windows["trace"] = True
     imgui.end_group()
     imgui.separator()
 
@@ -1394,7 +1414,12 @@ def _render_simple_trace_view():
 
 def _render_core_timeline():
     """Renders Dual-Plane Execution Timeline & Source Scanner."""
+    imgui.begin_group()
     imgui.text_colored(imgui.ImVec4(0.9, 0.5, 0.2, 1.0), "Plane 1: Hardware I/O Processor & Peripheral Drivers (Interrupt & DMA Context)")
+    imgui.same_line(0, 20)
+    if imgui.button("🗖 Pop to Canvas##timeline_pop"):
+        g_state.canvas_windows["timeline"] = True
+    imgui.end_group()
     imgui.columns(len(g_state.io_driver_events), "io_plane_cols", True)
     for ev in g_state.io_driver_events:
         if imgui.button(f"[{ev['name']}]\n{ev['subsystem']}\n{ev['latency_us']} µs", imgui.ImVec2(-1, 52)):
@@ -1452,6 +1477,9 @@ def _render_level1_memory():
     imgui.same_line()
     if imgui.button("🔄 Reload CI Metrics"):
         g_state.load_membrowse_metrics()
+    imgui.same_line()
+    if imgui.button("🗖 Pop to Canvas##mem_pop"):
+        g_state.canvas_windows["memory"] = True
     imgui.same_line()
     imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), f"Status: {g_state.membrowse_status_msg}")
     imgui.end_group()
@@ -1598,6 +1626,9 @@ def _render_coroutine_inspector():
     imgui.same_line(0, 20)
     if imgui.button("Jump to Source##coro_jump"):
         g_state.requested_studio_tab = "source"
+    imgui.same_line(0, 10)
+    if imgui.button("🗖 Pop to Canvas##coro_pop"):
+        g_state.canvas_windows["coro"] = True
     imgui.separator()
 
     # Section 1: Static Coroutine Frame Pool Gauge
@@ -2004,6 +2035,237 @@ def _render_anomaly_drill_down_modal():
 
         imgui.end_popup()
 
+def _render_popped_tab_placeholder(display_name: str, key: str, window_title: str):
+    """Renders an interactive placeholder when a diagnostic tab is popped out onto the canvas."""
+    imgui.dummy(imgui.ImVec2(1, 20))
+    imgui.push_style_color(imgui.Col_.child_bg, imgui.ImVec4(0.08, 0.12, 0.18, 0.95))
+    imgui.begin_child(f"PoppedPlaceholder_{key}", imgui.ImVec2(-1, 200), True)
+    imgui.text_colored(imgui.ImVec4(0.3, 0.85, 1.0, 1.0), f"🗖 {display_name} Active as Movable Canvas Window")
+    imgui.separator()
+    imgui.spacing()
+    imgui.text("This diagnostic tool has been detached and is currently running as a movable floating window.")
+    imgui.text("You can drag it anywhere across your desktop canvas, place it side-by-side with other tools,")
+    imgui.text("or layer it on top of the workbench.")
+    imgui.dummy(imgui.ImVec2(1, 14))
+    if imgui.button(f"Bring {display_name} to Front##focus_{key}"):
+        try:
+            imgui.set_window_focus(f"{window_title}##CanvasWin")
+        except Exception:
+            pass
+    imgui.same_line(0, 16)
+    imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+    if imgui.button(f"🗗 Pop In (Dock back to Studio Tab)##dock_{key}"):
+        g_state.canvas_windows[key] = False
+    imgui.pop_style_color()
+    imgui.end_child()
+    imgui.pop_style_color()
+
+def _render_floating_canvas_windows():
+    """
+    Renders popped-out floating canvas windows directly onto the desktop workspace.
+    Enables the user to position and move multiple diagnostic tools side-by-side or stacked,
+    while the USER Flight Instruments float on top of AbstractX Studio.
+    """
+    # 1. On startup: ensure User Domain Instruments is undocked to float as its own canvas window
+    if not g_state.user_canvas_floated_on_startup:
+        ctx = imgui.get_current_context()
+        if ctx:
+            win = imgui.internal.find_window_by_name("User Domain Instruments")
+            if win:
+                imgui.internal.dock_context_queue_undock_window(ctx, win)
+                imgui.set_window_size("User Domain Instruments", imgui.ImVec2(1040, 720), imgui.Cond_.always)
+                imgui.set_window_pos("User Domain Instruments", imgui.ImVec2(480, 70), imgui.Cond_.always)
+                g_state.user_canvas_floated_on_startup = True
+
+    # 2. Coroutine State & Suspension Inspector Floating Window
+    if g_state.canvas_windows.get("coro", False):
+        imgui.set_next_window_size(imgui.ImVec2(1100, 680), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Coroutine State & Suspension Inspector##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##coro_popin"):
+                g_state.canvas_windows["coro"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_coroutine_inspector()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["coro"] = False
+
+    # 3. CPU Gauges & Silicon Topology Floating Window
+    if g_state.canvas_windows.get("cpu", False):
+        imgui.set_next_window_size(imgui.ImVec2(1100, 680), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Silicon Cores & CPU Gauges##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##cpu_popin"):
+                g_state.canvas_windows["cpu"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_core_cpu_and_topology()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["cpu"] = False
+
+    # 4. TLP Bus Debugger Floating Window
+    if g_state.canvas_windows.get("tlp", False):
+        imgui.set_next_window_size(imgui.ImVec2(1100, 540), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("TLP Bus Debugger##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##tlp_popin"):
+                g_state.canvas_windows["tlp"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_tlp_debugger_window()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["tlp"] = False
+
+    # 5. System Event Log Floating Window
+    if g_state.canvas_windows.get("log", False):
+        imgui.set_next_window_size(imgui.ImVec2(980, 500), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("System Event Log##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##log_popin"):
+                g_state.canvas_windows["log"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_event_log_window()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["log"] = False
+
+    # 6. Dual-Plane Coroutine Timeline Floating Window
+    if g_state.canvas_windows.get("timeline", False):
+        imgui.set_next_window_size(imgui.ImVec2(1200, 560), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Dual-Plane Coroutine Timeline##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##timeline_popin"):
+                g_state.canvas_windows["timeline"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_core_timeline()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["timeline"] = False
+
+    # 7. Simple Trace Viewer Floating Window
+    if g_state.canvas_windows.get("trace", False):
+        imgui.set_next_window_size(imgui.ImVec2(1100, 520), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Simple Trace Viewer##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##trace_popin"):
+                g_state.canvas_windows["trace"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_simple_trace_view()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["trace"] = False
+
+    # 8. Source Code & RTL Inspector Floating Window
+    if g_state.canvas_windows.get("source", False):
+        imgui.set_next_window_size(imgui.ImVec2(1120, 700), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Source Code & RTL Inspector##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##src_popin"):
+                g_state.canvas_windows["source"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_source_inspector_window()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["source"] = False
+
+    # 9. FPGA & Hardware Peripherals Floating Window
+    if g_state.canvas_windows.get("fpga", False):
+        imgui.set_next_window_size(imgui.ImVec2(1050, 620), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("FPGA & Hardware Peripherals##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##fpga_popin"):
+                g_state.canvas_windows["fpga"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_fpga_peripherals_window()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["fpga"] = False
+
+    # 10. MemBrowse CI Tracker Floating Window
+    if g_state.canvas_windows.get("memory", False):
+        imgui.set_next_window_size(imgui.ImVec2(1020, 640), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Memory & MemBrowse CI Tracker##CanvasWin", True)
+        if expanded:
+            imgui.begin_group()
+            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
+            imgui.same_line(0, 16)
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
+            if imgui.button("🗗 Pop In (Dock to Studio Tab)##mem_popin"):
+                g_state.canvas_windows["memory"] = False
+            imgui.pop_style_color()
+            imgui.same_line(0, 16)
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
+            imgui.end_group()
+            imgui.separator()
+            _render_level1_memory()
+            imgui.end()
+        if not opened:
+            g_state.canvas_windows["memory"] = False
+
 def _render_core_studio_window():
     """
     # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
@@ -2022,23 +2284,24 @@ def _render_core_studio_window():
         if imgui.button("⛶ Expand Window##core"):
             apply_docking_layout("core_focus")
     imgui.same_line()
-    if imgui.button("🗖 Pop Out Window##core"):
+    if imgui.button("🗖 Pop Out Studio##core"):
         decouple_window("AbstractX Core Studio")
     imgui.same_line()
     if imgui.button("🔄 Restore Defaults##core"):
         restore_default_layout()
     imgui.same_line()
-    w_tlp = g_dockable_windows.get("tlp")
-    tlp_vis = w_tlp.is_visible if w_tlp else False
-    if imgui.button(f"{'🗕 Hide' if tlp_vis else '🗖 Show'} TLP Debugger##core_hdr"):
-        if w_tlp:
-            w_tlp.is_visible = not w_tlp.is_visible
+    # Quick canvas window toggles
+    coro_p = g_state.canvas_windows.get("coro", False)
+    if imgui.button(f"{'🗕 Dock' if coro_p else '🗖 Pop'} Coro##hdr"):
+        g_state.canvas_windows["coro"] = not coro_p
     imgui.same_line()
-    w_log = g_dockable_windows.get("log")
-    log_vis = w_log.is_visible if w_log else False
-    if imgui.button(f"{'🗕 Hide' if log_vis else '🗖 Show'} Event Log##core_hdr"):
-        if w_log:
-            w_log.is_visible = not w_log.is_visible
+    tlp_p = g_state.canvas_windows.get("tlp", False)
+    if imgui.button(f"{'🗕 Dock' if tlp_p else '🗖 Pop'} TLP##hdr"):
+        g_state.canvas_windows["tlp"] = not tlp_p
+    imgui.same_line()
+    log_p = g_state.canvas_windows.get("log", False)
+    if imgui.button(f"{'🗕 Dock' if log_p else '🗖 Pop'} Log##hdr"):
+        g_state.canvas_windows["log"] = not log_p
     imgui.same_line()
     imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Unified engineering workspace")
     imgui.end_group()
@@ -2046,6 +2309,7 @@ def _render_core_studio_window():
 
     # Handle requested window activations for TLP / Log
     if g_state.requested_studio_tab == "tlp":
+        w_tlp = g_dockable_windows.get("tlp")
         if w_tlp:
             w_tlp.is_visible = True
         try:
@@ -2054,6 +2318,7 @@ def _render_core_studio_window():
             pass
         g_state.requested_studio_tab = None
     elif g_state.requested_studio_tab == "log":
+        w_log = g_dockable_windows.get("log")
         if w_log:
             w_log.is_visible = True
         try:
@@ -2065,6 +2330,8 @@ def _render_core_studio_window():
     # Determine requested tab activation flags
     flag_coro    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "coro"     else 0
     flag_cpu     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "cpu"      else 0
+    flag_tlp     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "tlp"      else 0
+    flag_log     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "log"      else 0
     flag_flow    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "flow"     else 0
     flag_trace   = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "trace"    else 0
     flag_timeline= imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "timeline" else 0
@@ -2078,11 +2345,31 @@ def _render_core_studio_window():
     if imgui.begin_tab_bar("CoreStudioTabBar"):
         # Tab 1: Coroutine Inspector (C++20 first - the primary diagnostic surface)
         if imgui.begin_tab_item("Coroutine Inspector", None, flag_coro)[0]:
-            _render_coroutine_inspector()
+            if g_state.canvas_windows.get("coro", False):
+                _render_popped_tab_placeholder("Coroutine Inspector", "coro", "Coroutine State & Suspension Inspector")
+            else:
+                _render_coroutine_inspector()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("CPU Gauges & Topology", None, flag_cpu)[0]:
-            _render_core_cpu_and_topology()
+            if g_state.canvas_windows.get("cpu", False):
+                _render_popped_tab_placeholder("CPU Gauges & Topology", "cpu", "Silicon Cores & CPU Gauges")
+            else:
+                _render_core_cpu_and_topology()
+            imgui.end_tab_item()
+
+        if imgui.begin_tab_item("TLP Bus Debugger", None, flag_tlp)[0]:
+            if g_state.canvas_windows.get("tlp", False):
+                _render_popped_tab_placeholder("TLP Bus Debugger", "tlp", "TLP Bus Debugger")
+            else:
+                _render_tlp_debugger_window()
+            imgui.end_tab_item()
+
+        if imgui.begin_tab_item("System Event Log", None, flag_log)[0]:
+            if g_state.canvas_windows.get("log", False):
+                _render_popped_tab_placeholder("System Event Log", "log", "System Event Log")
+            else:
+                _render_event_log_window()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Flow Integrity & Pacing Eye", None, flag_flow)[0]:
@@ -2090,23 +2377,38 @@ def _render_core_studio_window():
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Simple Trace Viewer", None, flag_trace)[0]:
-            _render_simple_trace_view()
+            if g_state.canvas_windows.get("trace", False):
+                _render_popped_tab_placeholder("Simple Trace Viewer", "trace", "Simple Trace Viewer")
+            else:
+                _render_simple_trace_view()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Dual-Plane Timeline", None, flag_timeline)[0]:
-            _render_core_timeline()
+            if g_state.canvas_windows.get("timeline", False):
+                _render_popped_tab_placeholder("Dual-Plane Timeline", "timeline", "Dual-Plane Coroutine Timeline")
+            else:
+                _render_core_timeline()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Source Code & RTL Inspector", None, flag_source)[0]:
-            _render_source_inspector_window()
+            if g_state.canvas_windows.get("source", False):
+                _render_popped_tab_placeholder("Source Code & RTL Inspector", "source", "Source Code & RTL Inspector")
+            else:
+                _render_source_inspector_window()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("FPGA Peripherals", None, flag_fpga)[0]:
-            _render_fpga_peripherals_window()
+            if g_state.canvas_windows.get("fpga", False):
+                _render_popped_tab_placeholder("FPGA Peripherals", "fpga", "FPGA & Hardware Peripherals")
+            else:
+                _render_fpga_peripherals_window()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("MemBrowse CI Report", None, flag_memory)[0]:
-            _render_level1_memory()
+            if g_state.canvas_windows.get("memory", False):
+                _render_popped_tab_placeholder("MemBrowse CI Report", "memory", "Memory & MemBrowse CI Tracker")
+            else:
+                _render_level1_memory()
             imgui.end_tab_item()
 
         imgui.end_tab_bar()
@@ -2145,8 +2447,8 @@ def _render_tlp_debugger_window():
         if imgui.button("⛶ Expand Window##tlp"):
             apply_docking_layout("fpga_focus")
     imgui.same_line()
-    if imgui.button("🗖 Pop Out##tlp"):
-        decouple_window("TLP Bus Debugger")
+    if imgui.button("🗖 Pop to Canvas##tlp"):
+        g_state.canvas_windows["tlp"] = True
     imgui.same_line()
     imgui.text(f"| Captured: {len(g_state.recent_tlp_packets)} | Total: {g_state.packet_count:,}")
     imgui.end_group()
@@ -2259,8 +2561,8 @@ def _render_event_log_window():
     imgui.same_line()
     _, g_state.log_auto_scroll = imgui.checkbox("Auto-Scroll", g_state.log_auto_scroll)
     imgui.same_line()
-    if imgui.button("🗖 Pop Out##log"):
-        decouple_window("System Event Log")
+    if imgui.button("🗖 Pop to Canvas##log"):
+        g_state.canvas_windows["log"] = True
     imgui.end_group()
     imgui.separator()
 
@@ -2379,8 +2681,8 @@ def _render_source_inspector_window():
     if imgui.button("⛶ Expand Window##source"):
         apply_docking_layout("source_focus")
     imgui.same_line(0, 6)
-    if imgui.button("🗖 Pop Out##source"):
-        decouple_window("Source Code & Performance Inspector")
+    if imgui.button("🗖 Pop to Canvas##source"):
+        g_state.canvas_windows["source"] = True
 
     imgui.end_group()
     imgui.separator()
@@ -2545,8 +2847,8 @@ def _render_fpga_peripherals_window():
     if imgui.button("⛶ Expand Window##fpga"):
         apply_docking_layout("fpga_focus")
     imgui.same_line(0, 6)
-    if imgui.button("🗖 Pop Out##fpga"):
-        decouple_window("FPGA & Hardware Peripherals")
+    if imgui.button("🗖 Pop to Canvas##fpga"):
+        g_state.canvas_windows["fpga"] = True
     imgui.end_group()
     imgui.separator()
 
@@ -2761,6 +3063,7 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
     runner_params.docking_params.dockable_windows = [win_core, win_user, win_tlp, win_log, win_source, win_fpga]
     runner_params.callbacks.show_status = _render_status_bar
     runner_params.callbacks.setup_imgui_style = _setup_studio_style
+    runner_params.callbacks.post_render_dockable_windows = _render_floating_canvas_windows
     return runner_params
 
 if __name__ == "__main__":
