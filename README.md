@@ -744,6 +744,8 @@ AbstractX/
 │       ├── flight_plugin.py          # Level 2 flight instruments & 3D wireframe plugin
 │       ├── sdk/plugin.py             # AbstractXStudioPlugin standard base class SDK
 │       └── ctf_schema_loader.py      # Dynamic barectf YAML/JSON binary decoder
+├── tests/                            # Python pytest suite (invariants, TLP, CTF, SDK & GUI)
+├── pytest.ini                       # Pytest test execution configuration
 └── trace/                            # Trace subsystem specifications
     └── barectf_config.yaml           # Authoritative Common Trace Format 1.8 schema
 ```
@@ -805,12 +807,19 @@ python3 tools/audit_specs.py apps/gps_imu_app/SPECIFICATION.md
 python3 tools/track_memory_membrowse.py
 ```
 
-### 7. Run the Reference Application
+### 7. Run the Python Pytest Invariants & Observability Suite
+```bash
+# Run all 16 architecture invariant, TLP framing, CTF schema, and visualizer tests
+pytest
+```
+*Result: 16 passed in under 0.6 seconds (Zero-heap, non-blocking HAL, 64B TLP framing, dynamic CTF 1.8 schema decoding, plugin SDK contracts, and Dear ImGui headless render).*
+
+### 8. Run the Reference Application
 ```bash
 ./build/apps/gps_imu_app/gps_imu_app
 ```
 
-### 8. Launch AbstractX Studio or Flight Display
+### 9. Launch AbstractX Studio or Flight Display
 In a separate terminal (with `.venv` activated):
 ```bash
 # Launch AbstractX Studio (Level 1: System Topology + Level 2: Flight Plugin)

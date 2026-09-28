@@ -47,10 +47,12 @@ pip install -r "${REPO_ROOT}/tools/visualizer/requirements.txt"
 
 # 6. Verification
 python3 -c "
-import imgui_bundle, numpy
+import imgui_bundle, numpy, pytest, yaml
 print('\n[SUCCESS] Environment verified!')
 print(f' - imgui-bundle version: {imgui_bundle.__version__}')
 print(f' - numpy version       : {numpy.__version__}')
+print(f' - pytest version      : {pytest.__version__}')
+print(f' - yaml version        : {yaml.__version__}')
 "
 
 echo ""
