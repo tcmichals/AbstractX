@@ -246,6 +246,8 @@ class CtfSchema:
             "fields": decoded_fields
         }
 
+    decode_tlp_packet = decode_tlp
+
 def main():
     root = Path(__file__).resolve().parent.parent.parent
     yaml_path = root / "trace" / "barectf_config.yaml"

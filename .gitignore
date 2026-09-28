@@ -61,3 +61,8 @@ examples/dual_processor_io_and_processing
 
 # OS artifacts
 .DS_Store
+
+# Pytest and ImGui artifacts
+.pytest_cache/
+*.ini
+!pytest.ini

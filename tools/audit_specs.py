@@ -11,20 +11,21 @@ import re
 import sys
 from pathlib import Path
 
-def main():
-    root_dir = Path(__file__).resolve().parent.parent
-    if len(sys.argv) > 1:
-        spec_file = Path(sys.argv[1])
-        if not spec_file.is_absolute():
-            spec_file = root_dir / spec_file
-    else:
+def run_traceability_audit(spec_file=None, root_dir=None):
+    """Programmatically runs traceability audit and returns audit results dictionary."""
+    if root_dir is None:
+        root_dir = Path(__file__).resolve().parent.parent
+    if spec_file is None:
         spec_file = root_dir / "docs" / "DESIGN_SPECIFICATION.md"
+    elif not isinstance(spec_file, Path):
+        spec_file = Path(spec_file)
+    if not spec_file.is_absolute():
+        spec_file = root_dir / spec_file
 
     if not spec_file.exists():
-        print(f"[ERROR] Specification file not found: {spec_file}")
-        sys.exit(1)
+        raise FileNotFoundError(f"Specification file not found: {spec_file}")
 
-    # 1. Parse all specification IDs from docs/DESIGN_SPECIFICATION.md
+    # 1. Parse all specification IDs from specification markdown
     spec_pattern = re.compile(r"###\s+`\[(SPEC-[A-Z0-9\-]+)\]`\s+(.+)")
     specs = {}
 
@@ -41,8 +42,6 @@ def main():
 
     # 2. Scan codebase for @impl tags
     scan_dirs = ["include", "targets", "apps", "examples", "sim"]
-    impl_pattern = re.compile(r"@impl\s+([^(\n]+)")
-
     for s_dir in scan_dirs:
         dir_path = root_dir / s_dir
         if not dir_path.exists():
@@ -60,7 +59,37 @@ def main():
                                     if m in specs:
                                         specs[m]["implementations"].append(f"{rel_path}:{line_num}")
                 except Exception as e:
-                    print(f"[WARN] Failed to read {file_path}: {e}")
+                    pass
+
+    implemented_count = sum(1 for data in specs.values() if data["implementations"])
+    total_count = len(specs)
+    coverage = (implemented_count / total_count * 100.0) if total_count > 0 else 0.0
+
+    return {
+        "spec_file": str(spec_file),
+        "total": total_count,
+        "implemented": implemented_count,
+        "coverage": coverage,
+        "specs": specs
+    }
+
+def main():
+    root_dir = Path(__file__).resolve().parent.parent
+    if len(sys.argv) > 1:
+        spec_file = Path(sys.argv[1])
+    else:
+        spec_file = root_dir / "docs" / "DESIGN_SPECIFICATION.md"
+
+    try:
+        results = run_traceability_audit(spec_file, root_dir)
+    except FileNotFoundError as e:
+        print(f"[ERROR] {e}")
+        sys.exit(1)
+
+    specs = results["specs"]
+    total_count = results["total"]
+    implemented_count = results["implemented"]
+    coverage = results["coverage"]
 
     # 3. Print Traceability Matrix
     print("=" * 80)
@@ -69,14 +98,10 @@ def main():
     print(f"{'SPEC ID':<22} | {'STATUS':<12} | {'IMPLEMENTING SOURCE FILE(S)':<40}")
     print("-" * 80)
 
-    implemented_count = 0
-    total_count = len(specs)
-
     for spec_id, data in sorted(specs.items()):
         impls = data["implementations"]
         if impls:
             status = "COMPLETE"
-            implemented_count += 1
             impl_str = ", ".join(impls)
         else:
             status = "MISSING"
@@ -85,7 +110,6 @@ def main():
         print(f"{spec_id:<22} | {status:<12} | {impl_str:<40}")
 
     print("=" * 80)
-    coverage = (implemented_count / total_count * 100.0) if total_count > 0 else 0.0
     print(f"Total Specifications: {total_count}")
     print(f"Implemented:          {implemented_count}")
     print(f"Traceability Coverage:{coverage:.1f}%")
@@ -100,3 +124,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
