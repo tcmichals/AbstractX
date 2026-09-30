@@ -28,10 +28,13 @@ add_custom_command(TARGET e907_coprocessor POST_BUILD
 )
 
 # Automated compilation of Device Tree Overlay if dtc is available
-find_program(DTC_EXECUTABLE dtc HINTS /home/tcmichals/ssdData/projects/home/CubieA5E/bld.a7a/host/bin)
+find_program(DTC_EXECUTABLE dtc HINTS 
+    /home/tcmichals/tools/Xilinx/2025.2/Vivado/bin
+    /home/tcmichals/ssdData/projects/home/CubieA5E/bld.a7a/host/bin
+)
 if(DTC_EXECUTABLE)
     add_custom_target(e907_dtbo ALL
-        COMMAND ${DTC_EXECUTABLE} -@ -I dts -O dtb -o ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e907_overlay.dtbo ${CMAKE_CURRENT_SOURCE_DIR}/cubie_a5e_e907_overlay.dts
+        COMMAND ${DTC_EXECUTABLE} -@ -I dts -O dtb -o ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e907_overlay.dtbo ${CMAKE_CURRENT_SOURCE_DIR}/cubie_a5e_e907_overlay.dtso
         BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e907_overlay.dtbo
         COMMENT "Compiled cubie_a5e_e907_overlay.dtbo using ${DTC_EXECUTABLE}"
     )
