@@ -1,0 +1,224 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+/*
+ * Copyright (C) 2026 Tim Michals
+ *
+ * AbstractX Radxa Cubie A5E (Allwinner A527 / T527) — XuanTie E907 & Flight Overlay
+ * =================================================================================
+ * Hardware Resource Partitioning:
+ *
+ * 1. XuanTie E907 RISC-V Co-Processor Domain (Hard Real-Time I/O Reactor):
+ *    - SPI0: High-Speed Full-Duplex DMA Master to ICM-42688-P / FPGA (Port C)
+ *            [Pins 19 (MOSI), 21 (MISO), 23 (CLK), 24 (CS0/FPGA), 26 (CS1/IMU)]
+ *    - SPI1: High-Speed Secondary SPI Link [Pins 35 (MISO), 38 (MOSI), 40 (CLK), 12 (CS0)]
+ *    - UART2: High-speed streaming serial GPS / CRSF link [Pins 11 (TX) & 13 (RX)]
+ *    - I2C3 (TWI3): Fast-Mode (400 kHz) sensor bus for QMC5883L / BMP388 [Pins 27 & 28]
+ *    - I2C1 (TWI1): Expansion I2C Bus [Pins 3 & 5]
+ *    - GPIO DRDY: Pin 29 rising-edge data ready interrupt (Direct Auto-DMA trigger)
+ *    - MSGBOX: Inter-core hardware doorbell for signaling Linux host
+ *    - SRAM A3: Dedicated 256 KB on-chip SRAM Space 0 at ARM64 physical 0x07280000
+ *
+ *    NOTE: To allow Linux to setup pinctrl (pin multiplexing) and clock tree
+ *    routing without attaching kernel device drivers (which would conflict with
+ *    bare-metal E907 execution), SPI0, SPI1, UART2, I2C1, and I2C3 are bound
+ *    to "generic-uio".
+ *
+ * 2. ARM Cortex-A55 Linux Host Domain (Flight Controller, Telemetry & Network):
+ *    - UART0: Diagnostic / serial debug console terminal [Pins 8 (TX) & 10 (RX)]
+ *    - MMC1 + AIC8800: SDIO Wi-Fi 6 / Bluetooth hardware power rails & transport
+ *      for CTF 1.8 UDP :9870 telemetry streaming and SSH access
+ *    - MSGBOX + RemoteProc: Lifecycle management and IPC doorbells
+ *
+ * Physical 40-Pin Header Layout Mapping on Radxa Cubie A5E:
+ *
+ *                  3.3V Power [ 1] [ 2] 5V Power (Input/Output)
+ *   [RISC-V] I2C1-SDA (TWI1)  [ 3] [ 4] 5V Power (Input/Output)
+ *   [RISC-V] I2C1-SCL (TWI1)  [ 5] [ 6] GND
+ *            SPI2-CLK         [ 7] [ 8] UART0-TX (Linux Serial Console)
+ *                         GND [ 9] [10] UART0-RX (Linux Serial Console)
+ *   [RISC-V] UART2-TX (PB0)   [11] [12] SPI1-CS0 (RISC-V Expansion)   [RISC-V]
+ *   [RISC-V] UART2-RX (PB1)   [13] [14] GND
+ *            SPI2-CS0         [15] [16] SPI2-MOSI
+ *                  3.3V Power [17] [18] SPI2-MISO
+ *   [RISC-V] SPI0-MOSI / IO0  [19] [20] GND
+ *   [RISC-V] SPI0-MISO / IO1  [21] [22] FPGA Frame Ready ISR (GPIO)   [RISC-V]
+ *   [RISC-V] SPI0-CLK         [23] [24] SPI0-CS0 (FPGA Dual-SPI)      [RISC-V]
+ *                         GND [25] [26] SPI0-CS1 (IMU Single-SPI)     [RISC-V]
+ *   [RISC-V] I2C3-SDA (TWI3)  [27] [28] I2C3-SCL (TWI3) (Sensors/Mag) [RISC-V]
+ *   [RISC-V] IMU DRDY ISR     [29] [30] GND
+ *                        GPIO [31] [32] GPIO/PWM
+ *                        GPIO [33] [34] GND
+ *   [RISC-V] SPI1-MISO (Exp)  [35] [36] GPIO
+ *                        GPIO [37] [38] SPI1-MOSI (Exp)               [RISC-V]
+ *                         GND [39] [40] SPI1-CLK  (Exp)               [RISC-V]
+ *
+ * Compilation & Application:
+ *   dtc -@ -I dts -O dtb -o cubie_a5e_e907_overlay.dtbo cubie_a5e_e907_overlay.dtso
+ *   sudo cp cubie_a5e_e907_overlay.dtbo /boot/dtb/overlay/
+ * =================================================================================
+ */
+
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "radxa,cubie-a5e", "allwinner,sun55i-a527", "allwinner,sun60iw2p1";
+    description = "AbstractX XuanTie E907 RemoteProc, UIO Clocks & Wi-Fi Overlay";
+};
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 1. Dedicated Linux Host Peripherals
+ * ----------------------------------------------------------------------------
+ */
+
+/* UART0: Linux Host Serial Debug Console (Pins 8 & 10) */
+&uart0 {
+    status = "okay";
+};
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 2. On-Board AIC8800 SDIO Wi-Fi 6 Hardware Regulators & MMC1
+ * ----------------------------------------------------------------------------
+ */
+
+&{/} {
+    #address-cells = <2>;
+    #size-cells = <2>;
+    ranges;
+
+    /* PL7 (Bank 0, Pin 7, Active High): Hardware 3.3V Power Switch for AIC8800 Wi-Fi/BT */
+    reg_3v3_wifi: 3v3-wifi {
+        compatible = "regulator-fixed";
+        regulator-name = "3v3-wifi";
+        regulator-min-microvolt = <3300000>;
+        regulator-max-microvolt = <3300000>;
+        gpio = <&r_pio 0 7 0>;
+        enable-active-high;
+        regulator-always-on;
+    };
+
+    /* PM1 (Bank 1, Pin 1, Active High): Hardware Enable / WL_REG_ON */
+    reg_wifi_en: wifi-en {
+        compatible = "regulator-fixed";
+        regulator-name = "wifi-en";
+        regulator-min-microvolt = <3300000>;
+        regulator-max-microvolt = <3300000>;
+        gpio = <&r_pio 1 1 0>;
+        enable-active-high;
+        regulator-always-on;
+        startup-delay-us = <100000>;
+    };
+
+    reserved-memory {
+        #address-cells = <2>;
+        #size-cells = <2>;
+        ranges;
+
+        /* Dedicated on-chip SRAM A3 Space 0 (ARM64 physical 0x07280000, 256 KB) */
+        e907_sram0_reserved: sram@7280000 {
+            reg = <0x0 0x07280000 0x0 0x00040000>;
+            no-map;
+        };
+
+        /* Non-cacheable shared DMA / Vring pool in DDR (0x48000000, 1 MB) */
+        rproc_vdev_reserved: vdev@48000000 {
+            reg = <0x0 0x48000000 0x0 0x00100000>;
+            no-map;
+        };
+    };
+};
+
+/* Ensure Port C (VCC-PC) and Port K (VCC-PK) IO rail stay at 3.3V */
+&reg_cldo1 {
+    regulator-min-microvolt = <3300000>;
+    regulator-max-microvolt = <3300000>;
+    regulator-always-on;
+};
+
+&reg_bldo1 {
+    regulator-always-on;
+};
+
+/* MMC1: AIC8800 SDIO WLAN host controller */
+&mmc1 {
+    #address-cells = <1>;
+    #size-cells = <0>;
+    bus-width = <4>;
+    max-frequency = <25000000>;
+    non-removable;
+    keep-power-in-suspend;
+    pinctrl-names = "default";
+    pinctrl-0 = <&mmc1_pins>;
+    vmmc-supply = <&reg_3v3_wifi>;
+    vqmmc-supply = <&reg_bldo1>;
+    status = "okay";
+
+    wifi: wifi@1 {
+        reg = <1>;
+        compatible = "aic,aic8800";
+        status = "okay";
+    };
+};
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 3. Peripherals Claimed by E907 with Linux Pinctrl & Clocks Initialized via UIO
+ *    (Binding to generic-uio configures pinmux and clocks without attaching
+ *     standard kernel drivers, preventing bus contention and register resets)
+ * ----------------------------------------------------------------------------
+ */
+
+/* SPI0: High-Speed Primary IMU & Sensor Bus (Pins 19, 21, 23, 24, 26) */
+&spi0 {
+    compatible = "generic-uio";
+    pinctrl-names = "default";
+    status = "okay";
+};
+
+/* SPI1: High-Speed Secondary Expansion SPI Bus (Pins 35, 38, 40, 12) */
+&spi1 {
+    compatible = "generic-uio";
+    pinctrl-names = "default";
+    status = "okay";
+};
+
+/* UART2: High-Speed Navigation/Serial Bus (Pins 11 & 13) */
+&uart2 {
+    compatible = "generic-uio";
+    pinctrl-names = "default";
+    status = "okay";
+};
+
+/* I2C3 (TWI3): Magnetometer (QMC5883L) & Barometer (Pins 27 & 28) */
+&i2c3 {
+    compatible = "generic-uio";
+    pinctrl-names = "default";
+    status = "okay";
+};
+
+/* I2C1 (TWI1): General Expansion Bus (Pins 3 & 5) */
+&i2c1 {
+    compatible = "generic-uio";
+    pinctrl-names = "default";
+    status = "okay";
+};
+
+
+/* 
+ * ----------------------------------------------------------------------------
+ * 5. Inter-Processor Hardware Mailbox & RemoteProc Configuration
+ * ----------------------------------------------------------------------------
+ */
+&msgbox {
+    status = "okay";
+};
+
+&rproc {
+    compatible = "allwinner,sun60iw2-e907", "allwinner,e907-rproc";
+    firmware-name = "e907_coprocessor.bin";
+    memory-region = <&rproc_vdev_reserved>, <&e907_sram0_reserved>;
+    mboxes = <&msgbox 8>, <&msgbox 9>;
+    mbox-names = "rx", "tx";
+    status = "okay";
+};

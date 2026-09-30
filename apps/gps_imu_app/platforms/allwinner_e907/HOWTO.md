@@ -116,12 +116,13 @@ Output: `build_a55/apps/gps_imu_app/gps_imu_app`.
 
 ### 4.3 Step 3: Compile the E907 RemoteProc Device Tree Overlay
 
-The dedicated device tree overlay [`cubie_a5e_e907_overlay.dts`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dts) performs critical silicon resource partitioning:
-1. **Releases Linux Peripheral Claims**: Disables `&spi0` and `&uart2` in the Linux kernel tree so the XuanTie E907 coprocessor and Sunxi DMA engine have exclusive, zero-collision hardware control over the ICM-42688-P IMU and GPS serial stream.
-2. **Carves Out Non-Cacheable Reserved Memory**:
-   * **SRAM A3 Space 0** (`0x40000000`, 256 KB): Dedicated on-chip SRAM for E907 vector table, code execution, lock-free SPSC TLP rings (`g_tx_ring`, `g_sensor_ring`), and RemoteProc trace logging (`trace0`).
+The dedicated device tree overlay [`cubie_a5e_e907_overlay.dtso`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dtso) performs critical silicon resource partitioning:
+1. **Configures Clocks & Pins via UIO (Zero Driver Contention)**: Binds `&spi0`, `&spi1`, `&uart2`, `&i2c1`, and `&i2c3` to `generic-uio`. Linux automatically configures the pinctrl (pin multiplexing) and parent clock routing at boot, but does *not* bind native kernel drivers (`sun6i-spi`, `8250_dw`, `i2c-mv64xxx`). This guarantees the E907 coprocessor has exclusive, zero-collision hardware control over the ICM-42688-P IMU, secondary SPI, GPS serial stream, and magnetometer/barometer.
+2. **Powers & Enumerates AIC8800 Wi-Fi 6**: Configures the fixed 3.3V regulators on PL7 (`reg_3v3_wifi`) and PM1 (`reg_wifi_en`) plus `&mmc1` SDIO host so Linux can stream CTF 1.8 UDP telemetry (:9870) and provide SSH access out-of-the-box.
+3. **Carves Out Non-Cacheable Reserved Memory**:
+   * **SRAM A3 Space 0** (`0x07280000` ARM64 physical / `0x3FFC0000` E907 local, 256 KB): Dedicated on-chip SRAM for E907 vector table, code execution, lock-free SPSC TLP rings (`g_tx_ring`, `g_sensor_ring`), and RemoteProc trace logging (`trace0`).
    * **DDR Shared DMA Pool** (`0x48000000`, 1 MB): Reserved non-cacheable DMA memory for virtio vrings and high-bandwidth burst transfers.
-3. **Hardware Doorbell Wiring**: Enables `&msgbox` channels 8 and 9 for inter-core hardware doorbells between Linux and XuanTie E907.
+4. **Hardware Doorbell Wiring**: Enables `&msgbox` channels 8 and 9 for inter-core hardware doorbells between Linux and XuanTie E907.
 
 #### 1. Install Device Tree Compiler (`dtc`)
 On your host or directly on the Radxa Cubie A5E:
@@ -129,17 +130,17 @@ On your host or directly on the Radxa Cubie A5E:
 sudo apt-get update && sudo apt-get install -y device-tree-compiler
 ```
 
-#### 2. Compile `.dts` to `.dtbo`
+#### 2. Compile `.dtso` to `.dtbo`
 Run the `dtc` compiler with dynamic symbol generation enabled:
 ```bash
 dtc -@ -I dts -O dtb \
   -o apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dtbo \
-  apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dts
+  apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dtso
 ```
 
 > [!IMPORTANT]
 > **Why `-@` (or `--symbols`) is Mandatory**:
-> Overlays reference labeled nodes defined in the base board device tree (`&spi0`, `&uart2`, `&msgbox`, `&rproc`). The `-@` flag instructs `dtc` to generate the `__fixups__` and `__symbols__` metadata tables. Without `-@`, U-Boot and the Linux kernel cannot resolve external node references and will reject the overlay with `Failed to apply overlay` errors.
+> Overlays reference labeled nodes defined in the base board device tree (`&spi0`, `&spi1`, `&uart2`, `&i2c3`, `&mmc1`, `&msgbox`, `&rproc`). The `-@` flag instructs `dtc` to generate the `__fixups__` and `__symbols__` metadata tables. Without `-@`, U-Boot and the Linux kernel cannot resolve external node references and will reject the overlay with `Failed to apply overlay` errors.
 
 #### 3. Automated Compilation via CMake
 Building the `e907` target automatically compiles the overlay if `dtc` is present on your system:
