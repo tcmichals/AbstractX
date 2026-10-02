@@ -21,54 +21,87 @@ struct RpmsgMessage {
 using EndpointCallback = void (*)(const RpmsgMessage &msg, void *user_data);
 
 /*
- * VirtIO RPMsg HAL Engine (Lite-libmetal style)
- *
- * Provides a zero-dynamic-allocation, C++ std::atomic-synchronized VirtIO
- * RPMsg endpoint manager for XuanTie RISC-V co-processors.
+ * ============================================================================
+ * IRpmsg: Pure Virtual Interface for Inter-Processor Communication (IPC)
+ * ============================================================================
+ * Allows upper-layer tasks and coroutines to communicate without knowing
+ * whether the underlying transport is standard Linux VirtIO or Lite-Metal.
  */
-class Rpmsg {
+class IRpmsg {
+public:
+    virtual ~IRpmsg() = default;
+
+    virtual void init(const struct rpmsg_resource_table *rsc) noexcept = 0;
+    virtual bool is_driver_ready() noexcept = 0;
+    virtual bool register_endpoint(uint32_t addr, EndpointCallback cb, void *user_data = nullptr) noexcept = 0;
+    virtual bool announce_service(const char *name, uint32_t addr) noexcept = 0;
+    virtual bool poll() noexcept = 0;
+    virtual bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept = 0;
+    virtual uint32_t get_rx_count() noexcept = 0;
+    virtual uint32_t get_tx_count() noexcept = 0;
+};
+
+/*
+ * ============================================================================
+ * Rpmsg: Standard Linux Kernel VirtIO RemoteProc Driver
+ * ============================================================================
+ * Full compliance with Linux virtio_rpmsg_bus (/dev/rpmsg0).
+ * Handles DDR DRAM payload buffers with full XuanTie L1 D-Cache maintenance
+ * (dcache.cpa write-back on TX, dcache.iva invalidate on RX).
+ */
+class Rpmsg : public IRpmsg {
 public:
     static constexpr size_t MAX_ENDPOINTS = 8;
 
-    // Initialize RPMsg engine with pointer to resource table
-    static void init(const struct rpmsg_resource_table *rsc) noexcept;
+    Rpmsg() noexcept = default;
+    ~Rpmsg() override = default;
 
-    // Check if Linux Host VirtIO driver is initialized & online
-    static bool is_driver_ready() noexcept;
+    void init(const struct rpmsg_resource_table *rsc) noexcept override;
+    bool is_driver_ready() noexcept override;
+    bool register_endpoint(uint32_t addr, EndpointCallback cb, void *user_data = nullptr) noexcept override;
+    bool announce_service(const char *name, uint32_t addr) noexcept override;
+    bool poll() noexcept override;
+    bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept override;
+    uint32_t get_rx_count() noexcept override;
+    uint32_t get_tx_count() noexcept override;
 
-    // Register a local endpoint handler
-    static bool register_endpoint(uint32_t addr, EndpointCallback cb, void *user_data = nullptr) noexcept;
+    // Static convenience facade delegating to the globally active driver
+    static void set_active_driver(IRpmsg *driver) noexcept;
+    static IRpmsg* get_active_driver() noexcept;
 
-    // Announce Name Service endpoint to Linux Host (e.g. "rpmsg-ping-channel")
-    static bool announce_service(const char *name, uint32_t addr) noexcept;
+    static void init_active(const struct rpmsg_resource_table *rsc) noexcept {
+        get_active_driver()->init(rsc);
+    }
+    static bool poll_active() noexcept {
+        return get_active_driver()->poll();
+    }
+    static bool reply_active(const RpmsgMessage &msg, const void *payload, uint16_t len) noexcept {
+        return get_active_driver()->reply(msg, payload, len);
+    }
+};
 
-    // Poll for incoming RPMsg packets and dispatch to registered callbacks
-    static bool poll() noexcept;
+/*
+ * ============================================================================
+ * RpmsgLiteMetal: Zero-Overhead Bare-Metal / SRAM Driver
+ * ============================================================================
+ * Designed for ultra-low latency direct SRAM buffers or peer-to-peer messaging
+ * without Linux kernel VirtIO overhead and ZERO D-Cache maintenance operations.
+ */
+class RpmsgLiteMetal : public IRpmsg {
+public:
+    static constexpr size_t MAX_ENDPOINTS = 8;
 
-    // Reply to an incoming RPMsg packet (Echo / Pong)
-    static bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept;
+    RpmsgLiteMetal() noexcept = default;
+    ~RpmsgLiteMetal() override = default;
 
-    // Telemetry Statistics
-    static uint32_t get_rx_count() noexcept;
-    static uint32_t get_tx_count() noexcept;
-
-    struct EndpointEntry {
-        uint32_t addr;
-        EndpointCallback cb;
-        void *user_data;
-    };
-
-private:
-    struct VirtQueueState {
-        uint32_t da;
-        uint32_t num;
-        uint32_t align;
-        volatile struct fw_rsc_vdev_vring *rsc_vring;
-        uint16_t last_avail_idx;
-    };
-
-    static void init_vqueues() noexcept;
+    void init(const struct rpmsg_resource_table *rsc) noexcept override;
+    bool is_driver_ready() noexcept override;
+    bool register_endpoint(uint32_t addr, EndpointCallback cb, void *user_data = nullptr) noexcept override;
+    bool announce_service(const char *name, uint32_t addr) noexcept override;
+    bool poll() noexcept override;
+    bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept override;
+    uint32_t get_rx_count() noexcept override;
+    uint32_t get_tx_count() noexcept override;
 };
 
 } // namespace hal
-
