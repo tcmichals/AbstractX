@@ -10,16 +10,19 @@
 
 ---
 
-### 🤖 The Agentic Development Loop
+### 🤖 The Agentic Development Loop & SpecTrace
 
-* **1. You Write the Contract**: Every feature starts as a Markdown specification ([`SPECIFICATION.md`](docs/SPEC_TEMPLATE.md)) detailing memory maps, multi-rate timing, and architectural invariants.
-* **2. Agents Generate the Code**: AI assistants (configured via [`AGENTS.md`](AGENTS.md)) translate the specs into freestanding C++20 or SystemVerilog, tagging every block with `// @impl [SPEC-*]`.
-* **3. The System Audits the Agent**: The 5-stage Sashiko adversarial pipeline ([`tools/run_adversarial_audit.py`](tools/run_adversarial_audit.py)) and [`tools/audit_specs.py`](tools/audit_specs.py) ruthlessly verify that the agent respected the zero-heap constraints, avoided blocking delays, and achieved 100% traceability.
-* **4. Zero-Tolerance Hallucination Gate**: If the AI hallucinates a `malloc()` or a blocking `sleep()`, the CI/CD pipeline immediately catches it and rejects the commit.
+AbstractX executes a 4-step autonomous closed-loop architecture:
+* **1. Specs Anchor the Agent**: Humans specify system contracts, hardware memory maps, and coroutine lifecycles in Markdown first (`SPECIFICATION.md`) with formal requirement tags (`[SPEC-*]`).
+* **2. AI Implements with Grand Traceability**: Coding agents implement freestanding C++20 and RTL, tagging every function with matching `// @impl [SPEC-*]` annotations.
+* **3. SpecTrace Adversarial Audits**: The 6-stage SpecTrace Adversarial Review ([`tools/run_adversarial_audit.py`](tools/run_adversarial_audit.py)) and bidirectional traceability checker ([`tools/audit_specs.py`](tools/audit_specs.py)) ruthlessly verify that code obeys zero-heap invariants, avoids blocking delays, and achieves 100% spec-to-code parity without drift.
+* **4. Autonomous Closed-Loop Learning Gate**: When a test fails or a design flaw is found, the AI classifies the root cause, chronicles it in [`engineering_log.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/engineering_log.md), and autonomously updates the Markdown specification and agent rules *first*—preventing recurrence permanently.
 
 > [!IMPORTANT]
-> **Why Agentic Guardrails Matter in Mission-Critical Embedded Systems**:
-> The strict rules, freestanding C++20 invariants, and 3-Tier folder structures aren't just pedantic formatting—they are the **deterministic guardrails** that make autonomous AI generation actually safe, reproducible, and verifiable for aerospace, robotics, and deep-embedded firmware.
+> **SpecTrace: The Missing Link in Aerospace Rigor & Static Analysis**:
+> Traditional aerospace standards (NASA Class A, DO-178C Level A) mandate end-to-end traceability, but rely on static spreadsheets and slow CCB review cycles, leading to "specification rot". Meanwhile, traditional static analysis tools (Clang-Tidy, Cppcheck) only check AST syntax and grammar—they are **architecturally blind** to coroutine lifecycles, hardware contracts, and system intent.
+> 
+> **SpecTrace** ([`docs/SPECTRACE.md`](docs/SPECTRACE.md)) solves both: it uses AI not just to write code, but to **semantically audit architectural invariants**, classify whether defects are *code bugs* or *specification flaws*, and autonomously **full round-trip** changes between Markdown specifications and code.
 
 ---
 
@@ -57,7 +60,7 @@ By pairing **C++20 stackless coroutines** with **hardware auto-DMA engines and P
 > **Specification-First Development**: A single markdown specification (`SPECIFICATION.md`) drives dual target synthesis:
 > 1. **Target A (Processor)**: Freestanding C++20 coroutines, lock-free SPSC channels, and zero dynamic heap.
 > 2. **Target B (FPGA RTL)**: Autonomous SystemVerilog Auto-DMA state machine, hardware DRDY pin trigger, and 9.57 µs doorbell.
-> 3. **AI Adversarial Audit**: 5-stage automated invariant verification enforcing Sashiko safety rules (`tools/run_adversarial_audit.py`).
+> 3. **SpecTrace Closed-Loop**: 6-stage automated adversarial invariant verification and 100% grand traceability ([`docs/SPECTRACE.md`](docs/SPECTRACE.md)).
 > 4. **Dual Verification**: 100% pass rate across CppUTest SITL suites (under 3 ms) and Cocotb Verilator co-simulations.
 > 5. **AbstractX Studio GUI (Dear ImGui Bundle)**: Real-time 120 FPS hardware-software observability suite mirroring both pipelines identically over UDP port 9870.
 
@@ -686,17 +689,42 @@ flowchart LR
    $ python3 tools/audit_specs.py apps/gps_imu_app/SPECIFICATION.md
    Total Specifications: 10 | Implemented: 10 | Coverage: 100.0% [SUCCESS]
    ```
-5. **Sashiko-Grade Adversarial Audit & CppUTest Verification (`tools/run_adversarial_audit.py`)**:
-   Eliminates AI hallucinations and driver regressions by enforcing a 5-stage decomposed adversarial review gate ([Full Guide](docs/verification/SASHIKO_ADVERSARIAL_REVIEW_AND_CPPUTEST_GUIDE.md)):
+5. **SpecTrace Anti-Drift Adversarial Review (`tools/run_adversarial_audit.py`)**:
+   Eliminates AI hallucinations, specification omissions, and subtle driver regressions by enforcing a 6-stage adversarial review gate across **both Markdown Specifications (`.md`) and C++/RTL source code** (see [`docs/SPECTRACE.md`](docs/SPECTRACE.md)):
    ```bash
    $ python3 tools/run_adversarial_audit.py
-   [PASS] Stage 1 (Zero-Heap & Freestanding): 0 issues found
+   [PASS] Stage 0 (Specification Markdown & SSOT): 0 issues found
+   [PASS] Stage 1 (Zero-Heap & Freestanding C++20): 0 issues found
    [PASS] Stage 2 (Non-Blocking HAL & Lifecycle): 0 issues found
    [PASS] Stage 3 (ISR Boundary & Dispatch Safety): 0 issues found
    [PASS] Stage 4 (Endianness & Wire Framing): 0 issues found
-   [PASS] Stage 5 (CppUTest & Test Verification): 0 issues found
-   EXECUTIVE VERDICT: [PASS FOR PRODUCTION COMMIT] (0 Issues)
+   [PASS] Stage 5 (Test Verification): 0 issues found
+   VERDICT: [PASS FOR COMMIT] (0 Issues)
    ```
+
+6. **SpecTrace: Continuous Learning Loop & Defect-to-Spec Evolution (`docs/SPECTRACE.md`)**:
+   When bugs, timing errors, or silicon errata occur, they are never patched ad-hoc in code. AbstractX treats every mistake as a deficiency in the specification:
+   * **Episodic Memory Chronicle**: Use `tools/log_mistake.py` to record the failure, root cause, and lesson learned into [`engineering_log.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/engineering_log.md):
+     ```bash
+     python3 tools/log_mistake.py --title "SPI CS Early Deassertion" --spec targets/SPECIFICATION.md --tag SPEC-HAL-02 --append
+     ```
+   * **Fault Classification (Code Defect vs. Spec Flaw)**: The system diagnoses whether the bug was a simple coding slip or a failure of the specification to capture a hardware constraint (e.g. FIFO overrun, interrupt race, bus latency).
+   * **Full Round-Tripping (Spec <-> Code Reconciliation)**: SpecTrace provides true bidirectional round-tripping. Whether designing in Markdown first or implementing C++/RTL code first, `tools/spectrace.py` harmonizes both domains in a single atomic pass:
+     ```bash
+     # Inspect real-time bidirectional synchronization matrix:
+     python3 tools/spectrace.py --status
+
+     # Reconcile both directions (Code -> Spec and Spec -> Code):
+     python3 tools/spectrace.py --roundtrip --apply
+     ```
+   * **Spec-First Evolution (SSOT Defense)**: The AI updates the Markdown specification ([`SPECIFICATION.md`](targets/SPECIFICATION.md)) *first* with explicit `[SPEC-*]` requirements and Mermaid diagrams so the mistake can never repeat.
+   * **Agent Invariant Codification**: Systemic architectural traps are codified into [`AGENTS.md`](AGENTS.md) and [`.agents/rules/`](.agents/rules/engineering-log-spec-learning.md) as non-negotiable agent invariants.
+   * **Grand Traceability Gate**: C++20 / RTL implementations carry matching `// @impl [SPEC-*]` annotations, verified with `python3 tools/audit_specs.py` (100% bidirectional coverage) and `python3 tools/run_adversarial_audit.py --all` (0 invariant violations).
+   * 📖 **Read the Full Specification**: [**SpecTrace: Autonomous Closed-Loop Architecture & Invariant Engineering**](docs/SPECTRACE.md)
+
+
+
+
 
 ---
 
@@ -717,6 +745,7 @@ AbstractX/
 ├── docs/                             # 3-Tier specification & architecture hierarchy
 │   ├── README.md                     # Central documentation hub index (3-tier navigation)
 │   ├── DESIGN_SPECIFICATION.md       # Root system specification (SSOT)
+│   ├── SPECTRACE.md                  # SpecTrace closed-loop architecture & invariant methodology
 │   ├── SPEC_TEMPLATE.md              # Standard application & driver specification template
 │   ├── tier1_vision/                 # Tier 1: Abstract vision, mathematical models & system invariants
 │   ├── tier2_contracts/              # Tier 2: Protocol contracts, HAL interfaces & observability schemas
@@ -745,8 +774,11 @@ AbstractX/
 │   ├── imu/asp_imu_auto_dma.sv       # Hardware IMU Auto-DMA core
 │   └── motor/asp_dshot_core.sv       # 4-Channel hardware DShot motor core
 ├── tools/                            # Developer tooling, schema compilers & auditors
+│   ├── spectrace.py                  # SpecTrace master CLI (full bidirectional round-tripping & sync)
 │   ├── audit_specs.py                # Automated specification-to-code traceability auditor
-│   ├── run_adversarial_audit.py      # 5-Stage Sashiko-grade adversarial firmware audit tool
+│   ├── run_adversarial_audit.py      # 6-Stage SpecTrace adversarial firmware & spec audit tool
+│   ├── sync_code_to_spec.py          # Reverse-syncs code implementations back into specifications
+│   ├── log_mistake.py                # Automated engineering log & mistake reflection logger
 │   ├── create_app_spec.py            # Automated SPECIFICATION.md generator
 │   ├── generate_io_config.py         # Compiles io_processor.yaml -> constexpr C++ headers
 │   ├── setup_venv.sh                 # Automated Python venv & dependency installer
@@ -798,10 +830,24 @@ ctest --test-dir build --output-on-failure
 ```
 *Result: 100% tests passed (0 failures) in under 0.9 seconds.*
 
-### 4. Run the 5-Stage Sashiko-Grade Adversarial Firmware Audit
+### 4. SpecTrace Full Round-Trip Synchronization & Invariant Audit
 ```bash
-python3 tools/run_adversarial_audit.py
+# 1. Inspect bidirectional synchronization matrix (Spec <-> Code)
+python3 tools/spectrace.py --status
+
+# 2. Execute full two-way round-trip synchronization
+python3 tools/spectrace.py --roundtrip --apply
+
+# 3. Run full 6-stage adversarial audit across specs and code
+python3 tools/spectrace.py --audit
+
+# 4. Log a defect / architectural lesson into engineering_log.md
+python3 tools/log_mistake.py --title "SPI CS Early Deassertion" --spec targets/SPECIFICATION.md --tag SPEC-HAL-02 --append
+
+# 5. Display the 6 SpecTrace adversarial prompts for AI code & spec review
+python3 tools/run_adversarial_audit.py --prompts
 ```
+
 
 ### 5. Verify Spec-to-Code Traceability
 ```bash
