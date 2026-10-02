@@ -2,10 +2,11 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 I2C / TWI Driver
- * --------------------------------------------------
- * 100% ISR-driven hardware FSM driver for Sunxi TWI0 (0x02502000).
- * ZERO POLLING / ZERO BUSY-WAIT LOOPS. Idle core sleeps in WFI.
+ * AbstractX Allwinner XuanTie E907 I2C / TWI HAL Implementation
+ * -------------------------------------------------------------
+ * Dual-Mode Engine:
+ * 1. Low-Latency Byte-FSM: For single characters and register reads/writes (< 32 bytes)
+ * 2. High-Performance Enhanced DMA Pipeline: For bulk packets (>= 32 bytes or use_dma)
  */
 
 #include "hal/i2c.hpp"
@@ -17,13 +18,25 @@
 namespace abstractx::hal {
 
 /* Sunxi TWI0 Hardware Register Offsets */
-#define TWI0_ADDR        (*(volatile uint32_t *)(TWI0_BASE + 0x00))
-#define TWI0_XADDR       (*(volatile uint32_t *)(TWI0_BASE + 0x04))
-#define TWI0_DATA        (*(volatile uint32_t *)(TWI0_BASE + 0x08))
-#define TWI0_CNTR        (*(volatile uint32_t *)(TWI0_BASE + 0x0C))
-#define TWI0_STAT        (*(volatile uint32_t *)(TWI0_BASE + 0x10))
-#define TWI0_CCR         (*(volatile uint32_t *)(TWI0_BASE + 0x14))
-#define TWI0_SRST        (*(volatile uint32_t *)(TWI0_BASE + 0x18))
+#define TWI0_ADDR         (*(volatile uint32_t *)(TWI0_BASE + 0x00))
+#define TWI0_XADDR        (*(volatile uint32_t *)(TWI0_BASE + 0x04))
+#define TWI0_DATA         (*(volatile uint32_t *)(TWI0_BASE + 0x08))
+#define TWI0_CNTR         (*(volatile uint32_t *)(TWI0_BASE + 0x0C))
+#define TWI0_STAT         (*(volatile uint32_t *)(TWI0_BASE + 0x10))
+#define TWI0_CCR          (*(volatile uint32_t *)(TWI0_BASE + 0x14))
+#define TWI0_SRST         (*(volatile uint32_t *)(TWI0_BASE + 0x18))
+
+/* Sunxi TWI0 Enhanced Driver / FIFO / DMA Register Offsets */
+#define TWI0_DRV_CTRL     (*(volatile uint32_t *)(TWI0_BASE + 0x0200))
+#define TWI0_DRV_CFG      (*(volatile uint32_t *)(TWI0_BASE + 0x0204))
+#define TWI0_DRV_SLV      (*(volatile uint32_t *)(TWI0_BASE + 0x0208))
+#define TWI0_DRV_FMT      (*(volatile uint32_t *)(TWI0_BASE + 0x020C))
+#define TWI0_DRV_BUS_CTRL (*(volatile uint32_t *)(TWI0_BASE + 0x0210))
+#define TWI0_DRV_INT_CTRL (*(volatile uint32_t *)(TWI0_BASE + 0x0214))
+#define TWI0_DRV_DMA_CFG  (*(volatile uint32_t *)(TWI0_BASE + 0x0218))
+#define TWI0_DRV_FIFO_CON (*(volatile uint32_t *)(TWI0_BASE + 0x021C))
+#define TWI0_SENDF        (*(volatile uint32_t *)(TWI0_BASE + 0x0300))
+#define TWI0_RECVF        (*(volatile uint32_t *)(TWI0_BASE + 0x0304))
 
 /* Sunxi TWI Control Register Bits */
 #define TWI_CNTR_INTEN   (1U << 7)
@@ -34,6 +47,10 @@ namespace abstractx::hal {
 #define TWI_CNTR_A_ACK   (1U << 2)
 
 static E907I2c g_e907_i2c;
+
+static void on_twi_dma_static_callback(uint8_t channel, bool success) noexcept {
+    g_e907_i2c.on_dma_complete(channel, success);
+}
 
 E907I2c& get_e907_i2c() noexcept {
     return g_e907_i2c;
@@ -69,6 +86,14 @@ bool E907I2c::init(const I2cConfig& config) {
     volatile uint32_t* enable = reinterpret_cast<volatile uint32_t*>(0x10002000 + 4 * (26 / 32));
     *enable |= (1U << (26 % 32));
 
+    // 6. Allocate DMA Channels for large transfers
+    if (dma_tx_chan_ < 0) {
+        dma_tx_chan_ = ::hal::DmaController::allocate_channel();
+    }
+    if (dma_rx_chan_ < 0) {
+        dma_rx_chan_ = ::hal::DmaController::allocate_channel();
+    }
+
     return true;
 }
 
@@ -102,6 +127,96 @@ void E907I2c::start_fsm(uint8_t slave_addr, bool is_read, bool repeated_start,
     TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN | TWI_CNTR_M_STA;
 }
 
+bool E907I2c::start_dma_xfer(uint8_t slave_addr, bool is_read,
+                             std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept {
+    slave_addr_ = slave_addr;
+    is_read_ = is_read;
+    tx_ = tx;
+    rx_ = rx;
+    busy_ = true;
+    success_ = false;
+
+    // 1. Configure Slave Address in TWI_DRV_SLV (0x0208)
+    uint32_t slv_val = (static_cast<uint32_t>(slave_addr & 0x7F) << 9) | (is_read ? (1 << 8) : 0);
+    TWI0_DRV_SLV = slv_val;
+
+    // 2. Configure Packet Format in TWI_DRV_FMT (0x020C)
+    size_t data_len = is_read ? rx.size() : tx.size();
+    TWI0_DRV_FMT = (data_len & 0xFFFF);
+
+    // 3. Configure Packet Count in TWI_DRV_CFG (0x0204)
+    TWI0_DRV_CFG = 1;
+
+    // 4. Clear FIFOs in TWI_DRV_FIFO_CON (0x021C)
+    TWI0_DRV_FIFO_CON |= (1 << 6) | (1 << 22);
+
+    // 5. Setup DMA LLI & Channel
+    if (is_read) {
+        // RX: TWI_DRIVER_RECVF (0x0304) -> memory
+        dma_lli_.src = TWI0_BASE + 0x0304;
+        dma_lli_.dst = reinterpret_cast<uint32_t>(rx.data());
+        dma_lli_.len = rx.size();
+        dma_lli_.para = 8;
+        dma_lli_.p_lli_next = ::hal::LLI_LAST_ITEM;
+        dma_lli_.cfg = ::hal::DmaController::build_cfg(
+            ::hal::DRQ_TWI0, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_IO,
+            ::hal::DRQ_SDRAM, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_LINEAR
+        );
+
+        // Enable DMA RX in TWI_DRV_DMA_CFG (0x0218)
+        TWI0_DRV_DMA_CFG |= (1 << 24);
+
+        ::hal::DmaController::start_transfer(
+            static_cast<uint8_t>(dma_rx_chan_),
+            &dma_lli_,
+            etl::delegate<void(uint8_t, bool)>::create<on_twi_dma_static_callback>()
+        );
+    } else {
+        // TX: memory -> TWI_DRIVER_SENDF (0x0300)
+        dma_lli_.src = reinterpret_cast<uint32_t>(tx.data());
+        dma_lli_.dst = TWI0_BASE + 0x0300;
+        dma_lli_.len = tx.size();
+        dma_lli_.para = 8;
+        dma_lli_.p_lli_next = ::hal::LLI_LAST_ITEM;
+        dma_lli_.cfg = ::hal::DmaController::build_cfg(
+            ::hal::DRQ_SDRAM, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_LINEAR,
+            ::hal::DRQ_TWI0, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_IO
+        );
+
+        // Enable DMA TX in TWI_DRV_DMA_CFG (0x0218)
+        TWI0_DRV_DMA_CFG |= (1 << 8);
+
+        ::hal::DmaController::start_transfer(
+            static_cast<uint8_t>(dma_tx_chan_),
+            &dma_lli_,
+            etl::delegate<void(uint8_t, bool)>::create<on_twi_dma_static_callback>()
+        );
+    }
+
+    // 6. Start hardware transfer in TWI_DRV_CTRL (0x0200)
+    TWI0_DRV_CTRL |= (1 << 0);
+    return true;
+}
+
+void E907I2c::on_dma_complete(uint8_t channel, bool success) noexcept {
+    (void)channel;
+    // Disable DMA triggers
+    TWI0_DRV_DMA_CFG &= ~((1 << 8) | (1 << 24));
+
+    success_ = success;
+    busy_ = false;
+
+    if (active_req_.slave_addr != 0) {
+        I2cResult res{};
+        res.status = success ? I2cStatus::Ok : I2cStatus::BusError;
+        res.transferred_bytes = is_read_ ? rx_.size() : tx_.size();
+        res.timestamp_us = ::hal::Timer::get_time_ns() / 1000ULL;
+        push_completion_from_isr(active_req_, res);
+        active_req_.slave_addr = 0;
+        set_hardware_idle_from_isr();
+    }
+}
+
 bool E907I2c::write_read_sync(uint8_t slave_addr,
                              std::span<const uint8_t> tx_data,
                              std::span<uint8_t> rx_data) {
@@ -119,7 +234,13 @@ bool E907I2c::write_read_sync(uint8_t slave_addr,
 bool E907I2c::write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) {
     if (tx_data.empty()) return true;
 
-    start_fsm(slave_addr, false, false, tx_data, {});
+    if (tx_data.size() >= DMA_THRESHOLD && dma_tx_chan_ >= 0) {
+        using_dma_ = true;
+        start_dma_xfer(slave_addr, false, tx_data, {});
+    } else {
+        using_dma_ = false;
+        start_fsm(slave_addr, false, false, tx_data, {});
+    }
 
     while (busy_) {
         __asm__ volatile("wfi");
@@ -130,7 +251,13 @@ bool E907I2c::write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) {
 bool E907I2c::read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) {
     if (rx_data.empty()) return true;
 
-    start_fsm(slave_addr, true, false, {}, rx_data);
+    if (rx_data.size() >= DMA_THRESHOLD && dma_rx_chan_ >= 0) {
+        using_dma_ = true;
+        start_dma_xfer(slave_addr, true, {}, rx_data);
+    } else {
+        using_dma_ = false;
+        start_fsm(slave_addr, true, false, {}, rx_data);
+    }
 
     while (busy_) {
         __asm__ volatile("wfi");
@@ -141,7 +268,18 @@ bool E907I2c::read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) {
 void E907I2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
     active_req_ = req;
     bool is_rd = req.is_read || (!req.repeated_start && req.tx_data.empty() && !req.rx_data.empty());
-    start_fsm(req.slave_addr, is_rd, req.repeated_start, req.tx_data, req.rx_data);
+    size_t total_len = req.tx_data.size() + req.rx_data.size();
+
+    // DMA vs FIFO/ISR Threshold Decision:
+    // If request size >= DMA_THRESHOLD (32 bytes) or config.use_dma is enabled:
+    if ((total_len >= DMA_THRESHOLD || config_.use_dma) && (dma_tx_chan_ >= 0 && dma_rx_chan_ >= 0)) {
+        using_dma_ = true;
+        start_dma_xfer(req.slave_addr, is_rd, req.tx_data, req.rx_data);
+    } else {
+        // Fast-path: Low-latency byte-FSM for single characters / short register writes (no DMA setup overhead)
+        using_dma_ = false;
+        start_fsm(req.slave_addr, is_rd, req.repeated_start, req.tx_data, req.rx_data);
+    }
 }
 
 void E907I2c::on_irq() noexcept {

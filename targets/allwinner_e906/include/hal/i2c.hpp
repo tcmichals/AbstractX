@@ -8,6 +8,7 @@
 #pragma once
 
 #include "abstractx/hal/i2c.hpp"
+#include "hal/dma.hpp"
 #include <cstdint>
 #include <span>
 
@@ -15,6 +16,10 @@ namespace abstractx::hal {
 
 class E907I2c : public II2c {
 public:
+    // Threshold balancing: requests < 32 bytes use low-latency byte-FSM;
+    // requests >= 32 bytes or with use_dma enabled use hardware DMA pipeline.
+    static constexpr size_t DMA_THRESHOLD = 32;
+
     E907I2c() = default;
 
     bool init(const I2cConfig& config) override;
@@ -30,6 +35,7 @@ public:
     bool is_busy() const noexcept { return busy_; }
 
     void on_irq() noexcept;
+    void on_dma_complete(uint8_t channel, bool success) noexcept;
 
 protected:
     void start_hardware_transfer_from_isr(const I2cRequest& req) noexcept override;
@@ -37,6 +43,9 @@ protected:
 private:
     void start_fsm(uint8_t slave_addr, bool is_read, bool repeated_start,
                    std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept;
+
+    bool start_dma_xfer(uint8_t slave_addr, bool is_read,
+                        std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept;
 
     I2cConfig config_{};
     I2cRequest active_req_{};
@@ -50,6 +59,11 @@ private:
     std::span<uint8_t> rx_{};
     size_t tx_idx_{0};
     size_t rx_idx_{0};
+
+    int dma_tx_chan_{-1};
+    int dma_rx_chan_{-1};
+    ::hal::DmaLli dma_lli_{};
+    bool using_dma_{false};
 };
 
 E907I2c& get_e907_i2c() noexcept;

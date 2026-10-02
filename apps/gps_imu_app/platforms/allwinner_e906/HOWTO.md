@@ -1,4 +1,4 @@
-# Allwinner A5E & XuanTie E907 - `gps_imu_app` Deployment Guide
+# Allwinner A5E & XuanTie E906 - `gps_imu_app` Deployment Guide
 
 This guide provides step-by-step instructions for building, deploying via Linux `remoteproc`, and executing **`gps_imu_app`** on the **Allwinner Cubie A5E (Allwinner A5E SoC)** heterogeneous computing platform.
 
@@ -10,9 +10,9 @@ The Allwinner A5E couples high-throughput Linux computing with hard real-time RI
 
 ```mermaid
 graph TD
-    subgraph E907["XuanTie E907 Coprocessor: Hard Real-Time I/O (e907_coprocessor)"]
+    subgraph E906["XuanTie E906 Coprocessor: Hard Real-Time I/O (e906_coprocessor)"]
         E_Init["CCU, PMP, PLIC Vector Init"]
-        E_Loop["Non-Blocking I/O Loop (E907IoProcessor)"]
+        E_Loop["Non-Blocking I/O Loop (E906IoProcessor)"]
         E_SPI["SPI0 DMA Master (8 kHz ICM-42688-P Auto-Burst)"]
         E_TWI["TWI0 Master (50 Hz QMC5883L Compass)"]
         E_UART["UART2 DMA Driver (10 Hz U-Blox GPS)"]
@@ -36,7 +36,7 @@ graph TD
     end
 
     subgraph Interconnect["Inter-Processor Hardware Fabric"]
-        SRAM["Shared Non-Cacheable SRAM (0x40000000)<br/>g_tx_ring (Linux -> E907)<br/>g_sensor_ring (E907 -> Linux)"]
+        SRAM["Shared Non-Cacheable SRAM (0x40000000)<br/>g_tx_ring (Linux -> E906)<br/>g_sensor_ring (E906 -> Linux)"]
         MSGBOX["Sunxi MSGBOX Hardware Registers (0x03003000)"]
         RPROC["Linux remoteproc Driver (/sys/class/remoteproc/remoteproc0)"]
     end
@@ -51,17 +51,17 @@ graph TD
 
     RPROC -->|Loads ELF/BIN Firmware| E_Init
 
-    classDef e907 fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
+    classDef e906 fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
     classDef host fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
     classDef ic fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#ffffff;
 
-    class E_Init,E_Loop,E_SPI,E_TWI,E_UART,E_MB,E_Trace e907;
+    class E_Init,E_Loop,E_SPI,E_TWI,E_UART,E_MB,E_Trace e906;
     class L_Sched,L_IMU,L_FUSION,L_Egress host;
     class SRAM,MSGBOX,RPROC ic;
 ```
 
 * **Cortex-A55 (Linux Host)**: Runs `gps_imu_app` as a PREEMPT_RT process. Consumes 64-byte sensor TLPs from the shared SRAM ring, executes the attitude estimation filter, and emits telemetry.
-* **XuanTie E907 (Coprocessor)**: Runs `e907_coprocessor.bin`. Handles top-half SPI/TWI/UART interrupts and DMA descriptors, pushing parsed completion frames into shared SRAM and signaling `sun6i-msgbox`.
+* **XuanTie E906 (Coprocessor)**: Runs `e906_coprocessor.bin`. Handles top-half SPI/TWI/UART interrupts and DMA descriptors, pushing parsed completion frames into shared SRAM and signaling `sun6i-msgbox`.
 
 ---
 
@@ -81,10 +81,10 @@ graph TD
 
 ## 3. Toolchain & Prerequisites
 
-### 3.1 XuanTie RISC-V Toolchain (for E907)
+### 3.1 XuanTie RISC-V Toolchain (for E906)
 ```bash
 export PATH="/home/tcmichals/.tools/xpack-riscv-none-elf-gcc-15.2.0-1/bin:$PATH"
-export E907_LDSCRIPT="$(pwd)/targets/allwinner_e907/bsp/e907.ld"
+export E906_LDSCRIPT="$(pwd)/targets/allwinner_e906/bsp/e906.ld"
 ```
 
 ### 3.2 AArch64 Host Toolchain (for Cortex-A55 Linux)
@@ -97,15 +97,15 @@ sudo apt-get install g++-aarch64-linux-gnu
 
 ## 4. Building the System
 
-### 4.1 Step 1: Build the E907 Coprocessor Firmware
+### 4.1 Step 1: Build the E906 Coprocessor Firmware
 ```bash
-cmake --preset e907
-cmake --build build_e907 -j$(nproc)
+cmake --preset e906
+cmake --build build_e906 -j$(nproc)
 ```
-Outputs in `build_e907/apps/gps_imu_app/platforms/allwinner_e907/`:
-* `e907_coprocessor.elf`: Target ELF file
-* `e907_coprocessor.bin`: Raw flat binary for `remoteproc`
-* `e907_coprocessor.map`: Linker section map
+Outputs in `build_e906/apps/gps_imu_app/platforms/allwinner_e906/`:
+* `e906_coprocessor.elf`: Target ELF file
+* `e906_coprocessor.bin`: Raw flat binary for `remoteproc`
+* `e906_coprocessor.map`: Linker section map
 
 ### 4.2 Step 2: Build the Linux Host `gps_imu_app`
 ```bash
@@ -114,15 +114,15 @@ cmake --build build_a55 --target gps_imu_app -j$(nproc)
 ```
 Output: `build_a55/apps/gps_imu_app/gps_imu_app`.
 
-### 4.3 Step 3: Compile the E907 RemoteProc Device Tree Overlay
+### 4.3 Step 3: Compile the E906 RemoteProc Device Tree Overlay
 
-The dedicated device tree overlay [`cubie_a5e_e907_overlay.dtso`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dtso) performs critical silicon resource partitioning:
-1. **Configures Clocks & Pins via UIO (Zero Driver Contention)**: Binds `&spi0`, `&spi1`, `&uart2`, `&i2c1`, and `&i2c3` to `generic-uio`. Linux automatically configures the pinctrl (pin multiplexing) and parent clock routing at boot, but does *not* bind native kernel drivers (`sun6i-spi`, `8250_dw`, `i2c-mv64xxx`). This guarantees the E907 coprocessor has exclusive, zero-collision hardware control over the ICM-42688-P IMU, secondary SPI, GPS serial stream, and magnetometer/barometer.
+The dedicated device tree overlay [`cubie_a5e_e906_overlay.dtso`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/platforms/allwinner_e906/cubie_a5e_e906_overlay.dtso) performs critical silicon resource partitioning:
+1. **Configures Clocks & Pins via UIO (Zero Driver Contention)**: Binds `&spi0`, `&spi1`, `&uart2`, `&i2c1`, and `&i2c3` to `generic-uio`. Linux automatically configures the pinctrl (pin multiplexing) and parent clock routing at boot, but does *not* bind native kernel drivers (`sun6i-spi`, `8250_dw`, `i2c-mv64xxx`). This guarantees the E906 coprocessor has exclusive, zero-collision hardware control over the ICM-42688-P IMU, secondary SPI, GPS serial stream, and magnetometer/barometer.
 2. **Powers & Enumerates AIC8800 Wi-Fi 6**: Configures the fixed 3.3V regulators on PL7 (`reg_3v3_wifi`) and PM1 (`reg_wifi_en`) plus `&mmc1` SDIO host so Linux can stream CTF 1.8 UDP telemetry (:9870) and provide SSH access out-of-the-box.
 3. **Carves Out Non-Cacheable Reserved Memory**:
-   * **SRAM A3 Space 0** (`0x07280000` ARM64 physical / `0x3FFC0000` E907 local, 256 KB): Dedicated on-chip SRAM for E907 vector table, code execution, lock-free SPSC TLP rings (`g_tx_ring`, `g_sensor_ring`), and RemoteProc trace logging (`trace0`).
+   * **SRAM A3 Space 0** (`0x07280000` ARM64 physical / `0x3FFC0000` E906 local, 256 KB): Dedicated on-chip SRAM for E906 vector table, code execution, lock-free SPSC TLP rings (`g_tx_ring`, `g_sensor_ring`), and RemoteProc trace logging (`trace0`).
    * **DDR Shared DMA Pool** (`0x48000000`, 1 MB): Reserved non-cacheable DMA memory for virtio vrings and high-bandwidth burst transfers.
-4. **Hardware Doorbell Wiring**: Enables `&msgbox` channels 8 and 9 for inter-core hardware doorbells between Linux and XuanTie E907.
+4. **Hardware Doorbell Wiring**: Enables `&msgbox` channels 8 and 9 for inter-core hardware doorbells between Linux and XuanTie E906.
 
 #### 1. Install Device Tree Compiler (`dtc`)
 On your host or directly on the Radxa Cubie A5E:
@@ -134,8 +134,8 @@ sudo apt-get update && sudo apt-get install -y device-tree-compiler
 Run the `dtc` compiler with dynamic symbol generation enabled:
 ```bash
 dtc -@ -I dts -O dtb \
-  -o apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dtbo \
-  apps/gps_imu_app/platforms/allwinner_e907/cubie_a5e_e907_overlay.dtso
+  -o apps/gps_imu_app/platforms/allwinner_e906/cubie_a5e_e906_overlay.dtbo \
+  apps/gps_imu_app/platforms/allwinner_e906/cubie_a5e_e906_overlay.dtso
 ```
 
 > [!IMPORTANT]
@@ -143,9 +143,9 @@ dtc -@ -I dts -O dtb \
 > Overlays reference labeled nodes defined in the base board device tree (`&spi0`, `&spi1`, `&uart2`, `&i2c3`, `&mmc1`, `&msgbox`, `&rproc`). The `-@` flag instructs `dtc` to generate the `__fixups__` and `__symbols__` metadata tables. Without `-@`, U-Boot and the Linux kernel cannot resolve external node references and will reject the overlay with `Failed to apply overlay` errors.
 
 #### 3. Automated Compilation via CMake
-Building the `e907` target automatically compiles the overlay if `dtc` is present on your system:
+Building the `e906` target automatically compiles the overlay if `dtc` is present on your system:
 ```bash
-cmake --build build_e907 --target e907_dtbo
+cmake --build build_e906 --target e906_dtbo
 ```
 
 ---
@@ -160,7 +160,7 @@ This method ensures the overlay is permanently applied on every system boot:
 
 1. Copy the compiled `.dtbo` to the system overlay directory:
    ```bash
-   sudo cp cubie_a5e_e907_overlay.dtbo /boot/dtb/overlay/
+   sudo cp cubie_a5e_e906_overlay.dtbo /boot/dtb/overlay/
    # Note: On some distributions, the path is /boot/overlays/
    ```
 
@@ -172,10 +172,10 @@ This method ensures the overlay is permanently applied on every system boot:
 3. Add or update the overlay entry:
    ```ini
    # For Radxa OS / U-Boot:
-   user_overlays=cubie_a5e_e907_overlay
+   user_overlays=cubie_a5e_e906_overlay
 
    # For Armbian / sunxi:
-   # overlays=cubie_a5e_e907_overlay
+   # overlays=cubie_a5e_e906_overlay
    ```
 
 4. Reboot the board to apply the new device tree:
@@ -194,19 +194,19 @@ Linux supports applying device tree overlays dynamically at runtime via Kernel C
 sudo mount -t configfs none /sys/kernel/config 2>/dev/null || true
 
 # 2. Create an overlay directory in configfs
-sudo mkdir -p /sys/kernel/config/device-tree/overlays/e907
+sudo mkdir -p /sys/kernel/config/device-tree/overlays/e906
 
 # 3. Stream the compiled DTBO into the dtbo attribute
-sudo cat cubie_a5e_e907_overlay.dtbo | sudo tee /sys/kernel/config/device-tree/overlays/e907/dtbo
+sudo cat cubie_a5e_e906_overlay.dtbo | sudo tee /sys/kernel/config/device-tree/overlays/e906/dtbo
 
 # 4. Verify that the overlay was applied successfully
-cat /sys/kernel/config/device-tree/overlays/e907/status
+cat /sys/kernel/config/device-tree/overlays/e906/status
 # Expected output: "applied"
 ```
 
 To remove or unload the overlay dynamically at runtime:
 ```bash
-sudo rmdir /sys/kernel/config/device-tree/overlays/e907
+sudo rmdir /sys/kernel/config/device-tree/overlays/e906
 ```
 
 ---
@@ -216,7 +216,7 @@ sudo rmdir /sys/kernel/config/device-tree/overlays/e907
 If your board runs Radxa OS or Armbian with the `dtoverlay` tool installed:
 ```bash
 # Apply overlay immediately
-sudo dtoverlay cubie_a5e_e907_overlay.dtbo
+sudo dtoverlay cubie_a5e_e906_overlay.dtbo
 
 # Verify active overlays
 sudo dtoverlay -l
@@ -235,7 +235,7 @@ Before starting the coprocessor, verify that the Linux kernel applied the resour
    You should see `40000000-4003ffff : sram@40000000` reserved from general kernel allocation.
 
 2. **Verify Linux Released Peripheral Control**:
-   Check that `spi0` and `uart2` are disabled in the active Linux device tree so the E907 coprocessor has exclusive DMA ownership:
+   Check that `spi0` and `uart2` are disabled in the active Linux device tree so the E906 coprocessor has exclusive DMA ownership:
    ```bash
    cat /proc/device-tree/soc/spi@4025000/status
    # Output: "disabled"
@@ -248,16 +248,16 @@ Before starting the coprocessor, verify that the Linux kernel applied the resour
    ```bash
    ls -la /sys/class/remoteproc/
    cat /sys/class/remoteproc/remoteproc0/name
-   # Output will show the sunxi E907 remoteproc instance
+   # Output will show the sunxi E906 remoteproc instance
    ```
 
 ---
 
-### 5.5 Deploy Firmware & Start the XuanTie E907
+### 5.5 Deploy Firmware & Start the XuanTie E906
 
-1. Copy the compiled E907 coprocessor binary to `/lib/firmware/`:
+1. Copy the compiled E906 coprocessor binary to `/lib/firmware/`:
    ```bash
-   sudo cp e907_coprocessor.bin /lib/firmware/e907_coprocessor.bin
+   sudo cp e906_coprocessor.bin /lib/firmware/e906_coprocessor.bin
    ```
 
 2. Point the RemoteProc subsystem to the firmware:
@@ -268,9 +268,9 @@ Before starting the coprocessor, verify that the Linux kernel applied the resour
    fi
 
    # Select firmware file
-   echo e907_coprocessor.bin | sudo tee /sys/class/remoteproc/remoteproc0/firmware
+   echo e906_coprocessor.bin | sudo tee /sys/class/remoteproc/remoteproc0/firmware
 
-   # Boot XuanTie E907 RISC-V core
+   # Boot XuanTie E906 RISC-V core
    echo start | sudo tee /sys/class/remoteproc/remoteproc0/state
    ```
 
@@ -287,12 +287,12 @@ Before starting the coprocessor, verify that the Linux kernel applied the resour
    Expected diagnostic output:
    ```text
    ================================================================
-     AbstractX - XuanTie E907 RISC-V Co-Processor Ready!           
+     AbstractX - XuanTie E906 RISC-V Co-Processor Ready!           
      Runtime: C++20 Coroutine + ETL Fixed Container Engine         
      Trace Buffer: /sys/kernel/debug/remoteproc/remoteproc0/trace0 
    ================================================================
-   [E907 Boot] Hardware CCU Clocks & MSGBOX Doorbell Online
-   [E907 Boot] SPI0 DMA & TWI0 Sensors Initialized
+   [E906 Boot] Hardware CCU Clocks & MSGBOX Doorbell Online
+   [E906 Boot] SPI0 DMA & TWI0 Sensors Initialized
    ```
 
 ---

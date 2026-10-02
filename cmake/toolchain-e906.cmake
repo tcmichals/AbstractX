@@ -1,6 +1,6 @@
-# cmake/toolchain-e907.cmake
+# cmake/toolchain-e906.cmake
 # -------------------------
-# Toolchain definition for Allwinner XuanTie E907 RISC-V Co-Processor (T527 / A527)
+# Toolchain definition for Allwinner XuanTie E906 RISC-V Co-Processor (T527 / A527)
 
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR riscv)
@@ -15,7 +15,7 @@ set(CMAKE_OBJDUMP      "${TOOLCHAIN_PREFIX}objdump" CACHE FILEPATH "objdump")
 set(CMAKE_SIZE         "${TOOLCHAIN_PREFIX}size"    CACHE FILEPATH "size")
 
 set(RISCV_ARCH_FLAGS "-march=rv32imafc_zicsr_zifencei_zihintpause -mabi=ilp32 -mcmodel=medany")
-set(RISCV_COMMON_FLAGS "${RISCV_ARCH_FLAGS} -O2 -g -ffunction-sections -fdata-sections -Wall -Wextra -DCONFIG_CPU_FREQ_MHZ=200 -DTARGET_ALLWINNER_E907=1")
+set(RISCV_COMMON_FLAGS "${RISCV_ARCH_FLAGS} -O2 -g -ffunction-sections -fdata-sections -Wall -Wextra -DCONFIG_CPU_FREQ_MHZ=200 -DTARGET_ALLWINNER_E906=1")
 
 set(CMAKE_C_FLAGS_INIT   "${RISCV_COMMON_FLAGS}")
 set(CMAKE_CXX_FLAGS_INIT "${RISCV_COMMON_FLAGS} -fno-rtti -fno-exceptions")

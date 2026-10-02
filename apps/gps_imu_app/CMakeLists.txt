@@ -19,10 +19,10 @@ if(ABSTRACTX_TARGET STREQUAL "pico2w")
     set_target_properties(gps_imu_app PROPERTIES SUFFIX ".elf")
     pico_add_extra_outputs(gps_imu_app)
 
-elseif(ABSTRACTX_TARGET STREQUAL "e907")
-    target_link_libraries(gps_imu_app PRIVATE abstractx_target_e907 m)
+elseif(ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907")
+    target_link_libraries(gps_imu_app PRIVATE abstractx_target_e906 m)
     target_link_options(gps_imu_app PRIVATE
-        -T "${E907_LDSCRIPT}"
+        -T "${E906_LDSCRIPT}"
         -Wl,-Map=gps_imu_app.map
         -Wl,--gc-sections
         -nostartfiles
@@ -39,6 +39,6 @@ else()
 endif()
 
 # Companion XuanTie E907 coprocessor firmware for Allwinner A5E
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platforms/allwinner_e907/CMakeLists.txt" AND ABSTRACTX_TARGET STREQUAL "e907")
-    add_subdirectory(platforms/allwinner_e907)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platforms/allwinner_e906/CMakeLists.txt" AND (ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907"))
+    add_subdirectory(platforms/allwinner_e906)
 endif()

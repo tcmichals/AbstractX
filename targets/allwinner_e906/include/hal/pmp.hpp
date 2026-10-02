@@ -7,6 +7,10 @@ namespace hal {
 
 /*
  * Standard RISC-V PMP Configuration Constants
+ * NOTE: RISC-V PMP only configures Read/Write/Execute permissions.
+ * There is NO "pmp.sysmap" or cacheability bits in standard PMP.
+ * On XuanTie E906, all external DRAM is cacheable normal memory;
+ * cache coherency for DMA buffers is managed via explicit D-Cache maintenance.
  */
 namespace PmpFlags {
     constexpr uint8_t None  = 0x00;
@@ -24,7 +28,7 @@ namespace PmpFlags {
 
 class Pmp {
 public:
-    // Initialize PMP and Cache Subsystem
+    // Initialize PMP permissions
     static void init() noexcept;
 
     // Configure PMP Range (Top of Range)
@@ -33,7 +37,7 @@ public:
     // Configure PMP Range (NAPOT)
     static void set_napot_entry(uint32_t entry_idx, uintptr_t base_addr, size_t size, uint8_t flags) noexcept;
 
-    // Configure DDR DRAM carveout region for zero-copy DMA access
+    // Configure DDR DRAM carveout region for zero-copy DMA access (PMP permissions + initial invalidate)
     static void configure_dram_carveout(uintptr_t dram_base, size_t dram_size) noexcept;
 
     // Memory and Pipeline Barriers
@@ -47,11 +51,12 @@ public:
 #endif
     }
 
-
-    // XuanTie D-Cache Maintenance Primitives
+    // XuanTie E906 Hardware D-Cache Maintenance Primitives (Vendor opcodes enabled via THEADISAEE)
     static void dcache_clean_range(uintptr_t addr, size_t len) noexcept;
     static void dcache_invalidate_range(uintptr_t addr, size_t len) noexcept;
+    static void dcache_clean_invalidate_range(uintptr_t addr, size_t len) noexcept;
     static void dcache_flush_all() noexcept;
+    static void icache_invalidate_all() noexcept;
 };
 
 } // namespace hal

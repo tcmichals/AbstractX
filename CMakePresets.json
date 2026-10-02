@@ -17,14 +17,25 @@
       }
     },
     {
+      "name": "e906",
+      "displayName": "Allwinner XuanTie E906 RISC-V Bare-metal",
+      "description": "Build for XuanTie E906 (Allwinner T527 / A523) co-processor via remoteproc",
+      "binaryDir": "${sourceDir}/build_e906",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/riscv-none-elf.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ABSTRACTX_TARGET": "e906"
+      }
+    },
+    {
       "name": "e907",
       "displayName": "Allwinner XuanTie E907 RISC-V Bare-metal",
-      "description": "Build for XuanTie E907 (Allwinner T527 / A733) co-processor via remoteproc",
+      "description": "Legacy alias for e906",
       "binaryDir": "${sourceDir}/build_e907",
       "toolchainFile": "${sourceDir}/cmake/toolchains/riscv-none-elf.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "ABSTRACTX_TARGET": "e907"
+        "ABSTRACTX_TARGET": "e906"
       }
     },
     {
@@ -58,6 +69,10 @@
     {
       "name": "host",
       "configurePreset": "host"
+    },
+    {
+      "name": "e906",
+      "configurePreset": "e906"
     },
     {
       "name": "e907",
