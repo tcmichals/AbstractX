@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX XuanTie E907 Co-Processor Firmware
+ * AbstractX XuanTie E906 Co-Processor Firmware
  * --------------------------------------------
  * Integrates:
  * 1. AbstractX C++20 Zero-Allocation Coroutines
@@ -54,7 +54,7 @@ int main(void) {
     // 2. Initialize Remoteproc Trace Buffer
     trace_init();
     trace_puts("================================================================\n");
-    trace_puts("  AbstractX - XuanTie E907 RISC-V Co-Processor Ready!           \n");
+    trace_puts("  AbstractX - XuanTie E906 RISC-V Co-Processor Ready!           \n");
     trace_puts("  Runtime: C++20 Coroutine + ETL Fixed Container Engine         \n");
     trace_puts("  Trace Buffer: /sys/kernel/debug/remoteproc/remoteproc0/trace0 \n");
     trace_puts("================================================================\n");
@@ -77,7 +77,7 @@ int main(void) {
 
         hal::Timer::delay_ms(1000);
 
-        trace_puts("[AbstractX E907] Heartbeat #");
+        trace_puts("[AbstractX E906] Heartbeat #");
         put_uint(uptime_sec);
         trace_puts(" (uptime: ");
         put_uint(uptime_sec);
