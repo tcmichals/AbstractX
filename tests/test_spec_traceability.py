@@ -65,3 +65,17 @@ def test_studio_specification_traceability(repo_root, studio_spec_path):
             full_path = repo_root / rel_file
             assert full_path.exists(), f"Implementation file referenced by {spec_id} not found: {rel_file}"
 
+
+def test_serial_loopback_specification_traceability(repo_root):
+    """Proves 100% implementation coverage for apps/serial_loopback_app/SPECIFICATION.md"""
+    spec_path = repo_root / "apps" / "serial_loopback_app" / "SPECIFICATION.md"
+    assert spec_path.exists(), f"App specification missing: {spec_path}"
+
+    results = run_traceability_audit(spec_path, repo_root)
+    total = results["total"]
+    implemented = results["implemented"]
+    coverage = results["coverage"]
+
+    assert total == 9, f"Expected 9 serial loopback specs, found {total}"
+    assert implemented == 9, f"Expected 9 implemented serial loopback specs, found {implemented}"
+    assert coverage == 100.0, f"Serial loopback coverage is {coverage}%, expected 100.0%"
