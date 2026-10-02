@@ -39,3 +39,8 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platforms/allwinner_e906/CMakeLists.txt" AND (ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907"))
     add_subdirectory(platforms/allwinner_e906)
 endif()
+
+# Linux SITL 2-queue memory loopback runner
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platforms/linux/CMakeLists.txt" AND (ABSTRACTX_TARGET STREQUAL "host" OR ABSTRACTX_TARGET STREQUAL "linux"))
+    add_subdirectory(platforms/linux)
+endif()

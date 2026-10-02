@@ -46,3 +46,8 @@ add_abstractx_cpputest(test_sitl_fusion
     test_main.cpp
     test_sitl_fusion.cpp
 )
+
+add_abstractx_cpputest(test_sitl_serial_loopback
+    test_main.cpp
+    test_sitl_serial_loopback.cpp
+)
