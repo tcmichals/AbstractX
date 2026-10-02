@@ -5,6 +5,9 @@
 
 namespace hal {
 
+static std::coroutine_handle<> s_rpmsg_coroutine_handle{nullptr};
+
+
 /*
  * VirtIO Ring Internal Descriptors
  */
@@ -273,6 +276,13 @@ uint32_t Rpmsg::get_tx_count() noexcept {
     return s_linux_tx_count.load(std::memory_order_relaxed);
 }
 
+bool Rpmsg::is_rx_pending() noexcept {
+    if (!is_driver_ready() || s_linux_rx_vq.avail == nullptr) return false;
+    Pmp::dcache_invalidate_range(reinterpret_cast<uintptr_t>(const_cast<struct VirtioAvail *>(s_linux_rx_vq.avail)), sizeof(struct VirtioAvail));
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return (s_linux_rx_vq.last_avail_idx != s_linux_rx_vq.avail->idx);
+}
+
 // ============================================================================
 // 2. RpmsgLiteMetal: Direct Bare-Metal Implementation (Zero Cache Operations)
 // ============================================================================
@@ -447,4 +457,43 @@ uint32_t RpmsgLiteMetal::get_tx_count() noexcept {
     return s_lite_tx_count.load(std::memory_order_relaxed);
 }
 
+bool RpmsgLiteMetal::is_rx_pending() noexcept {
+    if (!is_driver_ready() || s_lite_rx_vq.avail == nullptr) return false;
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return (s_lite_rx_vq.last_avail_idx != s_lite_rx_vq.avail->idx);
+}
+
+
+// ============================================================================
+// 3. C++20 Coroutine Async Awaiter & Hardware MSGBOX ISR Binding
+// ============================================================================
+bool IRpmsg::AsyncRxAwaiter::await_ready() const noexcept {
+    return driver && driver->is_rx_pending();
+}
+
+void IRpmsg::AsyncRxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
+    s_rpmsg_coroutine_handle = handle;
+    // Enable Channel 1 receive interrupt so Linux doorbell triggers PLIC IRQ
+    MsgBox::enable_rx_irq(MsgBox::Channel::Channel1, true);
+}
+
+bool IRpmsg::AsyncRxAwaiter::await_resume() noexcept {
+    s_rpmsg_coroutine_handle = nullptr;
+    return driver ? driver->poll() : false;
+}
+
 } // namespace hal
+
+// Hardware MSGBOX ISR (Overrides weak declaration in irq_dispatcher.cpp)
+extern "C" __attribute__((section(".fastcode")))
+void fc_msgbox_doorbell_isr() noexcept {
+    // 1. Clear hardware interrupt status
+    hal::MsgBox::clear_irq_status(hal::MsgBox::Channel::Channel1);
+
+    // 2. Resume waiting coroutine directly (< 25 ns wakeup latency)
+    if (hal::s_rpmsg_coroutine_handle && !hal::s_rpmsg_coroutine_handle.done()) {
+        auto h = hal::s_rpmsg_coroutine_handle;
+        hal::s_rpmsg_coroutine_handle = nullptr;
+        h.resume();
+    }
+}

@@ -1,3 +1,4 @@
+#include <coroutine>
 #pragma once
 
 #include <stdint.h>
@@ -39,6 +40,19 @@ public:
     virtual bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept = 0;
     virtual uint32_t get_rx_count() noexcept = 0;
     virtual uint32_t get_tx_count() noexcept = 0;
+    virtual bool is_rx_pending() noexcept = 0;
+
+    /* C++20 Asynchronous Coroutine Awaiter: Suspends until Linux kicks MSGBOX */
+    struct AsyncRxAwaiter {
+        IRpmsg *driver;
+        bool await_ready() const noexcept;
+        void await_suspend(std::coroutine_handle<> handle) noexcept;
+        bool await_resume() noexcept;
+    };
+
+    inline AsyncRxAwaiter async_receive() noexcept {
+        return AsyncRxAwaiter{this};
+    }
 };
 
 /*
@@ -64,6 +78,7 @@ public:
     bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept override;
     uint32_t get_rx_count() noexcept override;
     uint32_t get_tx_count() noexcept override;
+    bool is_rx_pending() noexcept override;
 
     // Static convenience facade delegating to the globally active driver
     static void set_active_driver(IRpmsg *driver) noexcept;
@@ -102,6 +117,7 @@ public:
     bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept override;
     uint32_t get_rx_count() noexcept override;
     uint32_t get_tx_count() noexcept override;
+    bool is_rx_pending() noexcept override;
 };
 
 } // namespace hal
