@@ -25,6 +25,17 @@
 
 ## Deterministic Concurrency for Hardware-Software Co-Design
 
+### 💡 Core Design Philosophy: Linear Programming with a Minimal Footprint
+
+> 📖 **Read the Full Deep-Dive**: [**Architectural Design Philosophy: Pros, Cons & RTOS Comparison**](docs/PROS_CONS.md)
+
+AbstractX is **not a flight controller**; it is an **embedded design pattern** that brings **linear, sequential async programming with an ultra-small memory footprint** to embedded systems:
+* **Single Stack vs RTOS Multi-Stack Bloat**: Traditional RTOSes lock 2–8 KB of RAM in every task stack. AbstractX runs the entire core on a single 1–2 KB execution stack and tiny ~96-byte coroutine frames (up to 95% RAM savings).
+* **Bare-Metal or RTOS Hosted**: Runs bare-metal, or inside a *single* FreeRTOS/Linux thread to multiplex dozens of cooperative async tasks without thread bloat.
+* **Beyond Protothreads**: Replaces callback spaghetti and Duff's device C macros with modern C++20 `co_await`, preserving local variables across yields with full compile-time type safety.
+* **First-Class Telemetry**: Solves the classic cooperative debugging problem with built-in barectf CTF 1.8 and AbstractX Studio visual Gantt execution timelines.
+
+
 AbstractX is a **hardware-software co-design architecture** for real-time aerospace, robotics, and embedded systems. It applies a single, unified concurrency paradigm symmetrically across **FPGA switch fabrics, real-time coprocessors, bare-metal microcontrollers, and Linux hosts**.
 
 By pairing **C++20 stackless coroutines** with **hardware auto-DMA engines and PCIe-style Transaction Layer Packets (TLPs)**, AbstractX eliminates the two classic failure modes of real-time embedded software:
