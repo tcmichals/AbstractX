@@ -1,5 +1,6 @@
 #include "rpmsg.hpp"
 #include "msgbox.hpp"
+#include "pmp.hpp"
 #include <string.h>
 
 namespace hal {
@@ -142,6 +143,8 @@ bool Rpmsg::poll() noexcept {
         return false;
     }
 
+    // Invalidate D-Cache for the available ring to read fresh indices from Linux host
+    Pmp::dcache_invalidate_range(reinterpret_cast<uintptr_t>(const_cast<struct VirtioAvail *>(s_rx_vq.avail)), sizeof(struct VirtioAvail));
     std::atomic_thread_fence(std::memory_order_acquire);
     uint16_t avail_idx = s_rx_vq.avail->idx;
 
@@ -153,8 +156,11 @@ bool Rpmsg::poll() noexcept {
     while (s_rx_vq.last_avail_idx != avail_idx) {
         uint16_t desc_idx = s_rx_vq.avail->ring[s_rx_vq.last_avail_idx % s_rx_vq.num];
         volatile struct VirtioDesc *desc = &s_rx_vq.desc[desc_idx];
+        Pmp::dcache_invalidate_range(reinterpret_cast<uintptr_t>(const_cast<struct VirtioDesc *>(desc)), sizeof(struct VirtioDesc));
 
         if (desc->addr != 0 && desc->len >= sizeof(struct rpmsg_hdr)) {
+            // Invalidate D-Cache for incoming packet buffer so CPU reads DRAM written by host
+            Pmp::dcache_invalidate_range(static_cast<uintptr_t>(desc->addr), desc->len);
             volatile struct rpmsg_hdr *hdr = reinterpret_cast<volatile struct rpmsg_hdr *>(static_cast<uintptr_t>(desc->addr));
 
             RpmsgMessage msg;
@@ -210,6 +216,9 @@ bool Rpmsg::reply(const RpmsgMessage &incoming, const void *payload, uint16_t le
         }
     }
 
+    // Clean (write-back) modified response buffer to DDR memory before signaling host
+    Pmp::dcache_clean_range(static_cast<uintptr_t>(desc->addr), sizeof(struct rpmsg_hdr) + len);
+
     std::atomic_thread_fence(std::memory_order_release);
 
     // Update Used Ring
@@ -220,6 +229,9 @@ bool Rpmsg::reply(const RpmsgMessage &incoming, const void *payload, uint16_t le
     std::atomic_thread_fence(std::memory_order_release);
     s_rx_vq.used->idx = used_idx + 1;
     std::atomic_thread_fence(std::memory_order_seq_cst);
+
+    // Clean (write-back) modified Used Ring to DDR memory before ringing doorbell
+    Pmp::dcache_clean_range(reinterpret_cast<uintptr_t>(const_cast<struct VirtioUsed *>(s_rx_vq.used)), sizeof(struct VirtioUsed));
 
     // Kick Linux host on MSGBOX Channel 0 (doorbell interrupt)
     MsgBox::send(MsgBox::Channel::Channel0, 0);
