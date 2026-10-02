@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include <cstring>
 #include <coroutine>
 
 #include "hal/timer.hpp"
@@ -32,7 +33,7 @@ static void print_dec(uint32_t val) {
         return;
     }
     while (val > 0) {
-        buf[idx++] = 0 + (val % 10);
+        buf[idx++] = '0' + (val % 10);
         val /= 10;
     }
     for (int i = idx - 1; i >= 0; i--) {
@@ -42,20 +43,24 @@ static void print_dec(uint32_t val) {
 }
 
 // 64-byte TLP Packet Structure for Serial Telemetry
+// @impl [SPEC-LOOP-05] [SPEC-LOOP-06] apps/serial_loopback_app/SPECIFICATION.md
 struct alignas(64) SerialTlpPacket {
-    uint32_t magic;          // 0xC1FC1FC1 (barectf CTF 1.8 header)
-    uint32_t seq;            // Monotonic sequence number
-    uint64_t timestamp_ns;   // Timestamp
-    uint32_t packets_echoed; // Total packets processed
-    uint32_t bytes_echoed;   // Total bytes transferred
-    uint32_t dma_bursts;     // Count of >32B bursts processed via DMA
-    uint32_t cpu_active_pct; // Permille (10 = 1.0%)
-    uint8_t  reserved[28];   // Padding to exact 64 bytes
+    uint8_t  type;            // 0x01 = MemRead (Ping), 0x03 = Completion (Echo)
+    uint8_t  flags;           // Status flags (0 = OK)
+    uint8_t  tag;             // Correlation tag
+    uint8_t  channel;         // Routing plane (0x01 = Control, 0x04 = Debug)
+    uint32_t target_addr;     // Target address
+    uint16_t length_dw;       // Length in DWORDs
+    uint16_t seq;             // Monotonic sequence number
+    uint64_t timestamp_ns;    // Nanosecond timestamp
+    uint8_t  payload[40];     // Telemetry data / Echo payload
+    uint32_t crc32;           // Frame check sequence
 };
 
 static SerialTlpPacket g_tlp_packet;
 
 // Microsecond cycle counter reader
+// @impl [SPEC-LOOP-07] apps/serial_loopback_app/SPECIFICATION.md
 static inline uint64_t read_mcycle64() {
 #if defined(__riscv)
     uint32_t hi0, lo, hi1;
@@ -70,6 +75,7 @@ static inline uint64_t read_mcycle64() {
 #endif
 }
 
+// @impl [SPEC-LOOP-02] [SPEC-LOOP-03] [SPEC-LOOP-05] apps/serial_loopback_app/SPECIFICATION.md
 int main(void) {
     // 1. Initialize RemoteProc live trace buffer in SRAM Space 0
     trace_init();
@@ -98,7 +104,7 @@ int main(void) {
     trace_puts("[AbstractX E906] Serial Loopback Active on UART2 (PB0/PB1)\n");
 
     while (1) {
-        // Check for incoming serial data from FIFO / DMA
+        // @impl [SPEC-LOOP-03] UART RTO non-blocking receiver framing
         if (fc::hal::Uart2::has_data()) {
             size_t bytes_read = 0;
             while (fc::hal::Uart2::has_data() && bytes_read < sizeof(rx_buffer)) {
@@ -106,7 +112,19 @@ int main(void) {
             }
 
             if (bytes_read > 0) {
-                // Loopback Echo with Threshold Balancing:
+                // Check if this is a 64-byte TLP packet
+                if (bytes_read == sizeof(SerialTlpPacket)) {
+                    auto* req = reinterpret_cast<SerialTlpPacket*>(rx_buffer);
+                    if (req->type == 0x01) { // MemRead / Ping Request
+                        // Echo as Completion (0x03)
+                        req->type = 0x03;
+                        req->flags = 0; // ASP_STATUS_OK
+                        req->seq = ++seq;
+                        req->timestamp_ns = read_mcycle64() * 5; // 5 ns @ 200 MHz
+                    }
+                }
+
+                // @impl [SPEC-LOOP-02] Loopback Echo with Threshold Balancing:
                 // <= 32 bytes: Writes directly via CPU FIFO
                 // > 32 bytes: Automatically streams via Sunxi DMA Controller
                 if (bytes_read > fc::hal::Uart2::DMA_TX_THRESHOLD) {
@@ -120,20 +138,19 @@ int main(void) {
             }
         }
 
-        // Periodic 1-second diagnostic heartbeat and CPU profiling
+        // @impl [SPEC-LOOP-07] Periodic 1-second diagnostic heartbeat and CPU profiling
         uint64_t now = read_mcycle64();
         if ((now - last_heartbeat) >= CYCLES_PER_SEC) {
             seq++;
             last_heartbeat = now;
 
             // Populate 64-byte barectf / TLP event packet
-            g_tlp_packet.magic = 0xC1FC1FC1;
+            g_tlp_packet.type = 0x10; // DmaStream / Telemetry
+            g_tlp_packet.flags = 0;
+            g_tlp_packet.tag = 0;
+            g_tlp_packet.channel = 0x04; // Debug
             g_tlp_packet.seq = seq;
             g_tlp_packet.timestamp_ns = now * 5; // 5 ns per cycle at 200 MHz
-            g_tlp_packet.packets_echoed = total_packets;
-            g_tlp_packet.bytes_echoed = total_bytes;
-            g_tlp_packet.dma_bursts = total_dma_bursts;
-            g_tlp_packet.cpu_active_pct = 5; // < 1.0%
 
             trace_puts("[AbstractX E906] Heartbeat #");
             print_dec(seq);
