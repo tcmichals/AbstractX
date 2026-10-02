@@ -93,3 +93,33 @@ The AbstractX Visualizer architecture (`abstractx_studio.py` and `flight_display
 3. **Pop-to-Canvas Movable Windows**: Any diagnostic tab can be popped out onto the desktop canvas via `🗖 Pop to Canvas` to allow simultaneous multi-window comparison (e.g., inspecting coroutine suspensions alongside TLP packet hex streams and CPU load).
 4. **Anti-Clutter Single-Source State**: When a tool is popped out to the canvas, its Studio tab displays a placeholder pointing to the active floating window with a 1-click `🗗 Pop In (Dock to Studio)` button—preventing duplicate rendering, desync, or screen confusion.
 
+---
+
+## 9. SpecTrace: Anti-Drift Adversarial Review & Autonomous Learning Gate
+AbstractX implements **SpecTrace** ([`docs/SPECTRACE.md`](docs/SPECTRACE.md)), an autonomous closed-loop architecture connecting aerospace requirement traceability with AI reflexive learning.
+
+Whenever fixing a bug, addressing an algorithmic refinement, resolving a test failure, or implementing an architectural refactor:
+1. **Engineering Log Chronicle (`engineering_log.md`)**:
+   - Record the mistake / bug, root cause, and lesson learned:
+     `python3 tools/log_mistake.py --title "<Title>" --target "<Subsystem>" --spec "<SpecFile>" --tag "<Tag>"`
+2. **SpecTrace Anti-Drift Adversarial Audit**:
+   - Evaluate proposed changes against the 6 adversarial stages across both Markdown Specifications and Code:
+     - Stage 0: Specification Markdown & SSOT Anti-Drift (Requirement tags `[SPEC-*]`, Mermaid diagrams, zero-heap & async mandates, spec-to-code parity)
+     - Stage 1: Freestanding C++20 & Hardirq Concurrency (No dynamic allocations, forbidden STL headers, or ISR resumes)
+     - Stage 2: Non-Blocking HAL & Coroutine Lifecycle (No synchronous delays/spins, symmetric cancellation)
+     - Stage 3: Subsystem Contracts (Primary-Paced Channel Pattern, zero modulus prescalers)
+     - Stage 4: Hardware Interconnect, 64B TLP Framing & Endianness (Static assert 64B, posted writes flush)
+     - Stage 5: Adversarial Gatekeeper & Anti-Drift Directives (Deduplication, severity ranking, and generating prompt directives to fix `SPECIFICATION.md`)
+3. **Spec Markdown Drives Code (SSOT First)**:
+   - Use the adversarial review findings to **update the Markdown specification (`SPECIFICATION.md`) FIRST** with explicit `[SPEC-*]` requirements and diagrams so the mistake can never repeat.
+   - NEVER modify C++ or RTL code until the spec reflects the design/bugfix decision.
+4. **Traceable Code Implementation (Grand Traceability)**:
+   - Implement the freestanding C++20 or RTL changes, tagging every modified block with `// @impl [SPEC-*] <file_path>` so algorithms can be mathematically traced and validated against the spec.
+5. **Verification Gate**:
+   - Run `python3 tools/audit_specs.py` to confirm 100% spec-to-code traceability.
+   - Run `python3 tools/run_adversarial_audit.py` to confirm 0 invariant violations and 0 drift.
+   - Run `ctest --test-dir build` / Cocotb regression suites (100% pass rate).
+
+
+
+
