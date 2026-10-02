@@ -14,12 +14,12 @@
       "max_allowed_growth_bytes": 4096
     },
     {
-      "name": "allwinner_e907_gps_imu_app",
-      "display_name": "Radxa Cubie A5E (XuanTie E907 RISC-V)",
-      "platform": "allwinner_a5e_e907",
-      "architecture": "riscv32_e907",
-      "binary_path": "build-e907/apps/gps_imu_app/gps_imu_app",
-      "map_path": "build-e907/apps/gps_imu_app/gps_imu_app.map",
+      "name": "allwinner_e906_gps_imu_app",
+      "display_name": "Radxa Cubie A5E (XuanTie E906 RISC-V)",
+      "platform": "allwinner_a5e_e906",
+      "architecture": "riscv32_e906",
+      "binary_path": "build_e906/apps/gps_imu_app/gps_imu_app",
+      "map_path": "build_e906/apps/gps_imu_app/gps_imu_app.map",
       "ram_budget_bytes": 65536,
       "flash_budget_bytes": 1048576,
       "max_allowed_growth_bytes": 2048

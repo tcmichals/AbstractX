@@ -1,5 +1,5 @@
 /*
- * startup.S - XuanTie E907 (RV32IMAFDC) Unified Startup & Exception Vector Table
+ * startup.S - XuanTie E906 (RV32IMAFDC) Unified Startup & Exception Vector Table
  */
 
     .section .vectors, "ax", @progbits
@@ -170,6 +170,37 @@ _start:
      */
     li t0, (3 << 13)
     csrs mstatus, t0
+
+    /*
+     * 5a. Enable T-Head Vendor ISA Extensions (CSR_MXSTATUS 0x7C0)
+     * Bit 22: THEADISAEE (T-Head ISA extension enable - required for dcache opcodes)
+     * Bit 15: MM (Hardware unaligned memory access support)
+     */
+    li t0, (1 << 22) | (1 << 15)
+    csrs 0x7c0, t0
+
+    /*
+     * 5b. Invalidate both I-Cache and D-Cache prior to activation:
+     * CSR_MCOR (0x7C2): Bit 6 = Clean & Invalidate all D-Cache, Bit 17 = Invalidate all I-Cache
+     */
+    li t0, (1 << 6) | (1 << 17)
+    csrs 0x7c2, t0
+
+    /*
+     * 5c. Enable Hardware Configuration (CSR_MHCR 0x7C1):
+     * Bit 0:  IE (Instruction Cache Enable)
+     * Bit 1:  DE (Data Cache Enable)
+     * Bit 2:  WB (Write-Back mode for D-Cache)
+     * Bit 3:  WA (Write-Allocate mode for D-Cache)
+     * Bit 4:  RS (Return Stack Enable)
+     * Bit 5:  BPE (Branch Prediction Enable)
+     * Bit 12: BTB (Branch Target Buffer Enable)
+     */
+    li t0, (1 << 12) | (0xF << 2) | (1 << 1) | (1 << 0)
+    csrw 0x7c1, t0
+
+    fence.i
+    fence rw, rw
 
     /* 6. Copy .data from LMA to VMA if separate */
     la a0, _sdata

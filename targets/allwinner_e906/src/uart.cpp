@@ -1,5 +1,6 @@
 #include "uart.hpp"
 #include "timer.hpp"
+#include "hal/dma.hpp"
 #include "memory_map.h"
 #include "abstractx/isr_dispatcher.hpp"
 #include <atomic>
@@ -67,6 +68,35 @@ static AtomicByteQueue<512> g_uart_tx_ring;
 static std::atomic<std::coroutine_handle<>> g_uart_rx_coroutine{nullptr};
 static std::atomic<bool> g_uart_packet_ready{false};
 
+/* UART2 TX DMA Engine state */
+static int g_uart_tx_dma_chan = -1;
+static ::hal::DmaLli g_uart_tx_lli;
+static volatile bool g_uart_tx_dma_busy = false;
+static etl::delegate<void(bool)> g_uart_tx_dma_callback{};
+static std::coroutine_handle<> g_uart_tx_coro_handle{nullptr};
+static bool *g_uart_tx_completed_ptr = nullptr;
+
+static void on_uart_tx_dma_complete(uint8_t channel, bool success) noexcept {
+    (void)channel;
+    g_uart_tx_dma_busy = false;
+    auto cb = g_uart_tx_dma_callback;
+    g_uart_tx_dma_callback = {};
+    if (cb.is_valid()) {
+        cb(success);
+    }
+}
+
+static void on_uart_tx_dma_coro_callback(bool success) noexcept {
+    if (g_uart_tx_completed_ptr) {
+        *g_uart_tx_completed_ptr = success;
+    }
+    auto handle = g_uart_tx_coro_handle;
+    g_uart_tx_coro_handle = nullptr;
+    if (handle) {
+        abstractx::IsrDispatcher::post(handle);
+    }
+}
+
 void Uart2::init(uint32_t baud_rate, uint32_t apb_clock_hz) {
     // 1. Disable all interrupts during init
     UART2_IER = 0x00;
@@ -86,6 +116,11 @@ void Uart2::init(uint32_t baud_rate, uint32_t apb_clock_hz) {
 
     // 6. Enable Receiver Data Available (ERBFI bit 0) & Receiver Timeout (RTO) Interrupt
     UART2_IER = 0x01;
+
+    // 7. Allocate DMA Channel for high-throughput TX streaming
+    if (g_uart_tx_dma_chan < 0) {
+        g_uart_tx_dma_chan = ::hal::DmaController::allocate_channel();
+    }
 }
 
 void Uart2::set_baud(uint32_t baud_rate, uint32_t apb_clock_hz) {
@@ -126,6 +161,53 @@ void Uart2::write_str(const char *str) {
         if (*str == '\n') write_byte('\r');
         write_byte(static_cast<uint8_t>(*str++));
     }
+}
+
+bool Uart2::write_async_dma(const uint8_t *data, size_t len, etl::delegate<void(bool)> callback) noexcept {
+    if (len == 0) return true;
+    if (g_uart_tx_dma_chan < 0) return false;
+
+    g_uart_tx_dma_busy = true;
+    g_uart_tx_dma_callback = callback;
+
+    g_uart_tx_lli.src = reinterpret_cast<uint32_t>(data);
+    g_uart_tx_lli.dst = UART2_BASE + 0x00; // UART2_THR
+    g_uart_tx_lli.len = len;
+    g_uart_tx_lli.para = 8;
+    g_uart_tx_lli.p_lli_next = ::hal::LLI_LAST_ITEM;
+    g_uart_tx_lli.cfg = ::hal::DmaController::build_cfg(
+        ::hal::DRQ_SDRAM, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_LINEAR,
+        ::hal::DRQ_UART2, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_IO
+    );
+
+    ::hal::DmaController::start_transfer(
+        static_cast<uint8_t>(g_uart_tx_dma_chan),
+        &g_uart_tx_lli,
+        etl::delegate<void(uint8_t, bool)>::create<on_uart_tx_dma_complete>()
+    );
+
+    return true;
+}
+
+bool Uart2::is_tx_busy() noexcept {
+    return g_uart_tx_dma_busy || !g_uart_tx_ring.empty();
+}
+
+void Uart2::AsyncTxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
+    // Threshold Balancing:
+    // If len <= DMA_TX_THRESHOLD (32 bytes) or DMA not available:
+    // push to low-latency FIFO / ring buffer without DMA allocation & descriptor setup!
+    if (len <= DMA_TX_THRESHOLD || g_uart_tx_dma_chan < 0) {
+        Uart2::write(data, len);
+        completed = true;
+        handle.resume();
+        return;
+    }
+
+    // Large payload: stream via zero-copy DMA
+    g_uart_tx_coro_handle = handle;
+    g_uart_tx_completed_ptr = &completed;
+    write_async_dma(data, len, etl::delegate<void(bool)>::create<on_uart_tx_dma_coro_callback>());
 }
 
 bool Uart2::has_data() {

@@ -47,7 +47,7 @@ void DmaController::init() noexcept {
 
 int DmaController::allocate_channel() noexcept {
     abstractx::InterruptGuard guard;
-    for (size_t i = 0; i < NUM_CHANNELS; ++i) {
+    for (size_t i = DMA_START_CHANNEL; i < NUM_CHANNELS; ++i) {
         if (!g_channels[i].allocated) {
             g_channels[i].allocated = true;
             g_channels[i].callback = {};

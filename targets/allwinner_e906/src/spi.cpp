@@ -2,15 +2,18 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 SPI0 DMA Driver
- * ------------------------------------------------
- * 100% ISR and DMA-driven peripheral engine. ZERO POLLING / ZERO BUSY-WAIT.
+ * AbstractX Allwinner XuanTie E907 SPI0 Driver
+ * --------------------------------------------
+ * Dual-Mode Engine with Threshold Balancing:
+ * 1. Low-Latency Fast FIFO Direct Transfer (<= 4 bytes): Zero DMA setup overhead
+ * 2. High-Performance Dual-Channel DMA (> 4 bytes): Zero CPU bus cycles
  */
 
 #include "hal/spi.hpp"
 #include "hal/pio.hpp"
 #include "hal/dma.hpp"
 #include "memory_map.h"
+#include "abstractx/isr_dispatcher.hpp"
 #include <cstring>
 
 namespace fc::hal {
@@ -98,6 +101,50 @@ bool Spi0::is_busy() noexcept {
     return g_spi_busy;
 }
 
+bool Spi0::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_buf, size_t length) {
+    if (length == 0) return true;
+
+    // 1. Assert Chip Select
+    if (cs_id == 0) Pio::set_cs0(true);
+    else if (cs_id == 1) Pio::set_cs1(true);
+
+    // 2. Reset FIFOs
+    SPI0_FCR |= (1 << 31) | (1 << 15);
+
+    // 3. Set Total Burst Counter
+    SPI0_MBC = length;
+    SPI0_MTC = length;
+    SPI0_BCC = length;
+
+    // 4. Manual CS mode
+    SPI0_TCR = (1 << 7);
+
+    // 5. Fill TX FIFO directly
+    for (size_t i = 0; i < length; ++i) {
+        SPI0_TXD_8 = tx_buf ? tx_buf[i] : 0xFF;
+    }
+
+    // 6. Start transfer (XCH bit 31)
+    SPI0_TCR |= (1U << 31);
+
+    // 7. Wait for transfer complete (XCH self-clears)
+    while (SPI0_TCR & (1U << 31)) {
+        __asm__ volatile("nop");
+    }
+
+    // 8. Drain RX FIFO
+    for (size_t i = 0; i < length; ++i) {
+        uint8_t byte = SPI0_RXD_8;
+        if (rx_buf) rx_buf[i] = byte;
+    }
+
+    // 9. Deassert Chip Select
+    if (cs_id == 0) Pio::set_cs0(false);
+    else if (cs_id == 1) Pio::set_cs1(false);
+
+    return true;
+}
+
 bool Spi0::start_dma_transfer(
     int cs_id,
     const uint8_t *tx,
@@ -171,9 +218,12 @@ bool Spi0::start_dma_transfer(
     return true;
 }
 
-/* Synchronous Transfers without Busy-Spinning (Low-Power WFI sleep) */
+/* Synchronous Transfers with Fast-Path Thresholding */
 bool Spi0::transceive_imu_single_sync(const uint8_t *tx_buf, uint8_t *rx_buf, size_t length) {
     if (length == 0) return true;
+    if (length <= DMA_THRESHOLD) {
+        return transceive_fifo_sync(1 /* CS1 */, tx_buf, rx_buf, length);
+    }
     start_dma_transfer(1 /* CS1 */, tx_buf, rx_buf, length, {});
     while (is_busy()) {
         __asm__ volatile("wfi");
@@ -183,11 +233,62 @@ bool Spi0::transceive_imu_single_sync(const uint8_t *tx_buf, uint8_t *rx_buf, si
 
 bool Spi0::transceive_fpga_dual_sync(const uint8_t *tx_buf, uint8_t *rx_buf, size_t length) {
     if (length == 0) return true;
+    if (length <= DMA_THRESHOLD) {
+        return transceive_fifo_sync(0 /* CS0 */, tx_buf, rx_buf, length);
+    }
     start_dma_transfer(0 /* CS0 */, tx_buf, rx_buf, length, {});
     while (is_busy()) {
         __asm__ volatile("wfi");
     }
     return true;
+}
+
+/* AsyncTransferAwaiter Implementation */
+Spi0::AsyncTransferAwaiter::AsyncTransferAwaiter(SpiMode m, int cs, const uint8_t *t, uint8_t *r, size_t l)
+    : mode(m), cs_id(cs), tx(t), rx(r), len(l), completed(false) {}
+
+bool Spi0::AsyncTransferAwaiter::await_ready() const noexcept {
+    return len == 0;
+}
+
+static std::coroutine_handle<> g_spi_coro_handle{nullptr};
+static bool *g_spi_completed_ptr = nullptr;
+
+static void on_spi_dma_coro_callback(bool success) noexcept {
+    if (g_spi_completed_ptr) {
+        *g_spi_completed_ptr = success;
+    }
+    auto handle = g_spi_coro_handle;
+    g_spi_coro_handle = nullptr;
+    if (handle) {
+        abstractx::IsrDispatcher::post(handle);
+    }
+}
+
+void Spi0::AsyncTransferAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
+    // Threshold decision:
+    // If len <= DMA_THRESHOLD (4 bytes), execute immediate fast-path FIFO and resume
+    if (len <= DMA_THRESHOLD) {
+        transceive_fifo_sync(cs_id, tx, rx, len);
+        completed = true;
+        handle.resume();
+        return;
+    }
+
+    // Large payload: stream via dual DMA channels
+    g_spi_coro_handle = handle;
+    g_spi_completed_ptr = &completed;
+    start_dma_transfer(cs_id, tx, rx, len, etl::delegate<void(bool)>::create<on_spi_dma_coro_callback>());
+}
+
+bool Spi0::AsyncTransferAwaiter::await_resume() noexcept {
+    return completed;
+}
+
+void Spi0::handle_irq() {
+    // PLIC IRQ 15 handler (if manual interrupt generation is ever enabled)
+    uint32_t status = SPI0_ISR;
+    SPI0_ISR = status; // Clear pending bits
 }
 
 } // namespace fc::hal

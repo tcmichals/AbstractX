@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 # Determine Target Platform (host, e907, pico2w, esp32p4)
 if(NOT DEFINED ABSTRACTX_TARGET)
     if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv")
-        set(ABSTRACTX_TARGET "e907")
+        set(ABSTRACTX_TARGET "e906")
     elseif(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "arm")
         set(ABSTRACTX_TARGET "pico2w")
     else()
@@ -20,6 +20,10 @@ project(AbstractX VERSION 1.0.0 LANGUAGES C CXX ASM)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(ABSTRACTX_TARGET STREQUAL "e907")
+    set(ABSTRACTX_TARGET "e906")
+endif()
 
 message(STATUS "AbstractX Build Target: ${ABSTRACTX_TARGET}")
 
@@ -71,7 +75,7 @@ add_custom_target(info
     COMMAND ${CMAKE_COMMAND} -E echo "                   AbstractX Modern CMake Build System                 "
     COMMAND ${CMAKE_COMMAND} -E echo "======================================================================="
     COMMAND ${CMAKE_COMMAND} -E echo " cmake -B build_host -DABSTRACTX_TARGET=host : Configure Host Build & Simulation"
-    COMMAND ${CMAKE_COMMAND} -E echo " cmake -B build_e907 --preset e907           : Configure XuanTie E907 Firmware"
+    COMMAND ${CMAKE_COMMAND} -E echo " cmake -B build_e906 --preset e906           : Configure XuanTie E906 Firmware"
     COMMAND ${CMAKE_COMMAND} -E echo " cmake -B build_pico2w --preset pico2w       : Configure Pico 2 W Firmware"
     COMMAND ${CMAKE_COMMAND} -E echo " cmake --build <dir>                         : Build Target Binaries"
     COMMAND ${CMAKE_COMMAND} -E echo "======================================================================="

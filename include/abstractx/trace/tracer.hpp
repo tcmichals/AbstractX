@@ -60,6 +60,7 @@ struct alignas(4) CtfPacketHeader {
     uint32_t events_discarded{0};
 };
 
+#pragma pack(push, 1)
 // Stream 0: Coroutine Lifecycle Event with Name & Awaiter Token (38 bytes payload)
 // Fits within the 40-byte ASP_TLP64_PAYLOAD_SIZE window.
 //
@@ -79,8 +80,8 @@ struct CoroEventPayload {
     uint32_t handle_addr{0};
     uint8_t  state{0};
     uint8_t  reason{0};
-    char     coro_name[12]{"?"};
-    char     awaiter_token[16]{"?"};
+    char     coro_name[8]{"?"};
+    char     awaiter_token[11]{"?"};
 };
 
 static_assert(sizeof(CoroEventPayload) == 38, "CoroEventPayload must be exactly 38 bytes");

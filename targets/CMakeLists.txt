@@ -2,8 +2,8 @@
 # ---------------------
 # Select and build appropriate Target HAL & BSP
 
-if(ABSTRACTX_TARGET STREQUAL "e907")
-    add_subdirectory(allwinner_e907)
+if(ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907")
+    add_subdirectory(allwinner_e906)
 elseif(ABSTRACTX_TARGET STREQUAL "pico2w")
     add_subdirectory(pico2w_rp2350)
 elseif(ABSTRACTX_TARGET STREQUAL "esp32p4")

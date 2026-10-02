@@ -64,10 +64,10 @@ void Pmp::set_napot_entry(uint32_t entry_idx, uintptr_t base_addr, size_t size, 
 
 void Pmp::configure_dram_carveout(uintptr_t dram_base, size_t dram_size) noexcept {
 #if defined(__riscv)
-    // Setup PMP permission for the DDR carveout
+    // Setup PMP Read/Write permissions for the DDR carveout
     set_napot_entry(1, dram_base, dram_size, PmpFlags::Read | PmpFlags::Write);
 
-    // Flush any stale cache lines for the DRAM range
+    // Initial flush of any stale cache lines for the DRAM range
     dcache_invalidate_range(dram_base, dram_size);
     memory_fence();
 #else
@@ -77,18 +77,13 @@ void Pmp::configure_dram_carveout(uintptr_t dram_base, size_t dram_size) noexcep
 
 void Pmp::dcache_clean_range(uintptr_t addr, size_t len) noexcept {
 #if defined(__riscv)
-    // XuanTie custom cache maintenance or line-by-line flush (32-byte cache line)
-    uintptr_t line_addr = addr & ~0x1FUL;
-    uintptr_t end_addr  = addr + len;
-    while (line_addr < end_addr) {
-        // XuanTie dcache.cpa: clean by physical address (opcode: .insn r 0x0b, 0, 0x19, x0, rs1, x0)
-        asm volatile (
-            ".insn r 0x0b, 0, 0x19, x0, %0, x0\n"
-            :: "r"(line_addr) : "memory"
-        );
-        line_addr += 32;
+    // Verified Allwinner Tina implementation (32-byte cache line, dcache.cpa a5)
+    register uintptr_t i asm("a5") = addr & ~0x1FUL;
+    uintptr_t end = addr + len;
+    for (; i < end; i += 32) {
+        asm volatile(".word 0x0297800b" ::: "memory"); // dcache.cpa a5
     }
-    memory_fence();
+    asm volatile(".word 0x0000000f" ::: "memory");     // sync fence
 #else
     (void)addr; (void)len;
 #endif
@@ -96,18 +91,27 @@ void Pmp::dcache_clean_range(uintptr_t addr, size_t len) noexcept {
 
 void Pmp::dcache_invalidate_range(uintptr_t addr, size_t len) noexcept {
 #if defined(__riscv)
-    // XuanTie custom cache maintenance: invalidate by physical address
-    uintptr_t line_addr = addr & ~0x1FUL;
-    uintptr_t end_addr  = addr + len;
-    while (line_addr < end_addr) {
-        // XuanTie dcache.iva: invalidate by physical address (opcode: .insn r 0x0b, 0, 0x18, x0, rs1, x0)
-        asm volatile (
-            ".insn r 0x0b, 0, 0x18, x0, %0, x0\n"
-            :: "r"(line_addr) : "memory"
-        );
-        line_addr += 32;
+    // Verified Allwinner Tina implementation (32-byte cache line, dcache.iva a5)
+    register uintptr_t i asm("a5") = addr & ~0x1FUL;
+    uintptr_t end = addr + len;
+    for (; i < end; i += 32) {
+        asm volatile(".word 0x02a7800b" ::: "memory"); // dcache.iva a5
     }
-    memory_fence();
+    asm volatile(".word 0x0000000f" ::: "memory");     // sync fence
+#else
+    (void)addr; (void)len;
+#endif
+}
+
+void Pmp::dcache_clean_invalidate_range(uintptr_t addr, size_t len) noexcept {
+#if defined(__riscv)
+    // Verified Allwinner Tina implementation (32-byte cache line, dcache.civa a5)
+    register uintptr_t i asm("a5") = addr & ~0x1FUL;
+    uintptr_t end = addr + len;
+    for (; i < end; i += 32) {
+        asm volatile(".word 0x02b7800b" ::: "memory"); // dcache.civa a5
+    }
+    asm volatile(".word 0x0000000f" ::: "memory");     // sync fence
 #else
     (void)addr; (void)len;
 #endif
@@ -115,12 +119,17 @@ void Pmp::dcache_invalidate_range(uintptr_t addr, size_t len) noexcept {
 
 void Pmp::dcache_flush_all() noexcept {
 #if defined(__riscv)
-    // XuanTie mcor CSR (0x7C2): Bit 6 = Clean & Invalidate all D-Cache
-    asm volatile (
-        "csrw 0x7C2, %0\n"
-        :: "r"(1 << 6) : "memory"
-    );
-    memory_fence();
+    // Allwinner Tina: dcache.ciall
+    asm volatile(".word 0x0030000b" ::: "memory");
+    asm volatile(".word 0x0000000f" ::: "memory");
+#endif
+}
+
+void Pmp::icache_invalidate_all() noexcept {
+#if defined(__riscv)
+    // Allwinner Tina: icache.iall
+    asm volatile(".word 0x0100000b" ::: "memory");
+    instruction_fence();
 #endif
 }
 

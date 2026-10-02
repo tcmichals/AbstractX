@@ -47,6 +47,8 @@ constexpr uint8_t DRQ_SDRAM = 1;
 constexpr uint8_t DRQ_UART0 = 14;
 constexpr uint8_t DRQ_UART2 = 16;
 constexpr uint8_t DRQ_SPI0  = 22;
+constexpr uint8_t DRQ_TWI0  = 43;
+constexpr uint8_t DRQ_TWI1  = 44;
 
 constexpr uint32_t LLI_LAST_ITEM = 0xFFFFF800U;
 
@@ -80,6 +82,7 @@ struct alignas(4) DmaLli {
 class DmaController {
 public:
     static constexpr size_t NUM_CHANNELS = 16;
+    static constexpr size_t DMA_START_CHANNEL = 8; // Channels 8..15 dedicated to MCU/co-processor
     using CompletionCallback = etl::delegate<void(uint8_t channel, bool success)>;
 
     static void init() noexcept;
