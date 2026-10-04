@@ -5,9 +5,11 @@
 
 // AbstractX QMTECH Zynq-7020 Top-Level FPGA Fabric Integrator
 //
-// Bridges Zynq PS M_AXI_GP0 (AXI4-Lite) to the 64-Byte TLP Router and Wishbone Interconnect.
+// Bridges Zynq PS M_AXI_GP0 (AXI4-Lite) and S_AXI_HP0 (64-bit High Performance Master)
+// to the 64-Byte TLP Router and Wishbone Interconnect.
+//
 // Integrates:
-// 1. AXI4-Lite to 64-byte TLP Bridge (asp_axi_lite_bridge)
+// 1. Native 64-Byte TLP AXI4 DMA Engine (asp_axi_dma)
 // 2. 512-bit (64-byte) Vector TLP Router (asp_router)
 // 3. Wishbone Master Gateway (asp_wishbone_master)
 // 4. System Identification & Timestamp Registers (asp_sys_regs)
@@ -23,64 +25,97 @@
 module top_qmtech_zynq7020 #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,
+    parameter integer C_M_AXI_DATA_WIDTH = 64,
+    parameter integer C_M_AXI_ADDR_WIDTH = 32,
     parameter integer CLK_FREQ_HZ        = 100_000_000
 ) (
     // Zynq PS Clocks & Resets (FCLK_CLK0 & FCLK_RESET0_N)
-    input  wire                              s_axi_aclk,
-    input  wire                              s_axi_aresetn,
+    input  wire                                 s_axi_aclk,
+    input  wire                                 s_axi_aresetn,
 
-    // AXI4-Lite Write Address Channel (from PS M_AXI_GP0)
-    input  wire [C_S_AXI_ADDR_WIDTH-1:0]     s_axi_awaddr,
-    input  wire [2:0]                        s_axi_awprot,
-    input  wire                              s_axi_awvalid,
-    output logic                             s_axi_awready,
+    // ========================================================================
+    // AXI4-Lite Slave: CSR Interface (from PS M_AXI_GP0)
+    // ========================================================================
+    input  wire [C_S_AXI_ADDR_WIDTH-1:0]        s_axi_awaddr,
+    input  wire [2:0]                           s_axi_awprot,
+    input  wire                                 s_axi_awvalid,
+    output logic                                s_axi_awready,
 
-    // AXI4-Lite Write Data Channel
-    input  wire [C_S_AXI_DATA_WIDTH-1:0]     s_axi_wdata,
-    input  wire [(C_S_AXI_DATA_WIDTH/8)-1:0] s_axi_wstrb,
-    input  wire                              s_axi_wvalid,
-    output logic                             s_axi_wready,
+    input  wire [C_S_AXI_DATA_WIDTH-1:0]        s_axi_wdata,
+    input  wire [(C_S_AXI_DATA_WIDTH/8)-1:0]    s_axi_wstrb,
+    input  wire                                 s_axi_wvalid,
+    output logic                                s_axi_wready,
 
-    // AXI4-Lite Write Response Channel
-    output logic [1:0]                       s_axi_bresp,
-    output logic                             s_axi_bvalid,
-    input  wire                              s_axi_bready,
+    output logic [1:0]                          s_axi_bresp,
+    output logic                                s_axi_bvalid,
+    input  wire                                 s_axi_bready,
 
-    // AXI4-Lite Read Address Channel
-    input  wire [C_S_AXI_ADDR_WIDTH-1:0]     s_axi_araddr,
-    input  wire [2:0]                        s_axi_arprot,
-    input  wire                              s_axi_arvalid,
-    output logic                             s_axi_arready,
+    input  wire [C_S_AXI_ADDR_WIDTH-1:0]        s_axi_araddr,
+    input  wire [2:0]                           s_axi_arprot,
+    input  wire                                 s_axi_arvalid,
+    output logic                                s_axi_arready,
 
-    // AXI4-Lite Read Data Channel
-    output logic [C_S_AXI_DATA_WIDTH-1:0]    s_axi_rdata,
-    output logic [1:0]                       s_axi_rresp,
-    output logic                             s_axi_rvalid,
-    input  wire                              s_axi_rready,
+    output logic [C_S_AXI_DATA_WIDTH-1:0]       s_axi_rdata,
+    output logic [1:0]                          s_axi_rresp,
+    output logic                                s_axi_rvalid,
+    input  wire                                 s_axi_rready,
+
+    // ========================================================================
+    // AXI4 Master: Direct DDR3 Access (to PS S_AXI_HP0)
+    // ========================================================================
+    output logic [C_M_AXI_ADDR_WIDTH-1:0]       m_axi_hp_awaddr,
+    output logic [7:0]                          m_axi_hp_awlen,
+    output logic [2:0]                          m_axi_hp_awsize,
+    output logic [1:0]                          m_axi_hp_awburst,
+    output logic                                m_axi_hp_awvalid,
+    input  wire                                 m_axi_hp_awready,
+
+    output logic [C_M_AXI_DATA_WIDTH-1:0]       m_axi_hp_wdata,
+    output logic [(C_M_AXI_DATA_WIDTH/8)-1:0]   m_axi_hp_wstrb,
+    output logic                                m_axi_hp_wlast,
+    output logic                                m_axi_hp_wvalid,
+    input  wire                                 m_axi_hp_wready,
+
+    input  wire  [1:0]                          m_axi_hp_bresp,
+    input  wire                                 m_axi_hp_bvalid,
+    output logic                                m_axi_hp_bready,
+
+    output logic [C_M_AXI_ADDR_WIDTH-1:0]       m_axi_hp_araddr,
+    output logic [7:0]                          m_axi_hp_arlen,
+    output logic [2:0]                          m_axi_hp_arsize,
+    output logic [1:0]                          m_axi_hp_arburst,
+    output logic                                m_axi_hp_arvalid,
+    input  wire                                 m_axi_hp_arready,
+
+    input  wire  [C_M_AXI_DATA_WIDTH-1:0]       m_axi_hp_rdata,
+    input  wire  [1:0]                          m_axi_hp_rresp,
+    input  wire                                 m_axi_hp_rlast,
+    input  wire                                 m_axi_hp_rvalid,
+    output logic                                m_axi_hp_rready,
 
     // Interrupt Request Line to PS GIC (IRQ_F2P[0])
-    output logic                             irq_f2p,
+    output logic                                irq_f2p,
 
     // External Physical IMU Pins (PMOD / Header)
-    output logic                             o_imu_sclk,
-    output logic                             o_imu_cs_n,
-    output logic                             o_imu_mosi,
-    input  wire                              i_imu_miso,
-    input  wire                              i_imu_int,
+    output logic                                o_imu_sclk,
+    output logic                                o_imu_cs_n,
+    output logic                                o_imu_mosi,
+    input  wire                                 i_imu_miso,
+    input  wire                                 i_imu_int,
 
     // Motor Outputs (4 channels) & Status NeoPixel Pin
-    output logic [3:0]                       o_motor_pins,
-    output logic                             o_neopixel,
+    output logic [3:0]                          o_motor_pins,
+    output logic                                o_neopixel,
 
     // Onboard LEDs
-    output logic                             o_led_carrier, // Carrier D3 (P22)
-    output logic                             o_led_core,    // Core board D2 (M14)
+    output logic                                o_led_carrier, // Carrier D3 (P22)
+    output logic                                o_led_core,    // Core board D2 (M14)
 
     // User Key Input
-    input  wire                              i_key_carrier, // Carrier Key (P16)
+    input  wire                                 i_key_carrier, // Carrier Key (P16)
 
     // Hardware Logic Analyzer Debug Pins (0..3)
-    output logic [3:0]                       o_debug_pins
+    output logic [3:0]                          o_debug_pins
 );
 
     // Monotonic 64-bit nanosecond system timestamp timer
@@ -91,7 +126,7 @@ module top_qmtech_zynq7020 #(
     end
 
     // ------------------------------------------------------------------------
-    // AXI-Lite Bridge <-> Router Signals (512-bit Vectors)
+    // AXI DMA Core <-> Router Signals (512-bit Vectors)
     // ------------------------------------------------------------------------
     logic [511:0] tlp_rx_data;
     logic         tlp_rx_valid;
@@ -101,39 +136,71 @@ module top_qmtech_zynq7020 #(
     logic         tlp_tx_valid;
     logic         tlp_tx_ready;
 
-    asp_axi_lite_bridge #(
+    asp_axi_dma #(
         .C_S_AXI_DATA_WIDTH (C_S_AXI_DATA_WIDTH),
         .C_S_AXI_ADDR_WIDTH (C_S_AXI_ADDR_WIDTH),
-        .FIFO_DEPTH         (16)
-    ) u_axi_bridge (
-        .s_axi_aclk     (s_axi_aclk),
-        .s_axi_aresetn  (s_axi_aresetn),
-        .s_axi_awaddr   (s_axi_awaddr),
-        .s_axi_awprot   (s_axi_awprot),
-        .s_axi_awvalid  (s_axi_awvalid),
-        .s_axi_awready  (s_axi_awready),
-        .s_axi_wdata    (s_axi_wdata),
-        .s_axi_wstrb    (s_axi_wstrb),
-        .s_axi_wvalid   (s_axi_wvalid),
-        .s_axi_wready   (s_axi_wready),
-        .s_axi_bresp    (s_axi_bresp),
-        .s_axi_bvalid   (s_axi_bvalid),
-        .s_axi_bready   (s_axi_bready),
-        .s_axi_araddr   (s_axi_araddr),
-        .s_axi_arprot   (s_axi_arprot),
-        .s_axi_arvalid  (s_axi_arvalid),
-        .s_axi_arready  (s_axi_arready),
-        .s_axi_rdata    (s_axi_rdata),
-        .s_axi_rresp    (s_axi_rresp),
-        .s_axi_rvalid   (s_axi_rvalid),
-        .s_axi_rready   (s_axi_rready),
-        .irq_f2p        (irq_f2p),
-        .m_tlp_tdata    (tlp_rx_data),
-        .m_tlp_tvalid   (tlp_rx_valid),
-        .m_tlp_tready   (tlp_rx_ready),
-        .s_egr_tdata    (tlp_tx_data),
-        .s_egr_tvalid   (tlp_tx_valid),
-        .s_egr_tready   (tlp_tx_ready)
+        .C_M_AXI_DATA_WIDTH (C_M_AXI_DATA_WIDTH),
+        .C_M_AXI_ADDR_WIDTH (C_M_AXI_ADDR_WIDTH)
+    ) u_axi_dma (
+        .clk             (s_axi_aclk),
+        .rst_n           (s_axi_aresetn),
+
+        // CSR Slave Port
+        .s_axi_awaddr    (s_axi_awaddr),
+        .s_axi_awprot    (s_axi_awprot),
+        .s_axi_awvalid   (s_axi_awvalid),
+        .s_axi_awready   (s_axi_awready),
+        .s_axi_wdata     (s_axi_wdata),
+        .s_axi_wstrb     (s_axi_wstrb),
+        .s_axi_wvalid    (s_axi_wvalid),
+        .s_axi_wready    (s_axi_wready),
+        .s_axi_bresp     (s_axi_bresp),
+        .s_axi_bvalid    (s_axi_bvalid),
+        .s_axi_bready    (s_axi_bready),
+        .s_axi_araddr    (s_axi_araddr),
+        .s_axi_arprot    (s_axi_arprot),
+        .s_axi_arvalid   (s_axi_arvalid),
+        .s_axi_arready   (s_axi_arready),
+        .s_axi_rdata     (s_axi_rdata),
+        .s_axi_rresp     (s_axi_rresp),
+        .s_axi_rvalid    (s_axi_rvalid),
+        .s_axi_rready    (s_axi_rready),
+
+        // DDR Master Port (S_AXI_HP0)
+        .m_axi_awaddr    (m_axi_hp_awaddr),
+        .m_axi_awlen     (m_axi_hp_awlen),
+        .m_axi_awsize    (m_axi_hp_awsize),
+        .m_axi_awburst   (m_axi_hp_awburst),
+        .m_axi_awvalid   (m_axi_hp_awvalid),
+        .m_axi_awready   (m_axi_hp_awready),
+        .m_axi_wdata     (m_axi_hp_wdata),
+        .m_axi_wstrb     (m_axi_hp_wstrb),
+        .m_axi_wlast     (m_axi_hp_wlast),
+        .m_axi_wvalid    (m_axi_hp_wvalid),
+        .m_axi_wready    (m_axi_hp_wready),
+        .m_axi_bresp     (m_axi_hp_bresp),
+        .m_axi_bvalid    (m_axi_hp_bvalid),
+        .m_axi_bready    (m_axi_hp_bready),
+        .m_axi_araddr    (m_axi_hp_araddr),
+        .m_axi_arlen     (m_axi_hp_arlen),
+        .m_axi_arsize    (m_axi_hp_arsize),
+        .m_axi_arburst   (m_axi_hp_arburst),
+        .m_axi_arvalid   (m_axi_hp_arvalid),
+        .m_axi_arready   (m_axi_hp_arready),
+        .m_axi_rdata     (m_axi_hp_rdata),
+        .m_axi_rresp     (m_axi_hp_rresp),
+        .m_axi_rlast     (m_axi_hp_rlast),
+        .m_axi_rvalid    (m_axi_hp_rvalid),
+        .m_axi_rready    (m_axi_hp_rready),
+
+        // IRQ & 64B TLP Streams
+        .irq_f2p         (irq_f2p),
+        .m_tlp_tdata     (tlp_rx_data),
+        .m_tlp_tvalid    (tlp_rx_valid),
+        .m_tlp_tready    (tlp_rx_ready),
+        .s_egr_tdata     (tlp_tx_data),
+        .s_egr_tvalid    (tlp_tx_valid),
+        .s_egr_tready    (tlp_tx_ready)
     );
 
     // ------------------------------------------------------------------------

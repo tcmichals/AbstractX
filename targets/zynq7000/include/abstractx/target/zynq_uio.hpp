@@ -30,15 +30,20 @@ class ZynqUioBridge {
 public:
     static constexpr size_t MAP_SIZE = 0x10000; // 64 KB AXI-Lite address window
 
-    // Register Byte Offsets matching asp_axi_lite_bridge.sv [SPEC-ZYNQ-01]
+    // Register Byte Offsets matching asp_axi_dma.sv [SPEC-ZYNQ-01]
     static constexpr uint32_t REG_CONTROL      = 0x00;
     static constexpr uint32_t REG_STATUS       = 0x04;
     static constexpr uint32_t REG_IRQ_STATUS   = 0x08;
     static constexpr uint32_t REG_IRQ_ENABLE   = 0x0C;
-    static constexpr uint32_t REG_TLP_IN_PORT  = 0x10;
-    static constexpr uint32_t REG_TLP_OUT_PORT = 0x14;
-    static constexpr uint32_t REG_EGR_COUNT    = 0x18;
-    static constexpr uint32_t REG_ING_FREE     = 0x1C;
+    static constexpr uint32_t REG_RX_BASE      = 0x10;
+    static constexpr uint32_t REG_RX_CAPACITY  = 0x14;
+    static constexpr uint32_t REG_RX_HEAD      = 0x18;
+    static constexpr uint32_t REG_RX_TAIL      = 0x1C;
+    static constexpr uint32_t REG_TX_BASE      = 0x20;
+    static constexpr uint32_t REG_TX_CAPACITY  = 0x24;
+    static constexpr uint32_t REG_TX_HEAD      = 0x28;
+    static constexpr uint32_t REG_TX_TAIL      = 0x2C;
+    static constexpr uint32_t REG_TX_DOORBELL  = 0x30;
     static constexpr uint32_t REG_HARDWARE_ID  = 0x40;
 
     static constexpr uint32_t HARDWARE_MAGIC   = 0x41535036; // "ASP6"
@@ -79,8 +84,8 @@ public:
             return false;
         }
 
-        // Enable bridge and egress interrupts
-        write_reg(REG_CONTROL, 0x01);    // Enable
+        // Enable DMA bridge and egress interrupts
+        write_reg(REG_CONTROL, 0x01);    // Enable DMA
         write_reg(REG_IRQ_ENABLE, 0x01); // Unmask IRQ_F2P[0]
 
         // Re-arm Linux UIO interrupt eventfd
@@ -91,8 +96,9 @@ public:
 
     void close_uio() noexcept {
         if (base_ != nullptr) {
-            // Mask interrupts
+            // Mask interrupts and disable DMA
             write_reg(REG_IRQ_ENABLE, 0x00);
+            write_reg(REG_CONTROL, 0x00);
             ::munmap(const_cast<uint32_t*>(base_), MAP_SIZE);
             base_ = nullptr;
         }
@@ -120,40 +126,28 @@ public:
         base_[offset / sizeof(uint32_t)] = val;
     }
 
-    [[nodiscard]] uint32_t egress_count() const noexcept {
-        return read_reg(REG_EGR_COUNT);
+    // Configure SPSC Coherent Ring Base Physical Addresses & Capacity
+    void setup_dma_rings(uint32_t rx_phys_addr, uint32_t rx_cap,
+                         uint32_t tx_phys_addr, uint32_t tx_cap) noexcept {
+        write_reg(REG_RX_BASE, rx_phys_addr);
+        write_reg(REG_RX_CAPACITY, rx_cap);
+        write_reg(REG_RX_HEAD, 0);
+
+        write_reg(REG_TX_BASE, tx_phys_addr);
+        write_reg(REG_TX_CAPACITY, tx_cap);
+        write_reg(REG_TX_TAIL, 0);
     }
 
-    [[nodiscard]] uint32_t ingress_free_slots() const noexcept {
-        return read_reg(REG_ING_FREE);
-    }
+    [[nodiscard]] uint32_t rx_head() const noexcept { return read_reg(REG_RX_HEAD); }
+    [[nodiscard]] uint32_t rx_tail() const noexcept { return read_reg(REG_RX_TAIL); }
+    void set_rx_head(uint32_t head) noexcept { write_reg(REG_RX_HEAD, head); }
 
-    // Write 64-byte TLP into FPGA Ingress FIFO (16 DWORDs to 0x10)
-    // @impl [SPEC-ZYNQ-01] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-    bool write_tlp(const Tlp64& tlp) noexcept {
-        if (!base_ || ingress_free_slots() == 0) {
-            return false;
-        }
+    [[nodiscard]] uint32_t tx_head() const noexcept { return read_reg(REG_TX_HEAD); }
+    [[nodiscard]] uint32_t tx_tail() const noexcept { return read_reg(REG_TX_TAIL); }
+    void set_tx_tail(uint32_t tail) noexcept { write_reg(REG_TX_TAIL, tail); }
 
-        const uint32_t* dwords = reinterpret_cast<const uint32_t*>(&tlp);
-        for (size_t i = 0; i < 16; ++i) {
-            base_[REG_TLP_IN_PORT / sizeof(uint32_t)] = dwords[i];
-        }
-        return true;
-    }
-
-    // Read 64-byte TLP from FPGA Egress FIFO (16 DWORDs from 0x14)
-    // @impl [SPEC-ZYNQ-01] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-    bool read_tlp(Tlp64& tlp) noexcept {
-        if (!base_ || egress_count() == 0) {
-            return false;
-        }
-
-        uint32_t* dwords = reinterpret_cast<uint32_t*>(&tlp);
-        for (size_t i = 0; i < 16; ++i) {
-            dwords[i] = base_[REG_TLP_OUT_PORT / sizeof(uint32_t)];
-        }
-        return true;
+    void signal_tx_doorbell() noexcept {
+        write_reg(REG_TX_DOORBELL, 0x01);
     }
 
     // Unmask UIO interrupt in Linux kernel so next IRQ_F2P will trigger event

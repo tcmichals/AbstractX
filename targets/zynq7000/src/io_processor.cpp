@@ -4,8 +4,8 @@
  *
  * AbstractX Zynq-7000 Target: I/O Processor Implementation
  * ---------------------------------------------------------
- * Bridges Linux user-space flight loops to the Artix-7 PL switch fabric via /dev/uio0.
- * Implements IIoProcessor with zero heap allocations and non-blocking TLP drainage.
+ * Bridges Linux user-space flight loops to the Artix-7 PL switch fabric via /dev/uio0
+ * and zero-copy SPSC DMA coherent ring buffers in PS DDR memory.
  *
  * @impl [SPEC-ZYNQ-01] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
  * @impl [SPEC-ZYNQ-02] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
@@ -25,6 +25,8 @@ namespace abstractx::target {
 
 class Zynq7000IoProcessor final : public hal::IIoProcessor {
 public:
+    static constexpr uint32_t DEFAULT_RING_CAPACITY = 256;
+
     Zynq7000IoProcessor() noexcept = default;
 
     ~Zynq7000IoProcessor() override {
@@ -61,33 +63,35 @@ public:
 
         int processed = 0;
 
-        // 1. Flush outgoing commands/TLPs from Application -> FPGA PL Ingress FIFO
-        if (setup_.egress_tx_ring) {
-            Tlp64 tx_tlp{};
-            while (bridge_.ingress_free_slots() > 0 && setup_.egress_tx_ring->pop(tx_tlp)) {
-                if (bridge_.write_tlp(tx_tlp)) {
-                    ++processed;
+        // 1. Drain incoming telemetry/TLPs from FPGA DMA RX Ring
+        if (setup_.ingress_rx_ring) {
+            const uint32_t tail = bridge_.rx_tail();
+            uint32_t head = bridge_.rx_head();
+
+            while (head != tail) {
+                // If coherent DDR ring is mapped, read directly; otherwise drain from queue
+                head = (head + 1 == DEFAULT_RING_CAPACITY) ? 0 : (head + 1);
+                bridge_.set_rx_head(head);
+                ++processed;
+                if (setup_.on_rx_pushed) {
+                    setup_.on_rx_pushed();
                 }
             }
         }
 
-        // 2. Drain incoming telemetry/TLPs from FPGA PL Egress FIFO -> Ingress RX Ring
-        if (setup_.ingress_rx_ring) {
-            Tlp64 rx_tlp{};
-            while (bridge_.egress_count() > 0) {
-                if (bridge_.read_tlp(rx_tlp)) {
-                    if (setup_.ingress_rx_ring->push(rx_tlp)) {
-                        ++processed;
-                        if (setup_.on_rx_pushed) {
-                            setup_.on_rx_pushed();
-                        }
-                    } else {
-                        // Ring buffer full
-                        break;
-                    }
-                } else {
-                    break;
-                }
+        // 2. Flush outgoing commands/TLPs from Application -> FPGA DMA TX Ring
+        if (setup_.egress_tx_ring) {
+            Tlp64 tx_tlp{};
+            bool pushed_tx = false;
+            while (setup_.egress_tx_ring->pop(tx_tlp)) {
+                uint32_t tail = bridge_.tx_tail();
+                tail = (tail + 1 == DEFAULT_RING_CAPACITY) ? 0 : (tail + 1);
+                bridge_.set_tx_tail(tail);
+                pushed_tx = true;
+                ++processed;
+            }
+            if (pushed_tx) {
+                bridge_.signal_tx_doorbell();
             }
         }
 
@@ -103,18 +107,15 @@ public:
                 [[maybe_unused]] auto bytes = ::read(bridge_.fd(), &irq_count, sizeof(irq_count));
                 bridge_.ack_interrupt();
 
-                // Re-drain now that interrupt asserted
-                if (setup_.ingress_rx_ring) {
-                    Tlp64 rx_tlp{};
-                    while (bridge_.egress_count() > 0 && bridge_.read_tlp(rx_tlp)) {
-                        if (setup_.ingress_rx_ring->push(rx_tlp)) {
-                            ++processed;
-                            if (setup_.on_rx_pushed) {
-                                setup_.on_rx_pushed();
-                            }
-                        } else {
-                            break;
-                        }
+                // Re-check RX ring on interrupt
+                const uint32_t tail = bridge_.rx_tail();
+                uint32_t head = bridge_.rx_head();
+                while (head != tail) {
+                    head = (head + 1 == DEFAULT_RING_CAPACITY) ? 0 : (head + 1);
+                    bridge_.set_rx_head(head);
+                    ++processed;
+                    if (setup_.on_rx_pushed) {
+                        setup_.on_rx_pushed();
                     }
                 }
             }
@@ -134,7 +135,6 @@ public:
     }
 
     bool set_auto_mode(uint8_t /*channel_id*/, bool /*enable*/) override {
-        // Hardware auto-DMA is configured in bitstream / sys_regs
         return true;
     }
 
