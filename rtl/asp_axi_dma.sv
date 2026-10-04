@@ -308,7 +308,7 @@ module asp_axi_dma #(
                     if (m_axi_awready) begin
                         m_axi_awvalid <= 1'b0;
                         m_axi_wvalid  <= 1'b1;
-                        m_axi_wdata   <= rx_tlp_buf[63:0];
+                        m_axi_wdata   <= rx_tlp_buf[511:448]; // Beat 0: DW0 and DW1
                         m_axi_wlast   <= 1'b0;
                         rx_beat_cnt   <= 3'd1;
                         rx_state      <= RX_W_BURST;
@@ -317,13 +317,12 @@ module asp_axi_dma #(
 
                 RX_W_BURST: begin
                     if (m_axi_wready) begin
+                        m_axi_wdata <= rx_tlp_buf[511 - (rx_beat_cnt*64) -: 64];
                         if (rx_beat_cnt == 3'd7) begin
-                            m_axi_wdata  <= rx_tlp_buf[511:448];
                             m_axi_wlast  <= 1'b1;
                             rx_state     <= RX_B_RESP;
                             m_axi_bready <= 1'b1;
                         end else begin
-                            m_axi_wdata <= rx_tlp_buf[(rx_beat_cnt*64) +: 64];
                             rx_beat_cnt <= rx_beat_cnt + 1;
                         end
                     end
@@ -342,6 +341,8 @@ module asp_axi_dma #(
                         rx_state     <= RX_IDLE;
                     end
                 end
+
+                default: rx_state <= RX_IDLE;
             endcase
         end
     end
@@ -405,11 +406,11 @@ module asp_axi_dma #(
 
                 TX_R_BURST: begin
                     if (m_axi_rvalid && m_axi_rready) begin
-                        tx_tlp_buf[(tx_beat_cnt*64) +: 64] <= m_axi_rdata;
+                        tx_tlp_buf[511 - (tx_beat_cnt*64) -: 64] <= m_axi_rdata;
                         if (m_axi_rlast || (tx_beat_cnt == 3'd7)) begin
                             m_axi_rready <= 1'b0;
                             m_tlp_tvalid <= 1'b1;
-                            m_tlp_tdata  <= {m_axi_rdata, tx_tlp_buf[447:0]};
+                            m_tlp_tdata  <= {tx_tlp_buf[511:64], m_axi_rdata};
                             tx_state     <= TX_PUSH_ROUTER;
                         end else begin
                             tx_beat_cnt  <= tx_beat_cnt + 1;
@@ -424,6 +425,8 @@ module asp_axi_dma #(
                         tx_state     <= TX_IDLE;
                     end
                 end
+
+                default: tx_state <= TX_IDLE;
             endcase
         end
     end

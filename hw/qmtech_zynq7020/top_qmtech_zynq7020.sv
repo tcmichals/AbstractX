@@ -371,9 +371,9 @@ module top_qmtech_zynq7020 #(
         .wb_we        (wb_we),
         .wb_addr      (wb_adr),
         .wb_data_i    (wb_dat_w),
-        .wb_data_o    (neopixel_wb_dat_r),
-        .wb_ack       (neopixel_wb_ack),
-        .o_pixel_pin  (o_neopixel)
+        .wb_data_o      (neopixel_wb_dat_r),
+        .wb_ack         (neopixel_wb_ack),
+        .o_neopixel_pin (o_neopixel)
     );
 
     // Logic Analyzer Debug Signals:
