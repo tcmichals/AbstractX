@@ -8,6 +8,8 @@ elseif(ABSTRACTX_TARGET STREQUAL "pico2w")
     add_subdirectory(pico2w_rp2350)
 elseif(ABSTRACTX_TARGET STREQUAL "esp32p4")
     add_subdirectory(esp32p4)
+elseif(ABSTRACTX_TARGET STREQUAL "zynq7000")
+    add_subdirectory(zynq7000)
 else()
     # Default to unified Linux target for workstation builds, tests, and SBCs
     add_subdirectory(linux)

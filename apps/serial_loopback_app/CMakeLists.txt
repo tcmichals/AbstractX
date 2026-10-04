@@ -31,6 +31,9 @@ elseif(ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907")
         COMMENT "Generated serial_loopback_app.bin and displaying memory footprint"
     )
 
+elseif(ABSTRACTX_TARGET STREQUAL "zynq7000")
+    target_link_libraries(serial_loopback_app PRIVATE abstractx_target_zynq7000)
+
 else()
     target_link_libraries(serial_loopback_app PRIVATE abstractx_target_linux)
 endif()

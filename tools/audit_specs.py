@@ -25,8 +25,8 @@ def run_traceability_audit(spec_file=None, root_dir=None):
     if not spec_file.exists():
         raise FileNotFoundError(f"Specification file not found: {spec_file}")
 
-    # 1. Parse all specification IDs from specification markdown
-    spec_pattern = re.compile(r"###\s+`\[(SPEC-[A-Z0-9\-]+)\]`\s+(.+)")
+    # 1. Parse all specification IDs from specification markdown (with or without backticks)
+    spec_pattern = re.compile(r"###\s+`?\[(SPEC-[A-Z0-9\-]+)\]`?\s+(.+)")
     specs = {}
 
     with open(spec_file, "r", encoding="utf-8") as f:
@@ -41,14 +41,21 @@ def run_traceability_audit(spec_file=None, root_dir=None):
                 }
 
     # 2. Scan codebase for @impl tags
-    scan_dirs = ["include", "targets", "apps", "examples", "sim", "tools"]
+    scan_dirs = ["include", "targets", "apps", "examples", "sim", "tools", "rtl", "hw"]
+    valid_exts = {".hpp", ".cpp", ".h", ".c", ".S", ".sv", ".py", ".xdc"}
+    skip_dirs = {"build", "bld", ".git", "dl", "venv", ".system_generated"}
+
     for s_dir in scan_dirs:
         dir_path = root_dir / s_dir
         if not dir_path.exists():
             continue
 
-        for ext in ["*.hpp", "*.cpp", "*.h", "*.c", "*.S", "*.sv", "*.py"]:
-            for file_path in dir_path.rglob(ext):
+        for root, dirs, files in os.walk(dir_path):
+            dirs[:] = [d for d in dirs if d not in skip_dirs]
+            for file_name in files:
+                file_path = Path(root) / file_name
+                if file_path.suffix not in valid_exts:
+                    continue
                 rel_path = file_path.relative_to(root_dir)
                 try:
                     with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -58,7 +65,7 @@ def run_traceability_audit(spec_file=None, root_dir=None):
                                 for m in matches:
                                     if m in specs:
                                         specs[m]["implementations"].append(f"{rel_path}:{line_num}")
-                except Exception as e:
+                except Exception:
                     pass
 
     implemented_count = sum(1 for data in specs.values() if data["implementations"])
@@ -75,7 +82,9 @@ def run_traceability_audit(spec_file=None, root_dir=None):
 
 def main():
     root_dir = Path(__file__).resolve().parent.parent
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 2 and sys.argv[1] == "--spec":
+        spec_file = Path(sys.argv[2])
+    elif len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         spec_file = Path(sys.argv[1])
     else:
         spec_file = root_dir / "docs" / "DESIGN_SPECIFICATION.md"

@@ -33,6 +33,9 @@ elseif(ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907")
         COMMENT "Generated gps_imu_app.bin and displaying memory footprint"
     )
 
+elseif(ABSTRACTX_TARGET STREQUAL "zynq7000")
+    target_link_libraries(gps_imu_app PRIVATE abstractx_target_zynq7000)
+
 else()
     # Linux (Desktop workstation, SITL, or Allwinner Cubie A5E Linux)
     target_link_libraries(gps_imu_app PRIVATE abstractx_target_linux)
