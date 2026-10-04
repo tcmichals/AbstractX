@@ -88,6 +88,28 @@ From the Hackaday + Adam Taylor flow, the referenced project is:
 
 ---
 
+## ⚠️ Critical Hardware Bring-Up Reminder: USB/ULPI PHY on Zynq-7000
+
+When bringing up USB Host mode on Zynq-7000 boards with external ULPI PHYs (e.g. Microchip USB3320 or TI TUSB1210):
+
+1. **Device Tree `usb-nop-xceiv` Pattern**:
+   * The ULPI transceiver must be represented as a `compatible = "usb-nop-xceiv";` PHY node.
+   * `drv-vbus;` is required to command the transceiver to drive 5V onto the physical connector.
+   * `reset-gpios = <&gpio0 46 GPIO_ACTIVE_LOW>;` is required if the PHY reset line is routed to an MIO pin (e.g. MIO46 on common carrier boards).
+
+2. **Controller DT Node (`&usb0`)**:
+   * `dr_mode = "host";` forces host role and avoids floating OTG ID pin false detections.
+   * `disable-over-current;` is required on boards without dedicated active overcurrent circuitry to prevent the kernel from cutting port power.
+   * `usb-role-switch;` provides a userspace sysfs fallback control node under `/sys/class/usb_role/`.
+
+3. **Matching Kernel Configuration**:
+   * `CONFIG_NOP_USB_XCEIV=y`
+   * `CONFIG_USB_CHIPIDEA=y`
+   * `CONFIG_USB_CHIPIDEA_HOST=y`
+   * `CONFIG_USB_EHCI_HCD=y`
+
+---
+
 ## 📁 Repository Directory Conventions
 
 * `hw/qmtech_zynq7020/bld/`: Dedicated out-of-tree Buildroot build output (ignored by `.gitignore`).
