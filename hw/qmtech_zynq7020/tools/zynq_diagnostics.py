@@ -39,10 +39,13 @@ SYS_REG_TIME_L   = 0x10  # Lower 32 bits of 64-bit nanosecond timer
 SYS_REG_TIME_H   = 0x14  # Upper 32 bits
 
 # IMU Registers (Base 0x4000_0100 via Wishbone)
-IMU_REG_CTRL     = 0x100 # Bit 0 = Auto DMA Enable, Bit 1 = Int Polarity
-IMU_REG_TRIG     = 0x104 # Bit 31 = Trigger, Bit 30 = RW (0=rd, 1=wr), Bits [23:16] = Addr
-IMU_REG_LEN      = 0x108 # Byte length to read
-IMU_REG_RDATA    = 0x10C # 32-bit direct SPI read data
+IMU_REG_CTRL     = 0x100 # Bit 0 = Auto DMA Enable, Bit 1 = Direct Trig, Bit 2 = Polarity, Bit 3 = RW (0=rd, 1=wr)
+IMU_REG_ADDR     = 0x104 # Target register offset (e.g. 0x75 WHO_AM_I, 0x4E PWR_MGMT0)
+IMU_REG_LEN      = 0x108 # Byte length to read/write (e.g. 1 or 14)
+IMU_REG_WDATA    = 0x10C # 32-bit direct SPI write data
+IMU_REG_RDATA    = 0x110 # 32-bit direct SPI read data
+IMU_REG_TIME_H   = 0x114 # Timestamp upper 32 bits
+IMU_REG_TIME_L   = 0x118 # Timestamp lower 32 bits
 
 HARDWARE_MAGIC   = 0x41535036 # "ASP6"
 
@@ -127,26 +130,90 @@ class ZynqDiagnostics:
             print(f"[WARN] Measured frequency {freq_mhz:.2f} MHz deviates from expected 100.0 MHz.")
             return False
 
+    def read_imu_reg(self, reg_addr):
+        """Perform a single manual SPI register read (Mode A)."""
+        self.write32(IMU_REG_ADDR, reg_addr & 0x7F)
+        self.write32(IMU_REG_LEN, 1)
+        # Bit 1 = Trig, Bit 3 = Read (0)
+        self.write32(IMU_REG_CTRL, (1 << 1) | (0 << 3))
+        time.sleep(0.002)
+        val = self.read32(IMU_REG_RDATA) & 0xFF
+        return val
+
+    def write_imu_reg(self, reg_addr, val):
+        """Perform a single manual SPI register write (Mode A)."""
+        self.write32(IMU_REG_ADDR, reg_addr & 0x7F)
+        self.write32(IMU_REG_LEN, 1)
+        self.write32(IMU_REG_WDATA, val & 0xFF)
+        # Bit 1 = Trig, Bit 3 = Write (1)
+        self.write32(IMU_REG_CTRL, (1 << 1) | (1 << 3))
+        time.sleep(0.002)
+
+    def start_auto_dma(self, burst_addr=0x1F, burst_len=14, int_polarity=1):
+        """Configure and start continuous autonomous 8 kHz DRDY Auto-DMA (Mode B)."""
+        print(f"[*] Starting Auto-DMA: Burst Reg=0x{burst_addr:02X}, Len={burst_len}B, Polarity={'ActiveHigh' if int_polarity else 'ActiveLow'}")
+        self.write32(IMU_REG_ADDR, burst_addr & 0xFF)
+        self.write32(IMU_REG_LEN, burst_len & 0x3F)
+        # Bit 0 = auto_dma_en (1), Bit 2 = int_polarity
+        ctrl = 0x01 | ((1 if int_polarity else 0) << 2)
+        self.write32(IMU_REG_CTRL, ctrl)
+        status = self.read32(IMU_REG_CTRL)
+        active = bool(status & 0x01)
+        print(f"[+] Auto-DMA Mode Status: {'ACTIVE' if active else 'FAILED TO START'} (CTRL=0x{status:02X})")
+        return active
+
+    def stop_auto_dma(self):
+        """Stop autonomous DRDY Auto-DMA mode."""
+        print("[*] Halting Auto-DMA mode (writing auto_dma_en <= 0)...")
+        self.write32(IMU_REG_CTRL, 0x00)
+        status = self.read32(IMU_REG_CTRL)
+        stopped = (status & 0x01) == 0
+        print(f"[+] Auto-DMA Mode Status: {'STOPPED (IDLE)' if stopped else 'STILL ACTIVE'} (CTRL=0x{status:02X})")
+        return stopped
+
+    def init_imu(self):
+        """Complete ICM-42688-P configuration sequence and start 8 kHz Auto-DMA."""
+        print("\n--- [IMU Configuration & Auto-DMA Initialization] ---")
+        # 1. Stop any running Auto-DMA
+        self.stop_auto_dma()
+
+        # 2. Check WHO_AM_I (0x75)
+        whoami = self.read_imu_reg(0x75)
+        print(f"[*] Probing IMU WHO_AM_I (0x75): read 0x{whoami:02X}")
+        if whoami != 0x47:
+            print(f"[!] Warning: Expected 0x47 for ICM-42688-P, got 0x{whoami:02X}")
+
+        # 3. Wake up sensor in Low-Noise mode (PWR_MGMT0 = 0x0F)
+        print("[*] Setting PWR_MGMT0 (0x4E) <= 0x0F (Gyro LN + Accel LN)...")
+        self.write_imu_reg(0x4E, 0x0F)
+        time.sleep(0.010) # 10 ms gyro stabilization
+
+        # 4. Configure Gyro (0x4F: 8 kHz ODR = 0x03, +/-2000 dps)
+        print("[*] Setting GYRO_CONFIG0 (0x4F) <= 0x03 (8 kHz ODR, +/-2000 dps)...")
+        self.write_imu_reg(0x4F, 0x03)
+
+        # 5. Configure Accel (0x50: 8 kHz ODR = 0x03, +/-16 g)
+        print("[*] Setting ACCEL_CONFIG0 (0x50) <= 0x03 (8 kHz ODR, +/-16 g)...")
+        self.write_imu_reg(0x50, 0x03)
+
+        # 6. Configure Interrupt Pin 1 (0x14: Push-pull, active-high, pulsed = 0x12)
+        print("[*] Setting INT_CONFIG (0x14) <= 0x12 (Push-pull, Active-High)...")
+        self.write_imu_reg(0x14, 0x12)
+
+        # 7. Route UI Data Ready interrupt to INT1 (0x65 = 0x08)
+        print("[*] Setting INT_SOURCE0 (0x65) <= 0x08 (UI DRDY -> INT1)...")
+        self.write_imu_reg(0x65, 0x08)
+
+        # 8. Start Auto-DMA burst read on Accel X1 (0x1F, 14 bytes)
+        print("[*] Starting hardware Auto-DMA...")
+        self.start_auto_dma(burst_addr=0x1F, burst_len=14, int_polarity=1)
+        print("[SUCCESS] IMU configured and 8 kHz Auto-DMA streaming active!")
+        return True
+
     def test_imu_whoami(self):
         print("\n--- [Test 4] IMU SPI WHO_AM_I Read ---")
-        # ICM-42688-P WHO_AM_I register is 0x75 (returns 0x47)
-        # ICM-20602 / MPU6000 WHO_AM_I register is 0x75 (returns 0x12 / 0x68)
-        # BMI088 WHO_AM_I register is 0x00 (returns 0x1E accel / 0x0F gyro)
-        target_reg = 0x75
-        print(f"[*] Dispatching manual SPI Read targeting register 0x{target_reg:02X} via PMOD JP5...")
-
-        # Configure SPI read length = 1 byte
-        self.write32(IMU_REG_LEN, 1)
-
-        # Pulse direct trigger: Bit 31 = Trig (1), Bit 30 = Read (0), Bits [23:16] = 0x75
-        cmd = (1 << 31) | (0 << 30) | (target_reg << 16)
-        self.write32(IMU_REG_TRIG, cmd)
-
-        time.sleep(0.005) # Wait 5 ms for SPI clocking
-
-        resp = self.read32(IMU_REG_RDATA)
-        whoami_byte = resp & 0xFF
-        print(f"[+] IMU SPI Response: Raw=0x{resp:08X}, WHO_AM_I Byte = 0x{whoami_byte:02X}")
+        whoami_byte = self.read_imu_reg(0x75)
+        print(f"[+] IMU SPI Response: WHO_AM_I Byte = 0x{whoami_byte:02X}")
 
         if whoami_byte == 0x47:
             print("[SUCCESS] Detected ICM-42688-P IMU (0x47)! Sensor SPI interface verified.")
@@ -163,16 +230,15 @@ class ZynqDiagnostics:
 
     def test_stream_monitor(self, duration_sec=5.0):
         print(f"\n--- [Test 5] Live 8 kHz TLP Telemetry Stream Monitor ({duration_sec}s) ---")
-        print("[*] Enabling Hardware Auto-DMA Engine (0x4000_0100 <= 0x01)...")
-        self.write32(IMU_REG_CTRL, 0x01) # Auto-DMA Enable
+        self.start_auto_dma()
 
         t_end = time.time() + duration_sec
         packets_received = 0
         last_tail = self.read32(REG_RX_TAIL)
 
         print("[*] Listening for hardware TLP frames...")
-        print("    [PKT #]  | ACCEL_X | ACCEL_Y | ACCEL_Z | GYRO_X | GYRO_Y | GYRO_Z | TEMP (C)")
-        print("    " + "-"*75)
+        print("    [PKT #]  | DMA Ring Tail | Status")
+        print("    " + "-"*55)
 
         while time.time() < t_end:
             tail = self.read32(REG_RX_TAIL)
@@ -180,7 +246,6 @@ class ZynqDiagnostics:
                 packets_received += (tail - last_tail) & 0xFF
                 last_tail = tail
 
-                # In full DMA mode, read from DDR coherent ring; display status
                 if packets_received % 100 == 0:
                     sys.stdout.write(f"\r    Packets: {packets_received:,} | DMA Ring Tail: {tail} | Receiving at 8,000 Hz...")
                     sys.stdout.flush()
@@ -188,14 +253,22 @@ class ZynqDiagnostics:
             time.sleep(0.001)
 
         print(f"\n[+] Total packets captured: {packets_received:,}")
-        self.write32(IMU_REG_CTRL, 0x00) # Disable Auto-DMA
+        self.stop_auto_dma()
         return True
+
+def parse_hex_or_dec(val_str):
+    return int(val_str, 16) if val_str.startswith(("0x", "0X")) else int(val_str)
 
 def main():
     parser = argparse.ArgumentParser(description="AbstractX QMTECH Zynq-7020 Diagnostic Tool")
     parser.add_argument("--uio", default="/dev/uio0", help="UIO device path (default: /dev/uio0)")
-    parser.add_argument("--test", choices=["all", "ping", "led", "clock", "imu", "stream"], default="all", help="Test to execute")
+    parser.add_argument("--test", choices=["all", "ping", "led", "clock", "imu", "stream"], default=None, help="Diagnostic test suite to execute")
     parser.add_argument("--duration", type=float, default=3.0, help="Stream monitor duration in seconds")
+    parser.add_argument("--read-reg", type=str, default=None, help="Read single IMU register over SPI (hex, e.g. 0x75)")
+    parser.add_argument("--write-reg", nargs=2, metavar=("REG", "VAL"), default=None, help="Write single IMU register over SPI (hex, e.g. 0x4E 0x0F)")
+    parser.add_argument("--start-auto-dma", action="store_true", help="Start continuous hardware 8 kHz DRDY Auto-DMA")
+    parser.add_argument("--stop-auto-dma", action="store_true", help="Stop hardware Auto-DMA mode")
+    parser.add_argument("--init-imu", action="store_true", help="Initialize ICM-42688-P registers and start 8 kHz Auto-DMA")
     args = parser.parse_args()
 
     try:
@@ -205,15 +278,44 @@ def main():
         sys.exit(1)
 
     try:
-        if args.test in ["all", "ping"]:
-            if not diag.test_ping() and args.test != "all": sys.exit(1)
-        if args.test in ["all", "led"]:
+        # 1. Direct register operations
+        if args.read_reg is not None:
+            reg = parse_hex_or_dec(args.read_reg)
+            val = diag.read_imu_reg(reg)
+            print(f"[SPI READ] Reg 0x{reg:02X} -> 0x{val:02X} ({val})")
+            return
+
+        if args.write_reg is not None:
+            reg = parse_hex_or_dec(args.write_reg[0])
+            val = parse_hex_or_dec(args.write_reg[1])
+            diag.write_imu_reg(reg, val)
+            print(f"[SPI WRITE] Reg 0x{reg:02X} <= 0x{val:02X}")
+            return
+
+        # 2. Auto-DMA control
+        if args.start_auto_dma:
+            diag.start_auto_dma()
+            return
+
+        if args.stop_auto_dma:
+            diag.stop_auto_dma()
+            return
+
+        if args.init_imu:
+            diag.init_imu()
+            return
+
+        # 3. Test suites
+        test = args.test or "all"
+        if test in ["all", "ping"]:
+            if not diag.test_ping() and test != "all": sys.exit(1)
+        if test in ["all", "led"]:
             diag.test_leds()
-        if args.test in ["all", "clock"]:
+        if test in ["all", "clock"]:
             diag.test_clock()
-        if args.test in ["all", "imu"]:
+        if test in ["all", "imu"]:
             diag.test_imu_whoami()
-        if args.test in ["all", "stream"]:
+        if test in ["all", "stream"]:
             diag.test_stream_monitor(args.duration)
     finally:
         diag.close()

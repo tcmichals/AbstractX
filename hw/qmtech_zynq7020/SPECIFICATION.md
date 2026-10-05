@@ -204,13 +204,27 @@ Physical RAM allocation (via Linux `dma_alloc_coherent` or reserved CMA block):
   * `Channel 0x04` (`DEBUG_TRACE`): Binary CTF 1.8 diagnostic trace stream.
   * `Channel 0x05` (`ESC_SERIAL`): Bidirectional serial/UART tunneling.
 
-### `[SPEC-ZYNQ-04]` Autonomous IMU Auto-DMA Engine
-* The PL MUST integrate a hardware SPI Master and Auto-DMA state machine triggered by an external IMU `DRDY` interrupt pin.
-* On each `DRDY` rising edge, the engine MUST:
-  1. Latch the 64-bit nanosecond hardware uptime timer.
-  2. Perform an autonomous SPI burst read of 14 bytes (accel, gyro, temp).
-  3. Pack the raw sensor data and timestamp into a 64-byte `DMA_Stream` TLP (`Type=0x10`, `Channel=0x02`).
-  4. Forward packet directly through the switch router to the AXI DMA engine for direct DDR write.
+### `[SPEC-ZYNQ-04]` Autonomous IMU Auto-DMA & Direct SPI Engine
+* The PL MUST integrate a hardware SPI Master and Auto-DMA state machine mapped to Wishbone base `0x4000_0100`:
+  * `0x4000_0100` (`IMU_REG_CTRL`):
+    * Bit 0 (`auto_dma_en`): Write `1` to **start** continuous autonomous DRDY auto-DMA; write `0` to **stop** auto-DMA mode.
+    * Bit 1 (`direct_spi_trig`): Self-clearing single SPI transfer trigger pulse.
+    * Bit 2 (`int_polarity`): Hardware DRDY interrupt polarity (`1` = active-high rising edge, `0` = active-low falling edge).
+    * Bit 3 (`direct_spi_rw`): Manual SPI transfer direction (`0` = Read, `1` = Write).
+  * `0x4000_0104` (`IMU_REG_ADDR`): Target IMU register offset (e.g. `0x75` WHO_AM_I, `0x4E` PWR_MGMT0, `0x1F` ACCEL_X1).
+  * `0x4000_0108` (`IMU_REG_LEN`): Transfer length in bytes (`1` for single register, `14` for full 6-axis burst).
+  * `0x4000_010C` (`IMU_REG_WDATA`): Data word to shift out over MOSI during manual register write.
+  * `0x4000_0110` (`IMU_REG_RDATA`): Captured data word from MISO during manual register read.
+  * `0x4000_0114 - 0x4000_0118`: 64-bit nanosecond timestamp latched at the start of the last SPI transfer.
+* **Mode A (Direct Host Register Access)**:
+  * When `direct_spi_trig` is pulsed, the engine performs a single transaction (read or write) and returns directly to `IDLE` without generating TLP stream packets.
+* **Mode B (Autonomous 8 kHz DRDY Auto-DMA)**:
+  * When `auto_dma_en` is `1`, each `DRDY` edge autonomously:
+    1. Latches the 64-bit nanosecond hardware uptime timer.
+    2. Performs an autonomous SPI burst read of `burst_len` bytes (default 14 bytes: accel, gyro, temp).
+    3. Packs the raw sensor data and timestamp into a 64-byte `DMA_Stream` TLP (`Type=0x10`, `Channel=0x02`).
+    4. Forwards packet directly through the switch router to the AXI DMA engine for direct DDR write.
+* Writing `auto_dma_en = 0` MUST immediately halt autonomous triggering and place the engine in idle state.
 * DRDY-to-DDR latency MUST be $< 350$ nanoseconds with zero CPU intervention.
 
 ### `[SPEC-ZYNQ-05]` Physical Pinout & Constraints (`qmtech_zynq7020.xdc`)
