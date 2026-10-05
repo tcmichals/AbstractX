@@ -68,23 +68,126 @@ Output images are generated in `hw/qmtech_zynq7020/bld/images/`:
 
 ---
 
-## 🔌 Hardware Debugging: Pico JTAG / XVC
+---
 
-From the Hackaday + Adam Taylor flow, the referenced project is:
-* `https://github.com/kholia/xvc-pico/`
-* Tutorial: `https://www.adiuvoengineering.com/post/microzed-chronicles-jtag-using-a-raspberry-pi-pico`
+## 🖥️ USB Serial Console Connection
 
-### What `xvc-pico` gives you:
-* RP2040/Pico firmware implementing an XVC-compatible JTAG bridge.
-* Host daemon (`xvcd-pico`) for the XVC server endpoint.
-* Vivado Hardware Manager connects via **Add Xilinx Virtual Cable (XVC)**.
+The QMTECH Zynq-7020 Starter Kit Carrier board includes an onboard USB-to-UART bridge connected to Zynq PS UART0 (`ttyPS0`):
 
-### Practical workflow:
-1. Flash Pico with `xvc-pico` firmware (`.uf2` available in that repo).
-2. Wire Pico JTAG to Zynq JTAG (TCK/TMS/TDI/TDO/GND, with correct voltage domain).
-3. Run `xvcd-pico` on host.
-4. In Vivado Hardware Manager, add XVC target (host IP + port).
-5. Build outputs for `xvc-pico` belong in `hw/qmtech_zynq7020/pico_bld/` (ignored in `.gitignore`).
+```
++------------------------------------+                  Micro-USB Cable                  +------------------------------------+
+|  QMTECH Carrier Board              |   ============================================>   |  Host Development Workstation      |
+|  - Micro-USB Port: "UART"          |             115200 Baud / 8N1                     |  - Port: /dev/ttyUSB0              |
+|  - Silicon Labs CP2102 / CH340     |                                                   |  - Terminal: picocom / minicom     |
++------------------------------------+                                                   +------------------------------------+
+```
+
+### 1. Connect and Identify the Port:
+Plug a standard Micro-USB cable from the **UART** port on the carrier board into your Linux workstation:
+
+```bash
+# Check kernel dmesg for the enumerated serial device:
+dmesg | grep -E "ttyUSB|ttyACM"
+# Typical output: cp210x converter now attached to ttyUSB0
+```
+
+### 2. Open the Terminal Console:
+```bash
+# Using picocom (Recommended):
+picocom -b 115200 /dev/ttyUSB0
+
+# Or using screen:
+screen /dev/ttyUSB0 115200
+
+# Or using minicom:
+minicom -D /dev/ttyUSB0 -b 115200
+```
+
+### 3. Log In to Linux RT:
+* **Username**: `root`
+* **Password**: *(None / press Enter)*
+
+---
+
+## 🔌 Hardware Debugging: Raspberry Pi Pico JTAG / XVC (Vivado)
+
+You can turn an inexpensive **$4 Raspberry Pi Pico (RP2040)** into a high-speed **Xilinx Virtual Cable (XVC)** JTAG programmer and hardware debugger for Vivado. This enables full Vivado Hardware Manager access, Integrated Logic Analyzer (ILA) core debugging, and bitstream programming without proprietary Xilinx platform cables.
+
+Based on the [Adam Taylor MicroZed / Hackaday xvc-pico architecture](https://github.com/kholia/xvc-pico/):
+
+```
++--------------------------+                  JTAG 3.3V LVCMOS Lines                  +-----------------------------------+
+|  Raspberry Pi Pico       |   ---------------------------------------------------->  |  QMTECH Zynq-7020 Board (JTAG)    |
+|  (Running xvc-pico.uf2)  |   GPIO 2 (Pin 4) -> TCK (Pin 6)                          |  - 14-pin Standard 2.0mm Header   |
+|                          |   GPIO 3 (Pin 5) -> TMS (Pin 4)                          |  - Bank 0 / JTAG Voltage: 3.3V    |
+|                          |   GPIO 4 (Pin 6) -> TDI (Pin 10)                         |                                   |
+|                          |   GPIO 5 (Pin 7) -> TDO (Pin 8)                          |                                   |
+|                          |   GND    (Pin 8) -> GND (Pins 3, 5, 7, 9)                |                                   |
++--------------------------+                                                          +-----------------------------------+
+             |                                                                                          |
+             | USB CDC-ACM (/dev/ttyACM0)                                                              |
+             v                                                                                          |
++-------------------------------------------------------------------------------------------------------+
+|  Host Workstation:                                                                                    |
+|  1. Runs `xvcd-pico -s /dev/ttyACM0` (Opens TCP localhost:2542)                                       |
+|  2. Vivado Hardware Manager connects via "Add Xilinx Virtual Cable (XVC)"                             |
+|  3. Inspects PL ILA signals & Cortex-A9 DAP cores in real-time                                        |
++-------------------------------------------------------------------------------------------------------+
+```
+
+### 1. JTAG Wiring Pinout Table
+
+Connect 5 female-to-female jumper wires between the Pico and the QMTECH board's 14-pin JTAG header:
+
+| Pico Physical Pin | Pico GPIO | Signal Name | QMTECH JTAG Header Pin | Notes |
+| :---: | :---: | :---: | :---: | :--- |
+| **Pin 4** | **GPIO 2** | **TCK** | **Pin 6** | JTAG Test Clock |
+| **Pin 5** | **GPIO 3** | **TMS** | **Pin 4** | JTAG Test Mode Select |
+| **Pin 6** | **GPIO 4** | **TDI** | **Pin 10** | JTAG Test Data In |
+| **Pin 7** | **GPIO 5** | **TDO** | **Pin 8** | JTAG Test Data Out |
+| **Pin 8** | **GND** | **GND** | **Pin 3 / 5 / 7** | Common System Ground (**Mandatory**) |
+
+> [!IMPORTANT]
+> Both the Raspberry Pi Pico (RP2040) and the QMTECH Zynq-7020 JTAG interface operate natively at **3.3V LVCMOS**. No level shifters are required. Ensure common GND is connected before powering either board.
+
+### 2. Flash the Pico Firmware:
+1. Hold down the white **BOOTSEL** button on the Raspberry Pi Pico and plug it into your PC USB port.
+2. The Pico will mount as a USB flash drive named `RPI-RP2`.
+3. Download or copy `xvc-pico.uf2` into the `RPI-RP2` drive:
+   ```bash
+   # From the xvc-pico repository (https://github.com/kholia/xvc-pico/releases):
+   cp xvc-pico.uf2 /media/$USER/RPI-RP2/
+   ```
+4. The Pico will reboot automatically and enumerate as a USB serial device (e.g. `/dev/ttyACM0`).
+
+### 3. Build & Run the Host Daemon (`xvcd-pico`):
+```bash
+# Clone and build xvcd-pico:
+git clone https://github.com/kholia/xvc-pico.git
+cd xvc-pico/xvcd-pico
+make
+
+# Launch the daemon bridging the Pico USB serial port to TCP localhost:2542:
+./xvcd-pico -s /dev/ttyACM0
+# Output:
+# [INFO] Listening for XVC connection on 0.0.0.0:2542...
+```
+
+### 4. Connect Vivado Hardware Manager:
+1. Open **Vivado** (2020.1 or later).
+2. Click **Open Hardware Manager** &rarr; **Open Target** &rarr; **Auto Connect**.
+3. In the Hardware Targets window, right-click `localhost:3121` (or click *Add Target*) &rarr; **Add Xilinx Virtual Cable (XVC)**.
+4. Set:
+   * **Host Name**: `localhost` (or `127.0.0.1`)
+   * **Port**: `2542`
+5. Click **OK**.
+6. Vivado will immediately discover the Zynq-7000 JTAG scan chain:
+   * `arm_dap` (Dual Cortex-A9 Debug Access Port)
+   * `xc7z020_1` (Artix-7 FPGA PL Fabric)
+7. You can now:
+   * Program bitstreams directly to PL.
+   * Debug running RTL cores with the **Vivado Integrated Logic Analyzer (ILA)**.
+   * Monitor internal AbstractX Wishbone, SPI, and AXI DMA transactions in real-time!
 
 ---
 
