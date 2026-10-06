@@ -10,9 +10,29 @@ PROJECTS_ROOT="$(cd "${ABSTRACTX_ROOT}/.." && pwd)"
 BR2_EXTERNAL="${ZYNQ_DIR}/buildroot_external"
 BOARD="${1:-}"
 
-BUILDROOT_DIR="${PROJECTS_ROOT}/buildroot"
-LINUX_DIR="${PROJECTS_ROOT}/linux-cubie"
-UBOOT_DIR="${PROJECTS_ROOT}/u-boot-zynq"
+BUILDROOT_DIR="${BUILDROOT_DIR:-${PROJECTS_ROOT}/buildroot}"
+LINUX_DIR="${LINUX_DIR:-${PROJECTS_ROOT}/linux-cubie}"
+UBOOT_DIR="${UBOOT_DIR:-${PROJECTS_ROOT}/u-boot-zynq}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        qmtech|alinx|ac7020c|ac7010c) BOARD="$1"; shift ;;
+        --buildroot|--linux|--uboot)
+            [[ $# -ge 2 ]] || { echo "$1 requires a path" >&2; exit 2; }
+            case "$1" in
+                --buildroot) BUILDROOT_DIR="$2" ;;
+                --linux) LINUX_DIR="$2" ;;
+                --uboot) UBOOT_DIR="$2" ;;
+            esac
+            shift 2
+            ;;
+        --help|-h)
+            echo "Usage: $0 [qmtech|alinx|ac7020c|ac7010c] [--buildroot DIR] [--linux DIR] [--uboot DIR]"
+            exit 0
+            ;;
+        *) echo "Unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
 
 ensure_repositories() {
     [[ -d "${BUILDROOT_DIR}/.git" ]] || git clone https://gitlab.com/buildroot.org/buildroot.git "${BUILDROOT_DIR}"
@@ -51,8 +71,11 @@ case "${BOARD}" in
     alinx|ac7020c)
         configure_board alinx abstractx_alinx_ac7020c_defconfig
         ;;
+    ac7010c)
+        configure_board ac7010c abstractx_alinx_ac7010c_defconfig
+        ;;
     *)
-        echo "Usage: $0 [qmtech|alinx]" >&2
+        echo "Usage: $0 [qmtech|alinx|ac7010c]" >&2
         exit 2
         ;;
 esac

@@ -1,0 +1,16 @@
+/dts-v1/;
+/plugin/;
+
+/* Trace metadata overlay. Requires abstractx-uio.dtbo first. */
+/ {
+	fragment@0 {
+		target-path = "/axi/fpga-fabric@40000000";
+		__overlay__ {
+			abstractx,trace-enabled;
+			abstractx,trace-ring-count = <64>;
+			abstractx,trace-bucket-tlps = <4>;
+			abstractx,trace-crc = "transport-only";
+			status = "okay";
+		};
+	};
+};

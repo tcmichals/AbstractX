@@ -1,0 +1,6 @@
+# Human-readable AbstractX Zynq device-tree configuration.
+# The U-Boot boot.scr imports this file before applying overlays.
+# Keep the final line newline-terminated and use Unix LF line endings.
+
+dtoverlay=abstractx-uio abstractx-trace
+cmdline=loglevel=7

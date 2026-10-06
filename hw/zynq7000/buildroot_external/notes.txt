@@ -1,0 +1,1 @@
+make -C ../buildroot/ O=$PWD BR2_EXTERNAL=/media/tcmichals/projects/Zynq/linux-zynq/zynq_qmtech_xc720 zynq_qmtech_xc720_defconfig

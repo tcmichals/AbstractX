@@ -1,6 +1,8 @@
 # Build directories
 build/
 build*/
+!hw/zynq7000/buildroot_external/
+!hw/zynq7000/buildroot_external/**
 build_hw/
 sim_build/
 hw/zynq7000/*/bld/

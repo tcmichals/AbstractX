@@ -54,7 +54,48 @@ Run `tools/setup_workspace.sh` to locate or clone Buildroot, `linux-cubie`, and 
 make -C hw/zynq7000/alinx_ac7020c/bld -j$(nproc)
 ```
 
+To use existing local checkouts instead of the defaults, pass explicit paths to
+the shared setup script:
+
+```text
+./hw/zynq7000/tools/setup_workspace.sh alinx \
+    --buildroot /path/to/buildroot \
+    --linux /path/to/linux-cubie \
+    --uboot /path/to/u-boot-zynq
+```
+
 The kernel uses `xilinx/zynq-ac7020c.dtb`; U-Boot uses `ac7020c_defconfig`.
+
+## Device-tree overlays and UIO
+
+The Buildroot image follows the Cubie A5E boot configuration model. The board
+DTB describes board-specific hardware; `/boot/config.txt` selects common
+AbstractX overlays before Linux starts:
+
+```text
+dtoverlay=abstractx-uio abstractx-trace
+```
+
+U-Boot loads `system.dtb`, imports `config.txt`, resizes the FDT, applies the
+selected `.dtbo` files, and boots Linux with the merged tree. The common UIO
+overlay describes the AbstractX CSR window at `0x40000000`, IRQ_F2P[0] (Linux
+IRQ 29), and the reserved 32 MiB DMA region at `0x1e000000`.
+
+The DMA enable/stop control is a UIO register operation:
+
+```text
+CSR + 0x00, bit 0 = 1: enable RX/TX DMA
+CSR + 0x00, bit 0 = 0: stop RX/TX DMA
+```
+
+The overlay also records the 256-byte DMA bucket and 64-byte TLP sizes for
+userspace. Verify the merged configuration after boot with:
+
+```text
+ls -l /dev/uio*
+cat /sys/class/uio/uio0/maps/map0/name
+find /sys/firmware/devicetree/base -name '*abstractx*' -o -name '*dma*'
+```
 
 ## FPGA bitstream loading
 
