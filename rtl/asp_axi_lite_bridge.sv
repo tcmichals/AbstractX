@@ -8,8 +8,8 @@
 // Bridges Zynq PS M_AXI_GP0 (AXI4-Lite) to the 512-bit (64-byte) ASP switch fabric.
 // Exposes CSRs, Ingress/Egress packet FIFOs, and asserts IRQ_F2P[0] for UIO wakeups.
 //
-// @impl [SPEC-ZYNQ-01] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-// @impl [SPEC-ZYNQ-02] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+// @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+// @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
 module asp_axi_lite_bridge #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,

@@ -14,8 +14,8 @@ To execute the test suite, your environment requires the following open-source t
 For the active QMTECH Zynq-7020 direction, also expect:
 
 - an external Buildroot/BSP baseline from `https://github.com/tcmichals/QMTECH`,
-- an out-of-tree Buildroot output directory such as `hw/qmtech_zynq7020/bld/`, and
-- optional Pico/XVC local build output in `hw/qmtech_zynq7020/pico_bld/`.
+- an out-of-tree Buildroot output directory such as `hw/zynq7000/qmtech_zynq7020/bld/`, and
+- optional Pico/XVC local build output in `hw/zynq7000/qmtech_zynq7020/pico_bld/`.
 
 ## 2. Building & Running Tests with CMake
 

@@ -7,9 +7,9 @@
  * Direct memory-mapped access to the AbstractX FPGA fabric on M_AXI_GP0 (0x4000_0000).
  * Operates over /dev/uio0 with zero heap allocation and zero blocking spinloops.
  *
- * @impl [SPEC-ZYNQ-01] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
- * @impl [SPEC-ZYNQ-02] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
- * @impl [SPEC-ZYNQ-06] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-06
+ * @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+ * @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+ * @impl [SPEC-ZYNQ-06] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-06
  */
 
 #pragma once
@@ -151,7 +151,7 @@ public:
     }
 
     // Unmask UIO interrupt in Linux kernel so next IRQ_F2P will trigger event
-    // @impl [SPEC-ZYNQ-02] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+    // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
     void unmask_interrupt() noexcept {
         if (fd_ >= 0) {
             const uint32_t unmask = 1;

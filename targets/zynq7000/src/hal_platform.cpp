@@ -4,7 +4,7 @@
  *
  * AbstractX Zynq-7000 Platform Hooks & Lifecycle Functions
  *
- * @impl [SPEC-ZYNQ-06] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-06
+ * @impl [SPEC-ZYNQ-06] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-06
  */
 
 #include "abstractx/hal/platform.hpp"

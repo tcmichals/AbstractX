@@ -70,7 +70,7 @@ module asp_imu_auto_dma (
 
     assign imu_int_trig = int_polarity ? (imu_int_sync[2:1] == 2'b01) : (imu_int_sync[2:1] == 2'b10);
 
-// @impl [SPEC-ZYNQ-04] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-04
+// @impl [SPEC-ZYNQ-04] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-04
     // Wishbone Register Read/Write Logic
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

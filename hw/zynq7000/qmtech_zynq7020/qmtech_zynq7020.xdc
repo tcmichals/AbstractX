@@ -4,7 +4,7 @@
 # AbstractX Physical Constraints for QMTECH Zynq-7020 Starter Kit
 # Board: QMTECH XC7Z020 Starter Kit (XC7Z020-1CLG484C / CLG400 compatible)
 #
-# @impl [SPEC-ZYNQ-05] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-05
+# @impl [SPEC-ZYNQ-05] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-05
 
 # -----------------------------------------------------------------------------
 # Timing Constraints (100 MHz PS AXI Fabric Clock)

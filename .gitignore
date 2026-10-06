@@ -3,8 +3,11 @@ build/
 build*/
 build_hw/
 sim_build/
-hw/qmtech_zynq7020/bld/
-hw/qmtech_zynq7020/pico_bld/
+hw/zynq7000/*/bld/
+hw/zynq7000/*/pico_bld/
+hw/zynq7000/*/build/
+hw/zynq7000/*/output/
+hw/zynq7000/bld.zynq/
 
 # Python artifacts
 __pycache__/

@@ -14,7 +14,7 @@ It follows the exact same zero-patch, `local.mk` override architecture proven in
 Run the automated workspace setup script from the AbstractX project root or this directory:
 
 ```bash
-./hw/qmtech_zynq7020/tools/setup_workspace.sh
+./hw/zynq7000/qmtech_zynq7020/tools/setup_workspace.sh
 ```
 
 ### What `setup_workspace.sh` does automatically:
@@ -22,24 +22,24 @@ Run the automated workspace setup script from the AbstractX project root or this
    * **Buildroot** (`https://gitlab.com/buildroot.org/buildroot.git`)
    * **Linux kernel** (`git@github.com:tcmichals/linux-cubie.git`, branch `cubie-linux-7.1`)
    * **U-Boot** (`git@github.com:tcmichals/u-boot-zynq.git`, branch `main`)
-   * **QMTECH external tree** (`git@github.com:tcmichals/QMTECH.git`)
-2. Configures the out-of-tree build directory: `hw/qmtech_zynq7020/bld/`.
-3. Creates `hw/qmtech_zynq7020/bld/local.mk` pointing to your local `linux-cubie` and `u-boot-zynq` repositories.
-4. Initializes `hw/qmtech_zynq7020/bld/.config` with `zynq_qmtech_xc720_defconfig`.
+   * **AbstractX shared Zynq Buildroot external tree** (`hw/zynq7000/buildroot_external`)
+2. Configures the out-of-tree build directory: `hw/zynq7000/qmtech_zynq7020/bld/`.
+3. Creates `hw/zynq7000/qmtech_zynq7020/bld/local.mk` pointing to your local `linux-cubie` and `u-boot-zynq` repositories.
+4. Initializes the build with `abstractx_qmtech_zynq7020_defconfig`.
 
 ---
 
 ## 🛠️ Build Commands
 
-All builds execute out-of-tree in `hw/qmtech_zynq7020/bld/`:
+All builds execute out-of-tree in `hw/zynq7000/qmtech_zynq7020/bld/`:
 
 | Task | Command | Description |
 |---|---|---|
-| **Full Image Build** | `make -C hw/qmtech_zynq7020/bld -j$(nproc)` | Builds toolchain, U-Boot, Linux, and generates `sdcard.img` |
-| **Fast Kernel Rebuild** | `make -C hw/qmtech_zynq7020/bld linux-rebuild` | Incremental 5-second rebuild of kernel using `local.mk` |
-| **Fast U-Boot Rebuild** | `make -C hw/qmtech_zynq7020/bld uboot-rebuild` | Incremental rebuild of U-Boot using `local.mk` |
-| **Menuconfig** | `make -C hw/qmtech_zynq7020/bld menuconfig` | Buildroot interactive configuration |
-| **Linux Menuconfig** | `make -C hw/qmtech_zynq7020/bld linux-menuconfig` | Interactive kernel Kconfig |
+| **Full Image Build** | `make -C hw/zynq7000/qmtech_zynq7020/bld -j$(nproc)` | Builds toolchain, U-Boot, Linux, and generates `sdcard.img` |
+| **Fast Kernel Rebuild** | `make -C hw/zynq7000/qmtech_zynq7020/bld linux-rebuild` | Incremental rebuild using `local.mk` |
+| **Fast U-Boot Rebuild** | `make -C hw/zynq7000/qmtech_zynq7020/bld uboot-rebuild` | Incremental rebuild using `local.mk` |
+| **Menuconfig** | `make -C hw/zynq7000/qmtech_zynq7020/bld menuconfig` | Buildroot interactive configuration |
+| **Linux Menuconfig** | `make -C hw/zynq7000/qmtech_zynq7020/bld linux-menuconfig` | Interactive kernel Kconfig |
 
 Output images are generated in `hw/qmtech_zynq7020/bld/images/`:
 * `boot.bin` (SPL / FSBL + Bitstream + U-Boot)

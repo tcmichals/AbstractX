@@ -15,9 +15,9 @@
 // 4. DDR-to-Ingress (TX) Engine: Fetches 64B TLPs from PS DDR and pushes into asp_router.
 // 5. Zero Descriptors: Fully hardware circular ring buffer with atomic pointer updates.
 //
-// @impl [SPEC-ZYNQ-01] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-// @impl [SPEC-ZYNQ-02] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
-// @impl [SPEC-ZYNQ-03] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-03
+// @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+// @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+// @impl [SPEC-ZYNQ-03] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-03
 module asp_axi_dma #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,
