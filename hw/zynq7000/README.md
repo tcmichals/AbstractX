@@ -17,6 +17,14 @@ hw/zynq7000/
 
 The setup tool locates or clones shared Buildroot, `linux-cubie`, and `u-boot-zynq` repositories, writes board-local `bld/local.mk` source overrides, and initializes one or both output trees.
 
+Linux and U-Boot are built out-of-tree under the Buildroot output directory.
+The setup tool only configures that output tree; neither it nor Buildroot needs
+`make clean` in the `linux-cubie` or `u-boot-zynq` source checkout.
+
+All active Zynq board defconfigs include Python 3, libgpiod 2, Dropbear, `iw`,
+`wpa_supplicant` with nl80211, and the Realtek rtw88 8822BU driver and firmware
+for the RTL88x2BU USB adapter (ID `0bda:b812`).
+
 ```bash
 ./hw/zynq7000/tools/setup_workspace.sh all
 ./hw/zynq7000/tools/setup_workspace.sh qmtech
