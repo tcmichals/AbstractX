@@ -218,6 +218,48 @@ depend on the coroutine/task implementation, the awaited driver operation,
 the scheduler, and the queue policy. They should be measured and verified on
 the target; this article makes no latency or performance claim.
 
+## One async idea, three deployment paths
+
+The same coroutine style can sit above different I/O backends. The useful
+comparison is where peripheral work runs—not a claim that every target is
+equally complete or equally fast.
+
+![Pico 2 W, Linux-only, and Linux AbstractX with FPGA deployment paths](assets/platform-paths.svg)
+
+The Linux host build is verified, but that proves compilation rather than
+physical sensor behavior. The Pico 2 W GPS + compass-only firmware is not yet
+a standalone target, and the Linux-plus-FPGA path needs its own target-specific
+hardware validation. Studio can provide a common UDP view of telemetry; the
+screenshots should identify which platform produced each stream.
+
+### How does Linux real-time stand up?
+
+That is a measurement question, not something to infer from the word
+“asynchronous.” Linux can run a standard kernel or a PREEMPT_RT-enabled kernel,
+but this repository does not currently configure the app with a real-time
+scheduler policy or provide comparative timing results. A PREEMPT_RT kernel
+alone is not evidence that this particular application meets a deadline.
+
+A useful comparison would run the same sensor workload on the same Linux
+hardware in these configurations:
+
+1. Standard Linux scheduling.
+2. PREEMPT_RT, with the kernel configuration, thread priority, CPU affinity,
+   and memory-locking policy recorded.
+3. The Linux AbstractX + FPGA I/O path, keeping the Linux application and
+   workload the same where possible.
+4. Pico 2 W as a separate MCU reference—not as a same-hardware Linux
+   comparison.
+
+Timestamp the hardware input or DMA completion and the point where application
+code consumes the resulting sample. Report latency distributions (median,
+99th and 99.9th percentile, and maximum), deadline misses, dropped samples or
+queue overflows, and CPU utilization. Repeat under idle and controlled CPU /
+network load, and record board, kernel, scheduler settings, sample rates, and
+FPGA image. Keep the Studio receiver state consistent across runs; its UDP
+visualization is useful for observing the stream but is not a substitute for
+timestamp-based measurements.
+
 ## A balanced comparison
 
 | Approach | What it contributes | What the example should make visible |
@@ -282,9 +324,9 @@ address is reachable from the board.
 
 To capture Studio views for the article, save original screenshots under
 `assets/` (for example `studio-overview.png`,
-`studio-coroutine-timeline.png`, and `studio-udp-telemetry.png`). Label whether
-each image shows host simulation or physical hardware; simulated data is not
-evidence of sensor or board behavior.
+`pico2w-studio.png`, `linux-host-studio.png`, and
+`linux-fpga-studio.png`). Label whether each image shows host simulation or
+physical hardware; simulated data is not evidence of sensor or board behavior.
 
 ### Flash and debug the Pico reference
 
