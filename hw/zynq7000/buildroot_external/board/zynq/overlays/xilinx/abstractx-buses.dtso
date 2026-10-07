@@ -1,0 +1,51 @@
+/dts-v1/;
+/plugin/;
+
+/* Shared PS I2C0/SPI1 pins and direct userspace ICM-42688-P access. */
+/ {
+	fragment@0 {
+		target = <&pinctrl0>;
+		__overlay__ {
+			abstractx_i2c0_pins: abstractx-i2c0-pins {
+				groups = "i2c0_1_grp";
+				function = "i2c0";
+			};
+
+			abstractx_spi1_pins: abstractx-spi1-pins {
+				groups = "spi1_0_grp";
+				function = "spi1";
+			};
+
+			abstractx_spi1_cs0_pins: abstractx-spi1-cs0-pins {
+				groups = "spi1_0_ss0_grp";
+				function = "spi1_ss";
+			};
+		};
+	};
+
+	fragment@1 {
+		target = <&i2c0>;
+		__overlay__ {
+			pinctrl-names = "default";
+			pinctrl-0 = <&abstractx_i2c0_pins>;
+			status = "okay";
+		};
+	};
+
+	fragment@2 {
+		target = <&spi1>;
+		__overlay__ {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&abstractx_spi1_pins &abstractx_spi1_cs0_pins>;
+			status = "okay";
+
+			icm42688@0 {
+				compatible = "invensense,icm42688";
+				reg = <0>;
+				spi-max-frequency = <24000000>;
+			};
+		};
+	};
+};

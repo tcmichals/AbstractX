@@ -48,10 +48,11 @@ For an FSBL-first boot, Vitis/PetaLinux builds FSBL from `ps7_init.c` in the XSA
 
 ## Buildroot
 
-Run `tools/setup_workspace.sh` to locate or clone Buildroot, `linux-cubie`, and `u-boot-zynq`, create `bld/local.mk` source overrides, and initialize the ALINX defconfig. Then build with:
+Run `tools/setup_workspace.sh` to configure the dedicated
+`hw/zynq7000/bld.alinx-20/` workspace. From the repository root, build with:
 
 ```bash
-make -C hw/zynq7000/alinx_ac7020c/bld -j$(nproc)
+make -C hw/zynq7000/bld.alinx-20 -j$(nproc)
 ```
 
 To use existing local checkouts instead of the defaults, pass explicit paths to
@@ -68,34 +69,12 @@ The kernel uses `xilinx/zynq-ac7020c.dtb`; U-Boot uses `ac7020c_defconfig`.
 
 ## Device-tree overlays and UIO
 
-The Buildroot image follows the Cubie A5E boot configuration model. The board
-DTB describes board-specific hardware; `/boot/config.txt` selects common
-AbstractX overlays before Linux starts:
-
-```text
-dtoverlay=abstractx-uio abstractx-trace
-```
-
-U-Boot loads `system.dtb`, imports `config.txt`, resizes the FDT, applies the
-selected `.dtbo` files, and boots Linux with the merged tree. The common UIO
-overlay describes the AbstractX CSR window at `0x40000000`, IRQ_F2P[0] (Linux
-IRQ 29), and the reserved 32 MiB DMA region at `0x1e000000`.
-
-The DMA enable/stop control is a UIO register operation:
-
-```text
-CSR + 0x00, bit 0 = 1: enable RX/TX DMA
-CSR + 0x00, bit 0 = 0: stop RX/TX DMA
-```
-
-The overlay also records the 256-byte DMA bucket and 64-byte TLP sizes for
-userspace. Verify the merged configuration after boot with:
-
-```text
-ls -l /dev/uio*
-cat /sys/class/uio/uio0/maps/map0/name
-find /sys/firmware/devicetree/base -name '*abstractx*' -o -name '*dma*'
-```
+The shared boot flow, overlay contract, DMA ABI, and Linux verification steps
+are documented in
+[`../DEVICE_TREE_CONFIGURATION.md`](../DEVICE_TREE_CONFIGURATION.md).
+The AC7020C baseline image does not apply the UIO/trace overlays because its
+baseline bitstream contains AXI GPIO but not the AbstractX TLP/DMA fabric.
+Enable those overlays only with a matching fabric bitstream.
 
 ## FPGA bitstream loading
 

@@ -12,6 +12,7 @@ Performs live hardware tests on the QMTECH Zynq-7020 FPGA platform:
 Usage:
   zynq_diagnostics.py [--uio /dev/uio0] [--test all|ping|led|clock|imu|stream]
 """
+# @impl [SPEC-ZYNQ-04] hw/zynq7000/qmtech_zynq7020/tools/zynq_diagnostics.py
 
 import os
 import sys
@@ -46,6 +47,7 @@ IMU_REG_WDATA    = 0x10C # 32-bit direct SPI write data
 IMU_REG_RDATA    = 0x110 # 32-bit direct SPI read data
 IMU_REG_TIME_H   = 0x114 # Timestamp upper 32 bits
 IMU_REG_TIME_L   = 0x118 # Timestamp lower 32 bits
+IMU_REG_STATUS   = 0x11C # Direct busy/done and Auto-DMA active status
 
 HARDWARE_MAGIC   = 0x41535036 # "ASP6"
 
@@ -132,24 +134,33 @@ class ZynqDiagnostics:
 
     def read_imu_reg(self, reg_addr):
         """Perform a single manual SPI register read (Mode A)."""
+        self.write32(IMU_REG_STATUS, 0x02)
         self.write32(IMU_REG_ADDR, reg_addr & 0x7F)
         self.write32(IMU_REG_LEN, 1)
-        # Bit 1 = Trig, Bit 3 = Read (0)
         self.write32(IMU_REG_CTRL, (1 << 1) | (0 << 3))
-        time.sleep(0.002)
+        self._wait_direct_spi()
         val = self.read32(IMU_REG_RDATA) & 0xFF
         return val
 
     def write_imu_reg(self, reg_addr, val):
         """Perform a single manual SPI register write (Mode A)."""
+        self.write32(IMU_REG_STATUS, 0x02)
         self.write32(IMU_REG_ADDR, reg_addr & 0x7F)
         self.write32(IMU_REG_LEN, 1)
         self.write32(IMU_REG_WDATA, val & 0xFF)
-        # Bit 1 = Trig, Bit 3 = Write (1)
         self.write32(IMU_REG_CTRL, (1 << 1) | (1 << 3))
-        time.sleep(0.002)
+        self._wait_direct_spi()
 
-    def start_auto_dma(self, burst_addr=0x1F, burst_len=14, int_polarity=1):
+    def _wait_direct_spi(self, timeout=0.1):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            status = self.read32(IMU_REG_STATUS)
+            if status & 0x02 and not status & 0x01:
+                return
+            time.sleep(0.00001)
+        raise TimeoutError("PL direct SPI transfer did not complete")
+
+    def start_auto_dma(self, burst_addr=0x1D, burst_len=14, int_polarity=1):
         """Configure and start continuous autonomous 8 kHz DRDY Auto-DMA (Mode B)."""
         print(f"[*] Starting Auto-DMA: Burst Reg=0x{burst_addr:02X}, Len={burst_len}B, Polarity={'ActiveHigh' if int_polarity else 'ActiveLow'}")
         self.write32(IMU_REG_ADDR, burst_addr & 0xFF)
@@ -204,9 +215,9 @@ class ZynqDiagnostics:
         print("[*] Setting INT_SOURCE0 (0x65) <= 0x08 (UI DRDY -> INT1)...")
         self.write_imu_reg(0x65, 0x08)
 
-        # 8. Start Auto-DMA burst read on Accel X1 (0x1F, 14 bytes)
+        # 8. Start Auto-DMA burst read on TEMP_DATA1 (0x1D, 14 bytes)
         print("[*] Starting hardware Auto-DMA...")
-        self.start_auto_dma(burst_addr=0x1F, burst_len=14, int_polarity=1)
+        self.start_auto_dma(burst_addr=0x1D, burst_len=14, int_polarity=1)
         print("[SUCCESS] IMU configured and 8 kHz Auto-DMA streaming active!")
         return True
 

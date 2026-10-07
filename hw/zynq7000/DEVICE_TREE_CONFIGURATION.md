@@ -19,16 +19,29 @@ The base DTB owns board facts:
 - Board-specific PL address and IRQ wiring
 - Reserved-memory placement
 
-The shared overlays own the AbstractX PL ABI:
+The shared overlays describe PS bus access and, when supported, the AbstractX
+PL ABI:
 
 ```text
+abstractx-buses.dtbo
 abstractx-uio.dtbo
 abstractx-trace.dtbo
 ```
 
-A shared overlay is valid only when the selected bitstream provides the same
+`abstractx-buses.dtbo` enables PS I²C0 on MIO14/MIO15 and PS SPI1 on
+MIO10–MIO13, exposing `/dev/i2c-0` and `/dev/spidev1.0`. It is selected for
+all three board configurations. Its ICM-42688-P child uses the truthful
+`invensense,icm42688` compatible and binds to spidev in the shared kernel; the
+in-kernel IIO SPI driver is disabled for that endpoint.
+
+The UIO and trace overlays are valid only when the selected bitstream provides the same
 CSR address, IRQ, DMA ring ABI, TLP size, and trace channel on every board.
 An overlay cannot create hardware that is absent from the FPGA bitstream.
+Each board has its own generated `/boot/config.txt`. All select the bus overlay.
+QMTECH also selects the UIO/trace overlays by default. ALINX AC7010C and AC7020C
+omit those two because their baseline bitstreams do not contain the TLP/DMA
+fabric. Add them to an ALINX config only when deploying a matching fabric
+bitstream.
 
 ## AbstractX UIO/DMA ABI
 
@@ -39,10 +52,15 @@ CSR base:       0x40000000
 CSR size:       0x00010000
 IRQ_F2P[0]:     Linux IRQ 29
 TLP size:       64 bytes
-DMA bucket:     256 bytes (four TLP records)
+DMA ring slot:  64 bytes (one TLP record)
+Ring capacity:  256 slots (16 KiB)
 Reserved DDR:   0x1e000000 - 0x1fffffff (32 MiB)
 Trace channel:  0x04
 ```
+
+The generic UIO device exposes map 0 for the CSR window and map 1 for the
+reserved DMA window. UIO maps the physical ring noncached; userspace MUST use
+that map rather than a cached `/dev/mem` mapping.
 
 The DMA enable/stop operation is:
 
@@ -76,6 +94,12 @@ U-Boot environment remains generated and CRC-protected; users edit
 Example:
 
 ```text
+dtoverlay=abstractx-buses
+```
+
+QMTECH additionally uses:
+
+```text
 dtoverlay=abstractx-uio abstractx-trace
 cmdline=loglevel=7
 ```
@@ -85,14 +109,26 @@ cmdline=loglevel=7
 After boot:
 
 ```text
+ls -l /dev/spidev1.0 /dev/i2c-0
+python3 -c 'import gpiod, spidev; print("IMU userspace modules available")'
 ls -l /dev/uio*
 cat /sys/class/uio/uio0/maps/map0/name
+cat /sys/class/uio/uio0/maps/map1/name
 find /sys/firmware/devicetree/base -name '*abstractx*' -o -name '*dma*'
 ```
 
 The expected result is a UIO device exposing the CSR window and an active
-reserved-memory node for the DMA buckets. Linux UIO support is provided by
+reserved-memory map for 64-byte DMA ring slots. Linux UIO support is provided by
 `CONFIG_UIO`, `CONFIG_UIO_PDRV_GENIRQ`, and the `generic-uio` overlay binding.
+
+## IMU backend validation proof of concept
+
+The shared hardware test suite is specified in
+[`testApps/imu_backend_validation_poc/SPECIFICATION.md`](testApps/imu_backend_validation_poc/SPECIFICATION.md).
+It compares Linux GPIO-event → spidev acquisition with PL DRDY → SPI → DMA
+acquisition using one ICM-42688-P test flow. The PS DRDY GPIO line and safe
+PS/PL SPI routing must be verified on the actual board before results are
+considered comparable.
 
 ## Buildroot outputs
 

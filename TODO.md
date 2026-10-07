@@ -86,6 +86,21 @@ This document is the authoritative roadmap and active engineering task tracker f
 
 ## 🎯 Staged Hardware Bring-up & Field Testing Roadmap
 
+### Zynq-7000 AbstractX IMU Validation Proof of Concept
+
+* [x] Implement the shared ICM-42688-P test suite and selectable
+  Linux GPIO-event → spidev / AbstractX PL DRDY → SPI → Auto-DMA backends
+  specified in
+  [`hw/zynq7000/testApps/imu_backend_validation_poc/SPECIFICATION.md`](hw/zynq7000/testApps/imu_backend_validation_poc/SPECIFICATION.md).
+  Host unit tests and the focused AbstractX IMU Auto-DMA RTL regression are in
+  place; hardware validation remains open.
+* [ ] Verify the board-specific PS GPIO line for IMU DRDY and a safe way to
+  route the same sensor between PS SPI1 and PL SPI.
+* [ ] Run both backends on the same board, sensor, configuration, and duration;
+  preserve JSON results and report sample loss, latency, throughput, and CPU
+  cost.
+* [ ] Write the accompanying article only after real measurements exist.
+
 Target execution follows a 3-stage validation progression:
 
 ### Stage 1 (Recommended First Baseline): Raspberry Pi Pico 2 W (RP2350)

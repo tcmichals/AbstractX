@@ -1,0 +1,3 @@
+# QMTECH bitstream implements the shared AbstractX TLP/DMA overlay ABI.
+dtoverlay=abstractx-buses abstractx-uio abstractx-trace
+cmdline=loglevel=7

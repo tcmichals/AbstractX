@@ -17,11 +17,11 @@
 // 6. DShot / PWM Motor Core (asp_dshot_core)
 // 7. WS2812B NeoPixel Status Core (asp_neopixel_core)
 //
-// @impl [SPEC-ZYNQ-01] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-// @impl [SPEC-ZYNQ-02] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
-// @impl [SPEC-ZYNQ-03] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-03
-// @impl [SPEC-ZYNQ-04] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-04
-// @impl [SPEC-ZYNQ-05] hw/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-05
+// @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+// @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+// @impl [SPEC-ZYNQ-03] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-03
+// @impl [SPEC-ZYNQ-04] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-04
+// @impl [SPEC-ZYNQ-05] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-05
 module top_qmtech_zynq7020 #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,

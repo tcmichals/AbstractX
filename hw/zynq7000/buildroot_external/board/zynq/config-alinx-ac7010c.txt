@@ -1,0 +1,3 @@
+# ALINX AC7010C baseline has no AbstractX TLP/DMA fabric.
+dtoverlay=abstractx-buses
+cmdline=loglevel=7

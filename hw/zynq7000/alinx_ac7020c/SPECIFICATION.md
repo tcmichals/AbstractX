@@ -25,7 +25,7 @@ flowchart LR
 
 ### [SPEC-AC7020C-01] Standalone reproducible hardware
 
-The AbstractX target MUST regenerate its XPR, bitstream and XSA from files within `hw/alinx_ac7020c`; it MUST NOT require a sibling ALINX repository at build time.
+The AbstractX target MUST regenerate its XPR, bitstream and XSA from files within `hw/zynq7000/alinx_ac7020c`; it MUST NOT require a sibling ALINX repository at build time.
 
 ### [SPEC-AC7020C-02] Processing-system clock and memory
 

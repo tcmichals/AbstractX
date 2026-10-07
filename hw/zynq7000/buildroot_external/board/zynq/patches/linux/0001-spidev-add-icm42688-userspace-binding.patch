@@ -1,0 +1,18 @@
+Subject: [PATCH] spidev: allow the ICM-42688 binding for direct userspace access
+
+The Zynq validation image accesses this sensor directly from the shared
+userspace test; keep the compatible truthful and do not bind the IIO driver.
+
+---
+ drivers/spi/spidev.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/spi/spidev.c b/drivers/spi/spidev.c
+--- a/drivers/spi/spidev.c
++++ b/drivers/spi/spidev.c
+@@ -693,0 +694 @@ static const struct spi_device_id spidev_spi_ids[] = {
++	{ .name = "icm42688" },
+@@ -727,0 +729 @@ static const struct of_device_id spidev_dt_ids[] = {
++	{ .compatible = "invensense,icm42688", .data = &spidev_of_check },
+--
+2.43.0

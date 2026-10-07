@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Configure one AbstractX Zynq-7000 board in the shared bld.zynq output tree.
+# Configure one AbstractX Zynq-7000 board in its dedicated Buildroot output tree.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +16,7 @@ UBOOT_DIR="${UBOOT_DIR:-${PROJECTS_ROOT}/u-boot-zynq}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        qmtech|alinx|ac7020c|ac7010c) BOARD="$1"; shift ;;
+        qmtech|qmtech-20|alinx|alinx-20|ac7020c|ac7010c|alinx-10) BOARD="$1"; shift ;;
         --buildroot|--linux|--uboot)
             [[ $# -ge 2 ]] || { echo "$1 requires a path" >&2; exit 2; }
             case "$1" in
@@ -27,10 +27,14 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help|-h)
-            echo "Usage: $0 [qmtech|alinx|ac7020c|ac7010c] [--buildroot DIR] [--linux DIR] [--uboot DIR]"
+            echo "Usage: ./tools/setup_workspace.sh [qmtech-20|alinx-20|alinx-10] [--buildroot DIR] [--linux DIR] [--uboot DIR]"
             exit 0
             ;;
-        *) echo "Unknown argument: $1" >&2; exit 2 ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            echo "Usage: ./tools/setup_workspace.sh [qmtech-20|alinx-20|alinx-10] [--buildroot DIR] [--linux DIR] [--uboot DIR]" >&2
+            exit 2
+            ;;
     esac
 done
 
@@ -43,13 +47,8 @@ ensure_repositories() {
 configure_board() {
     local board_name="$1"
     local defconfig="$2"
-    local output_dir="${ZYNQ_DIR}/bld.zynq"
-    local marker="${output_dir}/.abstractx-board"
-
-    if [[ -f "${marker}" ]] && [[ "$(cat "${marker}")" != "${board_name}" ]]; then
-        echo "Switching bld.zynq from $(cat "${marker}") to ${board_name}; clearing generated output."
-        find "${output_dir}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-    fi
+    local workspace="$3"
+    local output_dir="${ZYNQ_DIR}/${workspace}"
 
     mkdir -p "${output_dir}"
     cat > "${output_dir}/local.mk" <<EOF
@@ -59,23 +58,22 @@ EOF
 
     make -C "${BUILDROOT_DIR}" O="${output_dir}" \
         BR2_EXTERNAL="${BR2_EXTERNAL}" "${defconfig}"
-    printf '%s\n' "${board_name}" > "${marker}"
-    echo "Configured ${output_dir} (${defconfig})"
+    echo "Configured ${output_dir} (${board_name}; ${defconfig})"
 }
 
 ensure_repositories
 case "${BOARD}" in
-    qmtech)
-        configure_board qmtech abstractx_qmtech_zynq7020_defconfig
+    qmtech|qmtech-20)
+        configure_board qmtech abstractx_qmtech_zynq7020_defconfig bld.qmtech-20
         ;;
-    alinx|ac7020c)
-        configure_board alinx abstractx_alinx_ac7020c_defconfig
+    alinx|alinx-20|ac7020c)
+        configure_board alinx abstractx_alinx_ac7020c_defconfig bld.alinx-20
         ;;
-    ac7010c)
-        configure_board ac7010c abstractx_alinx_ac7010c_defconfig
+    ac7010c|alinx-10)
+        configure_board ac7010c abstractx_alinx_ac7010c_defconfig bld.alinx-10
         ;;
     *)
-        echo "Usage: $0 [qmtech|alinx|ac7010c]" >&2
+        echo "Usage: ./tools/setup_workspace.sh [qmtech-20|alinx-20|alinx-10]" >&2
         exit 2
         ;;
 esac

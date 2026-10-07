@@ -11,7 +11,7 @@ It follows the exact same zero-patch, `local.mk` override architecture proven in
 
 ## 🚀 Multi-PC Workspace Setup
 
-Run the automated workspace setup script from the AbstractX project root or this directory:
+Run the wrapper from the AbstractX repository root:
 
 ```bash
 ./hw/zynq7000/qmtech_zynq7020/tools/setup_workspace.sh
@@ -23,26 +23,26 @@ Run the automated workspace setup script from the AbstractX project root or this
    * **Linux kernel** (`git@github.com:tcmichals/linux-cubie.git`, branch `cubie-linux-7.1`)
    * **U-Boot** (`git@github.com:tcmichals/u-boot-zynq.git`, branch `main`)
    * **AbstractX shared Zynq Buildroot external tree** (`hw/zynq7000/buildroot_external`)
-2. Configures the out-of-tree build directory: `hw/zynq7000/qmtech_zynq7020/bld/`.
-3. Creates `hw/zynq7000/qmtech_zynq7020/bld/local.mk` pointing to your local `linux-cubie` and `u-boot-zynq` repositories.
+2. Configures the dedicated out-of-tree workspace `hw/zynq7000/bld.qmtech-20/`.
+3. Creates `hw/zynq7000/bld.qmtech-20/local.mk` pointing to your local `linux-cubie` and `u-boot-zynq` repositories.
 4. Initializes the build with `abstractx_qmtech_zynq7020_defconfig`.
 
 ---
 
 ## 🛠️ Build Commands
 
-All builds execute out-of-tree in `hw/zynq7000/qmtech_zynq7020/bld/`:
+All builds execute out-of-tree in `hw/zynq7000/bld.qmtech-20/`:
 
 | Task | Command | Description |
 |---|---|---|
-| **Full Image Build** | `make -C hw/zynq7000/qmtech_zynq7020/bld -j$(nproc)` | Builds toolchain, U-Boot, Linux, and generates `sdcard.img` |
-| **Fast Kernel Rebuild** | `make -C hw/zynq7000/qmtech_zynq7020/bld linux-rebuild` | Incremental rebuild using `local.mk` |
-| **Fast U-Boot Rebuild** | `make -C hw/zynq7000/qmtech_zynq7020/bld uboot-rebuild` | Incremental rebuild using `local.mk` |
-| **Menuconfig** | `make -C hw/zynq7000/qmtech_zynq7020/bld menuconfig` | Buildroot interactive configuration |
-| **Linux Menuconfig** | `make -C hw/zynq7000/qmtech_zynq7020/bld linux-menuconfig` | Interactive kernel Kconfig |
+| **Full Image Build** | `make -C hw/zynq7000/bld.qmtech-20 -j$(nproc)` | Builds toolchain, U-Boot, Linux, and generates `sdcard.img` |
+| **Fast Kernel Rebuild** | `make -C hw/zynq7000/bld.qmtech-20 linux-rebuild` | Incremental rebuild using `local.mk` |
+| **Fast U-Boot Rebuild** | `make -C hw/zynq7000/bld.qmtech-20 uboot-rebuild` | Incremental rebuild using `local.mk` |
+| **Menuconfig** | `make -C hw/zynq7000/bld.qmtech-20 menuconfig` | Buildroot interactive configuration |
+| **Linux Menuconfig** | `make -C hw/zynq7000/bld.qmtech-20 linux-menuconfig` | Interactive kernel Kconfig |
 
-Output images are generated in `hw/qmtech_zynq7020/bld/images/`:
-* `boot.bin` (SPL / FSBL + Bitstream + U-Boot)
+Output images are generated in `hw/zynq7000/bld.qmtech-20/images/`:
+* `boot.bin` (the configured U-Boot SPL image; verify FSBL and FPGA bitstream packaging separately for the selected boot flow)
 * `u-boot.img`
 * `uImage`
 * `zynq-qmtech-xc720.dtb`
@@ -54,16 +54,16 @@ Output images are generated in `hw/qmtech_zynq7020/bld/images/`:
 
 ```bash
 # Check status of local kernel working tree:
-./hw/qmtech_zynq7020/tools/sync_kernel.sh status
+./hw/zynq7000/qmtech_zynq7020/tools/sync_kernel.sh status
 
 # Push kernel commits to GitHub before switching PCs:
-./hw/qmtech_zynq7020/tools/sync_kernel.sh push
+./hw/zynq7000/qmtech_zynq7020/tools/sync_kernel.sh push
 
 # Pull latest kernel commits on another PC:
-./hw/qmtech_zynq7020/tools/sync_kernel.sh pull
+./hw/zynq7000/qmtech_zynq7020/tools/sync_kernel.sh pull
 
 # Force an incremental kernel rebuild:
-./hw/qmtech_zynq7020/tools/sync_kernel.sh rebuild
+./hw/zynq7000/qmtech_zynq7020/tools/sync_kernel.sh rebuild
 ```
 
 ---
@@ -328,29 +328,19 @@ The GUI will immediately detect the incoming 64-byte `Tlp64` telemetry stream, r
 
 ---
 
-## 🏛️ AbstractX Standard FPGA Architecture Invariants
+## FPGA architecture
 
-The QMTECH Zynq-7020 implementation follows the **mandatory AbstractX FPGA fabric invariants** shared across all supported FPGA silicon (Xilinx Zynq, Gowin GW5AST, Intel Cyclone):
-
-1. **512-Bit (64-Byte) Synchronous TLP Switch Fabric (`asp_router.sv`)**:
-   - Universal, synthesizable crossbar switch routing 64-byte TLPs between host DMA, telemetry producers, and Wishbone peripherals.
-2. **Standard On-Chip Wishbone Interconnect (`asp_wishbone_master.sv`)**:
-   - `0x4000_0000`: System version, magic (`0x41535036`), nanosecond master timer, scratch loopback, LEDs.
-   - `0x4000_0100`: IMU Auto-DMA & Direct SPI engine (`asp_imu_auto_dma.sv`).
-   - `0x4000_0200`: DShot/PWM 4-channel motor core (`asp_dshot_core.sv`).
-   - `0x4000_0600`: WS2812B NeoPixel RGB status core (`asp_neopixel_core.sv`).
-3. **Zero-Copy Host SPSC DMA Engine (`asp_axi_dma.sv`)**:
-   - Dual-ring circular SPSC buffers in coherent DDR memory with doorbells and UIO interrupt signaling (`IRQ_F2P[0]`).
-4. **Autonomous DRDY Timestamping & Sampling**:
-   - Sub-350 ns DRDY-to-DDR burst transfer without CPU intervention or interrupt jitter.
+The implementation details and requirements are maintained in the
+[QMTECH hardware specification](SPECIFICATION.md). The shared Zynq device-tree
+ABI is documented in
+[`../DEVICE_TREE_CONFIGURATION.md`](../DEVICE_TREE_CONFIGURATION.md); avoid
+duplicating those contracts here.
 
 ---
 
 ## 📁 Repository Directory Conventions
 
-* `hw/qmtech_zynq7020/bld/`: Dedicated out-of-tree Buildroot build output (ignored by `.gitignore`).
-* `hw/qmtech_zynq7020/pico_bld/`: Local XVC daemon/firmware builds (ignored by `.gitignore`).
-* `hw/qmtech_zynq7020/tools/`: Diagnostic and automation scripts (`load_bitstream.py`, `zynq_diagnostics.py`, `setup_workspace.sh`, `sync_kernel.sh`).
-* `hw/qmtech_zynq7020/top_qmtech_zynq7020.sv`: Top-level SystemVerilog module.
-* `hw/qmtech_zynq7020/qmtech_zynq7020.xdc`: Physical pin constraints.
-
+* `hw/zynq7000/bld.qmtech-20/`: Dedicated out-of-tree Buildroot workspace (ignored by `.gitignore`).
+* `hw/zynq7000/qmtech_zynq7020/tools/`: Diagnostic and automation scripts.
+* `hw/zynq7000/qmtech_zynq7020/top_qmtech_zynq7020.sv`: Top-level SystemVerilog module.
+* `hw/zynq7000/qmtech_zynq7020/qmtech_zynq7020.xdc`: Physical pin constraints.
