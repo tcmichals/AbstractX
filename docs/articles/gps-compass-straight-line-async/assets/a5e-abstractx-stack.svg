@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 310" role="img" aria-labelledby="title desc">
+  <title id="title">Building on PREEMPT_RT Linux on the Allwinner A5E</title>
+  <desc id="desc">PREEMPT_RT Linux is the capable application foundation. AbstractX adds an E906 coprocessor for sensor I/O, with an FPGA fabric as an additional hardware data path.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .main { fill:#f4f7ff; font-size:17px; font-weight:800; }
+      .sub { fill:#c0cbe0; font-size:13px; }
+      .tag { font-size:11px; font-weight:800; letter-spacing:1px; }
+    </style>
+  </defs>
+  <rect width="1000" height="310" rx="22" fill="#10192c"/>
+  <text x="32" y="43" fill="#49d9f4" class="tag">ONE A5E PLATFORM • ADD CAPABILITY IN LAYERS</text>
+
+  <rect x="32" y="78" width="274" height="150" rx="16" fill="#192940" stroke="#8ea7d8" stroke-width="1.5"/>
+  <text x="54" y="112" fill="#c4d5ff" class="tag">FOUNDATION</text>
+  <text x="54" y="145" class="main">PREEMPT_RT Linux</text>
+  <text x="54" y="174" class="sub">Capable host for application</text>
+  <text x="54" y="195" class="sub">logic, tools, and networking.</text>
+
+  <path d="M317 153 H348" stroke="#8ea7d8" stroke-width="3"/>
+  <path d="M348 153 L338 146 V160 Z" fill="#8ea7d8"/>
+
+  <rect x="361" y="78" width="274" height="150" rx="16" fill="#123244" stroke="#42d8f5" stroke-width="1.5"/>
+  <text x="383" y="112" fill="#73e5fb" class="tag">ABSTRACTX + I/O COPROCESSOR</text>
+  <text x="383" y="145" class="main">Add the E906</text>
+  <text x="383" y="174" class="sub">Dedicated sensor I/O, interrupts,</text>
+  <text x="383" y="195" class="sub">and DMA alongside Linux.</text>
+
+  <path d="M646 153 H677" stroke="#42d8f5" stroke-width="3"/>
+  <path d="M677 153 L667 146 V160 Z" fill="#42d8f5"/>
+
+  <rect x="690" y="78" width="278" height="150" rx="16" fill="#29213e" stroke="#b79cff" stroke-width="1.5"/>
+  <text x="712" y="112" fill="#d0bcff" class="tag">OPTIONAL HARDWARE FABRIC</text>
+  <text x="712" y="145" class="main">Add the FPGA</text>
+  <text x="712" y="174" class="sub">X-Fabric for hardware routing</text>
+  <text x="712" y="195" class="sub">and selected I/O offload.</text>
+
+  <text x="500" y="270" text-anchor="middle" fill="#96a6c4" font-size="12">Linux remains the host foundation. AbstractX adds cooperating I/O domains; performance claims need measured evidence.</text>
+</svg>

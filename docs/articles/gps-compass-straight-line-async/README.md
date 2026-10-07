@@ -218,47 +218,19 @@ depend on the coroutine/task implementation, the awaited driver operation,
 the scheduler, and the queue policy. They should be measured and verified on
 the target; this article makes no latency or performance claim.
 
-## One async idea, three deployment paths
+## Same idea, bigger system
 
-The same coroutine style can sit above different I/O backends. The useful
-comparison is where peripheral work runs—not a claim that every target is
-equally complete or equally fast.
+This small walkthrough uses the Pico 2 W. On the Allwinner A5E, PREEMPT_RT
+Linux is a strong host foundation; AbstractX builds on it by assigning
+sensor-facing real-time I/O to the E906 coprocessor, with an FPGA fabric as an
+additional option for hardware routing and offload.
 
-![Pico 2 W, Linux-only, and Linux AbstractX with FPGA deployment paths](assets/platform-paths.svg)
+![AbstractX adds the E906 I/O coprocessor and optional FPGA fabric on top of PREEMPT_RT Linux on A5E](assets/a5e-abstractx-stack.svg)
 
-The Linux host build is verified, but that proves compilation rather than
-physical sensor behavior. The Pico 2 W GPS + compass-only firmware is not yet
-a standalone target, and the Linux-plus-FPGA path needs its own target-specific
-hardware validation. Studio can provide a common UDP view of telemetry; the
-screenshots should identify which platform produced each stream.
-
-### How does Linux real-time stand up?
-
-That is a measurement question, not something to infer from the word
-“asynchronous.” Linux can run a standard kernel or a PREEMPT_RT-enabled kernel,
-but this repository does not currently configure the app with a real-time
-scheduler policy or provide comparative timing results. A PREEMPT_RT kernel
-alone is not evidence that this particular application meets a deadline.
-
-A useful comparison would run the same sensor workload on the same Linux
-hardware in these configurations:
-
-1. Standard Linux scheduling.
-2. PREEMPT_RT, with the kernel configuration, thread priority, CPU affinity,
-   and memory-locking policy recorded.
-3. The Linux AbstractX + FPGA I/O path, keeping the Linux application and
-   workload the same where possible.
-4. Pico 2 W as a separate MCU reference—not as a same-hardware Linux
-   comparison.
-
-Timestamp the hardware input or DMA completion and the point where application
-code consumes the resulting sample. Report latency distributions (median,
-99th and 99.9th percentile, and maximum), deadline misses, dropped samples or
-queue overflows, and CPU utilization. Repeat under idle and controlled CPU /
-network load, and record board, kernel, scheduler settings, sample rates, and
-FPGA image. Keep the Studio receiver state consistent across runs; its UDP
-visualization is useful for observing the stream but is not a substitute for
-timestamp-based measurements.
+The point is not “Linux versus AbstractX”: Linux stays in the system. The
+interesting story is how the host, coprocessor, and optional fabric cooperate.
+This article introduces that direction; target bring-up and measured
+performance belong in a dedicated A5E demonstration.
 
 ## A balanced comparison
 
@@ -323,10 +295,8 @@ broadcast through the host firewall. Do not assume the desktop loopback
 address is reachable from the board.
 
 To capture Studio views for the article, save original screenshots under
-`assets/` (for example `studio-overview.png`,
-`pico2w-studio.png`, `linux-host-studio.png`, and
-`linux-fpga-studio.png`). Label whether each image shows host simulation or
-physical hardware; simulated data is not evidence of sensor or board behavior.
+`assets/` and label whether each shows host simulation or physical hardware.
+Screenshots make the telemetry visible; they are not timing evidence.
 
 ### Flash and debug the Pico reference
 
