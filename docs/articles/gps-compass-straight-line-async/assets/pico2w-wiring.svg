@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" role="img" aria-labelledby="title desc">
+  <title id="title">Simple Pico 2 W GPS and compass wiring</title>
+  <desc id="desc">GPS TX and RX cross to Pico UART0 pins GP1 and GP0. Compass SDA and SCL connect to I2C0 pins GP4 and GP5. Both sensors use 3.3 volts and common ground. An LED connects to GP6 through a resistor.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .title { fill:#f4f7ff; font-size:24px; font-weight:800; }
+      .label { fill:#f4f7ff; font-size:17px; font-weight:750; }
+      .small { fill:#bbc7df; font-size:14px; }
+      .pin { fill:#101a30; stroke:#7085b1; stroke-width:1.5; }
+      .pintxt { fill:#f4f7ff; font-size:13px; font-weight:700; }
+    </style>
+  </defs>
+  <rect width="1000" height="500" rx="22" fill="#10192c"/>
+  <text x="34" y="44" class="title">Pico 2 W bench wiring</text>
+  <text x="34" y="70" class="small">Use 3.3 V-compatible breakouts. Disconnect power while wiring.</text>
+
+  <rect x="34" y="104" width="220" height="205" rx="16" fill="#142a3b" stroke="#42d8f5" stroke-width="2"/>
+  <text x="56" y="139" fill="#42d8f5" font-size="13" font-weight="800">UART0</text>
+  <text x="56" y="169" class="label">GPS receiver</text>
+  <text x="56" y="207" class="small">TX  → GP1 / Pico RX</text>
+  <text x="56" y="235" class="small">RX  ← GP0 / Pico TX</text>
+  <text x="56" y="273" class="small">VCC → 3V3</text>
+  <text x="56" y="294" class="small">GND → common GND</text>
+
+  <rect x="390" y="94" width="220" height="252" rx="18" fill="#202f51" stroke="#859bd4" stroke-width="2"/>
+  <text x="500" y="130" text-anchor="middle" fill="#9eb4ed" font-size="12" font-weight="800" letter-spacing="1.5">ABSTRACTX</text>
+  <text x="500" y="158" text-anchor="middle" class="label">Pico 2 W</text>
+  <rect x="408" y="182" width="184" height="30" rx="7" class="pin"/>
+  <text x="424" y="202" class="pintxt">GP0 · UART0 TX</text>
+  <rect x="408" y="220" width="184" height="30" rx="7" class="pin"/>
+  <text x="424" y="240" class="pintxt">GP1 · UART0 RX</text>
+  <rect x="408" y="258" width="184" height="30" rx="7" class="pin"/>
+  <text x="424" y="278" class="pintxt">GP4 · I2C0 SDA</text>
+  <rect x="408" y="296" width="184" height="30" rx="7" class="pin"/>
+  <text x="424" y="316" class="pintxt">GP5 · I2C0 SCL</text>
+  <text x="500" y="369" text-anchor="middle" class="small">GP0 = physical pin 1 • GP1 = pin 2</text>
+  <text x="500" y="390" text-anchor="middle" class="small">GP4 = physical pin 6 • GP5 = pin 7</text>
+
+  <rect x="746" y="104" width="220" height="205" rx="16" fill="#251f3e" stroke="#b79cff" stroke-width="2"/>
+  <text x="768" y="139" fill="#cbbaff" font-size="13" font-weight="800">I2C0</text>
+  <text x="768" y="169" class="label">QMC5883L</text>
+  <text x="768" y="207" class="small">SDA → GP4 / Pico SDA</text>
+  <text x="768" y="235" class="small">SCL → GP5 / Pico SCL</text>
+  <text x="768" y="273" class="small">VCC → 3V3</text>
+  <text x="768" y="294" class="small">GND → common GND</text>
+
+  <path d="M254 207 H330 V235 H385" fill="none" stroke="#42d8f5" stroke-width="3"/>
+  <path d="M385 197 H290 V235 H254" fill="none" stroke="#72a7ff" stroke-width="3"/>
+  <path d="M615 273 H680 V207 H741" fill="none" stroke="#b79cff" stroke-width="3"/>
+  <path d="M615 311 H705 V235 H741" fill="none" stroke="#e3a4ff" stroke-width="3"/>
+  <text x="335" y="225" text-anchor="middle" fill="#8cecff" font-size="11" font-weight="700">GPS TX → GP1</text>
+  <text x="292" y="189" text-anchor="middle" fill="#a9c9ff" font-size="11" font-weight="700">GP0 → GPS RX</text>
+  <text x="681" y="198" text-anchor="middle" fill="#d5caff" font-size="11" font-weight="700">GP4 → SDA</text>
+  <text x="705" y="255" text-anchor="middle" fill="#e6c5ff" font-size="11" font-weight="700">GP5 → SCL</text>
+
+  <rect x="280" y="424" width="440" height="48" rx="12" fill="#30291d" stroke="#f8c768"/>
+  <text x="500" y="454" text-anchor="middle" fill="#ffe6a8" font-size="15" font-weight="700">GP6 (physical pin 9) → resistor → LED → GND</text>
+  <text x="34" y="454" fill="#8898b8" font-size="12">Sensor grounds and LED return all connect to Pico GND.</text>
+</svg>

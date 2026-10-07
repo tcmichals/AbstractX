@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Two sensors, two buses, one readable flow</title>
+  <desc id="desc">A GPS connects to a Pico 2 W over UART, a compass connects over I2C, and separate coroutine producers publish typed samples to a status and serial display path.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101b35"/>
+      <stop offset="1" stop-color="#080d1a"/>
+    </linearGradient>
+    <linearGradient id="board" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#253a67"/>
+      <stop offset="1" stop-color="#172443"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arrow-cyan" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/>
+    </marker>
+    <marker id="arrow-violet" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .label { fill:#f4f7ff; font-size:22px; font-weight:700; }
+      .small { fill:#aebcda; font-size:16px; }
+      .micro { fill:#8494b7; font-size:13px; letter-spacing:1.4px; font-weight:700; }
+    </style>
+  </defs>
+  <rect width="1200" height="720" rx="30" fill="url(#bg)"/>
+  <circle cx="88" cy="90" r="140" fill="#24c9e8" opacity=".06"/>
+  <circle cx="1110" cy="650" r="190" fill="#9d7cff" opacity=".07"/>
+
+  <text x="60" y="68" fill="#48d9f4" font-size="15" font-weight="800" letter-spacing="3">A BEGINNER'S ASYNC SENSOR NODE</text>
+  <text x="60" y="120" fill="#ffffff" font-size="36" font-weight="800">Two sensors. Two buses. One readable flow.</text>
+  <text x="60" y="151" class="small">GPS speaks serial. The compass answers over I2C. Coroutines keep the application easy to follow.</text>
+
+  <rect x="55" y="205" width="285" height="205" rx="22" fill="#131f36" stroke="#42d8f5" stroke-width="2"/>
+  <circle cx="116" cy="268" r="35" fill="#10394a" stroke="#42d8f5" stroke-width="2"/>
+  <path d="M92 268 Q116 239 140 268 Q116 297 92 268Z" fill="none" stroke="#81e9ff" stroke-width="2"/>
+  <circle cx="116" cy="268" r="6" fill="#81e9ff"/>
+  <path d="M116 246 L121 264 L116 259 L111 264Z" fill="#ffffff"/>
+  <text x="166" y="254" class="micro">NAVIGATION</text>
+  <text x="166" y="286" class="label">GPS receiver</text>
+  <text x="82" y="342" class="small">Position and time data</text>
+  <text x="82" y="372" fill="#42d8f5" font-size="17" font-weight="800">UART / serial stream</text>
+
+  <rect x="452" y="190" width="296" height="235" rx="26" fill="url(#board)" stroke="#7895db" stroke-width="2"/>
+  <rect x="478" y="220" width="244" height="114" rx="14" fill="#101a30" stroke="#465f99"/>
+  <text x="600" y="259" text-anchor="middle" fill="#9eb4ed" font-size="13" font-weight="800" letter-spacing="2">ABSTRACTX</text>
+  <text x="600" y="292" text-anchor="middle" fill="#ffffff" font-size="24" font-weight="800">Pico 2 W</text>
+  <text x="600" y="316" text-anchor="middle" fill="#aebcda" font-size="14">C++20 coroutine application</text>
+  <circle cx="492" cy="363" r="6" fill="#42d8f5" filter="url(#glow)"/>
+  <text x="509" y="369" class="small">UART event</text>
+  <circle cx="623" cy="363" r="6" fill="#b79cff" filter="url(#glow)"/>
+  <text x="640" y="369" class="small">I2C event</text>
+  <text x="600" y="404" text-anchor="middle" fill="#d5def6" font-size="14">co_await → suspend → resume on completion</text>
+
+  <rect x="860" y="205" width="285" height="205" rx="22" fill="#19172f" stroke="#b79cff" stroke-width="2"/>
+  <circle cx="925" cy="268" r="35" fill="#31224f" stroke="#b79cff" stroke-width="2"/>
+  <circle cx="925" cy="268" r="24" fill="none" stroke="#d2c4ff" stroke-width="2"/>
+  <path d="M925 239 L931 263 L925 258 L919 263Z" fill="#f6f2ff"/>
+  <path d="M925 297 L919 273 L925 278 L931 273Z" fill="#9c83ed"/>
+  <text x="975" y="254" class="micro">DIRECTION</text>
+  <text x="975" y="286" class="label">Compass</text>
+  <text x="887" y="342" class="small">Magnetic heading samples</text>
+  <text x="887" y="372" fill="#b79cff" font-size="17" font-weight="800">I2C sensor bus</text>
+
+  <path d="M340 298 C382 298 407 298 449 298" fill="none" stroke="#42d8f5" stroke-width="4" marker-end="url(#arrow-cyan)"/>
+  <rect x="353" y="266" width="82" height="25" rx="12" fill="#0f2a39"/>
+  <text x="394" y="284" text-anchor="middle" fill="#8aeaff" font-size="13" font-weight="800">UART RX</text>
+  <path d="M748 298 C790 298 815 298 857 298" fill="none" stroke="#b79cff" stroke-width="4" marker-end="url(#arrow-violet)"/>
+  <rect x="764" y="266" width="72" height="25" rx="12" fill="#2a2041"/>
+  <text x="800" y="284" text-anchor="middle" fill="#d3c5ff" font-size="13" font-weight="800">I2C</text>
+
+  <text x="60" y="484" fill="#ffffff" font-size="18" font-weight="800">IN THE APPLICATION</text>
+  <rect x="60" y="510" width="250" height="112" rx="18" fill="#102437" stroke="#2b5369"/>
+  <text x="85" y="546" fill="#42d8f5" font-size="14" font-weight="800" letter-spacing="1">PRODUCER 1</text>
+  <text x="85" y="579" class="label">GPS coroutine</text>
+  <text x="85" y="603" class="small">await a parsed fix</text>
+
+  <rect x="335" y="510" width="250" height="112" rx="18" fill="#211c39" stroke="#51427c"/>
+  <text x="360" y="546" fill="#b79cff" font-size="14" font-weight="800" letter-spacing="1">PRODUCER 2</text>
+  <text x="360" y="579" class="label">Compass coroutine</text>
+  <text x="360" y="603" class="small">await a sensor sample</text>
+
+  <path d="M310 566 L632 566" stroke="#42d8f5" stroke-width="2" opacity=".7" marker-end="url(#arrow-cyan)"/>
+  <path d="M585 584 L632 584" stroke="#b79cff" stroke-width="2" opacity=".85" marker-end="url(#arrow-violet)"/>
+  <rect x="640" y="510" width="225" height="112" rx="18" fill="#17283b" stroke="#49637b"/>
+  <text x="665" y="546" class="micro">BOUNDED HANDOFF</text>
+  <text x="665" y="579" class="label">Typed channels</text>
+  <text x="665" y="603" class="small">GPS fix + heading</text>
+
+  <path d="M865 566 L900 566" stroke="#f8c768" stroke-width="3" marker-end="url(#arrow-cyan)"/>
+  <rect x="910" y="510" width="235" height="112" rx="18" fill="#30291d" stroke="#80683d"/>
+  <text x="935" y="546" fill="#f8c768" font-size="14" font-weight="800" letter-spacing="1">WHAT YOU SEE</text>
+  <text x="935" y="579" class="label">Status + output</text>
+  <text x="935" y="603" class="small">latest fix and heading</text>
+
+  <text x="60" y="674" fill="#7183a6" font-size="13">Conceptual architecture • Hardware behavior and performance must be verified on the target.</text>
+</svg>

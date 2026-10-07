@@ -1,8 +1,27 @@
 # AbstractX Architecture & Documentation Hub
 
-Welcome to the AbstractX documentation hub. This repository defines the universal asynchronous hardware offloader and heterogeneous interconnect framework across FPGAs (Gowin / Zynq), Microcontrollers (RP2350, ESP32-P4, STM32), and Linux Hosts.
+This is the technical documentation index for AbstractX, an embedded systems
+research project exploring cooperative C++20 applications, asynchronous
+peripheral access, and FPGA-attached I/O. The repository contains host,
+microcontroller, Linux, and FPGA work at different levels of completeness;
+presence of a target guide does not by itself mean that target is production
+ready or hardware-validated.
 
-The technical documentation follows a **3-Tiered Taxonomy** to eliminate narrative overlap and enforce a strict **Markdown-Driven Single Source of Truth (SSOT)**:
+The documentation is organized as a three-tier navigation model. The relevant
+`SPECIFICATION.md` is authoritative for each subsystem; this index helps locate
+it and should not duplicate its requirements.
+
+## Articles
+
+**[`articles/`](articles/)** contains introductory, explanatory articles. They
+complement—not replace—the normative specifications and target build guides.
+
+- **[`articles/gps-compass-straight-line-async/`](articles/gps-compass-straight-line-async/README.md)**:
+  An introductory Pico 2 W sensor-node design using GPS over UART, a QMC5883L
+  over I²C, an LED, and cooperative C++20 coroutines. Its theme is straight-line
+  async: readable sequential coroutine code over event-driven I/O. It discusses
+  the move from Protothreads and puts AbstractX alongside other embedded
+  frameworks such as Pigweed without framing them as competitors.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
