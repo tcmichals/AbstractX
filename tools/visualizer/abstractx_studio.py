@@ -75,13 +75,13 @@ class TelemetryState:
         self.fpga_trace = "Pipeline: Idle | Zero-Copy SPSC Rings Ready"
 
         # Platform Topology Table & Hardware Interconnect (Level 1)
-        self.platform_arch = "Linux_Host_E907_FPGA"
+        self.platform_arch = "Linux_Host_E906_FPGA"
         self.platform_name = "Allwinner A5E Heterogeneous"
         self.board_model = "Radxa Cubie A5E"
         self.primary_transport = "Shared SRAM A3/C (0x40000000) + sun6i-msgbox"
         self.active_cores = [
             {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
-            {"id": 1, "role": "XuanTie E907 RISC-V", "task": "Real-Time I/O Reactor & DMA", "clock_mhz": 600},
+            {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & DMA", "clock_mhz": 200},
             {"id": 2, "role": "Tang Primer 20K FPGA", "task": "Hardware Auto-DMA & DShot Fabric", "clock_mhz": 50},
         ]
         self.hardware_accels = ["IMU Auto-DMA IP", "DShot 4-CH Core", "NeoPixel IP", "sun6i-msgbox"]
@@ -90,8 +90,8 @@ class TelemetryState:
         # Plane 1: I/O Processor & Drivers (Interrupt & DMA Context)
         self.io_driver_events = [
             {"name": "SPI0 DMA Burst", "driver": "hal_spi", "subsystem": "ICM-42688-P DMA", "latency_us": 0.8, "file": "targets/linux/src/hal_spi.cpp", "line": 78},
-            {"name": "TWI0 I2C ISR", "driver": "hal_i2c", "subsystem": "Compass / Baro", "latency_us": 1.2, "file": "targets/allwinner_e907/src/hal_i2c.cpp", "line": 45},
-            {"name": "MSGBox Doorbell", "driver": "msgbox", "subsystem": "Inter-Core RPC", "latency_us": 0.4, "file": "targets/allwinner_e907/src/io_processor.cpp", "line": 92},
+            {"name": "TWI0 I2C ISR", "driver": "hal_i2c", "subsystem": "Compass / Baro", "latency_us": 1.2, "file": "targets/allwinner_e906/src/hal_i2c.cpp", "line": 45},
+            {"name": "MSGBox Doorbell", "driver": "msgbox", "subsystem": "Inter-Core RPC", "latency_us": 0.4, "file": "targets/allwinner_e906/src/io_processor.cpp", "line": 92},
             {"name": "UART0 RX FIFO", "driver": "hal_uart", "subsystem": "U-Blox M10 GPS", "latency_us": 1.5, "file": "targets/linux/src/hal_uart.cpp", "line": 125},
         ]
         # Plane 2: Main Coroutine Loop (Cooperative C++20 Tasks)
@@ -115,8 +115,8 @@ class TelemetryState:
         self.linux_total_cpu = 8.4
         self.linux_abstractx_cpu = 5.2
         self.linux_external_cpu = 3.2
-        self.e907_active_duty_pct = 14.8
-        self.e907_wfi_sleep_pct = 85.2
+        self.e906_active_duty_pct = 14.8
+        self.e906_wfi_sleep_pct = 85.2
         self.fpga_lut_utilization_pct = 18.2
         self.fpga_dma_bw_mbps = 12.8
 
@@ -160,8 +160,8 @@ class TelemetryState:
                 "zero_heap_compliant": True,
                 "membrowse_budget_ok": True,
             },
-            "XuanTie E907 RISC-V": {
-                "arch": "RV32IMAFCP @ 600 MHz Co-Processor",
+            "XuanTie E906 RISC-V": {
+                "arch": "RV32IMAFDC @ up to 200 MHz Co-Processor",
                 "ram_used_bytes": 38400,
                 "ram_total_bytes": 65536, # 64 KB Shared SRAM A3/C
                 "flash_used_bytes": 38400,
@@ -296,7 +296,7 @@ class TelemetryState:
             "apps/gps_imu_app/src/main.cpp",
             "include/abstractx/drivers/imu/icm42688p.hpp",
             "include/abstractx/fusion/attitude_filter.hpp",
-            "targets/allwinner_e907/src/io_processor.cpp"
+            "targets/allwinner_e906/src/io_processor.cpp"
         ]
         self.selected_code_file_idx = 0
         self.timing_zoom = 1.0
@@ -390,7 +390,7 @@ class TelemetryState:
             (74.0, "Core 1", "co_await", "imu_pipeline()", "co_await g_sensor_ring.pop() -> resumed", 1.2, "apps/gps_imu_app/src/main.cpp", 42),
             (88.3, "Core 1", "resume()", "attitude_ekf()", "Mahony quaternion kinematics updated", 4.5, "include/abstractx/fusion/attitude_filter.hpp", 88),
             (99.1, "Core 1", "yield", "flight_control()", "Quad-X motor demands dispatched", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
-            (112.0, "Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e907/main.cpp", 47),
+            (112.0, "Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e906/main.cpp", 47),
             (125.4, "Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
         ]
         for t_us, core, prim, sym, det, lat, fpath, line in seeds:
@@ -644,8 +644,8 @@ def udp_receiver_thread(port: int, sim_mode: bool):
 
                 with g_state.lock:
                     g_state.linux_total_cpu = c0
-                    g_state.e907_active_duty_pct = c1
-                    g_state.e907_wfi_sleep_pct = 100.0 - c1
+                    g_state.e906_active_duty_pct = c1
+                    g_state.e906_wfi_sleep_pct = 100.0 - c1
                     g_state.fpga_lut_utilization_pct = spu
 
                 transit_delay = float(max(0.5, 2.4 + 0.8 * np.sin(t * 1.5) + np.random.normal(0, 0.1)))
@@ -659,7 +659,7 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                     ("Core 1", "resume()", "attitude_ekf()", "attitude_ekf.update(gyro, accel)", 4.5, "include/abstractx/fusion/attitude_filter.hpp", 88),
                     ("Core 1", "yield", "flight_control()", "quad_mixer.compute_demands(tau)", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
                     ("SPU", "DMA_BURST", "spi_dma_burst()", "Burst 14B from ICM42688P (SPI0)", 0.8, "include/abstractx/drivers/imu/icm42688p.hpp", 54),
-                    ("Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e907/main.cpp", 47),
+                    ("Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e906/main.cpp", 47),
                     ("Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
                 ]
                 ev = trace_pool[(g_state.packet_count // 25) % len(trace_pool)]
@@ -1141,7 +1141,7 @@ def _render_core_cpu_and_topology():
     col_w = imgui.get_column_width()
     cur_pos = imgui.get_cursor_screen_pos()
     draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 40.0, 32.0,
-                      g_state.e907_active_duty_pct, "Core 1", f"Duty {g_state.e907_active_duty_pct:.1f}%")
+                      g_state.e906_active_duty_pct, "Core 1", f"Duty {g_state.e906_active_duty_pct:.1f}%")
     imgui.dummy(imgui.ImVec2(col_w, 105.0))
     imgui.text_colored(imgui.ImVec4(0.3, 1.0, 0.4, 1.0), "Coroutine Engine")
     imgui.text("Dispatcher: 8.2 kHz | 6 Tasks")
@@ -2729,10 +2729,10 @@ def _render_source_inspector_window():
             (90, "    }", None),
             (91, "};", None),
         ],
-        "targets/allwinner_e907/src/io_processor.cpp": [
+        "targets/allwinner_e906/src/io_processor.cpp": [
             (45, "void handle_msgbox_irq() {", None),
             (46, "    // Signal Doorbell to Core 1 coroutine engine", None),
-            (47, "    e907_signal_doorbell(DOORBELL_CH_IMU);", {"lat": 1.1, "budget": 5.0, "overrun": False, "token": "sun6i_msgbox()", "diag": "Inter-Core RPC Doorbell"}),
+            (47, "    e906_signal_doorbell(DOORBELL_CH_IMU);", {"lat": 1.1, "budget": 5.0, "overrun": False, "token": "sun6i_msgbox()", "diag": "Inter-Core RPC Doorbell"}),
             (48, "}", None),
         ],
         "rtl/asp_router.sv": [

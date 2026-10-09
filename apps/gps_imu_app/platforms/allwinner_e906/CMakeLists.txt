@@ -38,8 +38,8 @@ if(DTC_EXECUTABLE)
         BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e906_overlay.dtbo
         COMMENT "Compiled cubie_a5e_e906_overlay.dtbo using ${DTC_EXECUTABLE}"
     )
-    add_custom_target(e907_dtbo DEPENDS e906_dtbo)
+    add_custom_target(e907_dtbo DEPENDS e906_dtbo) # Legacy compatibility alias.
 endif()
 
 # Backward compatibility alias
-add_custom_target(e907_coprocessor ALL DEPENDS e906_coprocessor)
+add_custom_target(e907_coprocessor ALL DEPENDS e906_coprocessor) # Legacy compatibility alias.

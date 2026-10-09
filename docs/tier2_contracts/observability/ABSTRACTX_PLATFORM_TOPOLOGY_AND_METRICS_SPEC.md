@@ -12,8 +12,8 @@
 
 Embedded, robotic, and avionics flight stacks must deploy across wildly heterogeneous silicon architectures:
 1. **Pure Host Linux / SITL Simulation**: Single-core or SMP host threads with POSIX background workers.
-2. **Heterogeneous Linux Host + XuanTie E907 Co-Processor**: Allwinner A5E / A7A (ARM64 host running Linux + 32-bit RISC-V E907 real-time coprocessor connected via Shared SRAM and `sun6i-msgbox` doorbells).
-3. **Linux Host + XuanTie E907 + Tang Primer 20K FPGA**: High-speed PCIe or SPI switch fabric connecting host and coprocessor to FPGA-synthesized hardware accelerators (IMU Auto-DMA, DShot 4-CH, NeoPixel, PWM).
+2. **Heterogeneous Linux Host + XuanTie E906 Co-Processor**: Allwinner A5E / A7A (ARM64 host running Linux + 32-bit RISC-V E906 real-time coprocessor connected via Shared SRAM and `sun6i-msgbox` doorbells).
+3. **Linux Host + XuanTie E906 + Tang Primer 20K FPGA**: High-speed PCIe or SPI switch fabric connecting host and coprocessor to FPGA-synthesized hardware accelerators (IMU Auto-DMA, DShot 4-CH, NeoPixel, PWM).
 4. **Linux Host + Direct FPGA Switch Fabric**: Host connects directly over PCIe Gen2/Gen3 or SPI DMA to the FPGA switch fabric with zero coprocessor MCU.
 5. **Dual-Core Asymmetric Microcontroller**: Raspberry Pi Pico 2 W (Dual RP2350 RISC-V/Cortex-M33 cores with Core 0 running the I/O processor + CYW43439 Wi-Fi and Core 1 running the cooperative C++20 coroutine loop).
 6. **Dual-Core Microcontroller with RTOS**: Espressif ESP32-P4 / ESP32 running FreeRTOS tasks (Wi-Fi/BT, networking) alongside the AbstractX coroutine engine.
@@ -21,7 +21,7 @@ Embedded, robotic, and avionics flight stacks must deploy across wildly heteroge
 ### The Problem
 Previously, observability tools (such as AbstractX AbstractX Studio or generic serial loggers) were either:
 - Hardcoded for a single monolithic OS (FreeRTOS or Linux),
-- Blind to co-processors (e.g., unaware that an E907 or FPGA is offloading I/O while Linux sleeps),
+- Blind to co-processors (e.g., unaware that an E906 or FPGA is offloading I/O while Linux sleeps),
 - Incapable of displaying the separation between hardware I/O driver planes and cooperative coroutine execution planes,
 - Unable to map runtime events back to the original C++ source code lines without manual debugging,
 - Unable to report true per-processor/per-core CPU/SPU utilization across disparate RTOS, bare-metal, and Linux environments.
@@ -48,8 +48,8 @@ In Linux deployments, the application automatically determines or receives its s
 │ Configuration            │ Host Domain           │ Coprocessor Domain     │ Hardware Accelerators│
 ├──────────────────────────┼───────────────────────┼────────────────────────┼──────────────────────┤
 │ Linux_Standard_SITL      │ Linux ARM64/x86 (SMP) │ None (POSIX Threads)   │ Software Mock Drivers│
-│ Linux_Host_E907          │ Linux ARM64 (Cubie)   │ XuanTie E907 (RISC-V)  │ Shared SRAM + MsgBox │
-│ Linux_Host_E907_FPGA     │ Linux ARM64 (Cubie)   │ XuanTie E907 (RISC-V)  │ FPGA (DShot, NeoPix) │
+│ Linux_Host_E906          │ Linux ARM64 (Cubie)   │ XuanTie E906 (RISC-V)  │ Shared SRAM + MsgBox │
+│ Linux_Host_E906_FPGA     │ Linux ARM64 (Cubie)   │ XuanTie E906 (RISC-V)  │ FPGA (DShot, NeoPix) │
 │ Linux_Host_FPGA_Direct   │ Linux ARM64/x86 (PC)  │ None                   │ PCIe/SPI FPGA Fabric │
 └──────────────────────────┴───────────────────────┴────────────────────────┴──────────────────────┘
 ```
@@ -63,13 +63,13 @@ graph TD
         P1 --> D1[Linux /dev/i2c, /dev/spidev, Sockets]
     end
 
-    subgraph Config2["Configuration 2: Linux Host + XuanTie E907 Coprocessor"]
-        L2[Linux ARM64 Host] <-->|Shared SRAM 0x40000000<br/>sun6i-msgbox doorbells| E2[XuanTie E907 RISC-V]
+    subgraph Config2["Configuration 2: Linux Host + XuanTie E906 Coprocessor"]
+        L2[Linux ARM64 Host] <-->|Shared SRAM 0x40000000<br/>sun6i-msgbox doorbells| E2[XuanTie E906 RISC-V]
         E2 --> H2[Physical Hardware: TWI0, SPI0 DMA, UART]
     end
 
-    subgraph Config3["Configuration 3: Linux Host + XuanTie E907 + FPGA Fabric"]
-        L3[Linux ARM64 Host] <-->|Shared SRAM + Mailbox| E3[XuanTie E907 RISC-V]
+    subgraph Config3["Configuration 3: Linux Host + XuanTie E906 + FPGA Fabric"]
+        L3[Linux ARM64 Host] <-->|Shared SRAM + Mailbox| E3[XuanTie E906 RISC-V]
         E3 <-->|Wishbone / SPI DMA| F3[Tang Primer 20K FPGA]
         F3 --> A3[IMU Auto-DMA, DShot 4-CH, NeoPixel Cores]
     end
@@ -97,8 +97,8 @@ namespace abstractx::topology {
 // 1. Top-Level Platform Silicon Architecture
 enum class PlatformArch : uint8_t {
     Linux_Standard_SITL    = 0x01, // Pure host Linux with POSIX I/O workers
-    Linux_Host_E907        = 0x02, // Linux host + XuanTie E907 coprocessor (Shared SRAM)
-    Linux_Host_E907_FPGA   = 0x03, // Linux host + XuanTie E907 + FPGA fabric
+    Linux_Host_E906        = 0x02, // Linux host + XuanTie E906 coprocessor (Shared SRAM)
+    Linux_Host_E906_FPGA   = 0x03, // Linux host + XuanTie E906 + FPGA fabric
     Linux_Host_FPGA_Direct = 0x04, // Linux host + Direct PCIe/SPI FPGA switch fabric
     RP2350_DualCore_Pico2W = 0x05, // Raspberry Pi Pico 2 W (RP2350 Dual-Core + CYW43)
     ESP32P4_FreeRTOS       = 0x06, // Espressif ESP32-P4 (Dual RISC-V 400MHz + FreeRTOS)
@@ -108,7 +108,7 @@ enum class PlatformArch : uint8_t {
 // 2. Processing Unit / Core Type
 enum class CoreRole : uint8_t {
     Host_Linux_SMP         = 0x01, // High-level Linux flight supervisor / network
-    Coprocessor_IO_Worker  = 0x02, // XuanTie E907 or RP2350 Core 0 dedicated to I/O & DMA
+    Coprocessor_IO_Worker  = 0x02, // XuanTie E906 or RP2350 Core 0 dedicated to I/O & DMA
     Coroutine_Main_Runner  = 0x03, // Core executing the cooperative C++20 coroutine loop
     Hardware_FPGA_Engine   = 0x04, // Synthesized FPGA hardware state machine
     RTOS_Background_Task   = 0x05  // FreeRTOS task (Wi-Fi, Bluetooth, TCP/IP stack)
@@ -196,7 +196,7 @@ When the AbstractX runtime initializes (`abstractx::init()`), it transmits a **P
 ```
 
 When the Visualizer Studio receives this packet:
-1. It immediately sets the **Platform Header Banner** (e.g. `[PLATFORM: Allwinner A5E + XuanTie E907 + Tang Primer 20K FPGA]`).
+1. It immediately sets the **Platform Header Banner** (e.g. `[PLATFORM: Allwinner A5E + XuanTie E906 + Tang Primer 20K FPGA]`).
 2. It allocates the corresponding execution timelines for each detected processing unit.
 3. It displays the active interconnect transport gauges (Shared SRAM fill rate, MSGBox doorbell latency, or SIO FIFO depth).
 
@@ -208,20 +208,20 @@ The Visualizer Studio is structured into three dedicated, synchronized windows:
 
 ```
 +===================================================================================================+
-| ABSTRACTX STUDIO | Platform: Linux + XuanTie E907 + FPGA | Target: Radxa Cubie A5E | Stream: 8.2 kHz |
+| ABSTRACTX STUDIO | Platform: Linux + XuanTie E906 + FPGA | Target: Radxa Cubie A5E | Stream: 8.2 kHz |
 +===================================================================================================+
 | [WINDOW 1: PLATFORM TOPOLOGY & SILICON FABRIC]                                                   |
-| Architecture: Linux_Host_E907_FPGA | Transport: Shared SRAM A3/C (0x40000000) + sun6i-msgbox     |
+| Architecture: Linux_Host_E906_FPGA | Transport: Shared SRAM A3/C (0x40000000) + sun6i-msgbox     |
 | Silicon Cores:                                                                                   |
 |  - Core 0 [Host ARM64] : Linux Flight Supervisor (PID, EKF, Telemetry, UDP :9870)                |
-|  - Core 1 [RISC-V E907]: Real-Time I/O Reactor (TWI0 I2C, SPI0 DMA, Mailbox Doorbell)            |
+|  - Core 1 [RISC-V E906]: Real-Time I/O Reactor (TWI0 I2C, SPI0 DMA, Mailbox Doorbell)            |
 |  - Fabric [Gowin FPGA] : IMU Auto-DMA IP, 4-CH DShot300/600 Core, NeoPixel IP                    |
 | Interconnect Saturation:                                                                         |
-|  - E907 -> Linux SPSC Ring: [████████░░░░░░░░░░░░] 22 / 64 pkts (Avg Doorbell Delay: 1.1 µs)    |
-|  - FPGA -> E907 SPI DMA   : [████░░░░░░░░░░░░░░░░] 12 / 64 pkts (Transfer Latency: 0.8 µs)       |
+|  - E906 -> Linux SPSC Ring: [████████░░░░░░░░░░░░] 22 / 64 pkts (Avg Doorbell Delay: 1.1 µs)    |
+|  - FPGA -> E906 SPI DMA   : [████░░░░░░░░░░░░░░░░] 12 / 64 pkts (Transfer Latency: 0.8 µs)       |
 +===================================================================================================+
 | [WINDOW 2: DUAL-PLANE EXECUTION TIMELINE & SOURCE CODE SCANNER]                                  |
-| Plane 1: I/O Processor & Drivers (E907 PLIC / ISRs & DMA)                                        |
+| Plane 1: I/O Processor & Drivers (E906 PLIC / ISRs & DMA)                                        |
 | 00:00.120 [===SPI DMA BURST===]         [==TWI0 I2C ISR==]         [===MSGBOX DOORBELL===]       |
 |                                                                                                  |
 | Plane 2: Main Coroutine Loop (C++20 Asynchronous Tasks)                                          |
@@ -242,7 +242,7 @@ The Visualizer Studio is structured into three dedicated, synchronized windows:
 |   - Overall CPU Usage: 8.4% (System: 2.1%, User: 6.3%, Idle: 91.6%)                              |
 |   - AbstractX Process: 5.2% CPU (Thread: coro_main 3.8%, Thread: udp_sink 1.4%)                 |
 |   - External Processes: Linux kernel 1.8%, sshd 0.4%, mosquitto 0.3%                             |
-| Core 1 [XuanTie E907 RISC-V]:                                                                    |
+| Core 1 [XuanTie E906 RISC-V]:                                                                    |
 |   - Active Duty Cycle: 14.8% (Active: 148 µs/ms, WFI Sleep: 852 µs/ms)                           |
 |   - Execution Breakdown: TWI0 ISR: 4.2%, SPI DMA ISR: 6.1%, SPSC Drain: 4.5%                     |
 | Fabric [Gowin FPGA 20K]:                                                                         |
@@ -258,7 +258,7 @@ The Visualizer Studio is structured into three dedicated, synchronized windows:
 ### Window 1: Platform Topology & Interconnect Inspector
 1. **Auto-Configuration Display**:
    - Parses the incoming `PLATFORM_TOPOLOGY_ANNOUNCE` packet.
-   - Renders the exact hardware topology: whether it is standalone Linux, Linux + E907, Linux + E907 + FPGA, RP2350 Pico 2 W, or ESP32-P4.
+   - Renders the exact hardware topology: whether it is standalone Linux, Linux + E906, Linux + E906 + FPGA, RP2350 Pico 2 W, or ESP32-P4.
 2. **Interconnect Gauges**:
    - Live visual saturation bar of inter-core SPSC ring buffers.
    - Round-trip doorbell interrupt latency (measured in microseconds).
@@ -289,10 +289,10 @@ Measuring CPU and SPU (Silicon Processing Unit) utilization across disparate arc
   - **Per-Thread Breakdown**: Individual CPU consumption of the coroutine thread vs background I/O worker threads.
   - **Other Processes**: Reports background OS interference (e.g., Linux kernel threads, system daemons).
 
-#### 2. XuanTie E907 Co-Processor Environment (RISC-V 32-bit)
+#### 2. XuanTie E906 Co-Processor Environment (RISC-V 32-bit)
 - **Source**: Hardware RISC-V Machine Performance Counters (`rdcycle`, `rdinstret`).
 - **Mechanism**:
-  - During idle periods, the E907 executes the `__asm__ volatile("wfi")` (Wait For Interrupt) instruction.
+  - During idle periods, the E906 executes the `__asm__ volatile("wfi")` (Wait For Interrupt) instruction.
   - A timer hook measures cumulative cycles spent in active ISR/drain processing versus cycles spent asleep in `wfi`.
   - Transmitted in periodic CTF heartbeat packets (Event ID `0x0003: CPU_USAGE_REPORT`).
 
@@ -323,7 +323,7 @@ Measuring CPU and SPU (Silicon Processing Unit) utilization across disparate arc
 
 ## 7. Configuration Table Implementation Examples
 
-### Example A: Linux Host + XuanTie E907 + FPGA Fabric (`cubie_a5e_top.cpp`)
+### Example A: Linux Host + XuanTie E906 + FPGA Fabric (`cubie_a5e_top.cpp`)
 
 ```cpp
 #include "abstractx/abstractx.hpp"
@@ -332,7 +332,7 @@ Measuring CPU and SPU (Silicon Processing Unit) utilization across disparate arc
 using namespace abstractx::topology;
 
 const PlatformTopologyTable g_cubie_topology = {
-    .arch = PlatformArch::Linux_Host_E907_FPGA,
+    .arch = PlatformArch::Linux_Host_E906_FPGA,
     .platform_name = "Allwinner A5E Heterogeneous",
     .board_model = "Radxa Cubie A5E",
     .primary_transport = InterconnectType::Shared_SRAM_MsgBox,
@@ -340,7 +340,7 @@ const PlatformTopologyTable g_cubie_topology = {
     .core_count = 3,
     .cores = {{
         {0, CoreRole::Host_Linux_SMP, "Linux ARM64 Host", 1400},
-        {1, CoreRole::Coprocessor_IO_Worker, "XuanTie E907 RISC-V", 600},
+        {1, CoreRole::Coprocessor_IO_Worker, "XuanTie E906 RISC-V", 600},
         {2, CoreRole::Hardware_FPGA_Engine, "Tang Primer 20K FPGA", 50}
     }},
     .shared_sram_base = 0x40000000,
@@ -391,7 +391,7 @@ const PlatformTopologyTable g_pico_topology = {
 
 ## 8. Summary of Engineering Guarantees
 
-1. **Topology Transparency**: Any client connecting to AbstractX immediately receives full visibility into whether the target is standard Linux, Linux+E907, Linux+E907+FPGA, or a dual-core MCU.
+1. **Topology Transparency**: Any client connecting to AbstractX immediately receives full visibility into whether the target is standard Linux, Linux+E906, Linux+E906+FPGA, or a dual-core MCU.
 2. **Dual-Plane Clarity**: Developers can clearly see both the low-level hardware I/O driver context and the high-level cooperative coroutine context.
 3. **Instant Source Code Mapping**: Clicking a timeline block directly displays the source code line responsible for the event.
 4. **Comprehensive CPU/SPU Profiling**: True per-processor utilization and external OS process tracking across bare-metal, RTOS, and Linux.

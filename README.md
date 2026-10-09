@@ -16,7 +16,7 @@ AbstractX executes a 4-step autonomous closed-loop architecture:
 * **1. Specs Anchor the Agent**: Humans specify system contracts, hardware memory maps, and coroutine lifecycles in Markdown first (`SPECIFICATION.md`) with formal requirement tags (`[SPEC-*]`).
 * **2. AI Implements with Grand Traceability**: Coding agents implement freestanding C++20 and RTL, tagging every function with matching `// @impl [SPEC-*]` annotations.
 * **3. SpecTrace Adversarial Audits**: The 6-stage SpecTrace Adversarial Review ([`tools/run_adversarial_audit.py`](tools/run_adversarial_audit.py)) and bidirectional traceability checker ([`tools/audit_specs.py`](tools/audit_specs.py)) ruthlessly verify that code obeys zero-heap invariants, avoids blocking delays, and achieves 100% spec-to-code parity without drift.
-* **4. Autonomous Closed-Loop Learning Gate**: When a test fails or a design flaw is found, the AI classifies the root cause, chronicles it in [`engineering_log.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/engineering_log.md), and autonomously updates the Markdown specification and agent rules *first*—preventing recurrence permanently.
+* **4. Autonomous Closed-Loop Learning Gate**: When a test fails or a design flaw is found, the AI classifies the root cause, chronicles it in [`engineering_log.md`](engineering_log.md), and autonomously updates the Markdown specification and agent rules *first*—preventing recurrence permanently.
 
 > [!IMPORTANT]
 > **SpecTrace: The Missing Link in Aerospace Rigor & Static Analysis**:
@@ -187,7 +187,7 @@ At its architectural core, AbstractX is built on **two simple software basics** 
 Because AbstractX is founded on these principles, it scales effortlessly across any hardware topology:
 * **Single-Core MCUs (ARM Cortex-M0+/M33/M4/M7, RISC-V)**: Main event loop and drivers run on the single core; hardware ISRs/DMA push events to the ring; `abstractx::step()` consumes them cooperatively.
 * **Dual-Core MCUs (Raspberry Pi Pico 2 W RP2350, ESP32-P4)**: The main event loop runs on Core 1; Core 0 runs autonomous DMA/networking drivers and signals a hardware doorbell.
-* **Linux + Coprocessor (Radxa Cubie A5E Linux + XuanTie E907)**: Linux userspace thread runs the main event loop over `epoll`; the real-time E907 RISC-V coprocessor services hardware I/O over shared SRAM rings.
+* **Linux + Coprocessor (Radxa Cubie A5E Linux + XuanTie E906)**: Linux userspace thread runs the main event loop over `epoll`; the real-time E906 RISC-V coprocessor services hardware I/O over shared SRAM rings.
 * **FPGA SoCs (AMD Zynq, Gowin Tang)**: Host CPU runs the main dispatch event loop; the FPGA hardware drivers (X-Fabric, Auto-DMA cores, Wishbone/AXI bus, and DIO pin triggers) handle all bus clocking and routing.
 
 ---
@@ -383,8 +383,8 @@ graph TD
             direction TB
             L_A55["<b>Quad Cortex-A55 @ 1.4 GHz</b><br/>Host Linux (PREEMPT_RT)"]
             L_SRAM["<b>Shared SRAM A3/C + msgbox</b><br/>Lock-free descriptor rings"]
-            L_E907["<b>XuanTie E907 RISC-V @ 600 MHz</b><br/>Real-Time I/O Reactor & DMA"]
-            L_A55 <--> L_SRAM <--> L_E907
+            L_E906["<b>XuanTie E906 RISC-V @ 600 MHz</b><br/>Real-Time I/O Reactor & DMA"]
+            L_A55 <--> L_SRAM <--> L_E906
         end
 
         subgraph T_FPGA["4. FPGA Switch Fabric (Tang / Zynq)"]
@@ -407,19 +407,19 @@ graph TD
     class APP_CODE appStyle;
     class P_C1,P_SIO,P_C0 picoStyle;
     class E_C1,E_IPC,E_C0 espStyle;
-    class L_A55,L_SRAM,L_E907 linuxStyle;
+    class L_A55,L_SRAM,L_E906 linuxStyle;
     class Z_HOST,Z_AXI,Z_RTL fpgaStyle;
 ```
 
 ### Target Hardware Execution Matrix
 
-| Metric | [Raspberry Pi Pico 2 W](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [Espressif ESP32-P4 (Waveshare)](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [Radxa Cubie A5E (Pure Silicon)](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [Radxa Cubie A5E + FPGA](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [AMD Zynq / Gowin Tang](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
+| Metric | [Raspberry Pi Pico 2 W](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [Espressif ESP32-P4 (Waveshare)](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [Radxa Cubie A5E (Pure Silicon)](docs/tier3_targets/bsp/E906_COPROCESSOR_ARCHITECTURE.md) | [Radxa Cubie A5E + FPGA](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [AMD Zynq / Gowin Tang](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Hardware & Errata Spec** | [`PICO2W_DUAL_CORE_SPEC`](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [`ESP32P4_WAVESHARE_SPEC`](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [`E907_COPROCESSOR_SPEC`](docs/tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md) | [`A5E_FPGA_XFABRIC_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [`TANG9K_PINOUT_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
-| **Silicon Architecture** | Dual ARM Cortex-M33 @ 150 MHz | Dual RISC-V @ 400 MHz | Quad AArch64 A55 + RISC-V E907 (No FPGA) | Quad AArch64 A55 + E907 + FPGA Fabric | Dual ARM Cortex-A9 + FPGA Fabric |
+| **Hardware & Errata Spec** | [`PICO2W_DUAL_CORE_SPEC`](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [`ESP32P4_WAVESHARE_SPEC`](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [`E906_COPROCESSOR_SPEC`](docs/tier3_targets/bsp/E906_COPROCESSOR_ARCHITECTURE.md) | [`A5E_FPGA_XFABRIC_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [`TANG9K_PINOUT_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
+| **Silicon Architecture** | Dual ARM Cortex-M33 @ 150 MHz | Dual RISC-V @ 400 MHz | Quad AArch64 A55 + RISC-V E906 (No FPGA) | Quad AArch64 A55 + E906 + FPGA Fabric | Dual ARM Cortex-A9 + FPGA Fabric |
 | **Floating-Point Engine** | Hardware single-precision FPU | Hardware single/double FPU | Hardware ARM NEON FPU | Hardware ARM NEON FPU + FPGA DSPs | Hardware VFPv3 FPU + FPGA DSPs |
-| **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E907 (On-Chip SPI0/TWI/UART DMA) | FPGA Logic (`asp_imu_auto_dma.sv` + AXI) | FPGA Logic (`asp_imu_auto_dma.sv`) |
-| **Tier 2 Coroutine Engine** | Core 1 (Coroutine Dispatcher) | Core 1 (Coroutine Dispatcher) | Core 0 (Linux PREEMPT_RT Thread) | Core 0 (Linux Userspace / E907) | Core 0 (Linux Userspace / RTOS) |
+| **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E906 (On-Chip SPI0/TWI/UART DMA) | FPGA Logic (`asp_imu_auto_dma.sv` + AXI) | FPGA Logic (`asp_imu_auto_dma.sv`) |
+| **Tier 2 Coroutine Engine** | Core 1 (Coroutine Dispatcher) | Core 1 (Coroutine Dispatcher) | Core 0 (Linux PREEMPT_RT Thread) | Core 0 (Linux Userspace / E906) | Core 0 (Linux Userspace / RTOS) |
 | **Inter-Domain Bridge** | Hardware SIO FIFO Doorbell | Hardware IPC Mailbox | Shared SRAM A3/C + `sun6i-msgbox` | AXI-Stream TLP Descriptors & DMA | AXI-Stream DMA Descriptor Rings |
 | **FPGA Requirement** | None (0 LUTs) | None (0 LUTs) | **None (Pure SoC Silicon, 0 LUTs)** | **Gowin / AMD FPGA (~9k–85k LUTs)** | Gowin / AMD FPGA (~9k–85k LUTs) |
 | **Static Memory Footprint** | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) |
@@ -431,10 +431,10 @@ graph TD
 
 ### Symmetrical Switch Fabric: Hardware as Pure Drivers
 In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burning CPU cycles executing software driver routines, autonomous synthesizable SystemVerilog cores act as pure hardware drivers on Wishbone / AXI-Stream buses:
-* **[`rtl/asp_top.sv`](file:///home/tcmichals/ssdData/projects/home/AbstractX/rtl/asp_top.sv)**: Top-level switch fabric wrapper interconnecting Wishbone / AXI-Stream buses.
-* **[`rtl/asp_router.sv`](file:///home/tcmichals/ssdData/projects/home/AbstractX/rtl/asp_router.sv)**: Full-crossbar AXI-Stream router switching packets based on 64B TLP channel tags.
-* **[`rtl/imu/asp_imu_auto_dma.sv`](file:///home/tcmichals/ssdData/projects/home/AbstractX/rtl/imu/asp_imu_auto_dma.sv)**: Hardware Auto-DMA driver core latching DIO pin triggers (IMU DRDY) and clocking SPI bursts without CPU intervention.
-* **[`rtl/motor/asp_dshot_core.sv`](file:///home/tcmichals/ssdData/projects/home/AbstractX/rtl/motor/asp_dshot_core.sv)**: 4-Channel hardware DShot actuator driver with bidirectional telemetry & PWM generation.
+* **[`rtl/asp_top.sv`](rtl/asp_top.sv)**: Top-level switch fabric wrapper interconnecting Wishbone / AXI-Stream buses.
+* **[`rtl/asp_router.sv`](rtl/asp_router.sv)**: Full-crossbar AXI-Stream router switching packets based on 64B TLP channel tags.
+* **[`rtl/imu/asp_imu_auto_dma.sv`](rtl/imu/asp_imu_auto_dma.sv)**: Hardware Auto-DMA driver core latching DIO pin triggers (IMU DRDY) and clocking SPI bursts without CPU intervention.
+* **[`rtl/motor/asp_dshot_core.sv`](rtl/motor/asp_dshot_core.sv)**: 4-Channel hardware DShot actuator driver with bidirectional telemetry & PWM generation.
 
 ```mermaid
 flowchart TD
@@ -573,7 +573,7 @@ flowchart LR
 ```
 
 ### 1. Dynamic YAML/JSON Trace Schema
-The telemetry format is completely self-describing via [`trace/barectf_config.yaml`](file:///home/tcmichals/ssdData/projects/home/AbstractX/trace/barectf_config.yaml) and [`apps/gps_imu_app/trace_schema.json`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/trace_schema.json). Every field specifies:
+The telemetry format is completely self-describing via [`trace/barectf_config.yaml`](trace/barectf_config.yaml) and [`apps/gps_imu_app/trace_schema.json`](apps/gps_imu_app/trace_schema.json). Every field specifies:
 * Primitive binary types (`uint32`, `int16`, `int32`, `uint8`)
 * Scaling multipliers (e.g. `0.01` for centidegrees → degrees, `1e-7` for coordinates)
 * Physical engineering units (`deg`, `m`, `m/s`, `g`, `deg/s`, `us`)
@@ -589,7 +589,7 @@ Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenG
     - **Continuous Memory Observability**: Real-time SRAM and Flash footprint gauges powered by MemBrowse.
     - **Dynamic CTF / TLP Inspector**: Byte-level inspection of 64-byte binary frames and decoded fields.
   * **Level 2 (Extensible Application Plugins)**:
-    - Domain-specific instruments plug directly into the studio tab bar. For example, the reference flight plugin ([`tools/visualizer/flight_plugin.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/visualizer/flight_plugin.py)) adds:
+    - Domain-specific instruments plug directly into the studio tab bar. For example, the reference flight plugin ([`tools/visualizer/flight_plugin.py`](tools/visualizer/flight_plugin.py)) adds:
       * **Primary Flight Display (PFD)**: Vector-rendered artificial horizon with sky/ground polygons, roll reticle, and pitch ladder.
       * **3D Quadcopter Perspective Wireframe**: Real-time 3D Tait-Bryan rotation matrix projecting quadcopter arms and spinning motor discs.
       * **Quad-X Motor Mixer Demands**: Real-time M1–M4 throttle levels (1000..2000 µs) with hover reference lines.
@@ -604,7 +604,7 @@ python3 tools/visualizer/abstractx_studio.py --sim
 ```
 
 ### 3. Standalone Domain Displays (Launcher Mode)
-Downstream applications can also launch their domain visualizers as standalone applications. For example, [`apps/gps_imu_app/tools/flight_display.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/tools/flight_display.py) launches the Level 2 flight instruments directly in a dedicated window:
+Downstream applications can also launch their domain visualizers as standalone applications. For example, [`apps/gps_imu_app/tools/flight_display.py`](apps/gps_imu_app/tools/flight_display.py) launches the Level 2 flight instruments directly in a dedicated window:
 
 ```bash
 # Launch standalone flight display
@@ -616,12 +616,12 @@ python3 apps/gps_imu_app/tools/flight_display.py --sim
 
 ### 4. Continuous Firmware Footprint Tracking with MemBrowse
 Because AbstractX strictly enforces **Freestanding C++20 with Zero Dynamic Heap**, all task frames, queues, and SPSC rings reside in static `.bss` and `.data` sections. We integrate **MemBrowse** to track memory consumption over time and block pull requests that exceed hardware SRAM/Flash budgets:
-* **Local Audit Tool ([`tools/track_memory_membrowse.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/track_memory_membrowse.py))**: Extracts symbol footprints across target ELFs (`build-pico2w`, `build-e907`, `build-host`), verifies zero heap references, and exports JSON metrics.
-* **MemBrowse GitHub Action ([`.github/workflows/membrowse.yml`](file:///home/tcmichals/ssdData/projects/home/AbstractX/.github/workflows/membrowse.yml))**: Automatically runs `membrowse/membrowse-action@main` on every PR/push to visualize firmware growth.
+* **Local Audit Tool ([`tools/track_memory_membrowse.py`](tools/track_memory_membrowse.py))**: Extracts symbol footprints across target ELFs (`build-pico2w`, `build-e906`, `build-host`), verifies zero heap references, and exports JSON metrics.
+* **MemBrowse GitHub Action ([`.github/workflows/membrowse.yml`](.github/workflows/membrowse.yml))**: Automatically runs `membrowse/membrowse-action@main` on every PR/push to visualize firmware growth.
 * **Studio Memory Tab**: Visualizes RAM/Flash budget gauges live in `abstractx_studio.py`.
 
 > [!TIP]
-> **Complete Observability Guide**: For end-to-end architecture documentation, the 3-pillar pipeline, two-level visualizer plugins, MemBrowse setup, and Python `.venv` instructions, read [`docs/tier2_contracts/observability/README.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/tier2_contracts/observability/README.md).
+> **Complete Observability Guide**: For end-to-end architecture documentation, the 3-pillar pipeline, two-level visualizer plugins, MemBrowse setup, and Python `.venv` instructions, read [`docs/tier2_contracts/observability/README.md`](docs/tier2_contracts/observability/README.md).
 
 ---
 
@@ -669,7 +669,7 @@ flowchart LR
 1. **Authoritative Specification (`[SPEC-*]`)**:
    Every architectural requirement receives a globally unique identifier (e.g. `[SPEC-APP-01]` for Parallel Boot, `[SPEC-APP-02]` for Primary-Paced Ingestion, `[SPEC-ARCH-05]` for Dual-Core Asymmetric Multiprocessing).
 2. **AI Prompts & Workspace Invariants (`AGENTS.md`)**:
-   The root [`AGENTS.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/AGENTS.md) is automatically discovered and loaded into the AI coding assistant's context on every interaction. It strictly enforces:
+    The root [`AGENTS.md`](AGENTS.md) is automatically discovered and loaded into the AI coding assistant's context on every interaction. It strictly enforces:
    * Mandatory Markdown specification before code creation.
    * Zero dynamic heap allocation (`0 B`).
    * Primary-Paced Multi-Rate Coroutine Channel pattern.
@@ -704,7 +704,7 @@ flowchart LR
 
 6. **SpecTrace: Continuous Learning Loop & Defect-to-Spec Evolution (`docs/SPECTRACE.md`)**:
    When bugs, timing errors, or silicon errata occur, they are never patched ad-hoc in code. AbstractX treats every mistake as a deficiency in the specification:
-   * **Episodic Memory Chronicle**: Use `tools/log_mistake.py` to record the failure, root cause, and lesson learned into [`engineering_log.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/engineering_log.md):
+    * **Episodic Memory Chronicle**: Use `tools/log_mistake.py` to record the failure, root cause, and lesson learned into [`engineering_log.md`](engineering_log.md):
      ```bash
      python3 tools/log_mistake.py --title "SPI CS Early Deassertion" --spec targets/SPECIFICATION.md --tag SPEC-HAL-02 --append
      ```
@@ -740,7 +740,7 @@ AbstractX/
 │       ├── trace_schema.json         # Dynamic CTF 1.8 telemetry schema
 │       ├── tools/flight_display.py   # 3D attitude & instrument visualizer display
 │       ├── platforms/
-│       │   └── allwinner_e907/       # Companion XuanTie E907 coprocessor firmware (Allwinner A5E)
+│       │   └── allwinner_e906/       # Companion XuanTie E906 coprocessor firmware (Allwinner A5E)
 │       └── src/main.cpp              # 100% linear C++20 coroutine application code
 ├── docs/                             # 3-Tier specification & architecture hierarchy
 │   ├── README.md                     # Central documentation hub index (3-tier navigation)
@@ -766,7 +766,7 @@ AbstractX/
 │   │   └── io_processor.yaml         # Declarative target hardware channel config
 │   ├── linux/                        # Linux Host / SITL / Radxa Cubie A5E (POSIX epoll reactor)
 │   │   └── io_processor.yaml         # Declarative target hardware channel config
-│   ├── allwinner_e907/               # XuanTie E907 RISC-V coprocessor BSP & shared SRAM
+│   ├── allwinner_e906/               # XuanTie E906 RISC-V coprocessor BSP & shared SRAM
 │   └── esp32p4/                      # ESP32-P4 dual-core RISC-V BSP
 ├── rtl/                              # Synthesizable SystemVerilog FPGA switch fabric
 │   ├── asp_top.sv                    # Top-level switch fabric wrapper
@@ -813,7 +813,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r tools/visualizer/requirements.txt
 ```
-*(For detailed architecture notes, two-level visualizer plugins, and MemBrowse integration, see the [Observability & Tooling Guide](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/tier2_contracts/observability/README.md).)*
+*(For detailed architecture notes, two-level visualizer plugins, and MemBrowse integration, see the [Observability & Tooling Guide](docs/tier2_contracts/observability/README.md).)*
 
 ### 2. Build Host SITL Application & Test Suite
 ```bash

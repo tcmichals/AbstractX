@@ -19,6 +19,12 @@ case "$(basename "${DTB}")" in
         ;;
     zynq-ac7020c.dtb)
         CONFIG="${BOARD_DIR}/config-alinx-ac7020c.txt"
+        # @impl [SPEC-AC7020C-09] hw/zynq7000/alinx_ac7020c/SPECIFICATION.md
+        if "${HOST_DIR}/bin/fdtget" -p "${DTB}" /amba-pl/gpio@41200000 \
+            >/dev/null 2>&1; then
+            echo "AC7020C base DTB exposes PL GPIO without a loaded bitstream" >&2
+            exit 1
+        fi
         ;;
     *)
         echo "Unsupported Zynq DTB for overlay configuration: ${DTB}" >&2

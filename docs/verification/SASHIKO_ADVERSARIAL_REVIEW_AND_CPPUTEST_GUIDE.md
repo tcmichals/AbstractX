@@ -10,7 +10,7 @@
 
 AbstractX is built on a pure, symmetrical hardware-software co-design:
 - **A sensor driver (e.g. ICM-42688-P IMU, Barometer, Magnetometer, GPS) is pure asynchronous logic.** It only requires an asynchronous bus transport (`ISpi`, `II2c`) with split-transaction request/completion queues, and a hardware event trigger (a GPIO DRDY interrupt or DMA completion).
-- **The underlying transport is interchangeable:** Whether running on an Allwinner XuanTie E907 RISC-V coprocessor, a Raspberry Pi Pico 2 W (RP2350), an ESP32-P4, or fully offloaded into an FPGA auto-DMA hardware IP core (`asp_imu_auto_dma.sv`), the sensor coroutine and flight software execute the exact same linear awaitable sequence:
+- **The underlying transport is interchangeable:** Whether running on an Allwinner XuanTie E906 RISC-V coprocessor, a Raspberry Pi Pico 2 W (RP2350), an ESP32-P4, or fully offloaded into an FPGA auto-DMA hardware IP core (`asp_imu_auto_dma.sv`), the sensor coroutine and flight software execute the exact same linear awaitable sequence:
   ```cpp
   co_await imu.init_async();
   while (true) {
@@ -137,7 +137,7 @@ Modeled after the Linux kernel RemoteProc audit protocol, every pull request or 
 
 ## 5. General Path: How to Add a New Sensor or Transport
 
-When adding a new sensor (e.g. Barometer BMP388, Magnetometer BMM150) or a new transport (e.g. E907 SPI DMA, FPGA Auto-DMA bridge):
+When adding a new sensor (e.g. Barometer BMP388, Magnetometer BMM150) or a new transport (e.g. E906 SPI DMA, FPGA Auto-DMA bridge):
 
 ```mermaid
 sequenceDiagram

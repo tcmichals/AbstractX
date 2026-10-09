@@ -156,7 +156,7 @@ module test_asp_top_tb;
             64'd0,                      // DW3-4: Timestamp = 0
             32'h00000001,               // DW5: Payload (AUTO_DMA_EN = 1)
             288'd0,                     // DW6-14: Zero-padding
-            32'hDEADBEEF                // DW15: CRC32
+            32'h00000000                // DW15: trusted-internal footer
         }, 1);
 
         #200;

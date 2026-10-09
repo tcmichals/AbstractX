@@ -2,28 +2,29 @@
 
 Author: Tim Michals  
 Date: 2026-10-04  
-Status: Active / Engineering SSOT  
+Status: Specified; RTL present; board validation pending
 Target Architecture: Xilinx Zynq-7000 (XC7Z020-CLG400-1 / CLG484C)  
 
 ---
 
-## 1. Architectural Philosophy: Why Custom TLP DMA vs. AMD AXI DMA IP
+## 1. Architectural Philosophy: BRAM First, DDR When Capacity Requires It
 
-| Metric / Feature | AMD / Xilinx AXI DMA IP (`xilinx_dma`) | AbstractX Custom Native TLP DMA (`asp_axi_dma`) |
+| Metric / Feature | Default AXI-Lite BRAM profile | Optional AbstractX DDR profile (`asp_axi_dma`) |
 | :--- | :--- | :--- |
-| **Protocol Encapsulation** | Generic byte-stream (AXI-Stream) requiring variable packet framing | **Strict 64-Byte (512-bit) TLP containers** native to AbstractX |
-| **Descriptor Overhead** | Multi-word SG descriptors fetched from DDR per transaction | **Zero Descriptors**: Hardware SPSC circular ring with head/tail CSRs |
-| **AXI Transaction Size** | Unaligned variable bursts, requires realignment logic | **Optimal 8-beat 64-bit bursts (`AWLEN=7`, `SIZE=3`) = exactly 64B** |
-| **FPGA Resource Footprint** | ~2,500 LUTs, 4+ BRAMs (heavy multi-channel SG engine) | **< 350 LUTs, 0 BRAMs** (pure pipeline state machine) |
-| **Linux Software Stack** | Heavy `dmaengine` kernel driver, buffer allocations, ioctls | **Zero-Copy User-Space UIO**: `mmap()` DMA coherent ring directly |
-| **Transfer Latency** | ~2.5 - 5.0 $\mu$s (scatter-gather traversal + IRQ latency) | **< 180 ns** directly into PS DDR3 memory |
-| **Vendor Portability** | Proprietary AMD Vivado encrypted IP | **100% Synthesizable SystemVerilog** (Zynq, Gowin, ECP5) |
+| **Packet shape** | Fixed 64-byte TLP | Fixed 64-byte TLP |
+| **Storage** | 128-slot ingress + 128-slot egress BRAM FIFOs | SPSC rings in PS DDR |
+| **Capacity** | 8 KiB each direction | Selected by reserved/kernel DMA allocation |
+| **Cache contract** | None; memory resides in PL BRAM | HP0 noncoherent or future ACP coherent profile |
+| **Complexity** | AXI-Lite packet ports and IRQ | AXI burst master, ring ownership, and DMA mapping |
+| **Use** | Default bring-up and current board top | Larger future workloads only |
 
 ---
 
 ## 2. System Architecture & High-Speed Interconnect
 
-The QMTECH Zynq-7020 platform implements **Topology 3: FPGA Hardware Offload** of the AbstractX execution model ([targets/SPECIFICATION.md](targets/SPECIFICATION.md)).
+The QMTECH Zynq-7020 platform implements FPGA hardware offload using the default
+BRAM packet profile. The cross-target execution model remains defined by
+[`targets/SPECIFICATION.md`](../../../targets/SPECIFICATION.md).
 
 ```mermaid
 flowchart TB
@@ -31,35 +32,27 @@ flowchart TB
         subgraph UserSpace ["User-Space Coroutine Domain"]
             App["abstractx:: Application Flight Loop (C++20)"]
             IoProc["Zynq7000IoProcessor (targets/zynq7000)<br/>Cooperative Event Reactor"]
-            RingBuf["Zero-Copy Lock-Free SPSC TLP Rings<br/>(Physical DDR Coherent Memory)"]
-            
             App <--> IoProc
-            IoProc <--> RingBuf
         end
         
         subgraph LinuxKernel ["Linux Kernel 7.1 RT + UIO"]
-            UIO["/dev/uio0 (generic-uio)<br/>CSR mmap() + IRQ_F2P eventfd"]
-            CMA["CMA / Reserved Coherent Memory Pool<br/>(Physical Address: 0x1E00_0000 - 0x1FFF_FFFF)"]
-            
+            UIO["/dev/uio0<br/>AXI-Lite packet ports + IRQ_F2P"]
             IoProc <--> UIO
-            RingBuf -.-> CMA
         end
     end
 
     subgraph AXI_Boundary ["PS-PL Interconnect Boundary"]
-        AXI_GP0["M_AXI_GP0 (AXI4-Lite Master, 32-bit @ 100 MHz)<br/>Base: 0x4000_0000 (CSRs, Ring Pointers, Doorbell)"]
-        AXI_HP0["S_AXI_HP0 (AXI4 Slave, 64-bit Data @ 100 MHz)<br/>Burst Length: 8 beats = 64-Byte TLP Direct DDR Access"]
-        IRQ_LINE["IRQ_F2P[0] (Pulse Interrupt to PS GIC on RX TLP Available)"]
+          AXI_GP0["M_AXI_GP0<br/>32-bit AXI-Lite packet/CSR window @ 0x4000_0000"]
+          IRQ_LINE["IRQ_F2P[0]<br/>egress packet available"]
     end
 
     subgraph PL ["Programmable Logic (XC7Z020 Artix-7 Fabric)"]
-        subgraph DMA_Engine ["AbstractX Native TLP DMA Core (asp_axi_dma.sv)"]
-            CsrCtrl["DMA CSR Controller & SPSC Pointers"]
-            RxDma["Egress-to-DDR Master Engine<br/>(8x64-bit Burst Write to S_AXI_HP0)"]
-            TxDma["DDR-to-Ingress Master Engine<br/>(8x64-bit Burst Read from S_AXI_HP0)"]
-            
-            CsrCtrl --- RxDma
-            CsrCtrl --- TxDma
+          subgraph PacketMemory ["Live packet plane (asp_axi_lite_bridge.sv)"]
+            CsrCtrl["AXI-Lite CSRs and packet ports"]
+            IngBram[(8 KiB ingress BRAM)]
+            EgrBram[(8 KiB egress BRAM)]
+            CsrCtrl <--> IngBram
+            CsrCtrl <--> EgrBram
         end
 
         Router["asp_router.sv<br/>(512-bit / 64-byte TLP Crossbar Switch)"]
@@ -68,8 +61,8 @@ flowchart TB
         Dshot["DShot300/600 Motor Core<br/>(4 Independent ESC Channels)"]
         Pins["Physical PMODs / Carrier Headers / LEDs"]
 
-        RxDma <--> Router
-        TxDma <--> Router
+        IngBram --> Router
+        Router --> EgrBram
         Router <--> SysRegs
         Router <--> ImuEngine
         Router <--> Dshot
@@ -79,80 +72,71 @@ flowchart TB
 
     UIO <==> AXI_GP0
     AXI_GP0 <==> CsrCtrl
-    CMA <==> AXI_HP0
-    AXI_HP0 <==> RxDma
-    AXI_HP0 <==> TxDma
     CsrCtrl -.-> IRQ_LINE
     IRQ_LINE ==> UIO
 ```
 
 ---
 
-## 3. Custom AXI4 DMA Engine Protocol & State Machine
+## 3. Optional DDR DMA Profile
+
+The following state machine applies only to an optional HP0 DDR bitstream. It
+is not instantiated by the default BRAM board top.
 
 ```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-
-    state IDLE {
-        description: Awaiting TLP from Router or Doorbell from Host
-    }
-
-    IDLE --> WRITE_ADDR: TLP ready from Router && (tail != head - 1)
-    IDLE --> READ_ADDR: Host signaled TX Doorbell && (tx_head != tx_tail)
-
-    state WRITE_ADDR {
-        description: Assert AWVALID on S_AXI_HP0<br/>Addr = RX_BASE + (tail * 64)<br/>AWLEN = 7 (8 beats), AWSIZE = 3 (64-bit)
-    }
-
-    WRITE_ADDR --> WRITE_BURST: AWREADY asserted
-
-    state WRITE_BURST {
-        description: Stream 8 beats of 64-bit data (512-bit TLP)<br/>Assert WLAST on 8th beat
-    }
-
-    WRITE_BURST --> WRITE_RESP: WREADY && WLAST
-
-    state WRITE_RESP {
-        description: Wait BVALID from PS DDR controller<br/>Increment tail pointer in CSR<br/>Assert IRQ_F2P[0] if unmasked
-    }
-
-    WRITE_RESP --> IDLE: BREADY & BVALID
-
-    state READ_ADDR {
-        description: Assert ARVALID on S_AXI_HP0<br/>Addr = TX_BASE + (head * 64)<br/>ARLEN = 7 (8 beats), ARSIZE = 3 (64-bit)
-    }
-
-    READ_ADDR --> READ_BURST: ARREADY asserted
-
-    state READ_BURST {
-        description: Latch 8 beats from RDATA into 512-bit buffer<br/>RLAST received
-    }
-
-    READ_BURST --> PUSH_ROUTER: Full 64B TLP assembled
-
-    state PUSH_ROUTER {
-        description: Push TLP into asp_router ingress port<br/>Increment tx_head in CSR
-    }
-
-    PUSH_ROUTER --> IDLE: Ingress tready acknowledged
+flowchart LR
+  IDLE[Idle] -->|router packet| WA[HP0 write address]
+  WA --> WB[8 x 64-bit write beats]
+  WB --> WR[write response and publish tail]
+  WR --> IDLE
+  IDLE -->|host doorbell| RA[HP0 read address]
+  RA --> RB[8 x 64-bit read beats]
+  RB --> PUSH[push 64-byte TLP to router]
+  PUSH --> IDLE
 ```
 
 ---
 
-## 4. Hardware Ring Buffer Organization in Coherent DDR3
+## 4. Packet storage modes
 
-Physical RAM allocation (via Linux `dma_alloc_coherent` or reserved CMA block):
+### 4.1 Default BRAM mode
+
+The XC7Z020 contains 140 BRAM36 blocks (4.9 Mibit / 630 KiB raw). QMTECH
+bring-up MUST use `asp_axi_lite_bridge` with 128 ingress and 128 egress slots:
+
+```text
+Ingress: 128 × 64 B = 8 KiB = 2 BRAM36
+Egress:  128 × 64 B = 8 KiB = 2 BRAM36
+Total:                  16 KiB = 4 / 140 BRAM36 blocks
+```
+
+Packets retain the canonical 20-byte header, 40-byte payload, and 4-byte
+reserved footer. The footer is zero because GP0/BRAM is a trusted internal
+processor↔FPGA path. FIFO valid/ready handshakes and IRQ ownership provide
+integrity; no CRC is required.
+
+### 4.2 Optional DDR mode
+
+The DDR ring ABI remains available for payloads that outgrow BRAM, but the
+bitstream/overlay MUST identify one explicit mode:
+
+- `S_AXI_HP0`: non-coherent; use noncached reserved memory or kernel DMA APIs
+  with `dma_sync_*` ownership transitions.
+- `S_AXI_ACP`: coherent/cache-snooped only after the DMA master implements the
+  required ACP AXI attributes and buffers are kernel managed.
+
+The following layout applies to either DDR mode; it is not the default bring-up
+configuration:
 
 ```
 +-----------------------------------------------------------------------+
-|  AbstractX SPSC Coherent Ring Buffer Layout (64-Byte Slot Aligned)     |
+|  AbstractX SPSC DDR Ring Buffer Layout (64-Byte Slot Aligned)          |
 +-----------------------------------------------------------------------+
 | Offset (Bytes)  | Content                                             |
 +-----------------+-----------------------------------------------------+
-| 0x0000 - 0x003F | Slot 0:  64-Byte TLP [Header 16B | Payload 48B]      |
-| 0x0040 - 0x007F | Slot 1:  64-Byte TLP [Header 16B | Payload 48B]      |
-| 0x0080 - 0x00BF | Slot 2:  64-Byte TLP [Header 16B | Payload 48B]      |
+| 0x0000 - 0x003F | Slot 0: TLP [Header 20B | Payload 40B | Footer 4B]   |
+| 0x0040 - 0x007F | Slot 1: TLP [Header 20B | Payload 40B | Footer 4B]   |
+| 0x0080 - 0x00BF | Slot 2: TLP [Header 20B | Payload 40B | Footer 4B]   |
 | ...             | ...                                                 |
 | (N-1)*64 ..     | Slot N-1: Complete ring capacity (e.g. N = 256 slots)|
 +-----------------------------------------------------------------------+
@@ -164,24 +148,26 @@ Physical RAM allocation (via Linux `dma_alloc_coherent` or reserved CMA block):
 
 ### `[SPEC-ZYNQ-01]` Memory-Mapped AXI-Lite CSR & Control Interface (`M_AXI_GP0`)
 * The FPGA PL MUST expose an AXI4-Lite slave on `M_AXI_GP0` mapped to physical address `0x4000_0000` (64 KB window).
-* The register map MUST provide:
-  * `0x00`: Control / Reset register (Bit 0: Enable DMA, Bit 1: Soft Reset, Bit 2: IRQ Ack).
-  * `0x04`: Status register (Bit 0: RX DMA busy, Bit 1: TX DMA busy, Bit 2: RX Ring non-empty, Bit 3: TX Ring full).
+* The default BRAM profile MUST instantiate 128 ingress and 128 egress 64-byte
+  packet slots. DDR ring-base/head/tail registers below apply only to an HP/ACP
+  DDR profile and MUST be absent or read as zero in BRAM mode.
+* The BRAM register map MUST provide:
+  * `0x00`: Control register.
+  * `0x04`: FIFO status register.
   * `0x08`: Interrupt Status / ACK register (Write 1 to clear pending `IRQ_F2P[0]`).
   * `0x0C`: Interrupt Enable mask register.
-  * `0x10`: RX Ring Physical Base Address (Bits [31:6], 64-byte aligned in PS DDR).
-  * `0x14`: RX Ring Capacity (Number of 64-byte slots, power of 2, e.g. 256).
-  * `0x18`: RX Head Pointer (Written by Host user-space after reading slots).
-  * `0x1C`: RX Tail Pointer (Updated by FPGA PL DMA after writing slots to DDR).
-  * `0x20`: TX Ring Physical Base Address (Bits [31:6], 64-byte aligned in PS DDR).
-  * `0x24`: TX Ring Capacity.
-  * `0x28`: TX Head Pointer (Updated by FPGA PL DMA after reading slots from DDR).
-  * `0x2C`: TX Tail Pointer (Written by Host user-space after pushing new command TLPs).
-  * `0x30`: TX Doorbell (Write any value to trigger immediate DMA fetch).
-  * `0x40 - 0x7F`: Direct Window to System Registers (Hardware ID `0x41535036` "ASP6", 64-bit nanosecond timer).
+  * `0x10`: ingress DWORD port; 16 writes commit one 64-byte packet.
+  * `0x14`: egress DWORD port; 16 reads consume one 64-byte packet.
+  * `0x18`: egress packet count.
+  * `0x1C`: ingress free-slot count.
+  * `0x40`: hardware ID `0x41535036` (`ASP6`).
+* Optional DDR profiles define their ring-base/head/tail map in a separate
+  bitstream/overlay compatibility contract.
 
 ### `[SPEC-ZYNQ-02]` Interrupt Signaling via `IRQ_F2P[0]` and Linux UIO
-* The PL DMA engine MUST assert `IRQ_F2P[0]` when new TLP frames have been written into the RX ring in DDR and interrupts are unmasked.
+* The BRAM bridge MUST assert `IRQ_F2P[0]` when an egress TLP is available and
+  interrupts are unmasked. Optional DDR profiles assert it after publishing a
+  completed DDR slot.
 * The Linux kernel MUST bind the PL core to `generic-uio` via the device tree node:
   ```dts
   &amba {
@@ -231,16 +217,23 @@ Physical RAM allocation (via Linux `dma_alloc_coherent` or reserved CMA block):
     1. Latches the 64-bit nanosecond hardware uptime timer.
     2. Performs an autonomous SPI burst read of `burst_len` bytes (default 14 bytes beginning at `TEMP_DATA1` register `0x1D`: temperature, accel, gyro).
     3. Packs raw sensor data, 16-bit sequence, DRDY/start timestamp, and SPI completion timestamp into a 64-byte `DMA_Stream` TLP (`Type=0x10`, `Channel=0x02`).
-    4. Forwards packet directly through the switch router to the AXI DMA engine for direct DDR write.
+     4. Forwards the packet through the switch router to the BRAM egress FIFO;
+       an optional DDR profile may instead forward it to the DDR DMA engine.
   * The 16-bit sample sequence MUST be assigned at each accepted DRDY edge and advance for every later DRDY edge while Auto-DMA is enabled, including edges received while the engine is busy. Busy edges increment `IMU_REG_DRDY_OVERRUN_COUNT`; the resulting sequence gaps let software account for samples that could not be acquired.
-  * Software MUST snapshot the overrun counter before arming Auto-DMA and after stopping it, and report the modulo-2^32 delta. The counter is diagnostic and MUST NOT be interpreted as a count of records lost specifically to DDR-ring exhaustion.
+  * Software MUST snapshot the overrun counter before arming Auto-DMA and after stopping it, and report the modulo-2^32 delta. The counter is diagnostic and MUST NOT be interpreted as a count of records lost specifically to host packet-buffer exhaustion.
   * The TLP layout MUST retain the 14 sensor payload bytes in DW5–DW8, the DRDY/start timestamp in DW3–DW4, and the completion timestamp in DW9–DW10; sequence and padding fields MUST follow `hw/zynq7000/testApps/imu_backend_validation_poc/SPECIFICATION.md`.
   * The TLP stream valid signal MUST remain asserted with stable frame data until a valid/ready handshake occurs; a ready signal without valid MUST NOT consume or discard a frame.
 * Writing `auto_dma_en = 0` MUST immediately halt autonomous triggering and place the engine in idle state; the status busy bit MUST remain asserted until the in-flight Auto-DMA transfer is aborted and chip select is deasserted.
-* DRDY-to-DDR latency MUST be $< 350$ nanoseconds with zero CPU intervention.
+* DRDY-to-packet-commit latency is a board-validation metric and MUST NOT be
+  published as measured until captured on the synthesized QMTECH bitstream.
 * The default burst address MUST be `0x1D`; a 14-byte read beginning at `0x1F` omits temperature and does not match the shared ICM-42688-P sample parser.
 
-### `[SPEC-ZYNQ-05]` Physical Pinout & Constraints (`qmtech_zynq7020.xdc`)
+### `[SPEC-ZYNQ-06]` Nanosecond Monotonic Hardware Timer
+* The top-level 64-bit uptime counter MUST represent elapsed nanoseconds, not PL clock cycles. Its update rate MUST derive from `CLK_FREQ_HZ`, preserving fractional nanoseconds when the clock period is not an integer number of nanoseconds.
+* At the default 100 MHz PL clock, the counter MUST advance by 10 ns per clock cycle. All IMU start/end timestamps sourced from this counter MUST use the same nanosecond timebase.
+* Implementation target: `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`.
+
+### `[SPEC-ZYNQ-05]` Physical Pinout & Constraints (`constraints/qmtech_zynq7020.xdc`)
 * The PL design MUST interface to the QMTECH XC7Z020 Core Board and Starter Kit Carrier:
   * Onboard User LEDs: Carrier D3 (PL pin `P22`), Core board D2 (PL pin `M14`).
   * Carrier Key: PL pin `P16`.
@@ -250,9 +243,111 @@ Physical RAM allocation (via Linux `dma_alloc_coherent` or reserved CMA block):
     * NeoPixel Status: `J16`.
     * Logic Analyzer Debug Pins: `G22`, `H22`, `F22`, `F21`.
 
+  <a id="qmtech-fpga-spi-wiring"></a>
+  #### Canonical QMTECH FPGA SPI/DRDY wiring
+
+  This is the wiring contract for the FPGA-driven ICM-42688-P test. The
+  signal names are the `top_qmtech_zynq7020` ports and the identifiers in
+  parentheses are Zynq package pins constrained by
+  `constraints/qmtech_zynq7020.xdc`.
+
+  ```mermaid
+  flowchart LR
+    subgraph Q[QMTECH XC7Z020 · JP5 · 3.3 V LVCMOS]
+      V33[3V3]
+      GND[GND]
+      SCLK[o_imu_sclk · L22]
+      CS[o_imu_cs_n · L21]
+      MOSI[o_imu_mosi · K20]
+      MISO[i_imu_miso · K19]
+      DRDY[i_imu_int · J22]
+    end
+
+    subgraph I[ICM-42688-P breakout]
+      VIN[3V3 / VDDIO]
+      IGND[GND]
+      ISCLK[SCLK]
+      ICS[CS_N]
+      ISDI[SDI / MOSI]
+      ISDO[SDO / MISO]
+      IINT[INT1 / DRDY]
+    end
+
+    V33 --- VIN
+    GND --- IGND
+    SCLK --> ISCLK
+    CS --> ICS
+    MOSI --> ISDI
+    ISDO --> MISO
+    IINT --> DRDY
+  ```
+
+  | QMTECH JP5 signal | Zynq package pin | Sensor connection | Direction at PL |
+  |---|---:|---|---|
+  | `3V3` | — | Breakout `3V3`/`VDDIO` | Power |
+  | `GND` | — | Breakout `GND` | Power return |
+  | `o_imu_sclk` | `L22` | `SCLK` | Output |
+  | `o_imu_cs_n` | `L21` | `CS_N` | Output, active low |
+  | `o_imu_mosi` | `K20` | `SDI`/`MOSI` | Output |
+  | `i_imu_miso` | `K19` | `SDO`/`MISO` | Input |
+  | `i_imu_int` | `J22` | `INT1`/`DRDY` | Input |
+
+  The sensor breakout MUST be 3.3 V logic compatible. Power-pin positions depend
+  on the carrier/header orientation and MUST be checked against the QMTECH board
+  silkscreen before power is applied. This wiring is dedicated to the PL SPI/DRDY
+  engine.
+
+  <a id="qmtech-linux-i2c-wiring"></a>
+  #### Canonical QMTECH Linux PS-I2C wiring
+
+  Linux uses the Cadence PS I²C0 controller exposed as `/dev/i2c-0`. This is a
+  second physical wiring mode and MUST NOT be connected simultaneously with the
+  FPGA SPI outputs above. The local repository does not contain a QMTECH carrier
+  schematic, so connections are identified by the carrier signal labels
+  `MIO14`/`MIO15`; connector position numbers MUST NOT be inferred.
+
+  ```mermaid
+  flowchart LR
+    subgraph Q[QMTECH PS header signals]
+      V33[3V3]
+      GND[GND]
+      SCL[MIO14 · I2C0 SCL]
+      SDA[MIO15 · I2C0 SDA]
+    end
+
+    subgraph I[ICM-42688-P breakout in I²C mode]
+      VIN[3V3 / VDDIO]
+      IGND[GND]
+      ISCL[SCL]
+      ISDA[SDA]
+      CS[CS_N tied high]
+      AD0[AP_AD0 selects 0x68 or 0x69]
+    end
+
+    V33 --- VIN
+    GND --- IGND
+    SCL --- ISCL
+    SDA --- ISDA
+    V33 --- CS
+  ```
+
+  | QMTECH signal label | Sensor connection | Purpose |
+  |---|---|---|
+  | `3V3` | Breakout `3V3`/`VDDIO` and `CS_N` | Power and I²C-mode selection |
+  | `GND` | Breakout `GND` | Power return |
+  | `MIO14` | `SCL` | PS I²C0 clock |
+  | `MIO15` | `SDA` | PS I²C0 data |
+  | `GND` or `3V3` | `AP_AD0` | Select address `0x68` or `0x69` |
+
+  SCL and SDA require external pull-ups to 3.3 V; use the breakout's fitted
+  pull-ups or add one pull-up pair, but do not populate duplicate strong pull-up
+  networks. A Linux-direct DRDY GPIO is intentionally not assigned here because
+  its QMTECH carrier routing has not been verified. Linux I²C testing MUST poll
+  until that interrupt pin is verified and added to this contract.
+
 ### `[SPEC-ZYNQ-06]` Target HAL Driver (`targets/zynq7000/`)
 * The C++20 target runtime MUST implement `Zynq7000IoProcessor` satisfying `abstractx::hal::IIoProcessor`.
-* The driver MUST support direct zero-copy SPSC circular ring buffers in DDR memory:
-  * Reading telemetry by advancing `head` pointer.
-  * Pushing commands by advancing `tail` pointer and pulsing the doorbell register.
+* The driver MUST support the active bitstream memory profile:
+  * BRAM mode moves exactly 16 DWORDs through the ingress/egress packet ports.
+  * Optional DDR mode uses the profile's ring head/tail ownership contract.
 * Hot-path driver methods MUST remain strictly freestanding C++20 (zero heap allocations, zero blocking spin loops).

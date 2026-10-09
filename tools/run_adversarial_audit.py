@@ -57,7 +57,7 @@ class InvariantAuditor:
         if self._code_impl_tags is not None:
             return self._code_impl_tags
         self._code_impl_tags = set()
-        for d in ["include", "apps", "targets", "sim", "examples", "src"]:
+        for d in ["include", "apps", "targets", "sim", "examples", "src", "rtl", "hw"]:
             p = self.root_dir / d
             if not p.exists():
                 continue
@@ -388,8 +388,8 @@ def main():
         else:
             target_files = [p]
     else:
-        # Default: scan include/, apps/, targets/, docs/
-        for sub in ["include", "apps", "targets", "docs"]:
+        # Default: scan all software, RTL, hardware, and specification roots.
+        for sub in ["include", "apps", "targets", "docs", "rtl", "hw"]:
             d = root_dir / sub
             if d.exists():
                 target_files.extend(d.rglob("*.hpp"))

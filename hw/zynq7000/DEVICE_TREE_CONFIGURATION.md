@@ -16,8 +16,11 @@ The base DTB owns board facts:
 - Zynq device and DDR size
 - PS clocks and pinctrl
 - UART, Ethernet, USB, SD, and QSPI
-- Board-specific PL address and IRQ wiring
-- Reserved-memory placement
+
+The default ALINX AC7010C and AC7020C Buildroot images load U-Boot SPL without
+an FPGA bitstream, so their base DTBs are strictly PS-only. PL addresses, IRQs,
+and reserved-memory regions belong in overlays coupled to a matching loaded
+bitstream; a base DTB must never advertise unconfigured PL hardware.
 
 The shared overlays describe PS bus access and, when supported, the AbstractX
 PL ABI:
@@ -34,33 +37,29 @@ all three board configurations. Its ICM-42688-P child uses the truthful
 `invensense,icm42688` compatible and binds to spidev in the shared kernel; the
 in-kernel IIO SPI driver is disabled for that endpoint.
 
-The UIO and trace overlays are valid only when the selected bitstream provides the same
-CSR address, IRQ, DMA ring ABI, TLP size, and trace channel on every board.
-An overlay cannot create hardware that is absent from the FPGA bitstream.
-Each board has its own generated `/boot/config.txt`. All select the bus overlay.
-QMTECH also selects the UIO/trace overlays by default. ALINX AC7010C and AC7020C
-omit those two because their baseline bitstreams do not contain the TLP/DMA
-fabric. Add them to an ALINX config only when deploying a matching fabric
-bitstream.
+The UIO and trace overlays are valid only when the selected bitstream provides
+the matching CSR address, IRQ, memory profile, TLP size, and trace ABI. An
+overlay cannot create hardware absent from the FPGA bitstream. Every board's
+generated `/boot/config.txt` selects only the PS bus overlay. Linux-side test
+automation loads a bitstream first and then applies its matching PL overlay.
 
-## AbstractX UIO/DMA ABI
+## AbstractX UIO/packet ABI
 
-The common UIO node describes:
+The default BRAM profile's UIO node describes:
 
 ```text
 CSR base:       0x40000000
 CSR size:       0x00010000
 IRQ_F2P[0]:     Linux IRQ 29
 TLP size:       64 bytes
-DMA ring slot:  64 bytes (one TLP record)
-Ring capacity:  256 slots (16 KiB)
-Reserved DDR:   0x1e000000 - 0x1fffffff (32 MiB)
+Ingress FIFO:   128 slots x 64 bytes (8 KiB BRAM)
+Egress FIFO:    128 slots x 64 bytes (8 KiB BRAM)
+Integrity:      trusted internal transport, footer reserved as zero
 Trace channel:  0x04
 ```
 
-The generic UIO device exposes map 0 for the CSR window and map 1 for the
-reserved DMA window. UIO maps the physical ring noncached; userspace MUST use
-that map rather than a cached `/dev/mem` mapping.
+The generic UIO device exposes only map 0 for the CSR/packet-port window. The
+default overlay reserves no DDR and exposes no DMA-ring map.
 
 The DMA enable/stop operation is:
 
@@ -69,11 +68,18 @@ CSR + 0x00, bit 0 = 1: enable RX/TX DMA
 CSR + 0x00, bit 0 = 0: stop RX/TX DMA
 ```
 
-Wishbone control remains on the AXI-Lite/TLP path. Normal traffic and trace
-may use separate logical DMA rings while sharing the initial HP0 engine.
+Wishbone control and packet movement remain on the AXI-Lite/TLP path.
 
-The Zynq HP path is non-coherent. Userspace must use the documented cache
-maintenance or noncached/reserved-memory policy before changing ring ownership.
+Larger bitstreams may define a separate DDR overlay using one explicit mode:
+
+- **HP0 non-coherent:** a noncached `no-map` reserved region or a kernel DMA
+	allocation with `dma_sync_*_for_cpu/device()` at ownership transitions.
+- **ACP coherent:** a kernel-managed cacheable DMA buffer and PL transactions
+	carrying the correct coherent/shareable ACP attributes.
+
+DDR overlays MUST use a distinct compatibility/profile identifier. A cached
+`/dev/mem` mapping on HP0 is forbidden, and coherency never replaces atomic
+head/tail ownership barriers.
 
 ## U-Boot boot flow
 
@@ -113,13 +119,12 @@ ls -l /dev/spidev1.0 /dev/i2c-0
 python3 -c 'import gpiod, spidev; print("IMU userspace modules available")'
 ls -l /dev/uio*
 cat /sys/class/uio/uio0/maps/map0/name
-cat /sys/class/uio/uio0/maps/map1/name
-find /sys/firmware/devicetree/base -name '*abstractx*' -o -name '*dma*'
+find /sys/firmware/devicetree/base -name '*abstractx*'
 ```
 
-The expected result is a UIO device exposing the CSR window and an active
-reserved-memory map for 64-byte DMA ring slots. Linux UIO support is provided by
-`CONFIG_UIO`, `CONFIG_UIO_PDRV_GENIRQ`, and the `generic-uio` overlay binding.
+The expected BRAM-profile result is a UIO device exposing only the CSR/packet
+window. Linux UIO support is provided by `CONFIG_UIO`,
+`CONFIG_UIO_PDRV_GENIRQ`, and the `generic-uio` overlay binding.
 
 ## IMU backend validation proof of concept
 

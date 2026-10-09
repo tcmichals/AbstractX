@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 I2C / TWI HAL Implementation
+ * AbstractX Allwinner XuanTie E906 I2C / TWI HAL Implementation
  * -------------------------------------------------------------
  * Dual-Mode Engine:
  * 1. Low-Latency Byte-FSM: For single characters and register reads/writes (< 32 bytes)
@@ -46,25 +46,25 @@ namespace abstractx::hal {
 #define TWI_CNTR_INT_FLG (1U << 3)
 #define TWI_CNTR_A_ACK   (1U << 2)
 
-static E907I2c g_e907_i2c;
+static E906I2c g_e906_i2c;
 
 static void on_twi_dma_static_callback(uint8_t channel, bool success) noexcept {
-    g_e907_i2c.on_dma_complete(channel, success);
+    g_e906_i2c.on_dma_complete(channel, success);
 }
 
-E907I2c& get_e907_i2c() noexcept {
-    return g_e907_i2c;
+E906I2c& get_e906_i2c() noexcept {
+    return g_e906_i2c;
 }
 
 II2c& get_i2c_driver() noexcept {
-    return g_e907_i2c;
+    return g_e906_i2c;
 }
 
 II2c& get_i2c() noexcept {
-    return g_e907_i2c;
+    return g_e906_i2c;
 }
 
-bool E907I2c::init(const I2cConfig& config) {
+bool E906I2c::init(const I2cConfig& config) {
     config_ = config;
 
     // 1. Enable Bus Clock Gating and deassert reset in CCU
@@ -97,7 +97,7 @@ bool E907I2c::init(const I2cConfig& config) {
     return true;
 }
 
-bool E907I2c::set_frequency(uint32_t frequency_hz) {
+bool E906I2c::set_frequency(uint32_t frequency_hz) {
     config_.frequency_hz = frequency_hz;
     // APB Clock = 24 MHz
     // Fscl = 24MHz / (10 * 2^N * (M + 1))
@@ -111,7 +111,7 @@ bool E907I2c::set_frequency(uint32_t frequency_hz) {
     return true;
 }
 
-void E907I2c::start_fsm(uint8_t slave_addr, bool is_read, bool repeated_start,
+void E906I2c::start_fsm(uint8_t slave_addr, bool is_read, bool repeated_start,
                        std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept {
     slave_addr_ = slave_addr;
     is_read_ = is_read;
@@ -127,7 +127,7 @@ void E907I2c::start_fsm(uint8_t slave_addr, bool is_read, bool repeated_start,
     TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN | TWI_CNTR_M_STA;
 }
 
-bool E907I2c::start_dma_xfer(uint8_t slave_addr, bool is_read,
+bool E906I2c::start_dma_xfer(uint8_t slave_addr, bool is_read,
                              std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept {
     slave_addr_ = slave_addr;
     is_read_ = is_read;
@@ -198,7 +198,7 @@ bool E907I2c::start_dma_xfer(uint8_t slave_addr, bool is_read,
     return true;
 }
 
-void E907I2c::on_dma_complete(uint8_t channel, bool success) noexcept {
+void E906I2c::on_dma_complete(uint8_t channel, bool success) noexcept {
     (void)channel;
     // Disable DMA triggers
     TWI0_DRV_DMA_CFG &= ~((1 << 8) | (1 << 24));
@@ -217,7 +217,7 @@ void E907I2c::on_dma_complete(uint8_t channel, bool success) noexcept {
     }
 }
 
-bool E907I2c::write_read_sync(uint8_t slave_addr,
+bool E906I2c::write_read_sync(uint8_t slave_addr,
                              std::span<const uint8_t> tx_data,
                              std::span<uint8_t> rx_data) {
     if (tx_data.empty() && rx_data.empty()) return true;
@@ -231,7 +231,7 @@ bool E907I2c::write_read_sync(uint8_t slave_addr,
     return success_;
 }
 
-bool E907I2c::write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) {
+bool E906I2c::write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) {
     if (tx_data.empty()) return true;
 
     if (tx_data.size() >= DMA_THRESHOLD && dma_tx_chan_ >= 0) {
@@ -248,7 +248,7 @@ bool E907I2c::write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) {
     return success_;
 }
 
-bool E907I2c::read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) {
+bool E906I2c::read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) {
     if (rx_data.empty()) return true;
 
     if (rx_data.size() >= DMA_THRESHOLD && dma_rx_chan_ >= 0) {
@@ -265,7 +265,7 @@ bool E907I2c::read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) {
     return success_;
 }
 
-void E907I2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
+void E906I2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
     active_req_ = req;
     bool is_rd = req.is_read || (!req.repeated_start && req.tx_data.empty() && !req.rx_data.empty());
     size_t total_len = req.tx_data.size() + req.rx_data.size();
@@ -282,7 +282,7 @@ void E907I2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
     }
 }
 
-void E907I2c::on_irq() noexcept {
+void E906I2c::on_irq() noexcept {
     uint32_t status = TWI0_STAT;
 
     switch (status) {
@@ -389,8 +389,8 @@ void E907I2c::on_irq() noexcept {
 
 } // namespace abstractx::hal
 
-// Connect PLIC IRQ 26 ISR to E907I2c instance
+// Connect PLIC IRQ 26 ISR to E906I2c instance
 extern "C" __attribute__((section(".fastcode")))
 void fc_twi0_isr() noexcept {
-    abstractx::hal::get_e907_i2c().on_irq();
+    abstractx::hal::get_e906_i2c().on_irq();
 }

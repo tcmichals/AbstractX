@@ -1,0 +1,14 @@
+config BR2_PACKAGE_CPPUTEST
+	bool "cpputest"
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  CppUTest is a lightweight C/C++ unit testing and mocking
+	  framework designed for embedded systems.
+
+	  This package installs CppUTest and CppUTestExt headers and
+	  libraries into the target staging sysroot.
+
+	  https://cpputest.github.io/
+
+comment "cpputest needs a toolchain w/ C++"
+	depends on !BR2_INSTALL_LIBSTDCPP

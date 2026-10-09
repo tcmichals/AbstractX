@@ -2,15 +2,15 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907: I/O Processor Implementation
+ * AbstractX Allwinner XuanTie E906: I/O Processor Implementation
  * --------------------------------------------------------------
- * Unified IIoProcessor IP Implementation for Allwinner E907 RISC-V Coprocessor.
+ * Unified IIoProcessor IP Implementation for Allwinner E906 RISC-V Coprocessor.
  * Operates an autonomous Sensor HW Fusion Engine:
  * - Pin DRDY (PLIC IRQ 82) rising-edge ISR triggers simultaneous SPI0 DMA read ASAP
  * - DMA completion (PLIC IRQ 64) pushes 64-byte DMA_Stream TLP into completion ring
  * - Signals MSGBOX hardware doorbell (0x03003000) to awaken Cortex-A55 Linux Host
  * - Enforces Bus Lockout Invariant: rejects manual SPI access with ASP_STATUS_BUS_LOCKED
- * - Idles E907 core in low-power WFI
+ * - Idles E906 core in low-power WFI
  */
 
 #include "abstractx/hal/io_processor.hpp"
@@ -29,12 +29,12 @@
 
 namespace abstractx::target {
 
-class E907IoProcessor final : public hal::IIoProcessor {
+class E906IoProcessor final : public hal::IIoProcessor {
 public:
     static constexpr size_t MAX_CHANNELS = 4;
 
-    E907IoProcessor() noexcept = default;
-    ~E907IoProcessor() override { stop(); }
+    E906IoProcessor() noexcept = default;
+    ~E906IoProcessor() override { stop(); }
 
     bool configure(const hal::IoProcessorSetup& setup) override {
         setup_ = setup;
@@ -132,7 +132,7 @@ public:
                         auto_tx_buf_,
                         auto_rx_buf_,
                         total_xfer,
-                        etl::delegate<void(bool)>::create<E907IoProcessor, &E907IoProcessor::on_auto_spi_dma_done>(*this)
+                        etl::delegate<void(bool)>::create<E906IoProcessor, &E906IoProcessor::on_auto_spi_dma_done>(*this)
                     );
                 }
             }
@@ -163,7 +163,7 @@ public:
         }
     }
 
-    static inline E907IoProcessor* instance() noexcept {
+    static inline E906IoProcessor* instance() noexcept {
         return active_instance_;
     }
 
@@ -363,7 +363,7 @@ private:
     bool configured_{false};
     std::atomic<bool> running_{false};
 
-    hal::E907I2c i2c_{};
+    hal::E906I2c i2c_{};
     size_t num_channels_{0};
     std::array<hal::AutoChannelConfig, MAX_CHANNELS> channels_{};
 
@@ -373,13 +373,13 @@ private:
     alignas(4) uint8_t auto_rx_buf_[64]{};
     alignas(4) uint8_t bridge_rx_buf_[64]{};
 
-    static inline E907IoProcessor* active_instance_{nullptr};
+    static inline E906IoProcessor* active_instance_{nullptr};
 };
 
-static E907IoProcessor g_e907_io_processor;
+static E906IoProcessor g_e906_io_processor;
 
-E907IoProcessor& get_e907_io_processor() noexcept {
-    return g_e907_io_processor;
+E906IoProcessor& get_e906_io_processor() noexcept {
+    return g_e906_io_processor;
 }
 
 } // namespace abstractx::target
@@ -387,15 +387,15 @@ E907IoProcessor& get_e907_io_processor() noexcept {
 namespace abstractx::hal {
 
 IIoProcessor& get_target_io_processor() noexcept {
-    return target::get_e907_io_processor();
+    return target::get_e906_io_processor();
 }
 
 } // namespace abstractx::hal
 
-// Hook GPIO DRDY ISR into E907IoProcessor
+// Hook GPIO DRDY ISR into E906IoProcessor
 extern "C" __attribute__((section(".fastcode")))
 void fc_gpio_drdy_isr() noexcept {
-    auto* proc = abstractx::target::E907IoProcessor::instance();
+    auto* proc = abstractx::target::E906IoProcessor::instance();
     if (proc) {
         proc->handle_gpio_drdy_from_isr();
     }

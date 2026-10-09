@@ -5,8 +5,8 @@
  * AbstractX Platform Topology & Silicon Interconnect Descriptors
  * ---------------------------------------------------------------
  * Standardized compile-time and runtime descriptor tables defining:
- * 1. Silicon Architecture (Linux SITL, Linux+E907, Linux+E907+FPGA, RP2350, ESP32-P4)
- * 2. Processing Cores & Roles (Host ARM64, Coprocessor E907, Coroutine Runner, FPGA)
+ * 1. Silicon Architecture (Linux SITL, Linux+E906, Linux+E906+FPGA, RP2350, ESP32-P4)
+ * 2. Processing Cores & Roles (Host ARM64, Coprocessor E906, Coroutine Runner, FPGA)
  * 3. Transport Interconnects (Shared SRAM + MsgBox, SIO FIFO, PCIe, UDP)
  * 4. Synthesized Hardware Accelerators (Auto-DMA, DShot, NeoPixel)
  */
@@ -22,8 +22,11 @@ namespace abstractx::topology {
 // 1. Top-Level Platform Silicon Architecture
 enum class PlatformArch : uint8_t {
     Linux_Standard_SITL    = 0x01, // Pure host Linux with POSIX I/O workers
-    Linux_Host_E907        = 0x02, // Linux host + XuanTie E907 coprocessor (Shared SRAM)
-    Linux_Host_E907_FPGA   = 0x03, // Linux host + XuanTie E907 + FPGA fabric
+    Linux_Host_E906        = 0x02, // Linux host + XuanTie E906 coprocessor (Shared SRAM)
+    Linux_Host_E906_FPGA   = 0x03, // Linux host + XuanTie E906 + FPGA fabric
+    // @impl [SPEC-ARCH-07] include/abstractx/platform_topology.hpp
+    Linux_Host_E907        = Linux_Host_E906,      // Deprecated source-compatibility alias
+    Linux_Host_E907_FPGA   = Linux_Host_E906_FPGA, // Deprecated source-compatibility alias
     Linux_Host_FPGA_Direct = 0x04, // Linux host + Direct PCIe/SPI FPGA switch fabric
     RP2350_DualCore_Pico2W = 0x05, // Raspberry Pi Pico 2 W (RP2350 Dual-Core + CYW43)
     ESP32P4_FreeRTOS       = 0x06, // Espressif ESP32-P4 (Dual RISC-V 400MHz + FreeRTOS)
@@ -33,7 +36,7 @@ enum class PlatformArch : uint8_t {
 // 2. Processing Unit / Core Role
 enum class CoreRole : uint8_t {
     Host_Linux_SMP         = 0x01, // High-level Linux flight supervisor / network
-    Coprocessor_IO_Worker  = 0x02, // XuanTie E907 or RP2350 Core 0 dedicated to I/O & DMA
+    Coprocessor_IO_Worker  = 0x02, // XuanTie E906 or RP2350 Core 0 dedicated to I/O & DMA
     Coroutine_Main_Runner  = 0x03, // Core executing the cooperative C++20 coroutine loop
     Hardware_FPGA_Engine   = 0x04, // Synthesized FPGA hardware state machine
     RTOS_Background_Task   = 0x05  // FreeRTOS task (Wi-Fi, Bluetooth, TCP/IP stack)
@@ -91,8 +94,8 @@ struct PlatformTopologyTable {
 constexpr std::string_view to_string(PlatformArch arch) noexcept {
     switch (arch) {
         case PlatformArch::Linux_Standard_SITL:    return "Linux_Standard_SITL";
-        case PlatformArch::Linux_Host_E907:        return "Linux_Host_E907";
-        case PlatformArch::Linux_Host_E907_FPGA:   return "Linux_Host_E907_FPGA";
+        case PlatformArch::Linux_Host_E906:        return "Linux_Host_E906";
+        case PlatformArch::Linux_Host_E906_FPGA:   return "Linux_Host_E906_FPGA";
         case PlatformArch::Linux_Host_FPGA_Direct: return "Linux_Host_FPGA_Direct";
         case PlatformArch::RP2350_DualCore_Pico2W: return "RP2350_DualCore_Pico2W";
         case PlatformArch::ESP32P4_FreeRTOS:       return "ESP32P4_FreeRTOS";

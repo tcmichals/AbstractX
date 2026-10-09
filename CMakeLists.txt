@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-# Determine Target Platform (host, e907, pico2w, esp32p4)
+# Determine Target Platform (host, e906, pico2w, esp32p4)
 if(NOT DEFINED ABSTRACTX_TARGET)
     if(CMAKE_SYSTEM_NAME STREQUAL "Generic" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "riscv")
         set(ABSTRACTX_TARGET "e906")
@@ -22,6 +22,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(ABSTRACTX_TARGET STREQUAL "e907")
+    message(DEPRECATION "ABSTRACTX_TARGET=e907 is a legacy alias; use e906")
     set(ABSTRACTX_TARGET "e906")
 endif()
 

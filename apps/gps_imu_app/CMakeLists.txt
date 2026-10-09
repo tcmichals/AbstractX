@@ -2,7 +2,7 @@
 # ------------------------------
 # Single Unified Sensor Benchmark & Testing Application for ALL Targets:
 # - Raspberry Pi Pico 2 W (RP2350)
-# - Allwinner XuanTie E907 RISC-V Coprocessor
+# - Allwinner XuanTie E906 RISC-V Coprocessor
 # - Linux (Desktop Workstation, SITL, and Allwinner Cubie A5E)
 
 add_executable(gps_imu_app
@@ -41,7 +41,7 @@ else()
     target_link_libraries(gps_imu_app PRIVATE abstractx_target_linux)
 endif()
 
-# Companion XuanTie E907 coprocessor firmware for Allwinner A5E
+# Companion XuanTie E906 coprocessor firmware for Allwinner A5E
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/platforms/allwinner_e906/CMakeLists.txt" AND (ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907"))
     add_subdirectory(platforms/allwinner_e906)
 endif()

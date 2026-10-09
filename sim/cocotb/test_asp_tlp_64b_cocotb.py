@@ -17,6 +17,7 @@ import time
 import math
 import struct
 import socket
+import zlib
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge, Timer
@@ -36,7 +37,8 @@ def pack_tlp(
     payload: bytes,
 ) -> bytes:
     padded = payload[:40].ljust(40, b"\x00")
-    return struct.pack(">BBBBIHHQ40sI", tlp_type, flags, tag, channel, addr, len_dw, seq, ts, padded, 0xDEADBEEF)
+    data = struct.pack(">BBBBIHHQ40s", tlp_type, flags, tag, channel, addr, len_dw, seq, ts, padded)
+    return data + zlib.crc32(data).to_bytes(4, "big")
 
 
 def unpack_tlp(data: bytes):

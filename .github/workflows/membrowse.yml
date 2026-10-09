@@ -21,10 +21,10 @@ jobs:
             preset: pico2w
             elf: build-pico2w/apps/gps_imu_app/gps_imu_app.elf
             map: build-pico2w/apps/gps_imu_app/gps_imu_app.elf.map
-          - target_name: allwinner_e907
-            preset: e907
-            elf: build-e907/apps/gps_imu_app/gps_imu_app
-            map: build-e907/apps/gps_imu_app/gps_imu_app.map
+          - target_name: allwinner_e906
+            preset: e906
+            elf: build-e906/apps/gps_imu_app/gps_imu_app
+            map: build-e906/apps/gps_imu_app/gps_imu_app.map
 
     steps:
       - name: Checkout Code

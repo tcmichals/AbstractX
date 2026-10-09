@@ -89,7 +89,7 @@ The visualizer enforces a strict architectural boundary between the **AbstractX 
 
 ```
 +===================================================================================================+
-| ABSTRACTX STUDIO WORKBENCH | Platform: Radxa Cubie A5E (ARM64+E907) | Stream: 8.2 kHz | 0 B Heap |
+| ABSTRACTX STUDIO WORKBENCH | Platform: Radxa Cubie A5E (ARM64+E906) | Stream: 8.2 kHz | 0 B Heap |
 +===================================================================================================+
 | [WINDOW 1: ABSTRACTX CORE STUDIO]         | [WINDOW 2: USER DOMAIN INSTRUMENTS]                   |
 | (LeftSpace: 54% Width)                    | (MainDockSpace: 46% Width, 64% Height)                |
@@ -154,7 +154,7 @@ The Core Studio window is a unified engineering workbench with a **10-tab `CoreS
 
 8. **Source Code & RTL Inspector**:
    - **C++ / RTL toggle**: Switch between C++20 application/driver source (`CPP` mode) and SystemVerilog RTL (`RTL` mode) via `source_view_mode` state.
-   - **CPP mode** file list: `apps/gps_imu_app/src/main.cpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, `include/abstractx/fusion/attitude_filter.hpp`, `targets/allwinner_e907/src/io_processor.cpp`.
+   - **CPP mode** file list: `apps/gps_imu_app/src/main.cpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, `include/abstractx/fusion/attitude_filter.hpp`, `targets/allwinner_e906/src/io_processor.cpp`.
    - **RTL mode** file list: `rtl/asp_router.sv`, `rtl/imu/asp_imu_auto_dma.sv`, `rtl/dshot/asp_dshot_core.sv`.
    - Line-by-line profiling annotations: execution duration (µs), deadline budget, overrun status badges (Green nominal, Coral Red overrun).
    - Clickable `imgui.selectable()` rows: clicking any line sets `selected_source_line` / `selected_rtl_line` and `selected_token` safely, without risk of ImGui color-stack underflow.

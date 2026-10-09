@@ -22,7 +22,7 @@ def pack_tlp_int(tlp_type: int, flags: int, tag: int, channel: int, addr: int, l
     dw3_4 = ts & 0xFFFFFFFFFFFFFFFF
     dw5 = write_data & 0xFFFFFFFF
 
-    tlp_val = (dw0 << 480) | (dw1 << 448) | (dw2 << 416) | (dw3_4 << 352) | (dw5 << 320) | 0xDEADBEEF
+    tlp_val = (dw0 << 480) | (dw1 << 448) | (dw2 << 416) | (dw3_4 << 352) | (dw5 << 320)
     return tlp_val
 
 

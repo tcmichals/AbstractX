@@ -291,3 +291,143 @@ This log chronicles the development, technical decisions, and architecture miles
 ### 4. Implementation & Verification
 * **Code Implementation**: Tagged with `// @impl SPEC-ZYNQ-04`
 * **Regression Test**: Verified via CTest / Cocotb simulation
+
+## [2026-10-07] - Mistake & Lesson: Zynq post-image hook lacked execute permission
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `hw/zynq7000/buildroot_external`
+* **Symptoms**: Buildroot target-post-image failed with exit 126 and Permission denied
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: post-image.sh was committed with mode 100644 although Buildroot invokes configured hooks directly
+* **Architectural Lesson**: Configured Buildroot hook scripts must be executable in source control and covered by a repository test
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`hw/zynq7000/SPECIFICATION.md`](hw/zynq7000/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-ZYNQ-PLATFORM-07`
+* **Rule Added to Spec**:
+  > Every configured Buildroot post-build and post-image hook must be an executable regular file
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-ZYNQ-PLATFORM-07`
+* **Regression Test**: Verified by `tests/test_zynq_buildroot_config.py` and a successful ALINX AC7020C Buildroot image build
+
+## [2026-10-07] - Mistake & Lesson: AC7020C base DT advertised unloaded PL GPIO
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `linux-cubie/arch/arm/boot/dts/xilinx/zynq-ac7020c.dts`
+* **Symptoms**: Linux produced no serial output after U-Boot Starting kernel while the SPL-only image loaded no FPGA bitstream
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The base DTS instantiated AXI GPIO at 0x41200000 and a PL LED even though boot.bin contains only U-Boot SPL
+* **Architectural Lesson**: A no-bitstream boot must use a board-specific PS-only base DT; PL nodes belong in overlays coupled to a loaded bitstream
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`hw/zynq7000/alinx_ac7020c/SPECIFICATION.md`](hw/zynq7000/alinx_ac7020c/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-AC7020C-09`
+* **Rule Added to Spec**:
+  > The AC7020C SPL-only image must retain PS serial, USB, Ethernet, SD, QSPI, PS GPIO and PS LED while excluding all PL devices
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-AC7020C-09`
+* **Regression Test**: Verified by rebuilding Linux from `LINUX_OVERRIDE_SRCDIR`, regenerating `sdcard.img`, and inspecting the compiled `system.dtb`
+
+## [2026-10-07] - Mistake & Lesson: AC7020C ext4 root driver was not built in
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `hw/zynq7000/buildroot_external/board/zynq/linux-platform.fragment`
+* **Symptoms**: Kernel detected mmcblk0p2 but panicked with unknown-block(179,2) after trying only vfat and msdos
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: Buildroot generated an ext4 root partition while the effective kernel configuration omitted CONFIG_EXT4_FS and CONFIG_JBD2
+* **Architectural Lesson**: Drivers required to mount the root filesystem must be built into the kernel; modules cannot be loaded before root is mounted
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`hw/zynq7000/alinx_ac7020c/SPECIFICATION.md`](hw/zynq7000/alinx_ac7020c/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-AC7020C-10`
+* **Rule Added to Spec**:
+  > The SD-root kernel must build ext4, JBD2, MMC block and SDHCI support into the kernel image
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-AC7020C-10`
+* **Regression Test**: Verified by effective kernel config, linked ext4/JBD2 symbols, focused pytest, and a regenerated `sdcard.img`
+
+## [2026-10-07] - Mistake & Lesson: Zynq PREEMPT_RT existed only in generated menuconfig
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `hw/zynq7000/buildroot_external/board/zynq/linux-platform.fragment`
+* **Symptoms**: AC7020C effective config had PREEMPT_RT and enforced softirq synchronization, but fresh Zynq Buildroot workspaces would lose those selections
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: Realtime choices were saved only in bld.alinx-20/build/linux-custom/.config instead of the shared source-controlled kernel fragment
+* **Architectural Lesson**: Cross-board kernel policy belongs in the shared Buildroot fragment referenced by every Zynq defconfig
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`hw/zynq7000/SPECIFICATION.md`](hw/zynq7000/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-ZYNQ-PLATFORM-08`
+* **Rule Added to Spec**:
+  > Every Zynq Buildroot image must enable PREEMPT_RT, forced IRQ threading, high-resolution timers and PREEMPT_RT softirq synchronization through the shared fragment
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-ZYNQ-PLATFORM-08`
+* **Regression Test**: Verified via CTest / Cocotb simulation
+
+## [2026-10-08] - Mistake & Lesson: SPI transport CRC leaked into internal TLP footer
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `rtl/spi/asp_spi_frontend.sv`
+* **Symptoms**: CRC-valid external SPI frames exposed their wire CRC in the internal reserved footer.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The ingress logic validated the wire CRC but forwarded the full 64-byte wire frame unchanged.
+* **Architectural Lesson**: Validate external transport integrity, then normalize the internal reserved footer to zero.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`docs/tier2_contracts/TLP_BUS_SPECIFICATION.md`](docs/tier2_contracts/TLP_BUS_SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-TLP-CRC-01`
+* **Rule Added to Spec**:
+  > After validating SPI ingress CRC, preserve bytes 0-59 and zero bytes 60-63 on the internal TLP stream.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-TLP-CRC-01`
+* **Regression Test**: Verified via CTest / Cocotb simulation
+
+## [2026-10-08] - Mistake & Lesson: QMTECH timestamps counted clock cycles as nanoseconds
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`
+* **Symptoms**: A 100 MHz timer advanced one count every 10 ns while its value was labeled nanoseconds.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The uptime counter incremented once per PL clock without scaling by CLK_FREQ_HZ.
+* **Architectural Lesson**: Timestamp units must be derived from the source clock, retaining fractional-cycle conversion where required.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md`](hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-ZYNQ-06`
+* **Rule Added to Spec**:
+  > The top-level uptime counter represents elapsed nanoseconds, derived from CLK_FREQ_HZ with fractional nanoseconds preserved.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-ZYNQ-06`
+* **Regression Test**: Verified via CTest / Cocotb simulation
+
+## [2026-10-08] - Mistake & Lesson: RPMsg doorbell ISR resumed coroutine directly
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/src/rpmsg.cpp`
+* **Symptoms**: The MSGBOX top-half resumed an awaiting task inside interrupt context.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The RPMsg wake path bypassed AbstractX's ISR-safe dispatcher queue and cooperative event loop.
+* **Architectural Lesson**: ISRs must enqueue coroutine handles; only the cooperative dispatcher may resume them.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`targets/allwinner_e906/SPECIFICATION.md`](targets/allwinner_e906/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-E906-CORO-02`
+* **Rule Added to Spec**:
+  > The MSGBOX ISR posts suspended handles to the ISR-safe dispatcher; abstractx::step() resumes them.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-E906-CORO-02`
+* **Regression Test**: Verified via CTest / Cocotb simulation

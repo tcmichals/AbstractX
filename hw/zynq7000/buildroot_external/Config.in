@@ -1,2 +1,2 @@
-source "$BR2_EXTERNAL_ABSTRACTX_ZYNQ7000_PATH/package/cpptest/Config.in"
+source "$BR2_EXTERNAL_ABSTRACTX_ZYNQ7000_PATH/package/cpputest/Config.in"
 source "$BR2_EXTERNAL_ABSTRACTX_ZYNQ7000_PATH/package/libmetal/Config.in"

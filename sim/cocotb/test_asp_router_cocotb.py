@@ -14,7 +14,7 @@ CH_UNKNOWN    = 0xFE
 def make_tlp(channel: int, payload_val: int = 0x12345678) -> int:
     """Builds a 512-bit TLP integer with given channel in bits [487:480]."""
     dw0 = (0x02 << 24) | (0x00 << 16) | (0x00 << 8) | (channel & 0xFF)
-    return (dw0 << 480) | (payload_val << 320) | 0xDEADBEEF
+    return (dw0 << 480) | (payload_val << 320)
 
 
 async def reset(dut):

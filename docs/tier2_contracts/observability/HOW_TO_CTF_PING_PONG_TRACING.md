@@ -28,7 +28,7 @@ AbstractX provides a zero-allocation, high-throughput binary trace engine based 
       ┌────────────────────┼────────────────────┐
       ▼                    ▼                    ▼
 UdpTraceSink        FileTraceSink       SharedSramTraceSink
-(:9870 Live)        ("trace.ctf")       (E907 -> Linux MSGBox)
+(:9870 Live)        ("trace.ctf")       (E906 -> Linux MSGBox)
 ```
 
 ---
@@ -43,7 +43,7 @@ UdpTraceSink        FileTraceSink       SharedSramTraceSink
    * IMU samples are 27 bytes, GPS fixes are 35 bytes, Coroutine events are 19 bytes.
    * A 1 KB packet batches dozens of high-rate events, cutting socket syscalls and hardware doorbell interrupts by **>80%**.
 3. **Low SRAM Footprint**:
-   * Two 1 KB buffers require only **2,048 bytes (2 KB)** of RAM, making it feasible on bare-metal RISC-V coprocessors (such as the Allwinner XuanTie E907 on the Cubie A5E) and RP2350 Core 0.
+   * Two 1 KB buffers require only **2,048 bytes (2 KB)** of RAM, making it feasible on bare-metal RISC-V coprocessors (such as the Allwinner XuanTie E906 on the Cubie A5E) and RP2350 Core 0.
 
 ---
 
@@ -156,11 +156,11 @@ coro::Task<void> trace_dispatcher_task(uint16_t flush_period_ms) {
 
 ---
 
-## 5. Heterogeneous XuanTie E907 Co-Processor to Linux
+## 5. Heterogeneous XuanTie E906 Co-Processor to Linux
 
-When deploying on the Allwinner XuanTie E907 (Cubie A5E / A7A):
-1. The E907 initializes `g_tracer` with `BufferProfile::PingPong_1K_x2` mapped to shared SRAM (`0x40000000`).
-2. When Buffer A swaps, the E907 rings the `sun6i-msgbox` hardware doorbell interrupt.
+When deploying on the Allwinner XuanTie E906 (Cubie A5E / A7A):
+1. The E906 initializes `g_tracer` with `BufferProfile::PingPong_1K_x2` mapped to shared SRAM (`0x40000000`).
+2. When Buffer A swaps, the E906 rings the `sun6i-msgbox` hardware doorbell interrupt.
 3. On Linux Cortex-A55, the `linux_trace_receiver_task` coroutine awakens from the doorbell `eventfd`, reads the completed 1 KB buffer, and streams it out via UDP port 9870 to the Visualizer Studio.
 
 ---

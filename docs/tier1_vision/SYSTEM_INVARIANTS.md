@@ -12,7 +12,7 @@
 It provides a single C++20 stackless coroutine application layer that executes symmetrically across:
 1. **FPGA Hardware Switch Fabrics**: Synthesizable SystemVerilog auto-DMA cores on Gowin Tang 9K/20K, Zynq-7000.
 2. **Dual-Core Microcontrollers**: Asymmetric Multiprocessing on RP2350 (Pico 2 W) and ESP32-P4.
-3. **Heterogeneous Linux Hosts & Coprocessors**: PREEMPT_RT Linux host + Allwinner XuanTie E907 RISC-V coprocessor, and Desktop SITL.
+3. **Heterogeneous Linux Hosts & Coprocessors**: PREEMPT_RT Linux host + Allwinner XuanTie E906 RISC-V coprocessor, and Desktop SITL.
 
 ### What AbstractX Is NOT
 * **NOT a heavy multi-task RTOS**: AbstractX avoids thread proliferation. Instead of spawning 5+ preemptive OS threads with separate 4 KB stacks, it uses a single CPU stack and cooperative coroutine task frames.
@@ -80,7 +80,7 @@ All code under `include/`, `apps/`, and `targets/` must compile freestanding wit
 
 | Feature | Environment 1: Linux SITL / Host | Environment 2: Dual-Core MCU (Pico 2 W / ESP32-P4) | Environment 3: Heterogeneous Coprocessor (Radxa Cubie A5E Pure Silicon) | Environment 4: FPGA Hardware Offloader (A5E + FPGA / Tang / Zynq) |
 | :--- | :--- | :--- | :--- | :--- |
-| **I/O Engine** | POSIX Worker Threads (`epoll`) | Core 0 (Autonomous DMA / PIO / Wi-Fi) | XuanTie E907 (On-Chip SPI0/TWI/UART DMA) | SystemVerilog Auto-DMA (`asp_imu_auto_dma.sv` + AXI) |
+| **I/O Engine** | POSIX Worker Threads (`epoll`) | Core 0 (Autonomous DMA / PIO / Wi-Fi) | XuanTie E906 (On-Chip SPI0/TWI/UART DMA) | SystemVerilog Auto-DMA (`asp_imu_auto_dma.sv` + AXI) |
 | **Coroutine Engine** | Main Coroutine Loop | Core 1 (Isolated C++20 Coroutine Dispatcher) | ARM Cortex-A55 (PREEMPT_RT Thread) | Host SBC / MCU Coroutine Application |
 | **Doorbell Bridge** | `eventfd` / Linux pipe | Hardware FIFO / IPC Mailbox Interrupt | Shared SRAM A3/C + `sun6i-msgbox` | Physical DIO Pin / Interrupt Line |
 | **Memory Isolation** | Host RAM | Internal L2 SRAM (Zero PSRAM dependence) | Banked Internal SRAM (No PSRAM) | On-Chip Block RAM / FIFO Buffer |

@@ -97,3 +97,29 @@ The SPI slave module presents a clean 512-bit parallel interface seam to interna
 - `tdata[511:0]`: Complete 64-byte TLP parallel vector.
 - `tvalid`: High when a complete 64-byte packet is received with valid CRC32.
 - `tready`: Backpressure signal from Wishbone/router gateway.
+
+---
+
+## 5. Processor Serial-DMA Ping/Pong Batching
+
+Processor targets SHOULD place serialized TLP traffic in two statically
+allocated DMA buffers so hardware fills/transmits one buffer while software
+validates or prepares the other. This transport ping/pong memory is distinct
+from FPGA switch FIFOs and FPGA trace BRAM.
+
+Two DMA block sizes are supported:
+
+| DMA block | Contents | Use |
+|---:|---|---|
+| 64 bytes | One complete serialized TLP | Lowest command/response latency |
+| 256 bytes | Four consecutive serialized TLPs | Amortized DMA setup and interrupt cost |
+
+The 256-byte mode is a processor DMA batch, not a 256-byte TLP and not one SPI
+frame. The transport scheduler issues four normal 64-byte framed operations in
+sequence (or a future explicitly negotiated multi-frame command). Every
+serialized 64-byte TLP carries and verifies its own CRC32 footer.
+
+A DMA ISR commits a completed ping/pong block and signals the event loop; it
+MUST NOT overwrite a buffer still owned by the consumer. If both buffers are
+owned, the transport applies its explicit backpressure/drop policy and updates
+an overflow counter rather than corrupting a frame.

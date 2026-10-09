@@ -13,7 +13,7 @@ AbstractX observability is built upon three decoupled pillars:
 │                   PILLAR 1: UNIFIED 64-BYTE TLP BUS                    │
 │   • Hardware: FPGA Auto-DMA IP (asp_imu_auto_dma.sv, asp_router.sv)     │
 │   • Software: C++20 SITL & Bare-Metal Tasks (gps_imu_app)              │
-│   • Symmetrical Wire Framing: PCIe-style 20B Header + 40B CTF + 4B CRC │
+│   • 20B Header + 40B CTF + 4B transport-integrity/reserved footer      │
 └──────────────────────────────────┬─────────────────────────────────────┘
                                    │ UDP Port 9870 / Shared SRAM
                                    ▼
@@ -93,7 +93,7 @@ Hardware and software emit identical binary data planes:
 
 ### 2. Runtime Schema Compilation
 Instead of hardcoding binary offsets into Python visualizers:
-1. [`tools/visualizer/ctf_schema_loader.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/visualizer/ctf_schema_loader.py) reads [`apps/gps_imu_app/trace_schema.json`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/trace_schema.json).
+1. [`tools/visualizer/ctf_schema_loader.py`](../../../tools/visualizer/ctf_schema_loader.py) reads [`apps/gps_imu_app/trace_schema.json`](../../../apps/gps_imu_app/trace_schema.json).
 2. It compiles Python `struct.Struct` format strings at runtime.
 3. It scales raw integers into engineering units (e.g. converting centidegrees to degrees with `scale: 0.01`).
 4. It reads UI widget annotations (`artificial_horizon`, `altimeter`, `oscilloscope`, `throttle_bar`) to bind data streams to GUI components.
@@ -102,7 +102,7 @@ Instead of hardcoding binary offsets into Python visualizers:
 
 ## 4. The Two-Level Studio GUI Architecture
 
-The visualizer studio in [`tools/visualizer/abstractx_studio.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/visualizer/abstractx_studio.py) cleanly decouples generic system tracing from domain-specific flight instruments.
+The visualizer studio in [`tools/visualizer/abstractx_studio.py`](../../../tools/visualizer/abstractx_studio.py) cleanly decouples generic system tracing from domain-specific flight instruments.
 
 ### Level 1: Core System Platform Observability
 Standard across every application built with AbstractX:
@@ -114,7 +114,7 @@ Standard across every application built with AbstractX:
 
 ### Level 2: User & Domain Extensible Plugins
 Application-specific views that plug into the studio:
-* **[`tools/visualizer/flight_plugin.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/visualizer/flight_plugin.py)**:
+* **[`tools/visualizer/flight_plugin.py`](../../../tools/visualizer/flight_plugin.py)**:
   * **Primary Flight Display (PFD)**: Vector-rendered artificial horizon with sky/ground polygons, roll reticle, and pitch ladder.
   * **3D Quadcopter Perspective Wireframe**: Real-time 3D Tait-Bryan rotation matrix projecting quadcopter arms and spinning motor discs.
   * **Quad-X Motor Mixer Demands**: Real-time M1–M4 throttle levels (100..1000 µs) with a 500 µs hover reference indicator.
@@ -130,13 +130,13 @@ Because AbstractX is strictly **Freestanding C++20 with Zero Heap**, memory mana
 * SPSC rings, queues, and task frames are statically allocated in `.bss` and `.data`.
 
 ### Workflow
-1. **Target Definitions ([`tools/membrowse-targets.json`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/membrowse-targets.json))**:
+1. **Target Definitions ([`tools/membrowse-targets.json`](../../../tools/membrowse-targets.json))**:
    Specifies target ELF binaries, linker maps, and memory ceilings (e.g. RP2350 520 KB SRAM / 4 MB Flash).
-2. **Local Tracker ([`tools/track_memory_membrowse.py`](file:///home/tcmichals/ssdData/projects/home/AbstractX/tools/track_memory_membrowse.py))**:
+2. **Local Tracker ([`tools/track_memory_membrowse.py`](../../../tools/track_memory_membrowse.py))**:
    Audits ELF sections, verifies zero heap references, and outputs `tools/visualizer/memory_metrics.json`.
 3. **Live Studio Visualization**:
    Tab 3 in `abstractx_studio.py` reads `memory_metrics.json` to display live RAM/Flash utilization gauges.
-4. **CI/CD Integration ([`.github/workflows/membrowse.yml`](file:///home/tcmichals/ssdData/projects/home/AbstractX/.github/workflows/membrowse.yml))**:
+4. **CI/CD Integration ([`.github/workflows/membrowse.yml`](../../../.github/workflows/membrowse.yml))**:
    Automatically runs `membrowse/membrowse-action` on every commit and PR to track memory deltas and enforce budget gates.
 
 ---

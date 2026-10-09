@@ -1,7 +1,7 @@
 /dts-v1/;
 /plugin/;
 
-/* Common AbstractX CSR/IRQ and reserved DMA memory contract. */
+/* Default AbstractX BRAM FIFO CSR/IRQ contract. */
 
 / {
 	fragment@0 {
@@ -11,38 +11,18 @@
 			#size-cells = <1>;
 			abstractx_fpga: fpga-fabric@40000000 {
 				compatible = "generic-uio";
-				reg = <0x40000000 0x00010000>,
-				      <0x1e000000 0x02000000>;
-				reg-names = "csr", "dma-ring";
+				reg = <0x40000000 0x00010000>;
+				reg-names = "csr";
 				interrupt-parent = <&intc>;
 				interrupts = <0 29 4>;
-				memory-region = <&abstractx_dma_reserved>;
-				abstractx,dma-slot-size = <64>;
-				abstractx,dma-capacity = <256>;
+				abstractx,memory-mode = "bram";
+				abstractx,slot-size = <64>;
+				abstractx,ingress-capacity = <128>;
+				abstractx,egress-capacity = <128>;
 				abstractx,tlp-size = <64>;
-				abstractx,control-register = <0x00>;
-				abstractx,dma-enable-mask = <0x00000001>;
+				abstractx,integrity-footer = "reserved-zero";
 				abstractx,trace-channel = <0x04>;
 				status = "okay";
-			};
-		};
-	};
-
-	fragment@1 {
-		target-path = "/";
-		__overlay__ {
-			#address-cells = <1>;
-			#size-cells = <1>;
-			reserved-memory {
-				#address-cells = <1>;
-				#size-cells = <1>;
-				ranges;
-
-				abstractx_dma_reserved: dma-ring@1e000000 {
-					compatible = "shared-dma-pool";
-					reg = <0x1e000000 0x02000000>;
-					no-map;
-				};
 			};
 		};
 	};

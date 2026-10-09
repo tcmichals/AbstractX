@@ -1,6 +1,6 @@
 # AbstractX barectf Common Trace Format (CTF) & Live Visualizer Architecture
 
-This document defines the **barectf-compatible Common Trace Format (CTF 1.8)** tracing subsystem and the **AbstractX Live Visualizer** architecture for real-time observability across all target platforms (Raspberry Pi Pico 2 W, XuanTie E907, ESP32-P4, and Host SITL).
+This document defines the **barectf-compatible Common Trace Format (CTF 1.8)** tracing subsystem and the **AbstractX Live Visualizer** architecture for real-time observability across all target platforms (Raspberry Pi Pico 2 W, XuanTie E906, ESP32-P4, and Host SITL).
 
 ---
 
@@ -16,11 +16,11 @@ graph TD
             PicoCoro --> PicoTracer --> PicoUDP
         end
 
-        subgraph E907["Allwinner XuanTie E907"]
-            E907Coro["E907 Coroutines & PLIC ISRs"]
-            E907Tracer["CtfTraceEngine"]
-            E907DRAM["Shared DRAM Buffer (0x48100000)"]
-            E907Coro --> E907Tracer --> E907DRAM
+        subgraph E906["Allwinner XuanTie E906"]
+            E906Coro["E906 Coroutines & PLIC ISRs"]
+            E906Tracer["CtfTraceEngine"]
+            E906DRAM["Shared DRAM Buffer (0x48100000)"]
+            E906Coro --> E906Tracer --> E906DRAM
         end
 
         subgraph HostSITL["Host SITL Simulation"]
@@ -45,7 +45,7 @@ graph TD
     end
 
     PicoUDP --> UDP_Net --> Visualizer
-    E907DRAM --> Linux_IPC --> Visualizer
+    E906DRAM --> Linux_IPC --> Visualizer
     HostFile --> File_Stream --> Visualizer
     File_Stream --> Babel
 
@@ -53,7 +53,7 @@ graph TD
     classDef net fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#ffffff;
     classDef viz fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
 
-    class Pico2W,E907,HostSITL target;
+    class Pico2W,E906,HostSITL target;
     class UDP_Net,Linux_IPC,File_Stream net;
     class Gantt,Sensors,QueueMeters,Babel viz;
 ```
@@ -108,9 +108,9 @@ Every trace packet begins with the standard CTF header:
 - Trace packets committed by the `CtfTraceEngine` are placed in the UDP transmit queue.
 - Core 0 broadcasts packets over UDP to **Port 9870** (target broadcast `255.255.255.255`).
 
-### B. XuanTie E907 (Shared DRAM Ring Carveout)
-- Configured via `bsp/e907_ddr.ld` utilizing **512 KB SRAM A3** + **1 MB non-cacheable DRAM** at `0x48100000`.
-- E907 writes trace packets continuously to the DRAM ring buffer.
+### B. XuanTie E906 (Shared DRAM Ring Carveout)
+- Configured via `bsp/e906_ddr.ld` utilizing **512 KB SRAM A3** + **1 MB non-cacheable DRAM** at `0x48100000`.
+- E906 writes trace packets continuously to the DRAM ring buffer.
 - Linux kernel host reads trace stream via `/sys/kernel/debug/remoteproc/remoteproc0/trace0` or user-space `mmap()`.
 
 ### C. Host Workstation SITL

@@ -1,12 +1,12 @@
-# Allwinner XuanTie E907 Co-Processor Architecture
+# Allwinner XuanTie E906 Co-Processor Architecture
 
-This document describes the heterogeneous co-processor execution architecture for the **Allwinner XuanTie E907 RISC-V 32-bit core** (Allwinner T527 / A733 SoCs), integrating with Linux ARM64 host flight stacks via `remoteproc`, shared SRAM, and hardware MSGBox.
+This document describes the heterogeneous co-processor execution architecture for the **Allwinner XuanTie E906 RISC-V 32-bit core** (Allwinner T527 / A733 SoCs), integrating with Linux ARM64 host flight stacks via `remoteproc`, shared SRAM, and hardware MSGBox.
 
 ---
 
 ## 1. Dual-Domain Execution Model
 
-The XuanTie E907 runtime is cleanly separated into two non-blocking domains:
+The XuanTie E906 runtime is cleanly separated into two non-blocking domains:
 1. **I/O Interrupt Domain (PLIC ISR Context)**: High-priority hardware event handling and DMA queue management.
 2. **Coroutine Work Domain (Main Thread Context)**: Cooperative execution of sensor fusion, packet formatting, and Linux RPC handlers.
 
@@ -18,25 +18,25 @@ graph TD
         LinuxMsgBox["sun6i-msgbox Driver"]
     end
 
-    subgraph E907_PLIC["E907 I/O Interrupt Domain (PLIC ISR)"]
+    subgraph E906_PLIC["E906 I/O Interrupt Domain (PLIC ISR)"]
         MsgBoxISR["MSGBox Doorbell ISR"]
         SpiDmaISR["SPI DMA Completion ISR (ICM-42688-P)"]
         UartDmaISR["UART RX FIFO ISR (U-Blox GPS)"]
         TimerISR["Hardware Timer / SysTick ISR"]
     end
 
-    subgraph E907_Queue["Domain Bridge Work Queue"]
+    subgraph E906_Queue["Domain Bridge Work Queue"]
         WorkQueue["MpscIsrQueue<32><br/>(Wait-Free Bounded MPSC)"]
     end
 
-    subgraph E907_Coro["E907 Coroutine Domain (Main Loop)"]
+    subgraph E906_Coro["E906 Coroutine Domain (Main Loop)"]
         MsgBoxTask["Linux RPC Task<br/>co_await msgbox.recv_async()"]
         ImuTask["8 kHz IMU Pipeline<br/>co_await imu.next_sample_async()"]
         GpsTask["GPS Navigation Parser<br/>co_await gps.next_fix_async()"]
         TimerTask["ETL Software Timer Multiplexer<br/>co_await timer.sleep_ms_async()"]
     end
 
-    %% Linux to E907
+    %% Linux to E906
     LinuxMsgBox -->|Doorbell IRQ| MsgBoxISR
     MsgBoxISR -->|push_from_isr()| WorkQueue
 
@@ -73,7 +73,7 @@ graph TD
 
 | Phase | Executing Entity | Action | Constraints |
 | :--- | :--- | :--- | :--- |
-| **1. Hardware Event** | Peripheral (SPI, UART, MSGBox, Timer) | Triggers PLIC interrupt vector on E907. | Hardware masked. |
+| **1. Hardware Event** | Peripheral (SPI, UART, MSGBox, Timer) | Triggers PLIC interrupt vector on E906. | Hardware masked. |
 | **2. ISR Handler** | PLIC ISR Function | Acknowledges HW IRQ bit, calls `push_completion_from_isr()`, and posts coroutine handle (`IsrDispatcher::post(handle)`). | **< 1.5 µs execution**, 0 heap allocation, no parsing. |
 | **3. Dispatcher Drain** | Main Event Loop | `Dispatcher::process()` pulls coroutines from `IsrSafeCoroutineQueue` and calls `handle.resume()`. | Interrupts enabled. |
 | **4. Coroutine Execution** | Coroutine Frame | Extracts data, parses UBX frames, converts raw IMU LSBs to $g$/$\text{dps}$, packages into 64B TLPs. | Cooperative non-preemptive. |
@@ -83,7 +83,7 @@ graph TD
 
 ## 3. ETL Timer Multiplexing
 
-To avoid dedicating scarce hardware timer channels to individual tasks, the E907 uses `etl::callback_timer_interrupt<InterruptLock, 16>`:
+To avoid dedicating scarce hardware timer channels to individual tasks, the E906 uses `etl::callback_timer_interrupt<InterruptLock, 16>`:
 - The hardware timer generates a **1 kHz tick**.
 - Multiple coroutines register non-blocking sleep awaiters (`co_await timer.sleep_ms_async(ms)`).
 - When the deadline expires, the ETL callback posts the specific coroutine handle to `IsrDispatcher`.
@@ -94,7 +94,7 @@ To avoid dedicating scarce hardware timer channels to individual tasks, the E907
  
 | Memory Region | Physical Address | Size | Function |
 | :--- | :--- | :--- | :--- |
-| **SRAM Space 0 (E907 Code)** | `0x3FFC0000` | 256 KB | E907 execution window (`startup.S`), vector table, and `.text`. *(Note: `0x00020000` is reserved for HiFi4 DSP)* |
+| **SRAM Space 0 (E906 Code)** | `0x3FFC0000` | 256 KB | E906 execution window (`startup.S`), vector table, and `.text`. *(Note: `0x00020000` is reserved for HiFi4 DSP)* |
 | **SRAM Space 0 (TLP / Trace)** | `0x3FFC8100` | 32 KB | Barectf CTF 1.8 Binary Trace & TLP Ring Buffer (`asp_tlp64_t`). |
 | **SRAM C (Dedicated IPC)** | `0x07131000` | 4 KB | Zero-copy direct memory telemetry / UIO doorbell window. |
 | **DRAM Reserved (Trace / VirtIO)**| `0x48000000` | 1 MB | Linux RemoteProc Resource Table & VirtIO vdev carveout (`trace0`). |

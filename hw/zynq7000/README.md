@@ -84,3 +84,35 @@ make -C hw/zynq7000/alinx_ac7020c ps-init
 The first command generates XPR, bitstream and XSA. The second extracts the XSA's exact `ps7_init_gpl.c` into the sibling `u-boot-zynq` board directory.
 
 Generated Vivado and Buildroot outputs are ignored; Tcl, XDC, specifications, READMEs and Buildroot defconfigs are source-controlled.
+
+## Optional PL soft-core remoteproc example
+
+A future demonstration may place a third-party RISC-V soft core in Zynq PL and
+manage its firmware lifecycle from Linux remoteproc. Vivado does not provide a
+drop-in AbstractX RISC-V/remoteproc subsystem: the design must integrate and
+license a selected soft core, then provide a Linux platform remoteproc driver.
+
+The recommended first example is BRAM-only:
+
+```mermaid
+flowchart LR
+	Linux[Linux remoteproc] -->|firmware ELF| Loader[PL reset and boot controller]
+	Loader --> RV[RISC-V soft core]
+	RV <--> BRAM[Local BRAM firmware and 64-byte TLP rings]
+	DMA[AbstractX sensor DMA engines] <--> BRAM
+	RV -->|mailbox IRQ| Linux
+```
+
+The example requires a firmware resource table, deterministic reset/boot-vector
+control, BRAM address translation, mailbox/doorbell interrupts, a dedicated
+Zynq PL remoteproc driver, and crash/stop handling. It is independent of the
+Allwinner E906 target and cannot reuse that target's driver or memory map.
+
+If a later soft-core design accesses PS DDR, it must select one memory profile
+from [SPEC-ZYNQ-PLATFORM-09](SPECIFICATION.md#spec-zynq-platform-09-bram-first-packet-storage-and-explicit-ddr-modes):
+
+- HP0 with noncached/kernel-DMA memory and explicit `dma_sync_*` ownership.
+- ACP with correct coherent AXI attributes and kernel-managed cacheable memory.
+
+BRAM remains preferred for the initial demonstration because it avoids DDR
+cache coherency and is ample for the 8 KiB packet-ring requirement.

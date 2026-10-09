@@ -7,7 +7,7 @@
  * Zero-allocation, deterministic software timer wheel based on ETL callback_timer_atomic.
  * Integrates with AbstractX IsrDispatcher for non-blocking 'co_await sleep_ms(N)'.
  *
- * Cross-Platform: RP2040, ESP32-P4, XuanTie E907, STM32, Host Workstation.
+ * Cross-Platform: RP2040, ESP32-P4, XuanTie E906, STM32, Host Workstation.
  */
 
 #ifndef ABSTRACTX_TIMER_HPP

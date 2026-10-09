@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 I2C / TWI HAL Header
+ * AbstractX Allwinner XuanTie E906 I2C / TWI HAL Header
  */
 
 #pragma once
@@ -14,13 +14,13 @@
 
 namespace abstractx::hal {
 
-class E907I2c : public II2c {
+class E906I2c : public II2c {
 public:
     // Threshold balancing: requests < 32 bytes use low-latency byte-FSM;
     // requests >= 32 bytes or with use_dma enabled use hardware DMA pipeline.
     static constexpr size_t DMA_THRESHOLD = 32;
 
-    E907I2c() = default;
+    E906I2c() = default;
 
     bool init(const I2cConfig& config) override;
     bool set_frequency(uint32_t frequency_hz) override;
@@ -66,7 +66,7 @@ private:
     bool using_dma_{false};
 };
 
-E907I2c& get_e907_i2c() noexcept;
+E906I2c& get_e906_i2c() noexcept;
 II2c& get_i2c_driver() noexcept;
 II2c& get_i2c() noexcept;
 

@@ -63,7 +63,7 @@ npx repomix --include "apps/**,include/**,targets/**,rtl/**,tools/**,docs/**,tra
 ### System Role & Context
 > You are a Principal Systems Architect and Codebase Modernization Specialist reviewing **AbstractX**, an open-source hardware-software co-design framework for aerospace, robotics, and real-time embedded systems. AbstractX pairs freestanding C++20 stackless coroutines with synthesizable SystemVerilog FPGA switch fabrics and PCIe-style 64-byte Transaction Layer Packets (TLPs).
 >
-> The project has evolved rapidly and now contains over 35 markdown documents across `docs/`, multiple silicon target BSPs (`targets/pico2w_rp2350`, `targets/esp32p4`, `targets/linux`, `targets/allwinner_e907`), synthesizable RTL (`rtl/`), host SITL simulations (`sim/`), dynamic trace schemas (`trace/`), and developer tools (`tools/`).
+> The project has evolved rapidly and now contains over 35 markdown documents across `docs/`, multiple silicon target BSPs (`targets/pico2w_rp2350`, `targets/esp32p4`, `targets/linux`, `targets/allwinner_e906`), synthesizable RTL (`rtl/`), host SITL simulations (`sim/`), dynamic trace schemas (`trace/`), and developer tools (`tools/`).
 >
 > Your goal in **Tier 1** is to perform a comprehensive structural audit, identify narrative duplication across markdown documents, eliminate historical dead weight, and propose a clean, canonical directory taxonomy.
 
@@ -84,7 +84,7 @@ Inspect all files across `docs/`, `apps/`, and the repository root. Identify:
 
 ### 2. Target BSP & Hardware Separation
 Audit the concrete silicon target BSPs under `targets/`:
-- Are the target BSPs (`pico2w_rp2350`, `esp32p4`, `allwinner_e907`, `linux`) following a uniform layout?
+- Are the target BSPs (`pico2w_rp2350`, `esp32p4`, `allwinner_e906`, `linux`) following a uniform layout?
 - Are target specifications (`SPECIFICATION.md`, `HOWTO.md`, `io_processor.yaml`) consistent in naming and contract structure?
 - How should multi-board configurations (e.g. Raspberry Pi Pico 2 W vs Waveshare ESP32-P4-WiFi6 SKU 32021) be standardized so adding a new silicon target requires zero changes to core code?
 
@@ -162,7 +162,7 @@ Audit the visualizer against modern embedded profiling requirements:
 ### 2. Dynamic CTF 1.8 Telemetry, MemBrowse & Hardware Observability
 Audit the runtime decoding, memory auditing, and hardware peripheral pipelines:
 - Dynamic Schema Compilation: Review `tools/visualizer/ctf_schema_loader.py`. How effectively does it compile `struct.Struct` decoders at runtime from YAML/JSON without hardcoding payload offsets?
-- Continuous Memory Tracking: Review `tools/track_memory_membrowse.py` and `.github/workflows/membrowse.yml`. How does it audit ELF sections (`.bss`, `.data`, `.text`) and enforce zero-heap budgets across targets (`build-pico2w`, `build-e907`, `build-host`)?
+- Continuous Memory Tracking: Review `tools/track_memory_membrowse.py` and `.github/workflows/membrowse.yml`. How does it audit ELF sections (`.bss`, `.data`, `.text`) and enforce zero-heap budgets across targets (`build-pico2w`, `build-e906`, `build-host`)?
 - Hardware Peripheral Monitoring: Assess how SPI0 Auto-DMA (10 MHz / 1.25 MB/s) and AXI-Stream Crossbar (150 MHz / 13.3 ns) metrics are exposed in Window 6.
 - Source Code Hotspot Profiling: Review Window 5 line-by-line latency profiling, deadline overrun alerts, and concurrency diagnostics.
 

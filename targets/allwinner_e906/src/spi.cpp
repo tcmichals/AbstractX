@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 SPI0 Driver
+ * AbstractX Allwinner XuanTie E906 SPI0 Driver
  * --------------------------------------------
  * Dual-Mode Engine with Threshold Balancing:
  * 1. Low-Latency Fast FIFO Direct Transfer (<= 4 bytes): Zero DMA setup overhead

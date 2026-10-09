@@ -11,7 +11,7 @@ Enforces the 5 Sashiko Invariant Gates on all firmware source files:
 
 import pytest
 from pathlib import Path
-from tools.run_adversarial_audit import AdversarialAuditor
+from tools.run_adversarial_audit import InvariantAuditor
 
 def get_freestanding_sources(repo_root: Path):
     """Returns freestanding C++ source files subject to zero-heap rules."""
@@ -27,7 +27,7 @@ def get_freestanding_sources(repo_root: Path):
     # Freestanding target BSPs (excluding hosted Linux host reactor)
     targets_dir = repo_root / "targets"
     if targets_dir.exists():
-        for bsp in ["pico2w_rp2350", "esp32p4", "allwinner_e907"]:
+        for bsp in ["pico2w_rp2350", "esp32p4", "allwinner_e906"]:
             bsp_dir = targets_dir / bsp
             if bsp_dir.exists():
                 target_files.extend(bsp_dir.rglob("*.hpp"))
@@ -41,7 +41,7 @@ def test_stage1_zero_heap_invariant(repo_root):
     sources = get_freestanding_sources(repo_root)
     assert len(sources) > 0, "No freestanding C++ production sources found"
 
-    auditor = AdversarialAuditor(repo_root)
+    auditor = InvariantAuditor(repo_root)
     for src in sources:
         try:
             with open(src, "r", encoding="utf-8", errors="ignore") as f:
@@ -50,13 +50,13 @@ def test_stage1_zero_heap_invariant(repo_root):
         except Exception as e:
             pytest.fail(f"Failed to audit {src}: {e}")
 
-    stage1_issues = auditor.violations["Stage 1 (Zero-Heap & Freestanding)"]
+    stage1_issues = auditor.violations["Stage 1 (Zero-Heap & Freestanding C++20)"]
     assert len(stage1_issues) == 0, f"Stage 1 Zero-Heap violations found: {stage1_issues}"
 
 def test_stage2_non_blocking_hal_invariant(repo_root):
     """Enforces non-blocking awaitable HAL calls without thread sleeping."""
     sources = get_freestanding_sources(repo_root)
-    auditor = AdversarialAuditor(repo_root)
+    auditor = InvariantAuditor(repo_root)
     for src in sources:
         try:
             with open(src, "r", encoding="utf-8", errors="ignore") as f:
@@ -71,7 +71,7 @@ def test_stage2_non_blocking_hal_invariant(repo_root):
 def test_stage3_isr_boundary_safety(repo_root):
     """Enforces that coroutine .resume() is never called inside hardware ISRs."""
     sources = get_freestanding_sources(repo_root)
-    auditor = AdversarialAuditor(repo_root)
+    auditor = InvariantAuditor(repo_root)
     for src in sources:
         try:
             with open(src, "r", encoding="utf-8", errors="ignore") as f:
@@ -86,7 +86,7 @@ def test_stage3_isr_boundary_safety(repo_root):
 def test_full_adversarial_audit_suite(repo_root):
     """Executes the full 5-stage adversarial audit pipeline."""
     sources = get_freestanding_sources(repo_root)
-    auditor = AdversarialAuditor(repo_root)
+    auditor = InvariantAuditor(repo_root)
     auditor.run_audit(sources)
     total_issues = sum(len(v) for v in auditor.violations.values())
     assert total_issues == 0, f"Adversarial audit failed with {total_issues} violations: {auditor.violations}"

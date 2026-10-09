@@ -21,7 +21,7 @@ At startup, AbstractX emits a dynamic `PlatformTopologyTable` packet describing 
 
 | Field | Description |
 | :--- | :--- |
-| `platform_name` | String identifier (`pico2w_rp2350`, `esp32p4`, `allwinner_e907`, `linux`). |
+| `platform_name` | String identifier (`pico2w_rp2350`, `esp32p4`, `allwinner_e906`, `linux`). |
 | `active_cores` | Bitmask of online processor cores. |
 | `core_clock_hz` | Operating frequencies of Tier 1 (I/O) and Tier 2 (Coroutine) cores. |
 | `spsc_ring_depth` | Depths of ingress/egress lock-free rings. |

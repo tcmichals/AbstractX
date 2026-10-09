@@ -158,8 +158,8 @@ module asp_wishbone_master (
                         read_data_latch,
                         // DW6-DW14: Zero-padding (36 Bytes)
                         288'd0,
-                        // DW15: CRC32 Placeholder
-                        32'hDEADBEEF
+                        // DW15: trusted-internal transport footer (reserved zero)
+                        32'h00000000
                     };
                     state <= ST_EMIT_CPLD;
                 end

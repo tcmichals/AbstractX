@@ -41,7 +41,7 @@ complement—not replace—the normative specifications and target build guides.
                                    ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │      TIER 3: CONCRETE TARGET BSPS, HARDWARE & APPLICATIONS             │
-│      • docs/tier3_targets/bsp/ (Pico 2 W, ESP32-P4, Allwinner E907)    │
+│      • docs/tier3_targets/bsp/ (Pico 2 W, ESP32-P4, Allwinner E906)    │
 │      • docs/tier3_targets/hardware/ (Waveshare P4 Errata, Tang Pinouts)│
 │      • apps/gps_imu_app/ (Reference Flight Application)                │
 └────────────────────────────────────────────────────────────────────────┘
@@ -91,7 +91,7 @@ Documents specific silicon targets, hardware pinouts, auto-DMA cores, and errata
 
 ### Target Board Support Packages ([`tier3_targets/bsp/`](tier3_targets/bsp/))
 1. **[`tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md`](tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md)**: RP2350 Dual Cortex-M33 AMP topology and CYW43439 Wi-Fi.
-2. **[`tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md`](tier3_targets/bsp/E907_COPROCESSOR_ARCHITECTURE.md)**: Allwinner XuanTie E907 RISC-V coprocessor + shared SRAM.
+2. **[`tier3_targets/bsp/E906_COPROCESSOR_ARCHITECTURE.md`](tier3_targets/bsp/E906_COPROCESSOR_ARCHITECTURE.md)**: Allwinner XuanTie E906 RISC-V coprocessor + shared SRAM.
 3. **[`tier3_targets/bsp/LINUX_DEVICE_TREE_GUIDE.md`](tier3_targets/bsp/LINUX_DEVICE_TREE_GUIDE.md)**: Linux Device Tree overlays for Dual-SPI 2x mode.
 
 ### Hardware Pinouts, IP Cores & Errata ([`tier3_targets/hardware/`](tier3_targets/hardware/))

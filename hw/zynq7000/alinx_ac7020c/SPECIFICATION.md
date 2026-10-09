@@ -17,8 +17,8 @@ flowchart LR
     PS --- QSPI[W25Q256]
     PS --- SD[SD0]
     PS --- UART[UART1]
-    PS -->|M_AXI_GP0| GPIO[AXI GPIO 0x41200000]
-    GPIO --> LED[PL LED R19, active low]
+    PS -.->|Only after PL configuration| GPIO[AXI GPIO 0x41200000]
+    GPIO -.-> LED[PL LED R19, active low]
 ```
 
 ## Requirements
@@ -51,6 +51,30 @@ FSBL or U-Boot SPL MUST initialize PS/DDR using files generated from this target
 
 The target-owned out-of-tree Buildroot configuration MUST consume `linux-cubie` and `u-boot-zynq` through local source overrides, while permitting those repositories to remain independently buildable.
 
+### [SPEC-AC7020C-08] Linux revision and GPIO tools
+
+The ALINX AC7020C Buildroot defconfig MUST pin the Linux source revision and
+custom kernel headers to `cubie-linux-7.1` and Linux 7.1 respectively. It MUST
+enable Buildroot's Linux GPIO tools and the BusyBox-alternative package view so
+the kernel GPIO utility is explicitly selectable. The shared kernel fragment
+MUST enable `CONFIG_GPIOLIB` and `CONFIG_GPIO_CDEV`.
+
+### [SPEC-AC7020C-09] PS-only base device tree
+
+The default Buildroot image uses U-Boot SPL without loading an FPGA bitstream.
+Its `zynq-ac7020c.dtb` MUST therefore describe only physically available PS
+devices and MUST NOT instantiate the PL AXI GPIO at `0x41200000`, its PL LED,
+or force an FPGA fabric clock. PL devices MUST be introduced only after a
+matching bitstream is loaded, through a bitstream-specific device-tree overlay
+or a boot image that explicitly couples the bitstream and device tree.
+
+### [SPEC-AC7020C-10] Built-in SD root filesystem
+
+The Buildroot SD-card image stores `/` as an ext4 filesystem on partition 2.
+The Linux kernel MUST build ext4 and its journal support into the kernel image,
+not as modules, because no module can be loaded before the root filesystem is
+mounted. MMC block and SDHCI support MUST likewise remain built-in.
+
 ## Verification
 
-Linux MUST compile `xilinx/zynq-ac7020c.dtb`. U-Boot MUST compile `ac7020c_defconfig` and `zynq-ac7020c.dtb`. Release readiness additionally requires physical DDR, USB, Ethernet, SD, QSPI and LED tests.
+Linux MUST compile a PS-only `xilinx/zynq-ac7020c.dtb`. U-Boot MUST compile `ac7020c_defconfig` and `zynq-ac7020c.dtb`. The saved Buildroot configuration MUST retain the Linux 7.1 revision/header selections and Linux GPIO tool selection. The generated base DTB MUST contain no `gpio@41200000` node before PL configuration. The effective kernel configuration MUST contain `CONFIG_EXT4_FS=y`, `CONFIG_JBD2=y`, `CONFIG_MMC_BLOCK=y`, and `CONFIG_MMC_SDHCI=y`. Release readiness additionally requires physical DDR, USB, Ethernet, SD, QSPI and LED tests.

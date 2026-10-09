@@ -318,8 +318,8 @@ module asp_imu_auto_dma (
                         completion_timestamp,
                         // DW11-DW14: Unused payload zero-padded (16 Bytes)
                         128'd0,
-                        // DW15: CRC32 Placeholder
-                        32'hDEADBEEF
+                        // DW15: trusted-internal transport footer (reserved zero)
+                        32'h00000000
                     };
                     imu_state <= ST_IMU_EMIT_TLP;
                 end

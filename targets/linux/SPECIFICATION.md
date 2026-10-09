@@ -59,7 +59,7 @@ AbstractX splits Linux responsibilities cleanly:
 While `targets/linux/` executes this pipeline entirely within Linux user-space via POSIX character devices (`spidev`, `i2c-dev`, `termios2`, `libgpiod` v2), the **Application Coroutine Domain remains 100% decoupled from the physical bus drivers**.
 
 For mission-critical industrial applications where Linux kernel scheduling jitter or CFS latencies cannot be tolerated at high sampling rates (e.g. 1 kHz to 8 kHz IMU loops), **the `ioProcessor` can be relocated to a dedicated real-time coprocessor or FPGA without changing a single line of application code**:
-* **Real-Time Coprocessor Offload (AMP)**: Moving `ioProcessor` to an RP2350 (Pico 2 W Core 0), Allwinner E907 RISC-V, STM32MP1 Cortex-M4, or ESP32-P4 connects physical sensor interrupts directly to bare-metal ISRs with deterministic sub-microsecond latency, streaming TLPs over shared SRAM or mailbox rings to Linux.
+* **Real-Time Coprocessor Offload (AMP)**: Moving `ioProcessor` to an RP2350 (Pico 2 W Core 0), Allwinner E906 RISC-V, STM32MP1 Cortex-M4, or ESP32-P4 connects physical sensor interrupts directly to bare-metal ISRs with deterministic sub-microsecond latency, streaming TLPs over shared SRAM or mailbox rings to Linux.
 * **FPGA Hardware Offload**: Moving `ioProcessor` to an FPGA (Zynq, Cyclone V, or PCIe accelerator card) moves bus clocking and timestamp latching into hardware logic (< 10 ns jitter), streaming 64-byte TLPs across AXI DMA or PCIe MSI-X directly into Linux host RAM.
 
 ### 1.2 Sensor HW Fusion Engine on Linux

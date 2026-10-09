@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 Sunxi DMA Controller Implementation
+ * AbstractX Allwinner XuanTie E906 Sunxi DMA Controller Implementation
  * ---------------------------------------------------------------------
  * 100% ISR and DMA-driven peripheral engine. ZERO POLLING / ZERO BUSY-WAIT.
  */

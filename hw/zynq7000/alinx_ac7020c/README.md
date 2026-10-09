@@ -7,6 +7,8 @@ AbstractX/hw/zynq7000/
 ├── buildroot_external/       shared Buildroot external tree
 ├── qmtech_zynq7020/          QMTECH board target
 └── alinx_ac7020c/            this board target
+    ├── rtl/                  hand-written board-level RTL
+    ├── constraints/          physical and timing constraints
     ├── vivado/               reproducible XPR/XSA generation
     ├── tools/                setup and PS-init helpers
     ├── bld/                  Buildroot output (ignored)
@@ -72,9 +74,10 @@ The kernel uses `xilinx/zynq-ac7020c.dtb`; U-Boot uses `ac7020c_defconfig`.
 The shared boot flow, overlay contract, DMA ABI, and Linux verification steps
 are documented in
 [`../DEVICE_TREE_CONFIGURATION.md`](../DEVICE_TREE_CONFIGURATION.md).
-The AC7020C baseline image does not apply the UIO/trace overlays because its
-baseline bitstream contains AXI GPIO but not the AbstractX TLP/DMA fabric.
-Enable those overlays only with a matching fabric bitstream.
+The default AC7020C Buildroot image is PS-only: its U-Boot SPL `boot.bin` does
+not load an FPGA bitstream, and its base DTB does not expose PL devices. Add the
+AXI GPIO or AbstractX UIO/trace nodes only through an overlay coupled to the
+matching loaded bitstream.
 
 ## FPGA bitstream loading
 

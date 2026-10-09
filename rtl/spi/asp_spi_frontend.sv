@@ -119,6 +119,32 @@ module asp_spi_frontend #(
     logic         crc_err_flag;
     logic         overflow_flag;
 
+    // @impl [SPEC-TLP-CRC-01] rtl/spi/asp_spi_frontend.sv
+    // Reflected IEEE 802.3 CRC32, matching zlib.crc32 over wire bytes 0..59.
+    function automatic logic [31:0] crc32_ieee(input logic [479:0] frame_data);
+        logic [31:0] crc;
+        logic [7:0] data_byte;
+        integer byte_idx;
+        integer bit_idx;
+        begin
+            crc = 32'hFFFFFFFF;
+            for (byte_idx = 0; byte_idx < 60; byte_idx = byte_idx + 1) begin
+                data_byte = frame_data[479 - (byte_idx * 8) -: 8];
+                crc = crc ^ {24'h000000, data_byte};
+                for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
+                    if (crc[0]) crc = (crc >> 1) ^ 32'hEDB88320;
+                    else        crc = crc >> 1;
+                end
+            end
+            crc32_ieee = ~crc;
+        end
+    endfunction
+
+    wire [511:0] rx_dual_complete =
+        {rx_shift_reg[509:0], io1_in_sync[1], io0_in_sync[1]};
+    wire [511:0] rx_single_complete =
+        {rx_shift_reg[510:0], io0_in_sync[1]};
+
     assign o_status_flags = {overflow_flag, crc_err_flag, i_tlp_rx_ready, (i_egress_count != 8'h00)};
 
     // Sync input signals
@@ -198,7 +224,10 @@ module asp_spi_frontend #(
                                     CMD_READ_BURST: begin
                                         state <= ST_READ_TLP_BURST;
                                         if (i_tlp_tx_valid) begin
-                                            tx_shift_reg <= i_tlp_tx_data;
+                                            tx_shift_reg <= {
+                                                i_tlp_tx_data[511:32],
+                                                crc32_ieee(i_tlp_tx_data[511:32])
+                                            };
                                         end else begin
                                             tx_shift_reg <= 512'd0; // Pad if empty
                                         end
@@ -241,16 +270,32 @@ module asp_spi_frontend #(
                                 clk_pulse_cnt <= clk_pulse_cnt + 9'd1;
                                 if (clk_pulse_cnt == 9'd255) begin
                                     state <= ST_TLP_COMPLETE;
-                                    o_tlp_rx_data  <= {rx_shift_reg[509:0], io1_in_sync[1], io0_in_sync[1]};
-                                    o_tlp_rx_valid <= 1'b1;
+                                    if (rx_dual_complete[31:0] == crc32_ieee(rx_dual_complete[511:32])) begin
+                                        if (!o_tlp_rx_valid) begin
+                                            o_tlp_rx_data  <= {rx_dual_complete[511:32], 32'd0};
+                                            o_tlp_rx_valid <= 1'b1;
+                                        end else begin
+                                            overflow_flag <= 1'b1;
+                                        end
+                                    end else begin
+                                        crc_err_flag <= 1'b1;
+                                    end
                                 end
                             end else begin
                                 rx_shift_reg <= {rx_shift_reg[510:0], io0_in_sync[1]};
                                 clk_pulse_cnt <= clk_pulse_cnt + 9'd1;
                                 if (clk_pulse_cnt == 9'd511) begin
                                     state <= ST_TLP_COMPLETE;
-                                    o_tlp_rx_data  <= {rx_shift_reg[510:0], io0_in_sync[1]};
-                                    o_tlp_rx_valid <= 1'b1;
+                                    if (rx_single_complete[31:0] == crc32_ieee(rx_single_complete[511:32])) begin
+                                        if (!o_tlp_rx_valid) begin
+                                            o_tlp_rx_data  <= {rx_single_complete[511:32], 32'd0};
+                                            o_tlp_rx_valid <= 1'b1;
+                                        end else begin
+                                            overflow_flag <= 1'b1;
+                                        end
+                                    end else begin
+                                        crc_err_flag <= 1'b1;
+                                    end
                                 end
                             end
                         end

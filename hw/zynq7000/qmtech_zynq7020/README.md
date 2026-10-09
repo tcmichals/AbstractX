@@ -234,6 +234,13 @@ load_fpga top_qmtech_zynq7020.bit
 
 ## 🔍 Hardware Diagnostics & Verification (`zynq_test`)
 
+The two canonical sensor wiring modes are defined by `SPEC-ZYNQ-05`:
+
+- [FPGA SPI with DRDY](SPECIFICATION.md#qmtech-fpga-spi-wiring)
+- [Linux PS-I²C](SPECIFICATION.md#qmtech-linux-i2c-wiring)
+
+Use only one bus mode at a time. The diagnostics below use FPGA SPI/DRDY.
+
 The target image includes `/usr/bin/zynq_test` (from `tools/zynq_diagnostics.py`), providing an interactive CLI to test all hardware blocks:
 
 ```bash
@@ -342,5 +349,7 @@ duplicating those contracts here.
 
 * `hw/zynq7000/bld.qmtech-20/`: Dedicated out-of-tree Buildroot workspace (ignored by `.gitignore`).
 * `hw/zynq7000/qmtech_zynq7020/tools/`: Diagnostic and automation scripts.
-* `hw/zynq7000/qmtech_zynq7020/top_qmtech_zynq7020.sv`: Top-level SystemVerilog module.
-* `hw/zynq7000/qmtech_zynq7020/qmtech_zynq7020.xdc`: Physical pin constraints.
+* `hw/zynq7000/qmtech_zynq7020/rtl/`: Hand-written board-level RTL.
+* `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`: Top-level SystemVerilog module.
+* `hw/zynq7000/qmtech_zynq7020/constraints/`: Board physical and timing constraints.
+* `hw/zynq7000/qmtech_zynq7020/constraints/qmtech_zynq7020.xdc`: Physical pin constraints.

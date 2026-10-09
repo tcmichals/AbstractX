@@ -22,7 +22,7 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [x] Add `Task<void> run_coroutine()` to allow the I/O processor reactor to execute cooperatively inside the main coroutine loop.
 - [x] **Target Implementations**:
   - [x] Update Linux target (`targets/linux/src/io_processor.cpp`) to implement `run_coroutine()` via `epoll_reactor` awaiters.
-  - [x] Update E907 target (`targets/allwinner_e907/src/io_processor.cpp`) with `init()` and cooperative coroutine execution.
+  - [x] Update E906 target (`targets/allwinner_e906/src/io_processor.cpp`) with `init()` and cooperative coroutine execution.
   - [x] Update RP2350 target (`targets/pico2w_rp2350/src/io_processor.cpp`) with Core 0 `run_coroutine()` runner.
 
 ### 3. Binary CTF 1.8 Tracing & Configurable Sinks `[SPEC-TRACE-04]` `[SPEC-TRACE-06]`
@@ -41,27 +41,27 @@ This document is the authoritative roadmap and active engineering task tracker f
 - [x] **HAL Driver Tracing**:
   - [x] Update HAL drivers (`hal_uart.cpp`, `hal_spi.cpp`, `hal_i2c.cpp`, `hal_gpio.cpp`) to emit binary CTF trace events instead of raw formatted strings (`uart.puts`).
 
-### 4. Heterogeneous Co-Processor Pipeline (E907 to Linux) `[SPEC-TRACE-05]`
-- [x] **E907 Co-Processor Egress**:
-  - [x] Route E907 trace TLPs to shared SRAM (`0x07280000` ARM64 physical / `0x3FFC0000` E907 local).
+### 4. Heterogeneous Co-Processor Pipeline (E906 to Linux) `[SPEC-TRACE-05]`
+- [x] **E906 Co-Processor Egress**:
+  - [x] Route E906 trace TLPs to shared SRAM (`0x07280000` ARM64 physical / `0x3FFC0000` E906 local).
   - [x] Assert `sun6i-msgbox` hardware doorbell interrupt to notify Linux.
-- [x] **E907 Device Tree Overlay (`cubie_a5e_e907_overlay.dtso`)**:
+- [x] **E906 Device Tree Overlay (`cubie_a5e_e906_overlay.dtso`)**:
   - [x] Standardized overlay extension to `.dtso` for kernel Kbuild / Buildroot compatibility.
   - [x] Configured onboard AIC8800 SDIO Wi-Fi 6 power regulators (PL7 `3v3-wifi`, PM1 `wifi-en`) and `&mmc1` node.
   - [x] Bound `&spi0`, `&spi1`, `&uart2`, and `&i2c1` to `generic-uio` with default `pinctrl` so Linux configures clocks/pins without driver contention.
-  - [x] Added automated `e907_dtbo` compilation target in CMake.
+  - [x] Added automated `e906_dtbo` compilation target in CMake.
 - [x] **Linux Ingestion Coroutine (`linux_trace_receiver_task`)**:
   - [x] Map shared SRAM via `/dev/uio` or `/dev/mem`.
   - [x] Await MSGBox doorbell `eventfd` non-blockingly and drain 64-byte TLPs into the configured host sink (`UdpTraceSink` or `FileTraceSink`).
 - [ ] **SRAM-to-UDP Bridge Daemon**:
-  - [ ] Adapt `/home/tcmichals/ssdData/projects/home/CubieA5E/cubie-a5e/firmware/e907-riscv/apps/testStringBinaryTrace0/fast_sram_telemetry.py` to read popped SRAM telemetry packets and forward them over UDP (`sock.sendto(data, ("127.0.0.1", 9870))`).
+  - [ ] Adapt `/home/tcmichals/ssdData/projects/home/CubieA5E/cubie-a5e/firmware/e906-riscv/apps/testStringBinaryTrace0/fast_sram_telemetry.py` to read popped SRAM telemetry packets and forward them over UDP (`sock.sendto(data, ("127.0.0.1", 9870))`).
   - [ ] Wire to `/dev/uio0` for zero-overhead doorbell wakeups.
 
 ### 5. Application Modernization (`apps/gps_imu_app/`)
 - [x] **Refactor to Unified `abstractx::` API**:
   - [x] Replace manual thread spawning and loop pumping in `apps/gps_imu_app/src/main.cpp` with `abstractx::init()` and `abstractx::run()`.
   - [x] Transition application to a 100% event-driven loop with zero manual byte polling or `platform_poll_network()` calls.
-  - [x] Validate that the exact same application file compiles and runs on Linux SITL, Pico 2 W, and XuanTie E907 with zero `#ifdef`s.
+  - [x] Validate that the exact same application file compiles and runs on Linux SITL, Pico 2 W, and XuanTie E906 with zero `#ifdef`s.
 - [x] **Eliminated GPS UART Debug Corruption**:
   - [x] Decoupled debug logging from dedicated GPS serial port (`hal::IUart`).
   - [x] Diagnostic messages route strictly to system stdout / trace buffer, keeping the binary UBX line clean.
@@ -72,9 +72,9 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [x] Implement [`include/abstractx/platform_topology.hpp`](include/abstractx/platform_topology.hpp) with `PlatformTopologyTable`, `PlatformArch`, and interconnect definitions.
   - [x] Wire `PlatformTopologyTable` into `abstractx::Config` in [`include/abstractx/abstractx.hpp`](include/abstractx/abstractx.hpp).
 - [x] **Multi-Window Visualizer Studio Architecture**:
-  - [x] **Window 1 (Platform Topology & Silicon Interconnect Fabric)**: Auto-displays detected silicon topology (Linux SITL, Linux+E907, Linux+E907+FPGA, RP2350, ESP32-P4), active cores, and transport interconnects.
+  - [x] **Window 1 (Platform Topology & Silicon Interconnect Fabric)**: Auto-displays detected silicon topology (Linux SITL, Linux+E906, Linux+E906+FPGA, RP2350, ESP32-P4), active cores, and transport interconnects.
   - [x] **Window 2 (Dual-Plane Timeline & Source Code Scanner)**: Visualizes separation between low-level hardware I/O driver context (Plane 1) and cooperative C++20 coroutine tasks (Plane 2), with interactive source code scanner jumping directly to the exact file and line number.
-  - [x] **Window 3 (Per-Processor SPU/CPU & Process Utilization)**: Tracks host Linux CPU% and external OS processes, XuanTie E907 active vs WFI sleep duty cycles, and FPGA logic LUT / DMA bandwidth.
+  - [x] **Window 3 (Per-Processor SPU/CPU & Process Utilization)**: Tracks host Linux CPU% and external OS processes, XuanTie E906 active vs WFI sleep duty cycles, and FPGA logic LUT / DMA bandwidth.
 - [ ] **Dear ImGui Oscilloscope Optimization**:
   - [ ] Benchmark and verify 60-120 FPS real-time plotting under high data rates (8 kHz IMU stream).
 - [ ] **GPS 3D Track Visualization**:
@@ -123,19 +123,19 @@ Target execution follows a 3-stage validation progression:
 * [ ] Build and flash via `idf.py -p /dev/ttyACM0 flash monitor`.
 * [ ] Validate 8 kHz IMU GDMA rate and Wi-Fi/Ethernet telemetry egress.
 
-### Stage 3 (Heterogeneous Linux AMP): Radxa Cubie A5E (Allwinner A527 / E907)
-* **Detailed Guide**: [`apps/gps_imu_app/platforms/allwinner_e907/HOWTO.md`](apps/gps_imu_app/platforms/allwinner_e907/HOWTO.md)
-* **Rationale**: Production hybrid architecture (Linux flight supervisor on Cortex-A55 + hard real-time I/O reactor on XuanTie E907 RISC-V).
-* [ ] Deploy compiled `cubie_a5e_e907_overlay.dtbo` to `/boot/dtb/overlay/`.
+### Stage 3 (Heterogeneous Linux AMP): Radxa Cubie A5E (Allwinner A527 / E906)
+* **Detailed Guide**: [`apps/gps_imu_app/platforms/allwinner_e906/HOWTO.md`](apps/gps_imu_app/platforms/allwinner_e906/HOWTO.md)
+* **Rationale**: Production hybrid architecture (Linux flight supervisor on Cortex-A55 + hard real-time I/O reactor on XuanTie E906 RISC-V).
+* [ ] Deploy compiled `cubie_a5e_e906_overlay.dtbo` to `/boot/dtb/overlay/`.
 * [ ] Configure `/boot/config.txt`:
   ```text
-  dtoverlay=cubie_a5e_e907_overlay
+  dtoverlay=cubie_a5e_e906_overlay
   cmdline=uio_pdrv_genirq.of_id=generic-uio clk_ignore_unused
   ```
 * [ ] Verify onboard AIC8800 Wi-Fi 6 comes up (`wlan0`) via MMC1 power regulators.
-* [ ] Copy `build-e907/apps/e907_coprocessor/e907_coprocessor.bin` to `/lib/firmware/` and launch via RemoteProc:
+* [ ] Copy `build-e906/apps/e906_coprocessor/e906_coprocessor.bin` to `/lib/firmware/` and launch via RemoteProc:
   ```bash
-  echo "e907_coprocessor.bin" > /sys/class/remoteproc/remoteproc0/firmware
+  echo "e906_coprocessor.bin" > /sys/class/remoteproc/remoteproc0/firmware
   echo start > /sys/class/remoteproc/remoteproc0/state
   ```
 * [ ] Validate shared SRAM A3 (`0x07280000`) lock-free rings and MSGBOX doorbells.

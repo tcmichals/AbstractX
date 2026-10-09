@@ -10,10 +10,11 @@
 //
 // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
 // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+// @impl [SPEC-ZYNQ-PLATFORM-09] hw/zynq7000/SPECIFICATION.md
 module asp_axi_lite_bridge #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,
-    parameter integer FIFO_DEPTH         = 16    // 16 slots of 64-byte TLPs (1 KB)
+    parameter integer FIFO_DEPTH         = 128   // 128 slots x 64 bytes = 8 KiB per direction
 )(
     input  wire                              s_axi_aclk,
     input  wire                              s_axi_aresetn,
@@ -93,9 +94,11 @@ module asp_axi_lite_bridge #(
     logic [$clog2(FIFO_DEPTH):0] ing_wr_ptr;
     logic [$clog2(FIFO_DEPTH):0] ing_rd_ptr;
     logic [$clog2(FIFO_DEPTH):0] ing_count;
+    wire [31:0] ing_count_u32 = {{(31-$clog2(FIFO_DEPTH)){1'b0}}, ing_count};
+    wire [31:0] fifo_depth_u32 = FIFO_DEPTH;
 
     assign ing_count = ing_wr_ptr - ing_rd_ptr;
-    wire ing_fifo_full  = (ing_count == FIFO_DEPTH);
+    wire ing_fifo_full  = (ing_count_u32 == fifo_depth_u32);
     wire ing_fifo_empty = (ing_count == 0);
 
     // Simple Egress FIFO (Depth = FIFO_DEPTH packets)
@@ -103,9 +106,10 @@ module asp_axi_lite_bridge #(
     logic [$clog2(FIFO_DEPTH):0] egr_wr_ptr;
     logic [$clog2(FIFO_DEPTH):0] egr_rd_ptr;
     logic [$clog2(FIFO_DEPTH):0] egr_count;
+    wire [31:0] egr_count_u32 = {{(31-$clog2(FIFO_DEPTH)){1'b0}}, egr_count};
 
     assign egr_count = egr_wr_ptr - egr_rd_ptr;
-    wire egr_fifo_full  = (egr_count == FIFO_DEPTH);
+    wire egr_fifo_full  = (egr_count_u32 == fifo_depth_u32);
     wire egr_fifo_empty = (egr_count == 0);
 
     // Push from Router into Egress FIFO
@@ -261,7 +265,7 @@ module asp_axi_lite_bridge #(
                     REG_IRQ_STATUS:  s_axi_rdata <= reg_irq_status;
                     REG_IRQ_ENABLE:  s_axi_rdata <= reg_irq_enable;
                     REG_EGR_COUNT:   s_axi_rdata <= {{(32-$clog2(FIFO_DEPTH)-1){1'b0}}, egr_count + egr_buf_valid};
-                    REG_ING_FREE:    s_axi_rdata <= {{(32-$clog2(FIFO_DEPTH)-1){1'b0}}, (FIFO_DEPTH - ing_count)};
+                    REG_ING_FREE:    s_axi_rdata <= fifo_depth_u32 - ing_count_u32;
                     REG_HARDWARE_ID: s_axi_rdata <= HARDWARE_MAGIC;
                     REG_TLP_OUT_PORT: begin
                         if (egr_buf_valid) begin

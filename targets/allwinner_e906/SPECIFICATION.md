@@ -8,6 +8,20 @@ for the **Allwinner T527 / A523 XuanTie E906 RISC-V Co-Processor Target**
 Each requirement carries a unique **Design ID (`[SPEC-E906-*]`)** that is
 directly traceable by implementation source files via `// @impl [SPEC-E906-*]`.
 
+```mermaid
+sequenceDiagram
+  participant Host as Linux Host
+  participant IRQ as E906 MSGBOX ISR
+  participant Queue as ISR-safe Dispatcher Queue
+  participant Loop as abstractx::step()
+  participant Task as Suspended RPMsg Coroutine
+  Host->>IRQ: Channel 1 doorbell
+  IRQ->>IRQ: Acknowledge interrupt
+  IRQ->>Queue: Post suspended coroutine handle
+  Loop->>Queue: Drain ready handles
+  Queue->>Task: Resume in cooperative context
+```
+
 ---
 
 ## 1. System Architecture Specifications (`SPEC-E906-ARCH`)
@@ -128,16 +142,19 @@ directly traceable by implementation source files via `// @impl [SPEC-E906-*]`.
   in polling loops.
 * **Mechanism**: Tasks suspend via `co_await rpmsg.async_receive()`:
   * If packet is already pending: `await_ready()` returns true (0 ns latency).
-  * If queue is empty: Stores coroutine handle in `s_rpmsg_coroutine_handle`,
-    enables MSGBOX Channel 1 RX interrupt, and suspends in ~18 ns.
+  * If queue is empty: Stores the coroutine handle, enables MSGBOX Channel 1 RX
+    interrupt, and suspends until the cooperative dispatcher resumes it.
 * **Implementation Target**: `targets/allwinner_e906/include/hal/rpmsg.hpp`
 
-### `[SPEC-E906-CORO-02]` Hardware MSGBOX ISR Direct Waking
-* **Requirement**: Linux doorbell kicks on MSGBOX Channel 1 must wake the
-  suspended coroutine in under 25 ns without thread context switches.
+### `[SPEC-E906-CORO-02]` MSGBOX ISR-to-Dispatcher Wakeup
+* **Requirement**: The MSGBOX ISR MUST NOT call `.resume()` directly. It MUST
+  acknowledge the interrupt and post the suspended coroutine handle through
+  the ISR-safe dispatcher queue; `abstractx::step()` MUST resume it from the
+  cooperative context on the next dispatcher drain.
 * **Mechanism**: PLIC IRQ 48 executes `fc_msgbox_doorbell_isr()`:
   1. Clears hardware MSGBOX interrupt status.
-  2. Resumes `s_rpmsg_coroutine_handle` directly in top-half ISR.
+  2. Transfers `s_rpmsg_coroutine_handle` to `IsrDispatcher::post()`.
+  3. Leaves all coroutine resumption to `Dispatcher::process()`.
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ---

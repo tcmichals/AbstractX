@@ -41,7 +41,7 @@ Design a clean, 3-tier hierarchical structure so every markdown document has a s
    - Dynamic CTF 1.8 telemetry schema (`trace_schema.json`).
    - The AbstractX Studio GUI Framework (`imgui-bundle` 120 FPS visualizer) and comparative profiling benchmarks.
 3. **Tier 3 (Concrete Target BSPs, Peripherals & Applications)**:
-   - Silicon targets (`pico2w_rp2350`, `esp32p4`, `allwinner_e907`, `linux`).
+   - Silicon targets (`pico2w_rp2350`, `esp32p4`, `allwinner_e906`, `linux`).
    - Applications (`apps/gps_imu_app`).
    - Dedicated hardware and errata specifications (e.g. Waveshare ESP32-P4-WiFi6 video/DMA errata).
 

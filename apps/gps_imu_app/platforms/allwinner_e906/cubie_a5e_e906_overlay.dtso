@@ -2,11 +2,11 @@
 /*
  * Copyright (C) 2026 Tim Michals
  *
- * AbstractX Radxa Cubie A5E (Allwinner A527 / T527) — XuanTie E907 & Flight Overlay
+ * AbstractX Radxa Cubie A5E (Allwinner A527 / T527) — XuanTie E906 & Flight Overlay
  * =================================================================================
  * Hardware Resource Partitioning:
  *
- * 1. XuanTie E907 RISC-V Co-Processor Domain (Hard Real-Time I/O Reactor):
+ * 1. XuanTie E906 RISC-V Co-Processor Domain (Hard Real-Time I/O Reactor):
  *    - SPI0: High-Speed Full-Duplex DMA Master to ICM-42688-P / FPGA (Port C)
  *            [Pins 19 (MOSI), 21 (MISO), 23 (CLK), 24 (CS0/FPGA), 26 (CS1/IMU)]
  *    - SPI1: High-Speed Secondary SPI Link [Pins 35 (MISO), 38 (MOSI), 40 (CLK), 12 (CS0)]
@@ -19,7 +19,7 @@
  *
  *    NOTE: To allow Linux to setup pinctrl (pin multiplexing) and clock tree
  *    routing without attaching kernel device drivers (which would conflict with
- *    bare-metal E907 execution), SPI0, SPI1, UART2, I2C1, and I2C3 are bound
+ *    bare-metal E906 execution), SPI0, SPI1, UART2, I2C1, and I2C3 are bound
  *    to "generic-uio".
  *
  * 2. ARM Cortex-A55 Linux Host Domain (Flight Controller, Telemetry & Network):
@@ -52,8 +52,8 @@
  *                         GND [39] [40] SPI1-CLK  (Exp)               [RISC-V]
  *
  * Compilation & Application:
- *   dtc -@ -I dts -O dtb -o cubie_a5e_e907_overlay.dtbo cubie_a5e_e907_overlay.dtso
- *   sudo cp cubie_a5e_e907_overlay.dtbo /boot/dtb/overlay/
+ *   dtc -@ -I dts -O dtb -o cubie_a5e_e906_overlay.dtbo cubie_a5e_e906_overlay.dtso
+ *   sudo cp cubie_a5e_e906_overlay.dtbo /boot/dtb/overlay/
  * =================================================================================
  */
 
@@ -62,7 +62,7 @@
 
 / {
     compatible = "radxa,cubie-a5e", "allwinner,sun55i-a527", "allwinner,sun60iw2p1";
-    description = "AbstractX XuanTie E907 RemoteProc, UIO Clocks & Wi-Fi Overlay";
+    description = "AbstractX XuanTie E906 RemoteProc, UIO Clocks & Wi-Fi Overlay";
 };
 
 /* 
@@ -116,7 +116,7 @@
         ranges;
 
         /* Dedicated on-chip SRAM A3 Space 0 (ARM64 physical 0x07280000, 256 KB) */
-        e907_sram0_reserved: sram@7280000 {
+        e906_sram0_reserved: sram@7280000 {
             reg = <0x0 0x07280000 0x0 0x00040000>;
             no-map;
         };
@@ -163,7 +163,7 @@
 
 /* 
  * ----------------------------------------------------------------------------
- * 3. Peripherals Claimed by E907 with Linux Pinctrl & Clocks Initialized via UIO
+ * 3. Peripherals Claimed by E906 with Linux Pinctrl & Clocks Initialized via UIO
  *    (Binding to generic-uio configures pinmux and clocks without attaching
  *     standard kernel drivers, preventing bus contention and register resets)
  * ----------------------------------------------------------------------------
@@ -215,9 +215,9 @@
 };
 
 &rproc {
-    compatible = "allwinner,sun60iw2-e907", "allwinner,e907-rproc";
-    firmware-name = "e907_coprocessor.bin";
-    memory-region = <&rproc_vdev_reserved>, <&e907_sram0_reserved>;
+    compatible = "allwinner,sun55i-a523-rproc";
+    firmware-name = "e906_coprocessor.bin";
+    memory-region = <&rproc_vdev_reserved>, <&e906_sram0_reserved>;
     mboxes = <&msgbox 8>, <&msgbox 9>;
     mbox-names = "rx", "tx";
     status = "okay";

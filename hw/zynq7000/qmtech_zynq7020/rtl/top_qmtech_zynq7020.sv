@@ -5,11 +5,12 @@
 
 // AbstractX QMTECH Zynq-7020 Top-Level FPGA Fabric Integrator
 //
-// Bridges Zynq PS M_AXI_GP0 (AXI4-Lite) and S_AXI_HP0 (64-bit High Performance Master)
-// to the 64-Byte TLP Router and Wishbone Interconnect.
+// Bridges Zynq PS M_AXI_GP0 (AXI4-Lite) through two 8 KiB BRAM packet FIFOs
+// to the 64-Byte TLP Router and Wishbone Interconnect. The HP0 pins remain in
+// this wrapper for optional DDR-profile compatibility but are inactive here.
 //
 // Integrates:
-// 1. Native 64-Byte TLP AXI4 DMA Engine (asp_axi_dma)
+// 1. AXI4-Lite / BRAM TLP Bridge (asp_axi_lite_bridge)
 // 2. 512-bit (64-byte) Vector TLP Router (asp_router)
 // 3. Wishbone Master Gateway (asp_wishbone_master)
 // 4. System Identification & Timestamp Registers (asp_sys_regs)
@@ -22,6 +23,7 @@
 // @impl [SPEC-ZYNQ-03] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-03
 // @impl [SPEC-ZYNQ-04] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-04
 // @impl [SPEC-ZYNQ-05] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-05
+// @impl [SPEC-ZYNQ-06] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-06
 module top_qmtech_zynq7020 #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,
@@ -119,10 +121,20 @@ module top_qmtech_zynq7020 #(
 );
 
     // Monotonic 64-bit nanosecond system timestamp timer
+    localparam logic [63:0] TIMER_CLK_FREQ_HZ = {32'd0, CLK_FREQ_HZ};
     logic [63:0] sys_timestamp;
+    logic [63:0] timestamp_phase;
+    wire [63:0] timestamp_phase_sum = timestamp_phase + 64'd1_000_000_000;
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
-        if (!s_axi_aresetn) sys_timestamp <= 64'd0;
-        else                sys_timestamp <= sys_timestamp + 64'd1;
+        if (!s_axi_aresetn) begin
+            sys_timestamp   <= 64'd0;
+            timestamp_phase <= 64'd0;
+        end else if (timestamp_phase_sum >= TIMER_CLK_FREQ_HZ) begin
+            sys_timestamp   <= sys_timestamp + (timestamp_phase_sum / TIMER_CLK_FREQ_HZ);
+            timestamp_phase <= timestamp_phase_sum % TIMER_CLK_FREQ_HZ;
+        end else begin
+            timestamp_phase <= timestamp_phase_sum;
+        end
     end
 
     // ------------------------------------------------------------------------
@@ -136,14 +148,14 @@ module top_qmtech_zynq7020 #(
     logic         tlp_tx_valid;
     logic         tlp_tx_ready;
 
-    asp_axi_dma #(
+    // @impl [SPEC-ZYNQ-PLATFORM-09] hw/zynq7000/SPECIFICATION.md
+    asp_axi_lite_bridge #(
         .C_S_AXI_DATA_WIDTH (C_S_AXI_DATA_WIDTH),
         .C_S_AXI_ADDR_WIDTH (C_S_AXI_ADDR_WIDTH),
-        .C_M_AXI_DATA_WIDTH (C_M_AXI_DATA_WIDTH),
-        .C_M_AXI_ADDR_WIDTH (C_M_AXI_ADDR_WIDTH)
-    ) u_axi_dma (
-        .clk             (s_axi_aclk),
-        .rst_n           (s_axi_aresetn),
+        .FIFO_DEPTH         (128)
+    ) u_axi_bram_bridge (
+        .s_axi_aclk      (s_axi_aclk),
+        .s_axi_aresetn   (s_axi_aresetn),
 
         // CSR Slave Port
         .s_axi_awaddr    (s_axi_awaddr),
@@ -166,33 +178,6 @@ module top_qmtech_zynq7020 #(
         .s_axi_rvalid    (s_axi_rvalid),
         .s_axi_rready    (s_axi_rready),
 
-        // DDR Master Port (S_AXI_HP0)
-        .m_axi_awaddr    (m_axi_hp_awaddr),
-        .m_axi_awlen     (m_axi_hp_awlen),
-        .m_axi_awsize    (m_axi_hp_awsize),
-        .m_axi_awburst   (m_axi_hp_awburst),
-        .m_axi_awvalid   (m_axi_hp_awvalid),
-        .m_axi_awready   (m_axi_hp_awready),
-        .m_axi_wdata     (m_axi_hp_wdata),
-        .m_axi_wstrb     (m_axi_hp_wstrb),
-        .m_axi_wlast     (m_axi_hp_wlast),
-        .m_axi_wvalid    (m_axi_hp_wvalid),
-        .m_axi_wready    (m_axi_hp_wready),
-        .m_axi_bresp     (m_axi_hp_bresp),
-        .m_axi_bvalid    (m_axi_hp_bvalid),
-        .m_axi_bready    (m_axi_hp_bready),
-        .m_axi_araddr    (m_axi_hp_araddr),
-        .m_axi_arlen     (m_axi_hp_arlen),
-        .m_axi_arsize    (m_axi_hp_arsize),
-        .m_axi_arburst   (m_axi_hp_arburst),
-        .m_axi_arvalid   (m_axi_hp_arvalid),
-        .m_axi_arready   (m_axi_hp_arready),
-        .m_axi_rdata     (m_axi_hp_rdata),
-        .m_axi_rresp     (m_axi_hp_rresp),
-        .m_axi_rlast     (m_axi_hp_rlast),
-        .m_axi_rvalid    (m_axi_hp_rvalid),
-        .m_axi_rready    (m_axi_hp_rready),
-
         // IRQ & 64B TLP Streams
         .irq_f2p         (irq_f2p),
         .m_tlp_tdata     (tlp_rx_data),
@@ -202,6 +187,24 @@ module top_qmtech_zynq7020 #(
         .s_egr_tvalid    (tlp_tx_valid),
         .s_egr_tready    (tlp_tx_ready)
     );
+
+    // Optional DDR-profile interface is intentionally idle in BRAM mode.
+    assign m_axi_hp_awaddr  = '0;
+    assign m_axi_hp_awlen   = '0;
+    assign m_axi_hp_awsize  = '0;
+    assign m_axi_hp_awburst = '0;
+    assign m_axi_hp_awvalid = 1'b0;
+    assign m_axi_hp_wdata   = '0;
+    assign m_axi_hp_wstrb   = '0;
+    assign m_axi_hp_wlast   = 1'b0;
+    assign m_axi_hp_wvalid  = 1'b0;
+    assign m_axi_hp_bready  = 1'b0;
+    assign m_axi_hp_araddr  = '0;
+    assign m_axi_hp_arlen   = '0;
+    assign m_axi_hp_arsize  = '0;
+    assign m_axi_hp_arburst = '0;
+    assign m_axi_hp_arvalid = 1'b0;
+    assign m_axi_hp_rready  = 1'b0;
 
     // ------------------------------------------------------------------------
     // Router <-> Endpoints Signals

@@ -45,7 +45,7 @@ When addressing an error, bug, or architectural lesson, use this clean format:
 ## [YYYY-MM-DD] - <Component / Issue Title>
 
 ### 1. Mistake / Bug Observed
-* **Target / Subsystem**: e.g., `targets/allwinner_e907`, `include/asp_tlp64.hpp`
+* **Target / Subsystem**: e.g., `targets/allwinner_e906`, `include/asp_tlp64.hpp`
 * **Symptoms**: What failed, hung, crashed, or caused jitter?
 
 ### 2. Root Cause & Lesson Learned

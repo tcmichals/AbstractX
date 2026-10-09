@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 import cocotb
+import zlib
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, ClockCycles
 
@@ -84,7 +85,8 @@ async def test_write_and_read_tlp_bursts(dut):
 
     # 1. Test Ingress Write (0xA1) with rx_ready=0 to hold valid
     dut.i_tlp_rx_ready.value = 0
-    test_payload = bytes([i % 256 for i in range(64)])
+    test_data = bytes([i % 256 for i in range(60)])
+    test_payload = test_data + zlib.crc32(test_data).to_bytes(4, "big")
     dut.i_cs_n.value = 0
     await ClockCycles(dut.clk, 10)
     await send_cmd_byte(dut, CMD_WRITE_BURST)
@@ -104,7 +106,7 @@ async def test_write_and_read_tlp_bursts(dut):
     await ClockCycles(dut.clk, 5)
     assert dut.o_tlp_rx_valid.value == 1, "o_tlp_rx_valid did not assert!"
     rx_int = int(dut.o_tlp_rx_data.value)
-    expected_int = int.from_bytes(test_payload, byteorder='big')
+    expected_int = int.from_bytes(test_data + b"\x00" * 4, byteorder='big')
     assert rx_int == expected_int, "Ingress TLP payload mismatch!"
     dut._log.info("[SUCCESS] Ingress Dual-SPI Write 64B TLP verified!")
 
@@ -115,9 +117,31 @@ async def test_write_and_read_tlp_bursts(dut):
     dut.i_cs_n.value = 1
     await ClockCycles(dut.clk, 10)
 
+    # A bad serialized CRC must never reach the internal trusted TLP stream.
+    bad_payload = test_payload[:-1] + bytes([test_payload[-1] ^ 0x01])
+    dut.i_cs_n.value = 0
+    await ClockCycles(dut.clk, 10)
+    await send_cmd_byte(dut, CMD_WRITE_BURST)
+    for byte_val in bad_payload:
+        for pair_idx in range(3, -1, -1):
+            val2 = (byte_val >> (pair_idx * 2)) & 0x3
+            dut.io_sdio0.value = val2 & 1
+            dut.io_sdio1.value = (val2 >> 1) & 1
+            await ClockCycles(dut.clk, 2)
+            dut.i_sclk.value = 1
+            await ClockCycles(dut.clk, 4)
+            dut.i_sclk.value = 0
+            await ClockCycles(dut.clk, 2)
+    await ClockCycles(dut.clk, 5)
+    assert dut.o_tlp_rx_valid.value == 0, "Bad-CRC TLP reached the internal stream"
+    assert int(dut.o_status_flags.value) & 0x4, "Sticky CRC error flag was not set"
+    dut.i_cs_n.value = 1
+    await ClockCycles(dut.clk, 10)
+
     # 2. Test Egress Read (0xA2)
-    tx_test_payload = bytes([(255 - i) % 256 for i in range(64)])
-    dut.i_tlp_tx_data.value = int.from_bytes(tx_test_payload, byteorder='big')
+    tx_internal_payload = bytes([(255 - i) % 256 for i in range(60)]) + b"\x00" * 4
+    tx_test_payload = tx_internal_payload[:60] + zlib.crc32(tx_internal_payload[:60]).to_bytes(4, "big")
+    dut.i_tlp_tx_data.value = int.from_bytes(tx_internal_payload, byteorder='big')
     dut.i_tlp_tx_valid.value = 1
     await ClockCycles(dut.clk, 5)
 

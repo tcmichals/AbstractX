@@ -2,11 +2,11 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 Sunxi DMA Controller Driver
+ * AbstractX Allwinner XuanTie E906 Sunxi DMA Controller Driver
  * -------------------------------------------------------------
  * Strict 100% ISR and DMA Invariant:
  * - Direct LLI descriptor hardware execution
- * - Completion signaled via PLIC IRQ 64 (irq_id::DMA_E907)
+ * - Completion signaled via PLIC IRQ 64 (irq_id::DMA_E906)
  * - ZERO POLLING / ZERO BUSY-WAIT LOOPS
  */
 
@@ -116,7 +116,7 @@ public:
     static void stop_transfer(uint8_t channel) noexcept;
     static bool is_busy(uint8_t channel) noexcept;
 
-    // Top-half ISR called from PLIC IRQ 64 (irq_id::DMA_E907)
+    // Top-half ISR called from PLIC IRQ 64 (irq_id::DMA_E906)
     static void handle_irq() noexcept;
 };
 

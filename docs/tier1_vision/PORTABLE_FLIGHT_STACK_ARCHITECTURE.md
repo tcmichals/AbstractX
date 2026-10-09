@@ -2,7 +2,7 @@
 
 ## 1. Core Vision & Architectural Breakthrough
 
-Flight control software (**Betaflight**, **iNav**, **ArduPilot / ArduCopter**) has historically been tightly coupled to physical microcontroller hardware. On dual-core processors like the **Raspberry Pi RP2350 (Pico 2)**, asymmetric SoCs like the **Allwinner Cubie A5E (ARM Cortex-A55 + T-Head E907 RISC-V)**, or standard microcontrollers like **STM32 H7 / F7 / G4**, developers struggle with where to place driver logic, how to handle inter-core communication, and how to prevent interrupt jitter from stalling the primary flight loop.
+Flight control software (**Betaflight**, **iNav**, **ArduPilot / ArduCopter**) has historically been tightly coupled to physical microcontroller hardware. On dual-core processors like the **Raspberry Pi RP2350 (Pico 2)**, asymmetric SoCs like the **Allwinner Cubie A5E (ARM Cortex-A55 + T-Head E906 RISC-V)**, or standard microcontrollers like **STM32 H7 / F7 / G4**, developers struggle with where to place driver logic, how to handle inter-core communication, and how to prevent interrupt jitter from stalling the primary flight loop.
 
 The **AbstractX PCIe TLP Architecture** establishes **PCIe-like 64-Byte TLPs (`asp-tlp-64b`)** as the universal inter-core and inter-chip transport. Crucially, this abstraction allows **each chip architecture to deploy its unique hardware offload capabilities** (FPGA, PIO, or STM32 Timer/DMA) under the hood without changing a single line of flight code!
 
@@ -23,7 +23,7 @@ The **AbstractX PCIe TLP Architecture** establishes **PCIe-like 64-Byte TLPs (`a
 +-------------------+ +-------------------+ +-------------------+ +-------------------+
 | RP2350 (Pico 2)   | | Allwinner CubieA5E| | STM32 H7/F7/G4    | | Linux / Jetson    |
 | - PIO State Mach. | | - FPGA Coprocessor| | - TIM Input Capt. | | - ArduPilot Linux |
-| - Core 0 TLP Engine| | - E907 RISC-V Core| | - MDMA Streams    | | - AP_HAL_AbstractX|
+| - Core 0 TLP Engine| | - E906 RISC-V Core| | - MDMA Streams    | | - AP_HAL_AbstractX|
 | - SRAM Ring Buffer| | - Dual-SPI MAC    | | - HRTIM DShot     | | - Shared RAM / TLP|
 +-------------------+ +-------------------+ +-------------------+ +-------------------+
        │                     │                       │                     │

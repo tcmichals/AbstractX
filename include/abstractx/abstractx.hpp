@@ -8,7 +8,7 @@
  *
  * Encapsulates:
  * 1. Unified Configuration & Startup (init)
- * 2. Autonomous Component Placement (Core 0 vs Core 1, E907 vs Linux, SITL)
+ * 2. Autonomous Component Placement (Core 0 vs Core 1, E906 vs Linux, SITL)
  * 3. Transparent CTF 1.8 Tracing & Stream Sinks (UDP :9870, File, Shared SRAM)
  * 4. Cooperative Coroutine Scheduling (spawn, step, step_async, run)
  *
@@ -33,7 +33,7 @@ enum class TraceSinkType : uint8_t {
     None           = 0,
     Udp            = 1, // Live UDP streaming (e.g. :9870 to Visualizer Studio)
     File           = 2, // Binary CTF file logging (e.g. "trace.ctf" for Babeltrace)
-    SharedSramRing = 3  // E907/RP2350 shared memory to Linux remoteproc/msgbox
+    SharedSramRing = 3  // E906/RP2350 shared memory to Linux remoteproc/msgbox
 };
 
 // Export BufferProfile from trace namespace

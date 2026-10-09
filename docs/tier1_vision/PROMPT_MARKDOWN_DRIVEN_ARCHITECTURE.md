@@ -31,7 +31,7 @@ flowchart TD
             direction TB
             L_HOST["<b>ARM64 Host (A55)</b><br/>Flight Daemon (PREEMPT_RT)"]
             L_IPC["<b>RemoteProc & Shared SRAM A3/C</b><br/>Lock-free SPSC Descriptors + MSGBox IRQ"]
-            L_COPROC["<b>XuanTie E907 Co-Processor (600 MHz)</b><br/>• SPI DMA (ICM-42688-P @ 8 kHz)<br/>• S_UART0 (U-Blox GPS)<br/>• DRDY Hardware Pin ISR"]
+            L_COPROC["<b>XuanTie E906 Co-Processor (600 MHz)</b><br/>• SPI DMA (ICM-42688-P @ 8 kHz)<br/>• S_UART0 (U-Blox GPS)<br/>• DRDY Hardware Pin ISR"]
             L_HOST <-->|Shared SRAM + Doorbell| L_IPC <--> L_COPROC
         end
 

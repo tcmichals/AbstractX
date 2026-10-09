@@ -7,7 +7,7 @@
  * Portable across:
  * - Raspberry Pi Pico 2 W (RP2350 dual-core ARM)
  * - Linux (Desktop Workstation, SITL, and Allwinner Cubie A5E Cortex-A55)
- * - Allwinner XuanTie E907 RISC-V Co-Processor
+ * - Allwinner XuanTie E906 RISC-V Co-Processor
  *
  * Modernized Unified Architecture:
  * - 100% Event-Driven C++20 Coroutine Application

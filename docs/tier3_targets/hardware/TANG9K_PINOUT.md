@@ -14,7 +14,7 @@ This document defines the physical hardware pin assignments for the **Tang Nano 
 
 ---
 
-## 2. Host SPI / Dual-SPI Slave Bus (Connection to Allwinner A55 / E907 / Host MCU)
+## 2. Host SPI / Dual-SPI Slave Bus (Connection to Allwinner A55 / E906 / Host MCU)
 
 | Signal | Package Pin | Direction | Pull Mode | Standard 4-Wire SPI | Dual-SPI Mode | Description |
 |---|---|---|---|---|---|---|

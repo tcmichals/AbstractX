@@ -1,6 +1,7 @@
 #include "hal/rpmsg.hpp"
 #include "hal/msgbox.hpp"
 #include "hal/pmp.hpp"
+#include "abstractx/isr_dispatcher.hpp"
 #include <string.h>
 
 namespace hal {
@@ -472,6 +473,7 @@ bool IRpmsg::AsyncRxAwaiter::await_ready() const noexcept {
 }
 
 void IRpmsg::AsyncRxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
+    // @impl [SPEC-E906-CORO-01] targets/allwinner_e906/SPECIFICATION.md
     s_rpmsg_coroutine_handle = handle;
     // Enable Channel 1 receive interrupt so Linux doorbell triggers PLIC IRQ
     MsgBox::enable_rx_irq(MsgBox::Channel::Channel1, true);
@@ -487,13 +489,14 @@ bool IRpmsg::AsyncRxAwaiter::await_resume() noexcept {
 // Hardware MSGBOX ISR (Overrides weak declaration in irq_dispatcher.cpp)
 extern "C" __attribute__((section(".fastcode")))
 void fc_msgbox_doorbell_isr() noexcept {
+    // @impl [SPEC-E906-CORO-02] targets/allwinner_e906/SPECIFICATION.md
     // 1. Clear hardware interrupt status
     hal::MsgBox::clear_irq_status(hal::MsgBox::Channel::Channel1);
 
-    // 2. Resume waiting coroutine directly (< 25 ns wakeup latency)
-    if (hal::s_rpmsg_coroutine_handle && !hal::s_rpmsg_coroutine_handle.done()) {
+    // Post the handle; abstractx::step() resumes it from the cooperative context.
+    if (hal::s_rpmsg_coroutine_handle) {
         auto h = hal::s_rpmsg_coroutine_handle;
         hal::s_rpmsg_coroutine_handle = nullptr;
-        h.resume();
+        abstractx::IsrDispatcher::post(h);
     }
 }

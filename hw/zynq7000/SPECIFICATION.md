@@ -65,7 +65,9 @@ selected from Buildroot's `linux-firmware` package.
 Buildroot MUST use the `linux-cubie` and `u-boot-zynq` checkouts as local source
 overrides while keeping generated kernel and U-Boot build output in the
 Buildroot output tree. Configuring or building a board MUST NOT run `make
-clean` in either source checkout or require either checkout to be clean.
+clean` in either source checkout or require either checkout to be clean. Every
+Zynq defconfig MUST select custom Linux 7.1 headers to match the pinned
+`cubie-linux-7.1` kernel revision.
 
 ### [SPEC-ZYNQ-PLATFORM-04] GPIO character-device support
 
@@ -75,21 +77,76 @@ libgpiod 2 userspace tools.
 
 ### [SPEC-ZYNQ-PLATFORM-05] Board-compatible overlay defaults
 
-The generated `/boot/config.txt` MUST enable AbstractX UIO/trace overlays only
-for a board configuration whose selected bitstream implements the overlay ABI.
-The QMTECH configuration supports the shared TLP/DMA overlays. ALINX AC7010C
-and AC7020C images MUST default to no AbstractX overlays because their current
-baseline bitstreams do not implement the shared TLP/DMA hardware. An ALINX
-deployment MAY opt in only after selecting a bitstream that implements the
-shared ABI. The image-generation step MUST fail for an unknown board DTB
-rather than silently selecting an incompatible overlay configuration.
+The generated `/boot/config.txt` MUST keep every board PS-only by default and
+MUST NOT apply an AbstractX PL overlay before its matching bitstream is loaded.
+External automation MAY load a bitstream through Linux FPGA Manager and then
+apply its compatibility-matched UIO/trace overlay. A deployment MUST unbind
+drivers and remove the previous overlay before changing bitstreams, or reboot
+to recover the PS-only baseline. The image-generation step MUST fail for an
+unknown board DTB rather than silently selecting an incompatible configuration.
+
+### [SPEC-ZYNQ-PLATFORM-07] Executable Buildroot hooks
+
+Every script configured as a Buildroot post-build or post-image hook MUST be
+stored as an executable regular file in source control so Buildroot can invoke
+it directly in a fresh checkout. Repository verification MUST reject a
+configured hook that lacks any execute bit.
+
+### [SPEC-ZYNQ-PLATFORM-08] Shared fully preemptible realtime kernel
+
+Every Zynq-7000 Buildroot defconfig MUST consume the shared Linux platform
+configuration fragment. That fragment MUST select the fully preemptible
+PREEMPT_RT model, forced IRQ-threading support, high-resolution timers, and
+PREEMPT_RT softirq synchronization. Specifically, the effective kernel
+configuration MUST contain `CONFIG_PREEMPT_RT=y`,
+`CONFIG_PREEMPT_RT_NEEDS_BH_LOCK=y`, `CONFIG_IRQ_FORCED_THREADING=y`, and
+`CONFIG_HIGH_RES_TIMERS=y`. The softirq synchronization option intentionally
+restores per-CPU bottom-half locking semantics while softirq execution is
+preemptible under PREEMPT_RT.
+
+### [SPEC-ZYNQ-PLATFORM-09] BRAM-first packet storage and explicit DDR modes
+
+The XC7Z020 provides 140 36-Kibit block RAMs (4.9 Mibit, 630 KiB raw total).
+The default bring-up transport MUST use two 128-slot, 64-byte packet FIFOs in
+PL BRAM: 8 KiB ingress and 8 KiB egress. Each FIFO consumes two BRAM36 blocks,
+so both directions consume four of 140 blocks before synthesis overhead. The
+trusted AXI/BRAM path uses the internal TLP integrity profile with a zero footer.
+
+Larger designs MAY select one of two separately identified DDR modes:
+
+1. **HP non-coherent mode:** PL uses `S_AXI_HP0`; memory MUST come from a kernel
+    DMA allocation or a `no-map` reserved region exposed noncached. Cached CPU
+    mappings require the appropriate `dma_sync_*_for_cpu/device()` operations at
+    every ownership transfer. Ordinary cached `/dev/mem` mappings are forbidden.
+2. **ACP coherent mode:** PL uses `S_AXI_ACP` with correct coherent/shareable
+    AXI attributes and a kernel-managed DMA buffer. ACP cache snooping does not
+    replace release/acquire ring ownership barriers. The current DMA RTL lacks
+    the ACP cache/ID attributes and MUST NOT be described as ACP-coherent.
+
+Bitstream and device-tree compatibility metadata MUST identify BRAM, HP, or ACP
+mode; software MUST NOT infer or switch the memory model silently.
+
+### [SPEC-ZYNQ-PLATFORM-10] CppUTest target library
+
+Every supported Zynq Buildroot defconfig MUST select the external
+`BR2_PACKAGE_CPPUTEST` package pinned to CppUTest v4.0. The package MUST install
+CppUTest and CppUTestExt headers/libraries into staging for target test linking;
+it MUST NOT alias the unrelated cpptest or Google Highway libraries.
+
+### [SPEC-ZYNQ-PLATFORM-11] Runtime bitstream loading
+
+Every supported Zynq Buildroot image MUST include `xilinx-fpgautil` so external
+automation can SSH into a PS-only system, load a selected bitstream through
+Linux FPGA Manager, apply its matching device-tree overlay, run tests, and
+collect results without changing the base boot image.
 
 ## Verification
 
 Each supported defconfig MUST contain the userspace and firmware package
 selections above, including both libgpiod package symbols, and reference the
 shared Linux platform configuration fragment. The fragment MUST enable
-`CONFIG_RTW88_8822BU`, `CONFIG_GPIOLIB`, and `CONFIG_GPIO_CDEV`. Buildroot's
+`CONFIG_RTW88_8822BU`, `CONFIG_GPIOLIB`, and `CONFIG_GPIO_CDEV`. Every Zynq
+defconfig MUST select `BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_7_1=y`. Buildroot's
 `O=` output directory MUST remain separate from the Linux and U-Boot source
 directories. The image-generation step MUST select overlay settings from the
 configured board DTB and reject unknown board DTBs. Each supported defconfig
@@ -98,4 +155,10 @@ package symbols.
 Each board device tree MUST expose I²C0 and SPI1 on the specified MIO pins, and
 the merged kernel configuration MUST enable both controllers and `SPI_SPIDEV`.
 The selected SPI1 device MUST identify as `invensense,icm42688` and bind to
-spidev.
+spidev. Every post-build and post-image script referenced by a supported
+defconfig MUST be verified as executable. Every Zynq defconfig MUST reference
+the shared kernel fragment, and its effective kernel configuration MUST retain
+all four realtime options required by `[SPEC-ZYNQ-PLATFORM-08]`.
+The shared BRAM transport configuration MUST synthesize 128 ingress and 128
+egress slots, and every Zynq defconfig MUST select `BR2_PACKAGE_CPPUTEST=y`.
+Every Zynq defconfig MUST also select `BR2_PACKAGE_XILINX_FPGAUTIL=y`.

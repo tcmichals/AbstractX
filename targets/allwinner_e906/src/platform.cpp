@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E907 Platform Hooks & Driver Factories
+ * AbstractX Allwinner XuanTie E906 Platform Hooks & Driver Factories
  */
 
 #include "abstractx/hal/platform.hpp"
@@ -16,10 +16,10 @@
 
 namespace abstractx::hal {
 
-// SPI HAL Adapter for E907
-class E907SpiDriver final : public ISpi {
+// SPI HAL Adapter for E906
+class E906SpiDriver final : public ISpi {
 public:
-    E907SpiDriver() = default;
+    E906SpiDriver() = default;
 
     bool init(const SpiConfig& config) override {
         fc::hal::Spi0::init(config.frequency_hz ? config.frequency_hz : 20'000'000);
@@ -49,7 +49,7 @@ protected:
             req.tx_data.data(),
             req.rx_data.data(),
             len,
-            etl::delegate<void(bool)>::create<E907SpiDriver, &E907SpiDriver::on_dma_done>(*this)
+            etl::delegate<void(bool)>::create<E906SpiDriver, &E906SpiDriver::on_dma_done>(*this)
         );
     }
 
@@ -65,10 +65,10 @@ private:
     }
 };
 
-// UART HAL Adapter for E907
-class E907UartDriver final : public IUart {
+// UART HAL Adapter for E906
+class E906UartDriver final : public IUart {
 public:
-    E907UartDriver() = default;
+    E906UartDriver() = default;
 
     void init(uint32_t baudrate) override {
         fc::hal::Uart2::init(baudrate);
@@ -115,10 +115,10 @@ protected:
     }
 };
 
-// Timer HAL Adapter for E907
-class E907TimerDriver final : public ITimer {
+// Timer HAL Adapter for E906
+class E906TimerDriver final : public ITimer {
 public:
-    E907TimerDriver() = default;
+    E906TimerDriver() = default;
 
     void delay_us(uint32_t us) override {
         ::hal::Timer::delay_us(us);
@@ -146,10 +146,10 @@ protected:
     }
 };
 
-// GPIO HAL Adapter for E907
-class E907GpioDriver final : public IGpio {
+// GPIO HAL Adapter for E906
+class E906GpioDriver final : public IGpio {
 public:
-    E907GpioDriver() = default;
+    E906GpioDriver() = default;
 
     void configure_pin(uint32_t pin, PinMode mode, PinPull pull = PinPull::None) override {
         (void)pin; (void)mode; (void)pull;
@@ -180,25 +180,25 @@ public:
     }
 };
 
-static E907SpiDriver   g_e907_spi;
-static E907UartDriver  g_e907_uart;
-static E907TimerDriver g_e907_timer;
-static E907GpioDriver  g_e907_gpio;
+static E906SpiDriver   g_e906_spi;
+static E906UartDriver  g_e906_uart;
+static E906TimerDriver g_e906_timer;
+static E906GpioDriver  g_e906_gpio;
 
 ISpi& get_spi_driver() noexcept {
-    return g_e907_spi;
+    return g_e906_spi;
 }
 
 IUart& get_uart_driver() noexcept {
-    return g_e907_uart;
+    return g_e906_uart;
 }
 
 ITimer& get_timer_driver() noexcept {
-    return g_e907_timer;
+    return g_e906_timer;
 }
 
 IGpio& get_gpio_driver() noexcept {
-    return g_e907_gpio;
+    return g_e906_gpio;
 }
 
 void platform_init() noexcept {

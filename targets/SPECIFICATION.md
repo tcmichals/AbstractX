@@ -82,14 +82,14 @@ Every target must enforce strict **Execution Domain Separation**:
 > [!IMPORTANT]
 > **Rule 4.2 Violation Rejection**: Any code in `targets/` where an ISR or background worker invokes `coroutine_handle::resume()` directly is strictly prohibited. Doing so causes cross-core race conditions, memory corruption, and cache thrashing.
 
-### 2.1 Replacing `isr_dispatcher`: The Unified `ioProcessor` IP Core (Linux, E907, Pico 2)
+### 2.1 Replacing `isr_dispatcher`: The Unified `ioProcessor` IP Core (Linux, E906, Pico 2)
 
-A foundational architectural principle of AbstractX is that **all target platforms—Linux Host/SBC, Allwinner XuanTie E907, and Raspberry Pi Pico 2 W (RP2350)—execute the EXACT SAME I/O Processor (`ioProcessor`) IP block**.
+A foundational architectural principle of AbstractX is that **all target platforms—Linux Host/SBC, Allwinner XuanTie E906, and Raspberry Pi Pico 2 W (RP2350)—execute the EXACT SAME I/O Processor (`ioProcessor`) IP block**.
 
 #### 2.1.1 Why the Unified `ioProcessor` Replaces `isr_dispatcher`
 In legacy embedded designs, an `isr_dispatcher` pattern was frequently attempted: hardware ISRs attempted to resume coroutine handles directly (`handle.resume()`) or maintain ad-hoc priority queues of coroutine continuation pointers inside interrupt contexts. This legacy model suffers from fatal flaws:
 1. **Stack & Memory Corruption**: Top-half ISRs executing on an interrupt stack cannot safely resume C++20 coroutine frames allocated in user or thread space without triggering stack overflow, priority inversion, or re-entrancy deadlocks.
-2. **Cross-Core Race Conditions**: On dual-core microcontrollers (RP2350 Core 0 / Core 1) or asymmetric multiprocessing (Linux ARM A55 + E907 RISC-V), having ISRs resume coroutines across cores causes severe cache thrashing, pipeline stalls, and data races.
+2. **Cross-Core Race Conditions**: On dual-core microcontrollers (RP2350 Core 0 / Core 1) or asymmetric multiprocessing (Linux ARM A55 + E906 RISC-V), having ISRs resume coroutines across cores causes severe cache thrashing, pipeline stalls, and data races.
 3. **Loss of Portability**: Each silicon target would require its own custom interrupt dispatcher semantics, breaking the portability of flight applications.
 
 In AbstractX, the legacy `isr_dispatcher` is **completely eliminated and replaced** by the unified **`ioProcessor` IP Core**:
@@ -110,18 +110,18 @@ Every target instantiates this identical IP core using its platform-native event
 | Target Silicon | Implementation File | Concrete Class | I/O Pump Mechanism | Hardware Doorbell | Idle Power State |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Linux Target** | `targets/linux/src/io_processor.cpp` | `LinuxIoProcessor` | POSIX `epoll` reactor + worker threads | `eventfd` | `epoll_wait` sleep |
-| **Allwinner E907** | `targets/allwinner_e907/src/io_processor.cpp` | `E907IoProcessor` | Sunxi DMA Engine + PLIC/CLINT ISRs | Hardware `MSGBOX` (IRQ 48/147) | `__asm__ volatile("wfi")` |
+| **Allwinner E906** | `targets/allwinner_e906/src/io_processor.cpp` | `E906IoProcessor` | Sunxi DMA Engine + PLIC/CLINT ISRs | Hardware `MSGBOX` (IRQ 48/147) | `__asm__ volatile("wfi")` |
 | **Pico 2 W (RP2350)** | `targets/pico2w_rp2350/src/io_processor.cpp` | `PicoIoProcessor` | RP2350 DMA Channels + DREQ/GPIO ISRs | Hardware SIO FIFO (`sio_hw->fifo_wr`) | `__asm__ volatile("wfe")` |
 
 #### 2.1.3 The Message Processing Loop & Driver Message Posting
-The dedicated I/O core (Linux worker thread, E907 RISC-V core, or RP2350 Core 0) executes the **Message Processing Loop** (`ioProcessor::run()` or non-blocking `ioProcessor::step()`). All physical hardware drivers hook directly into this message pipeline:
+The dedicated I/O core (Linux worker thread, E906 RISC-V core, or RP2350 Core 0) executes the **Message Processing Loop** (`ioProcessor::run()` or non-blocking `ioProcessor::step()`). All physical hardware drivers hook directly into this message pipeline:
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant Coro as Coroutine Flight Domain (Core 1 / RT Thread)
     participant ReqQ as Egress Request Ring (g_tx_ring: 64B TLPs)
-    participant IoProc as ioProcessor Message Processing Loop (Core 0 / E907 / Linux)
+    participant IoProc as ioProcessor Message Processing Loop (Core 0 / E906 / Linux)
     participant Drivers as Target HAL Drivers (hal_spi, hal_uart, hal_timer)
     participant HW as Hardware Silicon & DMA Controllers
     participant CplQ as Ingress Completion Ring (g_rx_ring: 64B TLPs)
@@ -167,7 +167,7 @@ sequenceDiagram
 4. **Deterministic Bus Lockout**:
    - While an Auto-DMA channel is active on a bus, any manual coroutine request attempting to touch that bus is rejected immediately with `ASP_STATUS_BUS_LOCKED` (0x05) to prevent bus collisions and latency spikes.
 5. **Zero Polling / Zero Busy-Wait**:
-   - 100% ISR and DMA driven. The `ioProcessor` loop enters `wfi` (E907), `__wfe()` (RP2350), or `epoll_wait()` (Linux) when idle.
+   - 100% ISR and DMA driven. The `ioProcessor` loop enters `wfi` (E906), `__wfe()` (RP2350), or `epoll_wait()` (Linux) when idle.
 
 ### 2.2 Industrial IIO Paradigm & Relocatable I/O Processing (Linux / Coprocessor / FPGA)
 
@@ -198,7 +198,7 @@ graph TD
     end
 
     subgraph TOPOLOGY_B["Topology 2: Real-Time Coprocessor Offload (AMP)"]
-        Coprocessor["<b>Coprocessor ioProcessor (Bare-Metal / RTOS)</b><br/>(RP2350 Core 0 / E907 RISC-V / STM32 M4 / ESP32-P4)"]
+        Coprocessor["<b>Coprocessor ioProcessor (Bare-Metal / RTOS)</b><br/>(RP2350 Core 0 / E906 RISC-V / STM32 M4 / ESP32-P4)"]
         SharedSRAM["Shared Banked SRAM / Mailbox Doorbell"]
         Coprocessor_HW["Hard Real-Time ISRs<br/>(Sub-µs DRDY Edge, SPI DMA, I2C Master)"]
         Coprocessor --> Coprocessor_HW
@@ -237,8 +237,8 @@ graph TD
 
 | Feature | Topology 1: Native Linux IIO | Topology 2: Coprocessor Offload (AMP) | Topology 3: FPGA Hardware Offload |
 | :--- | :--- | :--- | :--- |
-| **I/O Engine Execution** | Linux User-Space Reactor (`targets/linux/`) | Dedicated Coprocessor (`pico2w_rp2350`, `allwinner_e907`, `esp32p4`) | FPGA Logic Fabric / Soft-Core (Zynq, Cyclone V, PCIe) |
-| **Typical Silicon** | Standard Linux SBC (CM4, BeagleBone, x86_64 SITL) | Heterogeneous SoCs (Cortex-A55 + E907 Pure Silicon on Radxa Cubie A5E, RP2350, ESP32-P4) | FPGA SoC / Offloader (Radxa Cubie A5E + FPGA X-Fabric, Zynq-7000, Gowin Tang) |
+| **I/O Engine Execution** | Linux User-Space Reactor (`targets/linux/`) | Dedicated Coprocessor (`pico2w_rp2350`, `allwinner_e906`, `esp32p4`) | FPGA Logic Fabric / Soft-Core (Zynq, Cyclone V, PCIe) |
+| **Typical Silicon** | Standard Linux SBC (CM4, BeagleBone, x86_64 SITL) | Heterogeneous SoCs (Cortex-A55 + E906 Pure Silicon on Radxa Cubie A5E, RP2350, ESP32-P4) | FPGA SoC / Offloader (Radxa Cubie A5E + FPGA X-Fabric, Zynq-7000, Gowin Tang) |
 | **Transport Medium** | POSIX `eventfd` + `etl::queue_spsc_isr` | Shared Banked SRAM / Hardware Mailbox FIFO | AXI DMA / PCIe BAR Memory Window (`pcie_bar_map.hpp`) |
 | **DRDY Latency & Jitter** | ~5–25 µs (Kernel TTY / gpiod epoll jitter) | **Deterministic sub-microsecond (&lt; 500 ns)** | **Zero-jitter hardware clock (&lt; 10 ns)** |
 | **Bus Parallelism** | Worker threads (`SpiWorker`, `I2cWorker`) | Hardware DMA channels running independently | Fully parallel FPGA hardware state machines |
@@ -333,10 +333,10 @@ sequenceDiagram
 > **Zero Polling & Zero Busy-Wait Invariant**:
 > Every hardware peripheral in AbstractX (`hal_spi`, `hal_uart`, `hal_timer`, `hal_pio`, `hal_mailbox`) **MUST be 100% ISR-driven or DMA-based**.
 >
-> 1. **SPI**: High-speed transfers must use hardware DMA channels (e.g. Sunxi DMAC DRQ 22 on Allwinner E907, RP2350 DMA with `spi_get_dreq` on Pico 2). Manual byte-by-byte FIFO polling loops (`while (!(SPI_ISR & TC))`) are **strictly prohibited**.
+> 1. **SPI**: High-speed transfers must use hardware DMA channels (e.g. Sunxi DMAC DRQ 22 on Allwinner E906, RP2350 DMA with `spi_get_dreq` on Pico 2). Manual byte-by-byte FIFO polling loops (`while (!(SPI_ISR & TC))`) are **strictly prohibited**.
 > 2. **UART**: Serial transmission and reception must be completely non-blocking. Transmit uses TX FIFO empty interrupts or DMA TX; receive uses circular DMA or Receiver Timeout (RTO) interrupts (`IIR == 0x0C`) draining into lock-free SPSC rings. Busy loops (`while (!(UART_LSR & TX_EMPTY))`) are **strictly prohibited**.
 > 3. **Timer & Delays**: Waiting must be asynchronous (`co_await timer.sleep_ms_async(...)`) using hardware timer interrupts (`MTIP` / alarms) to resume coroutines. Spinning loops (`while ((now - start) < delay) { asm("nop"); }`) are **strictly prohibited**.
-> 4. **CPU Idle State**: When no coroutines are ready and no I/O is pending, the CPU core **must execute low-power wait-for-interrupt/event instructions** (`wfi` on RISC-V XuanTie E907, `__wfe()` on ARM Cortex-M33 RP2350), never an active spinning loop.
+> 4. **CPU Idle State**: When no coroutines are ready and no I/O is pending, the CPU core **must execute low-power wait-for-interrupt/event instructions** (`wfi` on RISC-V XuanTie E906, `__wfe()` on ARM Cortex-M33 RP2350), never an active spinning loop.
 
 ---
 
@@ -420,14 +420,14 @@ Bytes 16..43: Reserved / padding
 
 #### 3.1.3 Asynchronous Ingress Pin Interrupt Event TLP (`DMA_Stream` / `CH_EVENT`):
 When a configured GPIO edge ISR (Positive, Negative, or Both) fires on hardware:
-1. **Top-Half ISR Latches Timestamp**: The physical ISR (`fc_gpio_drdy_isr()` on E907, `gpio_set_irq_enabled_with_callback()` on RP2350) reads the hardware monotonic timer (`time_us_64() * 1000ULL` on RP2350, `rdcycle()` on E907) at the microsecond/nanosecond edge transition.
+1. **Top-Half ISR Latches Timestamp**: The physical ISR (`fc_gpio_drdy_isr()` on E906, `gpio_set_irq_enabled_with_callback()` on RP2350) reads the hardware monotonic timer (`time_us_64() * 1000ULL` on RP2350, `rdcycle()` on E906) at the microsecond/nanosecond edge transition.
 2. **Generates Event TLP**: Constructs a 64-byte event TLP:
    - `Type`: `0x02` (`MemWrite` / `StreamTx`) or `0x10` (`DMA_Stream`)
    - `Channel`: `0x08` (`ASP_CHANNEL_GPIO_BRIDGE`)
    - `Target Address`: `0x4000081C` (`ASP_GPIO_REG_IRQ_STATUS`)
    - `Timestamp`: Latched 64-bit nanosecond timestamp
    - `Payload`: Populated with `asp_tlp_gpio_cpl_header_t` (`pin`, `level`, `edge_detected=1/2`, `timestamp_ns`).
-3. **Pushes to Ring Buffer & Rings Doorbell**: Pushes directly into `ingress_rx_ring` and fires the hardware doorbell (`sio_hw->fifo_wr` on RP2350, `MSGBOX` channel 0 on E907) to wake up the Flight/Coroutine domain.
+3. **Pushes to Ring Buffer & Rings Doorbell**: Pushes directly into `ingress_rx_ring` and fires the hardware doorbell (`sio_hw->fifo_wr` on RP2350, `MSGBOX` channel 0 on E906) to wake up the Flight/Coroutine domain.
 4. **Zero Polling & Zero Coroutine Invocation**: The top-half ISR **never calls `.resume()`** and never executes a busy loop. It halts or exits immediately, allowing idle cores to enter `wfe` or `wfi`.
 
 ---
