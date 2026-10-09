@@ -7,6 +7,9 @@
 //
 // Converts 512-bit (64-Byte) TLP commands (MemRd=0x01, MemWr=0x02) into Wishbone cycles.
 // Generates CplD (Type=0x03) 64-byte completion TLPs for MemRd requests.
+// Supports multi-register burst writes (tlp_len up to 9 DWORDs) across consecutive Wishbone addresses.
+//
+// @impl [SPEC-TLP-04] rtl/asp_wishbone_master.sv
 module asp_wishbone_master (
     input  wire         clk,
     input  wire         rst_n,
@@ -57,6 +60,8 @@ module asp_wishbone_master (
     logic [63:0] tlp_ts;
     logic [31:0] write_data_latch;
     logic [31:0] read_data_latch;
+    logic [31:0] payload_words [0:8];
+    logic [3:0]  burst_idx;
 
     assign wb_sel_o = 4'hF; // 32-bit word select
 
@@ -73,6 +78,8 @@ module asp_wishbone_master (
             wb_dat_o         <= 32'd0;
             write_data_latch <= 32'd0;
             read_data_latch  <= 32'd0;
+            burst_idx        <= 4'd0;
+            for (int i = 0; i < 9; i++) payload_words[i] <= 32'd0;
             tlp_type         <= 8'd0;
             tlp_tag          <= 8'd0;
             tlp_channel      <= 8'd0;
@@ -92,6 +99,7 @@ module asp_wishbone_master (
                     wb_cyc_o     <= 1'b0;
                     wb_stb_o     <= 1'b0;
                     s_tlp_tready <= 1'b1;
+                    burst_idx    <= 4'd0;
 
                     if (s_tlp_tvalid && s_tlp_tready) begin
                         s_tlp_tready     <= 1'b0;
@@ -102,19 +110,30 @@ module asp_wishbone_master (
                         tlp_len          <= s_tlp_tdata[447:432]; // DW2: Length DW
                         tlp_seq          <= s_tlp_tdata[431:416]; // DW2: Sequence
                         tlp_ts           <= s_tlp_tdata[415:352]; // DW3-4: Timestamp
-                        write_data_latch <= s_tlp_tdata[351:320]; // DW5: Write data payload
+                        write_data_latch <= s_tlp_tdata[351:320]; // DW5: Write data payload (DWORD 0)
+                        
+                        payload_words[0] <= s_tlp_tdata[351:320]; // DW5
+                        payload_words[1] <= s_tlp_tdata[319:288]; // DW6
+                        payload_words[2] <= s_tlp_tdata[287:256]; // DW7
+                        payload_words[3] <= s_tlp_tdata[255:224]; // DW8
+                        payload_words[4] <= s_tlp_tdata[223:192]; // DW9
+                        payload_words[5] <= s_tlp_tdata[191:160]; // DW10
+                        payload_words[6] <= s_tlp_tdata[159:128]; // DW11
+                        payload_words[7] <= s_tlp_tdata[127:96];  // DW12
+                        payload_words[8] <= s_tlp_tdata[95:64];   // DW13
                         state            <= ST_DECODE;
                     end
                 end
 
                 ST_DECODE: begin
                     if (tlp_type == TYPE_MEM_WR) begin
-                        wb_adr_o <= tlp_addr;
-                        wb_dat_o <= write_data_latch; // Latch preserved from ST_IDLE
-                        wb_we_o  <= 1'b1;
-                        wb_cyc_o <= 1'b1;
-                        wb_stb_o <= 1'b1;
-                        state    <= ST_WB_WRITE;
+                        wb_adr_o  <= tlp_addr;
+                        wb_dat_o  <= payload_words[0];
+                        wb_we_o   <= 1'b1;
+                        wb_cyc_o  <= 1'b1;
+                        wb_stb_o  <= 1'b1;
+                        burst_idx <= 4'd0;
+                        state     <= ST_WB_WRITE;
                     end else if (tlp_type == TYPE_MEM_RD) begin
 
                         wb_adr_o <= tlp_addr;
@@ -129,9 +148,17 @@ module asp_wishbone_master (
 
                 ST_WB_WRITE: begin
                     if (wb_ack_i) begin
-                        wb_cyc_o <= 1'b0;
-                        wb_stb_o <= 1'b0;
-                        state    <= ST_IDLE;
+                        if ((burst_idx + 4'd1 < tlp_len[3:0]) && (burst_idx < 4'd8)) begin
+                            burst_idx <= burst_idx + 4'd1;
+                            wb_adr_o  <= wb_adr_o + 32'd4;
+                            wb_dat_o  <= payload_words[burst_idx + 4'd1];
+                            wb_cyc_o  <= 1'b1;
+                            wb_stb_o  <= 1'b1;
+                        end else begin
+                            wb_cyc_o <= 1'b0;
+                            wb_stb_o <= 1'b0;
+                            state    <= ST_IDLE;
+                        end
                     end
                 end
 

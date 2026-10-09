@@ -7,8 +7,8 @@
       "display_name": "Raspberry Pi Pico 2 W (Dual Cortex-M33)",
       "platform": "rp2350",
       "architecture": "arm_cortex_m33",
-      "binary_path": "build-pico2w/apps/gps_imu_app/gps_imu_app.elf",
-      "map_path": "build-pico2w/apps/gps_imu_app/gps_imu_app.elf.map",
+      "binary_path": "build_pico2w/apps/gps_imu_app/gps_imu_app.elf",
+      "map_path": "build_pico2w/apps/gps_imu_app/gps_imu_app.elf.map",
       "ram_budget_bytes": 524288,
       "flash_budget_bytes": 4194304,
       "max_allowed_growth_bytes": 4096
@@ -29,7 +29,7 @@
       "display_name": "Desktop SITL Simulation (Host Linux)",
       "platform": "linux_host",
       "architecture": "x86_64",
-      "binary_path": "build-host/apps/gps_imu_app/gps_imu_app",
+      "binary_path": "build_host/apps/gps_imu_app/gps_imu_app",
       "ram_budget_bytes": 16777216,
       "flash_budget_bytes": 33554432,
       "max_allowed_growth_bytes": 16384

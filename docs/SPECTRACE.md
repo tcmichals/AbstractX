@@ -1,6 +1,25 @@
 # SpecTrace: Autonomous Closed-Loop Architecture & Invariant Engineering
 
-**SpecTrace** is the architectural framework governing development in AbstractX. It bridges high-assurance aerospace requirement traceability (DO-178C Level A / NASA NPR 7150.2) with modern AI agentic reflection (Verbal Reinforcement Learning / Reflexion).
+**SpecTrace** is the engineering-assurance framework governing development in AbstractX. It is inspired by high-assurance aerospace traceability practices, including DO-178C and NASA NPR 7150.2, and combines them with AI-assisted review and executable verification.
+
+### `[SPEC-AUDIT-04]` Assurance Target and Certification Boundary
+* AbstractX's target is an internal, evidence-backed engineering assurance
+    profile: requirements are explicit and traceable, changes receive scoped
+    review, and module verification results are reproducible.
+* References to DO-178C Level A or NASA NPR 7150.2 describe the rigor that
+    informs this process; they MUST NOT be represented as proof of compliance,
+    approval, or certification. A successful SpecTrace audit is a project quality
+    gate, not certification evidence by itself.
+* AbstractX currently applies its own freestanding C++20 rules and may map
+    selected MISRA C++ or CERT C++ guidance into future checks. ETL is an embedded
+    C++ library used by the project, not a coding standard, and its use MUST NOT be
+    presented as MISRA/CERT conformance. Any conformance claim requires naming the
+    exact standard edition and adopted rules, using a suitable analyzer, and
+    maintaining a documented deviation/waiver process.
+* Any future certification objective MUST be established by the responsible
+    system safety/certification authority and separately address applicable
+    planning, independence, coverage, configuration management, tool qualification,
+    and objective evidence requirements.
 
 ---
 
@@ -97,6 +116,54 @@ An independent Critic persona evaluates code and specifications across 6 strict 
 
 ```bash
 python3 tools/run_adversarial_audit.py --all
+```
+
+### `[SPEC-AUDIT-01]` Module-Scoped Audit Inputs
+* The default audit scope MUST be the current staged, unstaged, and untracked
+    changes; it MUST NOT recursively audit unrelated targets or generated output.
+* `--path <module>` MUST audit only the explicitly selected module path and its
+    Markdown and production source files. `--related-path <path>` MAY be repeated
+    to add associated tests or shared-interface contracts stored elsewhere. Linux
+    host sources are excluded from default and `--all` scans; selecting
+    `targets/linux` explicitly is the opt-in to audit that target.
+* `--base-ref <ref>` MUST add the committed merge-base diff against `<ref>` to
+    the working-tree changes. `--all` MUST remain an explicit sweep of maintained
+    project modules and MUST prune build, vendor, and generated-output directories.
+* Requirement-tag indexing MUST use maintained production source roots and MUST
+    not load generated Buildroot/kernel/toolchain trees.
+
+### `[SPEC-AUDIT-02]` Bounded AI Review Context
+* The audit CLI MUST be able to emit an AI-review prompt containing the selected
+    module scope, relevant spec/source/test paths, and review instructions for
+    severity-ranked, evidence-backed findings. It MUST NOT claim that static
+    checks prove correctness or replace module tests and human review.
+* AI review MUST stay within the selected module unless cross-module interfaces
+    are named as dependencies; unrelated Linux host code MUST NOT be pulled into
+    the context by default.
+
+### `[SPEC-AUDIT-03]` Foldable Audit Tool Sections
+* The Python audit tool MUST group its CLI, scope selection, and invariant stages
+    with named VS Code-recognized folding regions so maintainers can navigate each
+    audit stage independently.
+
+### `[SPEC-AUDIT-05]` Canonical Cross-Agent Review Command
+* Copilot, Antigravity, and terminal users MUST share one repository command for
+    the module review workflow: `python3 tools/spectrace.py --review`.
+* The command MUST accept the module path, repeatable related test/contract paths,
+    an optional Git base ref, and explicit full-sweep/Linux opt-ins. It MUST invoke
+    the same scoped invariant auditor and preserve its exit status.
+* The command MUST emit the bounded AI-review prompt by default; disabling the
+    prompt MUST NOT skip static checks. Agent-specific prompts and rules MUST call
+    this same command rather than implementing competing audit logic.
+
+```mermaid
+flowchart LR
+        Change[Changed files or explicit module] --> Scope[Scoped file selection]
+        Scope -->|Exclude by default| Noise[Linux host and generated/vendor trees]
+        Scope --> Static[Static invariant checks]
+        Scope --> Prompt[Bounded AI review prompt]
+        Static --> Review[Module report with test pointers]
+        Prompt --> Review
 ```
 
 ### Stage 4: Autonomous Closed-Loop Learning Gate
@@ -212,11 +279,64 @@ Traditional code quality tools (Clang-Tidy, Cppcheck, SonarQube, Coverity) analy
 
 ---
 
-## 6. Tooling Reference
+## 6. Continuous SpecTrace Embedded Dashboard & Observability
+
+Just as **Static Memory Footprint Tracking** (`tools/track_memory_footprint.py`) continuously monitors `.text`, `.rodata`, `.data`, and `.bss` allocations commit-by-commit to prevent RAM/Flash bloat, AbstractX applies this exact continuous tracking paradigm to **Specification Parity and Invariant Verification**:
+
+```text
+==============================================================================
+ AbstractX SpecTrace Embedded Dashboard & Verification Matrix
+==============================================================================
+ Commit:  4a25c32 (main) - fix: finalize E906 and Zynq integration review
+ Timestamp: 2026-10-09T15:45:47+00:00
+------------------------------------------------------------------------------
+ Specification Parity:    25 / 25 specs (100.0%) [● Stable]
+ Adversarial Invariants:  8 / 8 passed [PASS] [● Stable]
+ Test Suite Runtime:      235.1 ms (+25.8 ms vs prev)
+ Dynamic Heap Budget:     0 B (Verified Freestanding)
+------------------------------------------------------------------------------
+ Trend Verdict:           STABLE - All invariants and specifications preserved (100% parity).
+==============================================================================
+```
+
+### Answering: *"Are We Getting Better Over Time?"*
+Executed via `python3 tools/track_quality_trends.py`, the embedded dashboard engine:
+1. **Aggregates Specification Metrics**: Measures total requirements, implemented count, and drift count commit-over-commit.
+2. **Measures Invariant Regressions & Execution Speed**: Runs the adversarial invariant test suite, recording test counts and suite runtime in milliseconds.
+3. **Ingests Embedded Static Memory Metrics**: Ensures zero dynamic heap violations ($0\text{ B}$ heap) and SRAM/Flash boundaries across target ELF binaries.
+4. **Maintains Historical Time Series**: Emits `tools/visualizer/quality_trends.json` for rendering in AbstractX Studio.
+5. **Evaluates Trend Direction**: Automatically flags whether changes `IMPROVED`, remained `STABLE`, or `REGRESSED`.
+6. **Maintains Living Git Profile**: Updates `docs/verification/RUNNING_PROFILE.md` with ASCII gauges and Mermaid charts.
+
+---
+
+## 7. Tooling Reference
 
 * `tools/spectrace.py`: Master CLI for full round-trip synchronization, status reporting, and adversarial audits.
+* `tools/track_quality_trends.py`: SpecTrace Continuous Quality & Embedded Observability Dashboard.
+* `tools/track_memory_footprint.py`: Static RAM/Flash section footprint & zero-heap symbol auditor.
 * `tools/sync_code_to_spec.py`: Reverse-sync engine pushing new C++/RTL functions and contracts back into specifications.
 * `tools/audit_specs.py`: Bidirectional grand traceability checker.
 * `tools/run_adversarial_audit.py`: 6-stage adversarial invariant analyzer.
 * `tools/log_mistake.py`: Automated generator and logger for `engineering_log.md`.
 * `tools/create_app_spec.py`: Scaffold new applications with compliant `SPECIFICATION.md`.
+
+---
+
+## 8. Architectural Positioning: HW/SW Co-Design & EDA Toolchains
+
+Recent EDA initiatives (such as AMD Vivado AI research and Synopsys.ai Copilot) explore *"RAG-based knowledge bases to assist Agentic AI"* in digital hardware design. Commercial EDA tools excel at deep silicon compilation, technology mapping, timing closure, and hardware DRCs.
+
+SpecTrace complements these EDA engines by addressing the critical **hardware/software systems boundary**:
+
+1. **Deterministic Symbolically-Anchored Knowledge Base (SSOT / MBSE)**:
+   Replaces fuzzy text chunking with structured, machine-parseable Markdown specifications (`[SPEC-*]`), memory maps, and register schemas that unify firmware and RTL.
+2. **Bi-directional Requirement Traceability (RTM)**:
+   Complies with DO-178C and DO-254 standards via `// @impl [SPEC-*]` source tags verified continuously across both C++20 software and SystemVerilog RTL by `tools/audit_specs.py`.
+3. **Shift-Left Formal Policy Gating (SL-FPG)**:
+   Catches interface drift, 0-heap violations, and 64B wire framing defects in < 250 ms before initiating synthesis or simulation runs.
+4. **Reflexive Closed-Loop Learning (Actor-Critic-Chronicler)**:
+   Enforces that specifications and episodic memory (`engineering_log.md`) are hardened *first* upon any silicon or interface defect.
+
+*(For detailed architectural breakdown and comparison matrix, see [Deterministic HW/SW Co-Design: Structuring Knowledge Bases for Agentic AI in FPGA & Embedded Systems](./articles/AGENTIC_AI_AND_RAG_COMPARISON.md).)*
+

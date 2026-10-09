@@ -33,17 +33,105 @@ AbstractX executes a 4-step autonomous closed-loop architecture:
 > 📖 **Read the Full Deep-Dive**: [**Architectural Design Philosophy: Pros, Cons & RTOS Comparison**](docs/PROS_CONS.md)
 
 AbstractX is **not a flight controller**; it is an **embedded design pattern** that brings **linear, sequential async programming with an ultra-small memory footprint** to embedded systems:
-* **Single Stack vs RTOS Multi-Stack Bloat**: Traditional RTOSes lock 2–8 KB of RAM in every task stack. AbstractX runs the entire core on a single 1–2 KB execution stack and tiny ~96-byte coroutine frames (up to 95% RAM savings).
-* **Bare-Metal or RTOS Hosted**: Runs bare-metal, or inside a *single* FreeRTOS/Linux thread to multiplex dozens of cooperative async tasks without thread bloat.
-* **Beyond Protothreads**: Replaces callback spaghetti and Duff's device C macros with modern C++20 `co_await`, preserving local variables across yields with full compile-time type safety.
-* **First-Class Telemetry**: Solves the classic cooperative debugging problem with built-in barectf CTF 1.8 and AbstractX Studio visual Gantt execution timelines.
+## 🚀 The Vision: Emulating a Massive PCIe Fabric for Embedded Silicon
 
+AbstractX is built around a single, game-changing architectural concept: **What if your entire embedded system behaved like a massive PCIe bus topology with switches, endpoints, and transaction packets?**
 
-AbstractX is a **hardware-software co-design architecture** for real-time aerospace, robotics, and embedded systems. It applies a single, unified concurrency paradigm symmetrically across **FPGA switch fabrics, real-time coprocessors, bare-metal microcontrollers, and Linux hosts**.
+In high-performance servers, CPUs do not wire point-to-point bespoke GPIOs or poll blocking hardware buses; they communicate across a **packet-switched PCIe fabric** using standardized **Transaction Layer Packets (TLPs)** routed through **PCIe Switches** to dedicated IP endpoints.
 
-By pairing **C++20 stackless coroutines** with **hardware auto-DMA engines and PCIe-style Transaction Layer Packets (TLPs)**, AbstractX eliminates the two classic failure modes of real-time embedded software:
-1. **Fragmented Callback State Machines**: Replacing brittle switch-cases, global volatile flags, and timer modulus prescalers with clean, linear, sequential coroutines.
-2. **Preemptive RTOS Thread Proliferation**: Replacing multiple OS task stacks, cache-thrashing context switches, and mutex priority inversions with a deterministic, statically allocated cooperative task graph operating with **0 bytes of dynamic heap allocation**.
+AbstractX brings this exact data-center computing model to microcontrollers, coprocessors, and FPGAs:
+* **The Fabric**: Standardized 64-byte TLPs flowing across lock-free SPSC rings (in shared SRAM, over SPI, or through FPGA AXI-Stream crossbars).
+* **The Switch**: The I/O Processor (RP2350 Core 0, XuanTie E906 RISC-V, or FPGA `asp_router.sv`) acts as the **PCIe Switch**, decoding virtual BAR addresses and channel tags to forward transactions directly to downstream IP blocks (UART, DMA, SPI, GPIO/LED).
+* **The Endpoints**: Hardware peripherals (IMU Auto-DMA, ESC controllers, LEDs) appear as clean endpoints on a virtual PCIe bus.
+* **Split Transactions**: Application loops never wait for slow physical hardware clocking; they fire non-blocking posted writes (`MemWrite`) or await tagged completions (`CplD`).
+
+### 💡 The Goal: Limiting Memory & Maximizing Processor Speed
+Traditional embedded architectures often rely on a Real-Time Operating System (RTOS) and spawn separate threads for every sensor and I/O bus. While an RTOS is a powerful, proven tool, the "thread-per-bus" approach inherently requires dedicating 2–4 KB of SRAM per task and consumes hundreds of clock cycles for every OS context switch.
+
+AbstractX achieves extreme concurrency differently by introducing the **Coroutine-Native HAL**. Inspired by high-performance server paradigms (like Boost.Asio or epoll), it brings event-driven deterministic scheduling to bare-metal. By replacing OS threads with C++20 compiler-generated state machines, AbstractX achieves two fundamental hardware goals:
+1. **Limit Memory Usage**: A suspended coroutine frame consumes less than 100 bytes of static memory (in `.bss`), running the entire system on a single shared 2 KB stack. It enforces **0 bytes of dynamic heap allocation**.
+2. **Maximize Processor Speed**: By removing OS preemption, a context switch becomes a direct 15-cycle function pointer jump. Because the CPU never spins in blocking `while(busy)` loops, 100% of the processor's clock cycles are dedicated to useful work (like AHRS matrix math), extracting maximum theoretical throughput from the silicon.
+
+### 💡 The "Middle Ground": Defeating Vendor SDK & RTOS Bloat
+Modern RTOSes (like **Zephyr**) attempt to fix thread bloat using event-driven "Workqueues". However, this forces developers into a painful compromise: write unreadable callback spaghetti to save memory, or spawn heavy threads to get readable, linear code. Furthermore, vendor-provided RTOS environments (like the **Allwinner SDK for the E906 RISC-V core**) often introduce massive binary footprints that suffocate tight silicon.
+
+AbstractX occupies the perfect **"Middle Ground"**: It provides the extreme, ultra-low memory footprint of raw bare-metal callbacks, but delivers the linear, highly-concurrent readability of a modern RTOS thread. AbstractX can run entirely bare-metal to replace a bloated vendor SDK, or it can drop smoothly inside a *single* Zephyr/FreeRTOS thread to handle ultra-high-speed sensor fusion without exhausting the system's memory budget.
+
+### 🧭 The Zephyr Developer's Rosetta Stone
+
+If you are coming from **Zephyr RTOS**, the concepts in AbstractX map directly to the tools you already know—elevated with modern C++20 language features and hardware synthesis:
+
+| Zephyr Concept | AbstractX Equivalent | Key Difference & Advantage |
+| :--- | :--- | :--- |
+| **Workqueue (`k_work_q`)** | **`abstractx::step()` Event Loop** | Single cooperative loop; runs the entire system on a shared 2 KB stack with zero heap allocation. |
+| **Work Item (`k_work`) & Callback** | **C++20 Coroutine (`Task<T>`)** | **No callback spaghetti**: instead of breaking algorithms into `void (*handler)(struct k_work*)`, C++20 `co_await` preserves local state and reads as a sequential, linear function. |
+| **Message Queue (`k_msgq`)** | **Lock-Free SPSC Ring (`AsyncQueue`)** | Single-Producer Single-Consumer static lock-free circular ring; zero mutexes, zero kernel critical sections, ISR/DMA-safe. |
+| **Zephyr Bus (`zbus`)** | **64-Byte TLP + Switch Fabric** | `zbus` is a pure **software-in-RAM** pub/sub bus passing C structs. AbstractX's **TLP** is a **hardware-synthesizable, PCIe-style data plane** (20B header, 40B payload, 4B CRC32) routable across FPGA crossbars, shared SRAM, and DMA. |
+| **Thread Sleep (`k_sleep`)** | **Async Yield (`co_await timer.sleep()`)** | Never blocks the CPU or yields thread context; simply registers a timestamp deadline and returns execution to the event loop. |
+
+#### Does Zephyr Have a TLP-like Structure?
+**No.** While Zephyr provides `zbus` for intra-MCU pub/sub messaging and `net_buf` for network packets, these are **pure software abstractions** bound to the local processor's memory space. 
+In contrast, the AbstractX **64-byte TLP (Transaction Layer Packet)** is a **unified hardware-software bus routing data plane**:
+* **PCIe Switch Architecture on the I/O Processor**: The I/O Processor (whether Core 0 on RP2350, XuanTie E906 RISC-V, or an FPGA crossbar) functions as an **on-silicon PCIe Root Complex / PCIe Switch**. The Application Processor does not invoke ad-hoc RPCs or poke physical peripheral registers; it emits standard bus TLPs. The I/O Processor inspects the routing header (`channel`, `target_address`, `tag`) and **forwards the transaction directly to the actual hardware IP block** (UART IP, SPI DMA engine, I2C core, GPIO/LED controller).
+* **Virtual BAR Address Map**: Just like PCIe endpoints behind a PCIe switch, peripherals occupy a standardized virtual BAR address map (`bar::LedBase`, `bar::SerialBase`, `bar::ImuBase`, `bar::EscBase`).
+* **Synthesizable in Hardware**: The exact same 64-byte routing logic synthesizes into an FPGA AXI-Stream switch fabric (`rtl/asp_router.sv`) with nanosecond hardware timestamps, split-transaction completions (`CplD`), and hardware CRC32.
+* **Silicon-Agnostic Wire Framing**: Moves across cores via zero-copy shared SRAM rings, over physical SPI/UART busses, or directly into high-speed DMA burst engines without any CPU serialization or software `memcpy`.
+
+### 💡 Asymmetric Multiprocessing (AMP) & The "PCIe Switch" I/O Architecture
+For extreme performance, AbstractX completely decouples application math (AHRS / Flight Control) from hardware peripheral manipulation using **Asymmetric Multiprocessing (AMP)** communicating over lock-free **SPSC Rings** and **64-byte TLPs**:
+* **The App Processor (Core 1 / Linux)**: Runs linear high-speed estimation and flight control algorithms. When it needs to interact with hardware (e.g. transmit an ESC serial command, read a sensor register, or toggle an LED), it constructs a 64-byte TLP and pushes it into the ring.
+* **The I/O Processor (Core 0 / RISC-V / FPGA)**: Acts as the **PCIe Switch / Bus Master**. It consumes TLPs from the ring, decodes the target endpoint from the virtual BAR map or channel ID, and routes the transaction directly onto the destination IP core (UART, SPI DMA, GPIO). If a read is requested, it routes a completion TLP (`CplD`) back to the App Processor.
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│                   APPLICATION PROCESSOR (Core 1 / Linux)               │
+│         High-Speed Sensor Fusion Loop / Flight Control Math            │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ 64-Byte TLP (target_address, tag)
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                 LOCK-FREE SPSC RING (Shared SRAM / Mailbox)            │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Dequeue TLP
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│          I/O PROCESSOR (Core 0 / XuanTie E906 / asp_router.sv)         │
+│                        [ PCIe SWITCH / ROUTER ]                        │
+│   Decodes Channel & BAR Address ────────► Routes to Downstream IP      │
+└───┬───────────────────────────────┬──────────────────────────────┬─────┘
+    │                               │                              │
+    ▼                               ▼                              ▼
+┌────────────────┐          ┌────────────────┐             ┌────────────────┐
+│  UART / ESC IP │          │  SPI / DMA IP  │             │  GPIO / LED IP │
+│  (bar::EscBase)│          │  (bar::ImuBase)│             │  (bar::LedBase)│
+└────────────────┘          └────────────────┘             └────────────────┘
+```
+
+### 💡 Why Traditional RTOSes (and Zephyr) Miss Distributed Multi-Processor I/O
+
+Modern SoCs are inherently asymmetric (e.g. Raspberry Pi Pico 2 dual-core RP2350, ESP32-P4 dual RISC-V, Allwinner Radxa Cubie A5E Linux + XuanTie E906 RISC-V, or Zynq ARM + FPGA). Yet traditional RTOSes were conceived for a **single monolithic CPU executing local driver APIs**.
+
+When developers need to run I/O on a secondary processor in Zephyr:
+1. **The Zephyr Approach (The RPC Trap)**:
+   * Zephyr requires running an independent kernel instance on each core.
+   * To interact with hardware on Core 0 from Core 1, Zephyr relies on **OpenAMP / RPMsg**.
+   * The developer must invent a custom serialization layer, write manual endpoint message handlers, and bridge byte buffers into driver API calls (`uart_tx`, `gpio_pin_set`).
+   * **Result**: Massive memory footprint (two full RTOS kernel stacks), heavy serialization overhead, and fragmented, brittle application glue code.
+
+2. **The AbstractX Approach (The Distributed PCIe Bus Fabric)**:
+   * AbstractX recognizes that **I/O should not be bound to the application CPU**.
+   * Because the entire interconnect is an emulated **PCIe Bus with a Virtual BAR Map**, the Application Processor has **zero knowledge of where the physical peripheral pins live**.
+   * Whether an ESC UART or IMU SPI peripheral is on-chip, routed to Core 0, running on an external RISC-V coprocessor, or synthesized into an FPGA crossbar:
+     * The App Processor simply emits a 64-byte `MemWrite` or `MemRead` TLP to `bar::EscBase` or `bar::ImuBase`.
+     * The **I/O Processor acts as the PCIe Switch**: it drains the ring, decodes the BAR address, and forward-dispatches the transaction directly into the destination hardware IP.
+   * **Result**: Zero serialization code, zero RPC boilerplate, zero dual-OS memory bloat, and total silicon portability.
+
+### 💡 The Crown Jewel: Polymorphic I/O (C++ to SystemVerilog)
+Because the boundary between the App Processor and the I/O Processor is a standardized 64-byte TLP lock-free ring, the I/O layer is completely **Polymorphic**. You can scale your architecture seamlessly:
+1. **Tier 1 (MCU C++ Coroutines)**: The I/O Processor runs C++20 coroutines on a secondary microcontroller core (e.g., Pico 2 Core 0 or ESP32-P4 Core 0), dispatching to chip peripherals.
+2. **Tier 2 (FPGA SystemVerilog)**: The exact same I/O design pattern drops into Silicon on an FPGA (e.g., Zynq 7000, Gowin). The C++ I/O coroutines are replaced by the hardware crossbar switch fabric (`asp_router.sv`) and hardware state machines.
+
+To the Application Processor, a C++ coroutine I/O switch and a SystemVerilog hardware crossbar look identical. Both are formally verified by the **SpecTrace AI Anti-Drift Engine** to guarantee 100% architectural compliance.
 
 ---
 
@@ -62,7 +150,8 @@ By pairing **C++20 stackless coroutines** with **hardware auto-DMA engines and P
 > 2. **Target B (FPGA RTL)**: Autonomous SystemVerilog Auto-DMA state machine, hardware DRDY pin trigger, and 9.57 µs doorbell.
 > 3. **SpecTrace Closed-Loop**: 6-stage automated adversarial invariant verification and 100% grand traceability ([`docs/SPECTRACE.md`](docs/SPECTRACE.md)).
 > 4. **Dual Verification**: 100% pass rate across CppUTest SITL suites (under 3 ms) and Cocotb Verilator co-simulations.
-> 5. **AbstractX Studio GUI (Dear ImGui Bundle)**: Real-time 120 FPS hardware-software observability suite mirroring both pipelines identically over UDP port 9870.
+> 5. **Continuous Running Profile in Git**: Immutable target memory footprints (MemBrowse), 16 verified examples, and quality trends tracked commit-over-commit ([`docs/verification/RUNNING_PROFILE.md`](docs/verification/RUNNING_PROFILE.md)).
+> 6. **AbstractX Studio GUI (Dear ImGui Bundle)**: Real-time 120 FPS hardware-software observability suite mirroring both pipelines identically over UDP port 9870.
 
 ### 🖥️ Real-Time Observability: AbstractX Studio
 AbstractX includes **AbstractX Studio**, a high-performance, hardware-accelerated GUI built on **`imgui-bundle`** (`Dear ImGui` + `ImPlot` + GLFW/OpenGL):

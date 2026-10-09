@@ -194,9 +194,18 @@ ctest --test-dir build_host --output-on-failure
 ### Step 5: Run the Adversarial Audit Script
 Run the automated multi-stage adversarial audit:
 ```bash
-python3 tools/run_adversarial_audit.py
+python3 tools/run_adversarial_audit.py --module <changed-module>
+python3 tools/run_adversarial_audit.py --module <changed-module> --ai-prompt
+python3 tools/run_adversarial_audit.py --module targets/allwinner_e906 \
+  --related-path tests/test_adversarial_invariants.py --ai-prompt
+python3 tools/run_adversarial_audit.py --base-ref origin/main --ai-prompt
 ```
 If any stage flags a violation (e.g. synchronous call, dynamic allocation, direct ISR resume), fix it before committing.
+
+`--related-path` may be repeated for tests and shared-interface contracts stored
+outside the module. The AI prompt is a review aid only; it does not execute a
+model, run the tests, or establish compliance by itself. After review, run the
+module's actual build and regression commands and use their output as feedback.
 
 ---
 

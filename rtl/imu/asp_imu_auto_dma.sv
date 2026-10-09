@@ -12,7 +12,9 @@
 // 4. Autonomous 64-byte TLP generation (Type=0x10, Channel=0x02 TELEMETRY).
 // 5. Device Address Parity: Output TLP sets Target Address = 32'h40000100 (Wishbone base address).
 // 6. Real-time SPI clocking & MISO bit sampling into TLP payload buffer.
-
+//
+// @impl [SPEC-IMU-01] rtl/imu/asp_imu_auto_dma.sv
+// @impl [SPEC-TLP-02] rtl/imu/asp_imu_auto_dma.sv
 module asp_imu_auto_dma (
     input  wire         clk,
     input  wire         rst_n,

@@ -19,6 +19,8 @@ extern "C" {
 #define ASP_TLP64_SIZE          64
 #define ASP_TLP64_PAYLOAD_SIZE  40
 #define ASP_TLP64_DWORDS        16
+#define ASP_TLP64_MAX_BURST_DWORDS 9
+
 
 /* TLP Type Definitions */
 #define ASP_TLP_TYPE_MEM_RD     0x01  /* Host -> FPGA Memory Read */

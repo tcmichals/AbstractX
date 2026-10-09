@@ -85,6 +85,26 @@ struct alignas(64) Tlp64 {
         return packet;
     }
 
+    // Construct a Burst Memory Write TLP (packs up to 9 DWORDs into a single 64B frame)
+    // @impl [SPEC-TLP-04] include/asp_tlp64.hpp
+    static constexpr Tlp64 make_mem_write_burst(uint32_t addr, const uint32_t* values, uint8_t count, uint8_t tag = 0u) noexcept {
+        Tlp64 packet{};
+        packet.wire.type = static_cast<uint8_t>(TlpType::MemWrite);
+        packet.wire.tag = tag;
+        packet.wire.channel = static_cast<uint8_t>(Channel::Control);
+        packet.wire.target_address = addr;
+        uint8_t max_count = (count > 9u) ? 9u : count;
+        packet.wire.length_dw = max_count;
+        for (uint8_t i = 0u; i < max_count; ++i) {
+            uint32_t val = values[i];
+            packet.wire.payload[i * 4u + 0u] = static_cast<uint8_t>(val >> 24);
+            packet.wire.payload[i * 4u + 1u] = static_cast<uint8_t>(val >> 16);
+            packet.wire.payload[i * 4u + 2u] = static_cast<uint8_t>(val >> 8);
+            packet.wire.payload[i * 4u + 3u] = static_cast<uint8_t>(val & 0xFF);
+        }
+        return packet;
+    }
+
     // Construct a Completion with Data TLP
     static constexpr Tlp64 make_completion_data(uint8_t tag, uint32_t value, Channel ch = Channel::Telemetry) noexcept {
         Tlp64 packet{};

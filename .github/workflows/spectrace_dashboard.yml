@@ -1,0 +1,84 @@
+name: AbstractX SpecTrace Embedded Dashboard & Quality Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write # Required for updating RUNNING_PROFILE.md on main push
+  pull-requests: write # Required for PR delta comment
+
+jobs:
+  spectrace-dashboard:
+    name: SpecTrace Embedded Dashboard & Verification Matrix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Build & Test Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3-pip binutils
+          python3 -m pip install pytest
+
+      - name: Build Host Verification Binaries & CppUTest Suites
+        run: |
+          cmake --preset host
+          cmake --build --preset host --target gps_imu_app test_sitl_imu test_sitl_gps test_sitl_fusion test_sitl_serial_loopback
+
+      - name: CppUTest SITL Hardware Mocking & Memory Leak Gate
+        run: |
+          ctest --test-dir build_host -R cpputest --output-on-failure
+
+      - name: SpecTrace Parity Audit (100% SSOT Requirement Gate)
+        run: |
+          python3 tools/audit_specs.py
+
+      - name: Adversarial Invariant Architecture Regression Suite
+        run: |
+          pytest tests/test_adversarial_invariants.py
+
+      - name: Static Memory Footprint & Zero-Heap Symbol Audit
+        run: |
+          python3 tools/track_memory_membrowse.py
+
+      - name: SpecTrace Embedded Dashboard & Running Profile Engine
+        run: |
+          python3 tools/track_quality_trends.py
+
+      - name: Native GitHub PR SpecTrace & Memory Dashboard Comment
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const summaryFile = 'tools/visualizer/pr_comment.md';
+            if (fs.existsSync(summaryFile)) {
+              const body = fs.readFileSync(summaryFile, 'utf8');
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+              });
+              const botComment = comments.find(c => c.body.includes('AbstractX Continuous Quality & Verification Gate') || c.body.includes('SpecTrace Embedded Dashboard'));
+              if (botComment) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: botComment.id,
+                  body: body
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  body: body
+                });
+              }
+            }

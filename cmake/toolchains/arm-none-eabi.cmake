@@ -24,6 +24,8 @@ set(CMAKE_ASM_COMPILER "${ARM_TOOLCHAIN_PREFIX}gcc")
 set(CMAKE_C_FLAGS_INIT   "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp")
 set(CMAKE_CXX_FLAGS_INIT "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp")
 set(CMAKE_ASM_FLAGS_INIT "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp")
+# Note: --specs=nano.specs is added by Pico SDK (pico_set_clib) or per-target linker flags
+# to avoid interfering with standalone assembly bootloaders like bs2_default.elf.
 
 set(CMAKE_OBJCOPY      "${ARM_TOOLCHAIN_PREFIX}objcopy" CACHE INTERNAL "objcopy")
 set(CMAKE_OBJDUMP      "${ARM_TOOLCHAIN_PREFIX}objdump" CACHE INTERNAL "objdump")

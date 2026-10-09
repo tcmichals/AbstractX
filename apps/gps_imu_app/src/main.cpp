@@ -31,13 +31,13 @@ using namespace abstractx::drivers::mag;
 using namespace abstractx::fusion;
 
 // Lock-free static TLP rings for inter-domain communication
-// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-APP-07] docs/DESIGN_SPECIFICATION.md#spec-tlp-01
+// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-ARCH-02] [SPEC-APP-07] docs/DESIGN_SPECIFICATION.md#spec-tlp-01 apps/gps_imu_app/SPECIFICATION.md#spec-app-07
 static SpscTlpRing<64> g_tx_ring;        // Flight Controller -> I/O Processor (Requests)
 static SpscTlpRing<64> g_sensor_ring;    // I/O Processor -> Flight Controller (Completions)
 static SpscTlpRing<64> g_telemetry_ring; // Flight Controller -> Egress / Network (:9870)
 
 // Lock-free asynchronous coroutine channels for multi-rate sensor streaming
-// @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-APP-07] apps/gps_imu_app/SPECIFICATION.md#spec-app-02
+// @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-ARCH-02] apps/gps_imu_app/SPECIFICATION.md#spec-app-02
 static AsyncQueue<ImuSample, 32> g_imu_channel; // High rate (1 kHz - 8 kHz)
 static AsyncQueue<MagSample, 16> g_mag_channel; // Medium rate (50 Hz - 100 Hz)
 static AsyncQueue<GpsFix, 8>     g_gps_channel; // Low rate (5 Hz - 10 Hz)
@@ -83,7 +83,7 @@ Task<void> gps_producer_task(UbloxGps& gps) {
 // ============================================================================
 // Multi-Rate Sensor Fusion & AHRS Filter Coroutine
 // ============================================================================
-// @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-APP-07] [SPEC-APP-10] apps/gps_imu_app/SPECIFICATION.md
+// @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-ARCH-02] [SPEC-APP-10] apps/gps_imu_app/SPECIFICATION.md
 Task<void> sensor_fusion_task(hal::ITimer& timer, AttitudeFilter& filter) {
     uint32_t seq = 0;
     uint64_t last_time_us = timer.get_time_us();
@@ -149,7 +149,7 @@ Task<void> flight_monitor_task(hal::ITimer& timer, const AttitudeFilter& filter)
 }
 
 // Background Telemetry Egress Task
-// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-TRACE-03] [SPEC-TRACE-06] docs/DESIGN_SPECIFICATION.md#spec-trace-03
+// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-TRACE-03] [SPEC-TRACE-06] [SPEC-APP-08] docs/DESIGN_SPECIFICATION.md#spec-trace-03 apps/gps_imu_app/SPECIFICATION.md#spec-app-08
 Task<void> telemetry_egress_task() {
     while (true) {
         Tlp64 tlp{};
@@ -213,7 +213,7 @@ Task<void> app_main() {
 // Application Boot & Master Entry Point
 // ============================================================================
 
-// @impl [SPEC-ARCH-03] [SPEC-ARCH-05] [SPEC-ARCH-06] [SPEC-ARCH-07] [SPEC-TRACE-03] [SPEC-TRACE-04] [SPEC-TRACE-05] [SPEC-APP-08] [SPEC-APP-09] docs/DESIGN_SPECIFICATION.md#spec-arch-06
+// @impl [SPEC-ARCH-03] [SPEC-ARCH-05] [SPEC-ARCH-06] [SPEC-ARCH-07] [SPEC-TRACE-03] [SPEC-TRACE-04] [SPEC-TRACE-05] [SPEC-STUDIO-07] [SPEC-APP-09] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
 int main() {
     // 1. Unified Configuration

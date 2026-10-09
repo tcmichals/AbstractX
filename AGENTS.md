@@ -69,6 +69,18 @@ Applications written against `abstractx::` MUST compile and run identically acro
 
 All platform-specific clock initialization, core allocation, and pinmux are handled autonomously inside `abstractx::init(config)`.
 
+### Toolchain Standardization: `~/.tools`, xPack GNU GCC & newlib-nano
+All bare-metal cross-compilation environments in AbstractX MUST adhere to the standardized toolchain layout:
+1. **Toolchain Location Standard (`~/.tools/`)**:
+   - ARM Cortex-M: `~/.tools/xpack-arm-none-eabi-gcc-*/bin/arm-none-eabi-`
+   - RISC-V Bare-metal: `~/.tools/xpack-riscv-none-elf-gcc-*/bin/riscv-none-elf-`
+   - Xtensa Bare-metal / DSP: `~/.tools/xtensa-esp-elf/bin/xtensa-esp32-elf-` / `xtensa-esp-elf-` / `~/.tools/xtensa-hifi4-gcc/`
+   - Raspberry Pi Pico SDK: `~/.tools/pico/pico-sdk` (or `~/.tools/pico-sdk`)
+   - FPGA Tools: `~/.tools/oss-cad-suite/bin`
+2. **Nano Libc Mandate (`--specs=nano.specs`, `--specs=nosys.specs`)**:
+   - All bare-metal ARM and RISC-V targets MUST link with `newlib-nano` (`--specs=nano.specs`) to eliminate bloated standard library I/O, heavy string formatting, and dynamic heap stubs.
+   - Combined with `-fno-exceptions`, `-fno-rtti`, `-nostartfiles`, and freestanding C++20, this guarantees sub-16 KB binary footprints and 0 dynamic heap allocations.
+
 ---
 
 ## 7. Telemetry & CTF 1.8 Dynamic Schema Compliance
@@ -117,7 +129,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
    - Implement the freestanding C++20 or RTL changes, tagging every modified block with `// @impl [SPEC-*] <file_path>` so algorithms can be mathematically traced and validated against the spec.
 5. **Verification Gate**:
    - Run `python3 tools/audit_specs.py` to confirm 100% spec-to-code traceability.
-   - Run `python3 tools/run_adversarial_audit.py` to confirm 0 invariant violations and 0 drift.
+   - Run the canonical review entry point `python3 tools/spectrace.py --review` (`--module <module>` for changed work; `--base-ref origin/main` for branch diffs; `--all-modules` only for an intentional full maintained-module sweep). Linux host code is excluded unless explicitly selected, and generated/vendor output is pruned.
    - Run `ctest --test-dir build` / Cocotb regression suites (100% pass rate).
 
 

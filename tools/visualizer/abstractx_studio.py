@@ -548,17 +548,32 @@ class TelemetryState:
                 self.membrowse_status_msg = f"Failed to load metrics: {e}"
 
     def run_membrowse_analysis(self):
-        """Executes track_memory_membrowse.py locally to regenerate memory_metrics.json and refresh state."""
+        """Executes track_memory_footprint.py locally to regenerate memory_metrics.json and refresh state."""
         import subprocess, sys
-        script_path = Path(__file__).resolve().parents[2] / "tools" / "track_memory_membrowse.py"
+        script_path = Path(__file__).resolve().parents[2] / "tools" / "track_memory_footprint.py"
+        if not script_path.exists():
+            script_path = Path(__file__).resolve().parents[2] / "tools" / "track_memory_membrowse.py"
         try:
             subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True, check=True)
             self.load_membrowse_metrics()
-            self.membrowse_status_msg = "Local analysis completed successfully!"
-            self.add_log("MEM", "MemBrowse", "Local memory audit completed. memory_metrics.json refreshed.")
+            self.membrowse_status_msg = "Memory audit completed successfully!"
+            self.add_log("MEM", "Memory", "Local memory audit completed. memory_metrics.json refreshed.")
         except Exception as e:
             self.membrowse_status_msg = f"Analysis error: {e}"
-            self.add_log("WARN", "MemBrowse", f"Failed to run track_memory_membrowse.py: {e}")
+            self.add_log("WARN", "Memory", f"Failed to run track_memory_footprint.py: {e}")
+
+    def run_spectrace_dashboard(self):
+        """Executes track_quality_trends.py locally to refresh quality trends and running profile."""
+        import subprocess, sys
+        script_path = Path(__file__).resolve().parents[2] / "tools" / "track_quality_trends.py"
+        try:
+            subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True, check=True)
+            self.load_membrowse_metrics()
+            self.membrowse_status_msg = "SpecTrace Dashboard updated successfully!"
+            self.add_log("SPEC", "SpecTrace", "SpecTrace dashboard & verification profile refreshed.")
+        except Exception as e:
+            self.membrowse_status_msg = f"Dashboard error: {e}"
+            self.add_log("WARN", "SpecTrace", f"Failed to run track_quality_trends.py: {e}")
 
 g_state = TelemetryState()
 g_flight_plugin = FlightVisualizerPlugin()
@@ -1472,8 +1487,11 @@ def _render_level1_memory():
 
     # CI Action & Status Bar
     imgui.begin_group()
-    if imgui.button("▶ Run Local MemBrowse CI Analysis"):
+    if imgui.button("▶ Run Local Memory Audit"):
         g_state.run_membrowse_analysis()
+    imgui.same_line()
+    if imgui.button("📊 Run SpecTrace Dashboard"):
+        g_state.run_spectrace_dashboard()
     imgui.same_line()
     if imgui.button("🔄 Reload CI Metrics"):
         g_state.load_membrowse_metrics()

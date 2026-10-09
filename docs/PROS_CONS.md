@@ -118,7 +118,22 @@ AbstractX solves this by treating **telemetry as a first-class citizen**:
 
 ---
 
+### Pillar 4: Emulated PCIe Bus Fabric & Asymmetric Multiprocessing (AMP)
+
+Traditional RTOSes were designed around a **single monolithic CPU executing local driver APIs**. When scaling to multi-core SoCs (RP2350, ESP32-P4) or coprocessor architectures (Radxa Cubie A5E Linux + XuanTie E906, or Zynq ARM + Artix-7 FPGA), RTOSes fall into the **RPC Trap**:
+* They run duplicate OS kernels on both cores.
+* They use raw byte pipes (OpenAMP / RPMsg) requiring custom serialization and bespoke endpoint dispatch threads on the secondary core.
+
+**The AbstractX Solution: Emulating a Massive PCIe Bus Topology**:
+AbstractX decouples hardware I/O from the application CPU by emulating a packet-switched PCIe interconnect across silicon boundaries:
+* **The Application Processor (Core 1 / Linux)**: Operates like a PCIe Root Complex. It issues 64-byte Transaction Layer Packets (TLPs) addressed to a standardized **Virtual BAR Map** (`bar::ImuBase`, `bar::EscBase`, `bar::LedBase`). It has zero knowledge of physical wiring.
+* **The I/O Processor (Core 0 / XuanTie E906 / Artix-7 FPGA)**: Operates as a **PCIe Switch**. It decodes incoming TLPs from the lock-free SRAM ring, matches the BAR address or channel ID, and routes the transaction directly onto the destination hardware IP block (UART, SPI DMA, GPIO/LED).
+* **Hardware Synthesizability**: The exact same TLP data plane synthesizes into SystemVerilog (`rtl/asp_router.sv`) on FPGA platforms (e.g. QMTECH Zynq-7020) via `/dev/uio0` DMA coherent rings.
+
+---
+
 ## 3. Comprehensive Architectural Comparison
+
 
 ### Feature Matrix
 
@@ -183,3 +198,17 @@ AbstractX solves this by treating **telemetry as a first-class citizen**:
 3. **No Automatic Preemption**: Unlike an RTOS, high-priority tasks cannot
    preempt a currently executing coroutine slice between await points (hard
    real-time priorities are handled via hardware ISRs and thresholded DMA).
+4. **Fixed 64-Byte TLP Container vs. Scaling Inefficiency**:
+   * *The Trade-Off*: Fixed 512-bit (64-byte) containers dramatically simplify FPGA
+     RTL (`asp_router.sv` requires no dynamic byte counters, length parsing, or
+     fragmentation state machines, routing in a single clock cycle).
+   * *The Weakness*: It scales poorly at the extremes:
+     - **Tiny Transfers**: Writing a single 32-bit register (4 bytes) sends a full
+       64-byte packet, resulting in 93.75% bus overhead.
+     - **Bulk Transfers**: Streaming data larger than the 40-byte payload window
+       (e.g., 1 KB ping-pong trace bursts, camera frames, or flash blocks) forces
+       software segmentation into dozens of TLPs, increasing CPU framing overhead.
+   * *Architectural Evolution & Audit Gate*: The adversarial audit verifies that
+     payloads > 40 bytes are segmented or routed via the out-of-band coherent
+     DMA burst bypass (`asp_axi_dma.sv` / `asp_axis_fifo.sv`).
+

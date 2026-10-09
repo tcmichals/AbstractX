@@ -17,13 +17,14 @@ Usage:
   python3 tools/spectrace.py --to-spec [--spec <path>] [--apply]
   python3 tools/spectrace.py --to-code [--spec <path>] [--apply]
   python3 tools/spectrace.py --roundtrip [--spec <path>] [--apply]
-  python3 tools/spectrace.py --audit [--all]
+    python3 tools/spectrace.py --review [--module <path>] [--related-path <path>]
 """
 
 import os
 import re
 import sys
 import argparse
+import subprocess
 from pathlib import Path
 
 # ANSI Color Codes
@@ -266,22 +267,83 @@ def main():
     parser = argparse.ArgumentParser(
         description="SpecTrace: Bidirectional Round-Trip Synchronization & Verification Engine"
     )
-    parser.add_argument("--spec", default="docs/DESIGN_SPECIFICATION.md", help="Path to specification markdown file")
+    parser.add_argument("--spec", default=None, help="Path to specification markdown file")
     parser.add_argument("--status", action="store_true", help="Display bidirectional synchronization matrix")
+    parser.add_argument("--drift", action="store_true", help="Audit repository-wide or module spec-to-code drift and unanchored code")
+    parser.add_argument("--dedupe", action="store_true", help="Audit the specification markdown files for semantic and literal redundancy")
+    parser.add_argument("--spec-review", action="store_true", help="Run shift-left review of the specification itself")
+    parser.add_argument("--dashboard", "--trends", dest="dashboard", action="store_true",
+                        help="Run SpecTrace Embedded Observability & Quality Dashboard")
     parser.add_argument("--to-code", action="store_true", help="Push unimplemented specs to code (Forward Sync)")
     parser.add_argument("--to-spec", action="store_true", help="Push unmapped code to specification (Reverse Sync)")
     parser.add_argument("--roundtrip", action="store_true", help="Execute full two-way round-trip synchronization")
     parser.add_argument("--apply", action="store_true", help="Apply modifications to files in place")
-    parser.add_argument("--audit", action="store_true", help="Run the 6-stage adversarial invariant audit")
+    parser.add_argument("--review", "--audit", dest="audit", action="store_true",
+                        help="Run the canonical scoped SpecTrace code review (Stages 1-5)")
+    parser.add_argument("--module", type=str, help="Module path to audit; default is the current diff")
+    parser.add_argument("--related-path", action="append", default=[],
+                        help="Related test/contract path (repeatable; requires --module)")
+    parser.add_argument("--base-ref", type=str, help="Include committed changes since this ref")
+    parser.add_argument("--all-modules", action="store_true", help="Explicitly sweep maintained module roots")
+    parser.add_argument("--include-linux", action="store_true", help="Opt in to targets/linux")
+    parser.add_argument("--no-ai-prompt", action="store_true", help="Run static checks without printing AI context")
     args = parser.parse_args()
 
     root_dir = get_root_dir()
-    spec_file = root_dir / args.spec if not Path(args.spec).is_absolute() else Path(args.spec)
+
+    if args.dashboard:
+        dashboard_tool = root_dir / "tools" / "track_quality_trends.py"
+        cmd = [sys.executable, str(dashboard_tool)]
+        result = subprocess.run(cmd, cwd=root_dir, check=False)
+        sys.exit(result.returncode)
+
+    if args.drift or args.spec_review or (args.status and not args.spec):
+        drift_tool = root_dir / "tools" / "spectrace_drift.py"
+        cmd = [sys.executable, str(drift_tool)]
+        if args.spec:
+            cmd.extend(["--spec", args.spec])
+        if args.module:
+            cmd.extend(["--module", args.module])
+        if args.spec_review:
+            cmd.append("--spec-review")
+        result = subprocess.run(cmd, cwd=root_dir, check=False)
+        sys.exit(result.returncode)
+
+    if args.dedupe:
+        dedupe_tool = root_dir / "tools" / "spectrace_dedupe.py"
+        cmd = [sys.executable, str(dedupe_tool)]
+        result = subprocess.run(cmd, cwd=root_dir, check=False)
+        sys.exit(result.returncode)
+
+    default_spec_rel = args.spec if args.spec else "docs/DESIGN_SPECIFICATION.md"
+    spec_file = root_dir / default_spec_rel if not Path(default_spec_rel).is_absolute() else Path(default_spec_rel)
 
     if args.audit:
+        if args.all_modules and args.module:
+            parser.error("--all-modules and --module are mutually exclusive")
+        if args.related_path and not args.module:
+            parser.error("--related-path requires --module")
+        if args.module and args.base_ref:
+            parser.error("--module and --base-ref are mutually exclusive")
+
         audit_tool = root_dir / "tools" / "run_adversarial_audit.py"
-        os.system(f"python3 {audit_tool} --all")
-        sys.exit(0)
+        command = [sys.executable, str(audit_tool)]
+        if args.module:
+            command.extend(["--module", args.module])
+        if args.all_modules:
+            command.append("--all")
+        if args.base_ref:
+            command.extend(["--base-ref", args.base_ref])
+        for related_path in args.related_path:
+            command.extend(["--related-path", related_path])
+        if args.include_linux:
+            command.append("--include-linux")
+        if not args.no_ai_prompt:
+            command.append("--ai-prompt")
+
+        # @impl [SPEC-AUDIT-05] docs/SPECTRACE.md
+        result = subprocess.run(command, cwd=root_dir, check=False)
+        sys.exit(result.returncode)
 
     if not spec_file.exists():
         print(f"{RED}[ERROR] Specification file not found: {spec_file}{RESET}")

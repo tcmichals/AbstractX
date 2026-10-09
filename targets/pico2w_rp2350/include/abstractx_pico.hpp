@@ -206,6 +206,15 @@ private:
     I2cConfig config_{};
     I2cRequest active_req_{};
     volatile bool busy_{false};
+    
+    // Async IRQ state tracking
+    volatile size_t tx_idx_{0};
+    volatile size_t rx_idx_{0};
+
+public:
+#ifdef PICO_ON_DEVICE
+    static void i2c0_irq_handler();
+#endif
 };
 
 PicoI2c& get_pico_i2c() noexcept;

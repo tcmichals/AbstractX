@@ -13,7 +13,8 @@
 // 0x4000000C: REG_SYS_LED_CTRL  (Read/Write, Bit 1..5 controls Onboard LEDs 2..6 for Linux)
 // 0x40000010: REG_SYS_TIME_LOW  (Read-Only, 64-bit Master Timestamp Low [31:0] - Latches High [63:32])
 // 0x40000014: REG_SYS_TIME_HIGH (Read-Only, Latched Shadow Master Timestamp High [63:32])
-
+//
+// @impl [SPEC-TLP-02] rtl/asp_sys_regs.sv
 module asp_sys_regs #(
     parameter logic [31:0] SYS_ID_REV    = 32'hABF10164, // Device 0xABF1, Rev 0x01, Arch 0x64
     parameter logic [31:0] SYS_VENDOR_ID = 32'h19981ACC  // Subsys 0x1998, Vendor 0x1ACC

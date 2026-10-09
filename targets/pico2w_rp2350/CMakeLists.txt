@@ -7,6 +7,11 @@ include(pico_sdk_import.cmake)
 if(COMMAND pico_sdk_init)
     pico_sdk_init()
 
+    # GCC 15 / binutils 2.44 --gc-sections requires explicit entry point for boot stage 2
+    if(TARGET bs2_default)
+        target_link_options(bs2_default PRIVATE -Wl,-e,_stage2_boot)
+    endif()
+
     add_library(abstractx_target_pico2w STATIC
         src/hal_timer.cpp
         src/hal_gpio.cpp

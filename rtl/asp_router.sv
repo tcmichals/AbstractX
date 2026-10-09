@@ -7,6 +7,9 @@
 //
 // Accepts 512-bit (64-Byte) TLP containers from transport frontend and routes them
 // to destination endpoints based on Channel/AXID field (tdata[23:16]).
+//
+// @impl [SPEC-TLP-01] rtl/asp_router.sv
+// @impl [SPEC-TLP-03] rtl/asp_router.sv
 module asp_router (
     input  wire         clk,
     input  wire         rst_n,
@@ -108,6 +111,25 @@ module asp_router (
             m_egr_tvalid = 1'b0;
         end
     end
+
+`ifndef SYNTHESIS
+    // Formal SystemVerilog Assertions (SVA) for HW/SW Co-Design Verification
+    // Invariant: Ingress demux routing must be mutually exclusive (at most one channel valid)
+    property p_ingress_demux_mutual_exclusion;
+        @(posedge clk) disable iff (!rst_n)
+        (m_ctrl_tvalid + m_tel_tvalid + m_esc_tvalid) <= 1;
+    endproperty
+    assert property (p_ingress_demux_mutual_exclusion)
+        else $error("[SVA-ROUTER-01] Ingress router emitted multi-hot channel valid!");
+
+    // Invariant: Fixed priority egress arbitration guarantees Control CplD preemption
+    property p_egress_priority_control;
+        @(posedge clk) disable iff (!rst_n)
+        s_wb_cpl_tvalid |-> (m_egr_tvalid && (m_egr_tdata == s_wb_cpl_tdata));
+    endproperty
+    assert property (p_egress_priority_control)
+        else $error("[SVA-ROUTER-02] Egress arbiter failed to prioritize Control CplD!");
+`endif
 
 endmodule
 

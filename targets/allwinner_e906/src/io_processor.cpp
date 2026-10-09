@@ -22,6 +22,7 @@
 #include "hal/timer.hpp"
 #include "asp_tlp_msg.hpp"
 #include "spsc_tlp_ring.hpp"
+#include "pcie_bar_map.hpp"
 
 #include <atomic>
 #include <array>
@@ -206,6 +207,40 @@ private:
 
                 if (setup_.ingress_rx_ring) {
                     Tlp64 cpl = Tlp64::make_hw_fusion_cpl(tlp.tag(), status, cfg->cmd, cfg->channel_id);
+                    setup_.ingress_rx_ring->push(cpl);
+                    ::hal::MsgBox::send(::hal::MsgBox::Channel::Channel0, 0x01);
+                    if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
+                }
+                continue;
+            }
+
+            // Virtual PCIe BAR MemWrite routing
+            if (tlp.wire.type == ASP_TLP_TYPE_MEM_WR) {
+                uint32_t addr = tlp.wire.target_address;
+                if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
+                    uint32_t val = (static_cast<uint32_t>(tlp.wire.payload[0]) << 24) |
+                                   (static_cast<uint32_t>(tlp.wire.payload[1]) << 16) |
+                                   (static_cast<uint32_t>(tlp.wire.payload[2]) << 8)  |
+                                   (static_cast<uint32_t>(tlp.wire.payload[3]));
+                    // Radxa Cubie A5E status LED via PIO
+                    if (val != 0) {
+                        PC_DATA_REG |= (1 << 1);
+                    } else {
+                        PC_DATA_REG &= ~(1 << 1);
+                    }
+                }
+                continue;
+            }
+
+            // Virtual PCIe BAR MemRead routing
+            if (tlp.wire.type == ASP_TLP_TYPE_MEM_RD) {
+                uint32_t addr = tlp.wire.target_address;
+                uint32_t val = 0;
+                if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
+                    val = (PC_DATA_REG & (1 << 1)) ? 1 : 0;
+                }
+                if (setup_.ingress_rx_ring) {
+                    Tlp64 cpl = Tlp64::make_completion_data(tlp.tag(), val, tlp.channel());
                     setup_.ingress_rx_ring->push(cpl);
                     ::hal::MsgBox::send(::hal::MsgBox::Channel::Channel0, 0x01);
                     if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();

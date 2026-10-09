@@ -67,7 +67,12 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: Inter-core and inter-domain FIFO queues must operate lock-free via single-producer single-consumer rings (`SpscTlpRing<64>`) with atomic head/tail pointers. Intra-core and single-core coprocessor event queues must operate wait-free via multi-producer single-consumer queues (`MpscIsrQueue<T, Capacity>`) with hardware IRQ masking (`csrrci` on RV32 / `cpsid i` on Cortex-M).
 * **Implementation Target**: `include/spsc_tlp_ring.hpp`, `include/mpsc_isr_queue.hpp`
 
+### `[SPEC-TLP-04]` Multi-Register Burst Memory Operations
+* **Requirement**: The TLP memory interface MUST support packed multi-register burst writes (`MemWrBurst`) and burst reads (`MemRdBurst`) packing up to 9 consecutive 32-bit registers (36 bytes payload) into a single 64-byte TLP with `length_dw = N (1..9)`. The receiving gateway (`asp_wishbone_master.sv`) MUST sequentially write/read consecutive memory-mapped Wishbone addresses starting at `target_address` without issuing separate 64-byte control frames.
+* **Implementation Target**: `include/asp_tlp64.hpp`, `rtl/asp_wishbone_master.sv`
+
 ---
+
 
 ## 3. Hardware Abstraction Layer Specifications (`SPEC-HAL`)
 
@@ -145,10 +150,22 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: The trace engine MUST support a dual-buffer (ping-pong) topology (producer fills buffer A while consumer transmits buffer B) with a standard 1,024-byte (1 KB) packet size. The memory profile MUST be configurable via `enum class BufferProfile` (`PingPong_1K_x2`, `Ring_1K_x4`, `Compact_512B_x2`, `Large_2K_x4`) to support ultra-constrained co-processors (Allwinner E906 / RP2350) and high-throughput SITL logging with 0 dynamic heap allocations.
 * **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `include/abstractx/abstractx.hpp`, `docs/HOW_TO_CTF_PING_PONG_TRACING.md`
 
+### `[SPEC-ILA-01]` Decoupled Hardware ILA Trace Memory Pool & Non-Blocking DMA Reader
+* **Requirement**: Hardware and software tracing must operate on a dedicated memory pool completely isolated from the primary 64-byte control TLP plane. The FPGA hardware ILA (`asp_ila_trace.sv`) MUST capture timestamped internal events into an on-chip dual-port Block RAM circular buffer without consuming TLP bus bandwidth. The egress DMA reader MUST stream accumulated ILA trace frames only when the primary control TLP egress channel is idle, or upon receiving an explicit host DMA pull request, guaranteeing 0 head-of-line blocking for flight-critical control packets.
+* **Implementation Target**: `rtl/asp_ila_trace.sv`
+
 ---
 
+## 6. Target Silicon Platform Specifications (`SPEC-TARGET`)
 
-## 6. Requirements Traceability Matrix
+### `[SPEC-TARGET-01]` Trenz CYC1000 Intel Cyclone 10 LP Target Platform
+* **Requirement**: AbstractX must support the Trenz Electronic CYC1000 board featuring the Intel/Altera Cyclone 10 LP (`10CL025YU256C8G`, 25K LEs, 66 M9K BRAMs). The top-level fabric must support the onboard 12.0 MHz oscillator, an Arduino MKR-compatible SPI slave header for host communication, a dedicated SPI master for an ICM-42688-P IMU, and 4 DShot/PWM motor pins with total fabric utilization $< 2,000$ LEs ($< 8\%$ of device capacity).
+* **Implementation Target**: `docs/tier3_targets/hardware/CYC1000_PINOUT.md`
+
+---
+
+## 7. Requirements Traceability Matrix
+
 
 ```mermaid
 graph TD

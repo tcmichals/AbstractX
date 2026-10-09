@@ -17,6 +17,7 @@
 #include "abstractx_pico.hpp"
 #include "asp_tlp_msg.hpp"
 #include "spsc_tlp_ring.hpp"
+#include "pcie_bar_map.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
@@ -227,6 +228,38 @@ private:
 
                 if (setup_.ingress_rx_ring) {
                     Tlp64 cpl = Tlp64::make_hw_fusion_cpl(tlp.tag(), status, cfg->cmd, cfg->channel_id);
+                    setup_.ingress_rx_ring->push(cpl);
+#ifdef PICO_ON_DEVICE
+                    sio_hw->fifo_wr = 0x01;
+#endif
+                    if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
+                }
+                continue;
+            }
+
+            // Virtual PCIe BAR MemWrite routing (e.g. LED, GPIO, Peripheral Registers)
+            if (tlp.wire.type == ASP_TLP_TYPE_MEM_WR) {
+                uint32_t addr = tlp.wire.target_address;
+                if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
+                    uint32_t val = (static_cast<uint32_t>(tlp.wire.payload[0]) << 24) |
+                                   (static_cast<uint32_t>(tlp.wire.payload[1]) << 16) |
+                                   (static_cast<uint32_t>(tlp.wire.payload[2]) << 8)  |
+                                   (static_cast<uint32_t>(tlp.wire.payload[3]));
+                    // Default onboard LED on Pico 2 is GPIO 25
+                    hal::get_gpio().write_pin(25, val != 0);
+                }
+                continue;
+            }
+
+            // Virtual PCIe BAR MemRead routing
+            if (tlp.wire.type == ASP_TLP_TYPE_MEM_RD) {
+                uint32_t addr = tlp.wire.target_address;
+                uint32_t val = 0;
+                if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
+                    val = hal::get_gpio().read_pin(25) ? 1 : 0;
+                }
+                if (setup_.ingress_rx_ring) {
+                    Tlp64 cpl = Tlp64::make_completion_data(tlp.tag(), val, tlp.channel());
                     setup_.ingress_rx_ring->push(cpl);
 #ifdef PICO_ON_DEVICE
                     sio_hw->fifo_wr = 0x01;

@@ -30,7 +30,99 @@ BLUE = "\033[94m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
+# @impl [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] docs/SPECTRACE.md
+AUDIT_SUFFIXES = {".hpp", ".h", ".cpp", ".c", ".S", ".sv", ".md", ".py"}
+CODE_SUFFIXES = {".hpp", ".h", ".cpp", ".c", ".S", ".sv", ".py"}
+AUDIT_ROOTS = ("include", "apps", "targets", "docs", "rtl", "hw", "sim", "examples", "src", "tools")
+GENERATED_DIRS = {".git", ".venv", "venv", "third_party", "node_modules", "__pycache__", "build", "dist", "out"}
+
+
+def _is_generated_path(path: Path, root_dir: Path) -> bool:
+    try:
+        parts = path.relative_to(root_dir).parts
+    except ValueError:
+        return True
+    return any(
+        part in GENERATED_DIRS or part.startswith(("build_", "bld."))
+        for part in parts
+    )
+
+
+def _is_linux_target(path: Path, root_dir: Path) -> bool:
+    try:
+        parts = path.relative_to(root_dir).parts
+    except ValueError:
+        return False
+    return len(parts) >= 2 and parts[0] == "targets" and parts[1] == "linux"
+
+
+def collect_audit_files(root_dir: Path, candidates, include_linux: bool = False) -> list:
+    """Collect maintained audit inputs while pruning generated/vendor trees."""
+    files = set()
+    for candidate in candidates:
+        candidate_path = Path(candidate)
+        path = candidate_path if candidate_path.is_absolute() else root_dir / candidate_path
+        if not path.exists():
+            continue
+        if path.is_file():
+            if path.suffix in AUDIT_SUFFIXES and not _is_generated_path(path, root_dir):
+                if include_linux or not _is_linux_target(path, root_dir):
+                    files.add(path.resolve())
+            continue
+
+        for current, dirs, filenames in os.walk(path):
+            current_path = Path(current)
+            dirs[:] = [
+                name for name in dirs
+                if not _is_generated_path(current_path / name, root_dir)
+                and (include_linux or not _is_linux_target(current_path / name, root_dir))
+            ]
+            for filename in filenames:
+                file_path = current_path / filename
+                if file_path.suffix not in AUDIT_SUFFIXES or _is_generated_path(file_path, root_dir):
+                    continue
+                if include_linux or not _is_linux_target(file_path, root_dir):
+                    files.add(file_path.resolve())
+    return sorted(files)
+
+
+def collect_changed_files(root_dir: Path, base_ref: str | None = None,
+                          include_linux: bool = False) -> list:
+    """Collect committed branch changes plus staged, unstaged, and untracked files."""
+    changed = set()
+
+    def add_git_paths(args):
+        result = subprocess.run(args, cwd=root_dir, capture_output=True, check=True)
+        changed.update(root_dir / item.decode("utf-8", errors="surrogateescape")
+                       for item in result.stdout.split(b"\0") if item)
+
+    if base_ref:
+        add_git_paths(["git", "diff", "--name-only", "-z", f"{base_ref}...HEAD"])
+    add_git_paths(["git", "diff", "--name-only", "-z", "HEAD"])
+    add_git_paths(["git", "ls-files", "--others", "--exclude-standard", "-z"])
+    return collect_audit_files(root_dir, changed, include_linux=include_linux)
+
+
+def emit_ai_review_prompt(files: list, root_dir: Path, base_ref: str | None = None) -> None:
+    """Print a compact, paste-ready AI review instruction for selected files."""
+    print("AI review scope (open only these files and named dependencies):")
+    for path in files:
+        print(f"  - {path.relative_to(root_dir)}")
+    print("""
+Review this module as an adversarial senior engineer. Read its SPECIFICATION.md
+or linked authoritative contract before implementation and tests. Restrict findings to selected files and directly
+used interfaces; do not audit unrelated Linux host or generated Buildroot code.
+For each concrete finding, report severity, file:line, violated requirement, and
+failure scenario. Distinguish verified defects from questions/false positives.
+Do not change code until the relevant specification is updated. Identify the
+focused build/test command for this module; static checks alone do not prove
+correctness.""")
+    if base_ref:
+        print(f"Committed changes compared against: {base_ref}")
+
+
 class InvariantAuditor:
+    # region Auditor lifecycle and traceability index
     def __init__(self, root_dir: Path):
         self.root_dir = root_dir
         self.violations = {
@@ -57,22 +149,24 @@ class InvariantAuditor:
         if self._code_impl_tags is not None:
             return self._code_impl_tags
         self._code_impl_tags = set()
-        for d in ["include", "apps", "targets", "sim", "examples", "src", "rtl", "hw"]:
-            p = self.root_dir / d
-            if not p.exists():
+        sources = collect_audit_files(
+            self.root_dir,
+            [self.root_dir / d for d in AUDIT_ROOTS if d != "docs"],
+        )
+        for source in sources:
+            if source.suffix not in CODE_SUFFIXES:
                 continue
-            for f in p.rglob("*"):
-                if f.suffix in [".cpp", ".hpp", ".h", ".c", ".S", ".sv"]:
-                    try:
-                        with open(f, "r", encoding="utf-8", errors="ignore") as fp:
-                            for line in fp:
-                                if "@impl" in line:
-                                    for m in re.findall(r"\[(SPEC-[A-Z0-9\-]+)\]", line):
-                                        self._code_impl_tags.add(m)
-                    except Exception:
-                        pass
+            try:
+                with open(source, "r", encoding="utf-8", errors="ignore") as fp:
+                    for line in fp:
+                        if "@impl" in line:
+                            self._code_impl_tags.update(re.findall(r"\[(SPEC-[A-Z0-9\-]+)\]", line))
+            except Exception:
+                pass
         return self._code_impl_tags
+    # endregion
 
+    # region Stage 0: Specification SSOT and traceability
     def audit_stage0_spec_markdown(self, filepath: Path, lines: list):
         """Stage 0: Verify Markdown specification contracts, invariants, and code traceability"""
         is_spec_doc = ("SPECIFICATION.md" in filepath.name or 
@@ -116,7 +210,9 @@ class InvariantAuditor:
                 if tag not in code_impls:
                     self.log_issue("Stage 0 (Specification Markdown & SSOT)", filepath, line_no,
                                    f"Unimplemented requirement [{tag}] in markdown specification (Missing matching // @impl tag in code)", "")
+    # endregion
 
+    # region Stage 1: Freestanding and zero-heap checks
     def audit_stage1_zero_heap(self, filepath: Path, lines: list):
         """Stage 1: Verify zero dynamic heap allocation in freestanding code"""
         if "third_party/" in str(filepath) or "tests/" in str(filepath) or "build_" in str(filepath):
@@ -148,7 +244,9 @@ class InvariantAuditor:
                 if re.search(pattern, line):
                     if "new (" not in line and "operator new" not in line and "placement" not in line.lower():
                         self.log_issue("Stage 1 (Zero-Heap & Freestanding C++20)", filepath, idx, desc, line)
+    # endregion
 
+    # region Stage 2: Non-blocking HAL checks
     def audit_stage2_non_blocking_hal(self, filepath: Path, lines: list):
         """Stage 2: Verify zero synchronous blocking calls in active drivers and tasks"""
         if "third_party/" in str(filepath) or "tests/" in str(filepath) or "build_" in str(filepath):
@@ -173,7 +271,9 @@ class InvariantAuditor:
                     if "sync_impl" in line or "pre-scheduler" in line.lower() or "fallback" in line.lower():
                         continue
                     self.log_issue("Stage 2 (Non-Blocking HAL & Lifecycle)", filepath, idx, desc, line)
+    # endregion
 
+    # region Stage 3: ISR boundary checks
     def audit_stage3_isr_boundary(self, filepath: Path, lines: list):
         """Stage 3: Verify no coroutine .resume() directly inside ISRs"""
         if "third_party/" in str(filepath) or "tests/" in str(filepath) or "build_" in str(filepath):
@@ -196,21 +296,35 @@ class InvariantAuditor:
             if in_isr_func and re.search(r"\b[A-Za-z0-9_]+\.resume\s*\(\)", line):
                 self.log_issue("Stage 3 (ISR Boundary & Dispatch Safety)", filepath, idx,
                                "Direct .resume() from ISR context violates Rule 4.2", line)
+    # endregion
 
+    # region Stage 4: Wire framing checks
     def audit_stage4_wire_framing_endianness(self, filepath: Path, lines: list):
-        """Stage 4: Verify wire packet packing, endianness conversion, and size invariants"""
-        if filepath.name not in ["asp_tlp64.h", "asp_tlp64.hpp"]:
+        """Stage 4: Verify wire packet packing, 64B alignment, and payload scaling invariants"""
+        if filepath.name in ["asp_tlp64.h", "asp_tlp64.hpp"]:
+            has_static_assert = False
+            for idx, line in enumerate(lines, 1):
+                if "static_assert" in line and "64" in line:
+                    has_static_assert = True
+
+            if not has_static_assert and filepath.suffix in [".hpp", ".h"]:
+                self.log_issue("Stage 4 (Endianness & Wire Framing)", filepath, 1,
+                               "Missing compile-time static_assert(sizeof(...) == 64) for wire protocol", "")
             return
 
-        has_static_assert = False
-        for idx, line in enumerate(lines, 1):
-            if "static_assert" in line and "64" in line:
-                has_static_assert = True
+        # For driver and application C++ files, audit fixed 64B TLP payload scaling boundaries
+        if filepath.suffix in [".cpp", ".hpp"]:
+            for idx, line in enumerate(lines, 1):
+                sline = line.strip()
+                if sline.startswith("//") or sline.startswith("*"):
+                    continue
+                # Flag unsegmented bulk buffer transfers exceeding 40B payload limit
+                if re.search(r"\bTlp64::make_raw\s*\([^)]*,\s*[^)]*(?:5[0-9]|[6-9][0-9]|[1-9][0-9]{2,})\b", line):
+                    self.log_issue("Stage 4 (Endianness & Wire Framing)", filepath, idx,
+                                   "Fixed 64B TLP payload overflow: buffer exceeds 40B container without segmentation or DMA burst bypass", line)
+    # endregion
 
-        if not has_static_assert and filepath.suffix in [".hpp", ".h"] and "tlp" in filepath.name:
-            self.log_issue("Stage 4 (Endianness & Wire Framing)", filepath, 1,
-                           "Missing compile-time static_assert(sizeof(...) == 64) for wire protocol", "")
-
+    # region Stage 5: Verification gate
     def audit_stage5_test_coverage(self):
         """Stage 5: Verify companion test suites exist"""
         test_dir = self.root_dir / "tests"
@@ -222,7 +336,9 @@ class InvariantAuditor:
                 "rule": "Missing test directories",
                 "snippet": "Both tests/ and sim/cocotb/ must exist"
             })
+    # endregion
 
+    # region Audit execution and report
     def run_audit(self, target_files: list):
         for f in target_files:
             if not f.exists() or f.is_dir():
@@ -238,7 +354,7 @@ class InvariantAuditor:
 
             if f.suffix == ".md":
                 self.audit_stage0_spec_markdown(f, lines)
-            else:
+            elif f.suffix in CODE_SUFFIXES - {".py"}:
                 self.audit_stage1_zero_heap(f, lines)
                 self.audit_stage2_non_blocking_hal(f, lines)
                 self.audit_stage3_isr_boundary(f, lines)
@@ -273,6 +389,7 @@ class InvariantAuditor:
             print(f"{BOLD}{RED}VERDICT: [INVARIANT VIOLATIONS DETECTED] ({total_issues} Issues){RESET}")
             print(f"{BOLD}{BLUE}======================================================================={RESET}\n")
             return 1
+    # endregion
 
     def generate_engineering_log_entry(self, target_files: list) -> str:
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -353,11 +470,22 @@ Discard false positives. For every genuine defect, race hazard, or specification
 3. Classify issue severity: [Critical], [High], [Medium]."
 """
 
+# region CLI: scope selection, AI context, and execution
 def main():
     parser = argparse.ArgumentParser(description="AbstractX Invariant & Specification Auditor")
-    parser.add_argument("--all", action="store_true", help="Audit all codebase files and specifications")
-    parser.add_argument("--path", type=str, default=None, help="Specific path or directory to audit")
-    parser.add_argument("--git-diff", action="store_true", help="Audit only files modified in git diff")
+    parser.add_argument("--all", action="store_true", help="Explicitly audit maintained module roots (Linux and generated output excluded)")
+    parser.add_argument("--path", "--module", dest="path", type=str, default=None,
+                        help="Audit only this module/file path; selecting targets/linux opts Linux in")
+    parser.add_argument("--related-path", action="append", default=[],
+                        help="Add an associated test or shared-interface path to a module audit (repeatable)")
+    parser.add_argument("--git-diff", action="store_true",
+                        help="Compatibility alias for auditing current staged/unstaged/untracked changes")
+    parser.add_argument("--base-ref", type=str, default=None,
+                        help="Also audit committed changes from this ref to HEAD, e.g. origin/main")
+    parser.add_argument("--include-linux", action="store_true",
+                        help="Include targets/linux in --all or changed-file scope")
+    parser.add_argument("--ai-prompt", action="store_true",
+                        help="Print a bounded AI review prompt and selected file manifest")
     parser.add_argument("--kickoff", action="store_true", help="Generate engineering_log.md template entry")
     parser.add_argument("--append", action="store_true", help="Append generated kickoff entry to engineering_log.md")
     parser.add_argument("--prompts", action="store_true", help="Display the 6 adversarial review prompt templates")
@@ -369,34 +497,49 @@ def main():
         print(ADVERSARIAL_PROMPTS)
         sys.exit(0)
 
-    target_files = []
-    if args.git_diff:
-        try:
-            res = subprocess.run(["git", "diff", "--name-only", "HEAD"], cwd=root_dir, capture_output=True, text=True)
-            files = [root_dir / f for f in res.stdout.strip().splitlines() if f]
-            target_files = files
-        except Exception as e:
-            print(f"Error reading git diff: {e}")
-            sys.exit(1)
-    elif args.path:
-        p = Path(args.path)
-        if not p.is_absolute():
-            p = root_dir / p
-        if p.is_dir():
-            target_files = (list(p.rglob("*.hpp")) + list(p.rglob("*.cpp")) + 
-                            list(p.rglob("*.h")) + list(p.rglob("*.sv")) + list(p.rglob("*.md")))
-        else:
-            target_files = [p]
+    if args.all and (args.path or args.related_path):
+        parser.error("--all cannot be combined with --path/--module or --related-path")
+    if args.related_path and not args.path:
+        parser.error("--related-path requires --path/--module")
+    if args.path and (args.base_ref or args.git_diff):
+        parser.error("--path/--module cannot be combined with git-diff scope options")
+
+    if args.path:
+        module_path = Path(args.path)
+        if not module_path.is_absolute():
+            module_path = root_dir / module_path
+        related_paths = [Path(path) for path in args.related_path]
+        related_paths = [path if path.is_absolute() else root_dir / path for path in related_paths]
+        selected_paths = [module_path, *related_paths]
+        include_linux = args.include_linux or any(
+            _is_linux_target(path, root_dir) for path in selected_paths
+        )
+        target_files = collect_audit_files(
+            root_dir,
+            selected_paths,
+            include_linux=include_linux,
+        )
+    elif args.all:
+        target_files = collect_audit_files(
+            root_dir,
+            [root_dir / name for name in AUDIT_ROOTS],
+            include_linux=args.include_linux,
+        )
     else:
-        # Default: scan all software, RTL, hardware, and specification roots.
-        for sub in ["include", "apps", "targets", "docs", "rtl", "hw"]:
-            d = root_dir / sub
-            if d.exists():
-                target_files.extend(d.rglob("*.hpp"))
-                target_files.extend(d.rglob("*.cpp"))
-                target_files.extend(d.rglob("*.h"))
-                target_files.extend(d.rglob("*.sv"))
-                target_files.extend(d.rglob("*.md"))
+        try:
+            target_files = collect_changed_files(
+                root_dir, base_ref=args.base_ref, include_linux=args.include_linux
+            )
+        except subprocess.CalledProcessError as exc:
+            print(f"Unable to collect audit scope: {exc}", file=sys.stderr)
+            sys.exit(2)
+
+    if args.ai_prompt:
+        emit_ai_review_prompt(target_files, root_dir, base_ref=args.base_ref)
+
+    if not target_files:
+        print("No maintained files in the selected scope. Use --module <path> or --all for an explicit audit.")
+        sys.exit(0)
 
     auditor = InvariantAuditor(root_dir)
     auditor.run_audit(target_files)
@@ -415,6 +558,7 @@ def main():
             print(report)
 
     sys.exit(auditor.print_report())
+ # endregion
 
 if __name__ == "__main__":
     main()

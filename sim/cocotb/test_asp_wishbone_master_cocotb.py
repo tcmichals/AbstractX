@@ -14,16 +14,21 @@ TYPE_CPL_D  = 0x03
 SYS_VERSION = 0xA1B2C3D4
 
 
-def pack_tlp_int(tlp_type: int, flags: int, tag: int, channel: int, addr: int, len_dw: int, seq: int, ts: int, write_data: int = 0) -> int:
+def pack_tlp_int(tlp_type: int, flags: int, tag: int, channel: int, addr: int, len_dw: int, seq: int, ts: int, write_data: int = 0, write_words: list = None) -> int:
     """Packs fields into a 512-bit integer representing a 64-byte TLP vector."""
     dw0 = (tlp_type << 24) | (flags << 16) | (tag << 8) | channel
     dw1 = addr & 0xFFFFFFFF
     dw2 = ((len_dw & 0xFFFF) << 16) | (seq & 0xFFFF)
     dw3_4 = ts & 0xFFFFFFFFFFFFFFFF
-    dw5 = write_data & 0xFFFFFFFF
 
-    tlp_val = (dw0 << 480) | (dw1 << 448) | (dw2 << 416) | (dw3_4 << 352) | (dw5 << 320)
+    tlp_val = (dw0 << 480) | (dw1 << 448) | (dw2 << 416) | (dw3_4 << 352)
+    if write_words:
+        for i, w in enumerate(write_words[:9]):
+            tlp_val |= ((w & 0xFFFFFFFF) << (320 - i * 32))
+    else:
+        tlp_val |= ((write_data & 0xFFFFFFFF) << 320)
     return tlp_val
+
 
 
 def unpack_cpl_tlp(tlp_val: int):
@@ -63,7 +68,7 @@ async def send_tlp(dut, tlp_val: int):
     dut.s_tlp_tdata.value = 0
 
 
-async def wb_slave_responder(dut, read_data_map=None, max_cycles=500):
+async def wb_slave_responder(dut, read_data_map=None, written_data_map=None, max_cycles=500):
     """Simulates Wishbone slave responding with single-cycle ack."""
     if read_data_map is None:
         read_data_map = {}
@@ -73,9 +78,13 @@ async def wb_slave_responder(dut, read_data_map=None, max_cycles=500):
             addr = int(dut.wb_adr_o.value)
             if dut.wb_we_o.value == 0:
                 dut.wb_dat_i.value = read_data_map.get(addr, 0xDEADBEEF)
+            else:
+                if written_data_map is not None:
+                    written_data_map[addr] = int(dut.wb_dat_o.value)
             dut.wb_ack_i.value = 1
         else:
             dut.wb_ack_i.value = 0
+
 
 
 @cocotb.test()
@@ -192,4 +201,42 @@ async def test_cpld_backpressure(dut):
     assert tag == 0x99
     assert read_data == 0x55AA55AA
     dut._log.info("[SUCCESS] CplD backpressure held data cleanly until ready asserted!")
+
+
+@cocotb.test()
+async def test_mem_wr_burst_execution(dut):
+    """MemWr TLP with len_dw > 1 should execute sequential Wishbone writes incrementing address."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+
+    written_map = {}
+    cocotb.start_soon(wb_slave_responder(dut, written_data_map=written_map))
+
+    burst_words = [0x11111111, 0x22222222, 0x33333333, 0x44444444]
+    wr_tlp = pack_tlp_int(
+        tlp_type=TYPE_MEM_WR,
+        flags=0,
+        tag=0x15,
+        channel=0x01,
+        addr=0x40000200,
+        len_dw=4,
+        seq=105,
+        ts=99887766,
+        write_words=burst_words,
+    )
+    await send_tlp(dut, wr_tlp)
+
+    # Wait until transaction finishes and Wishbone cycle deasserts
+    for _ in range(50):
+        await RisingEdge(dut.clk)
+        if len(written_map) >= 4 and dut.wb_cyc_o.value == 0:
+            break
+
+    assert len(written_map) == 4, f"Expected 4 burst writes, got {len(written_map)}"
+    assert written_map[0x40000200] == 0x11111111
+    assert written_map[0x40000204] == 0x22222222
+    assert written_map[0x40000208] == 0x33333333
+    assert written_map[0x4000020C] == 0x44444444
+    dut._log.info("[SUCCESS] Multi-register burst write verified with 4 consecutive Wishbone writes!")
+
 
