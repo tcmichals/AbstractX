@@ -1,3 +1,6 @@
 [submodule "third_party/etl"]
 	path = third_party/etl
 	url = https://github.com/ETLCPP/etl.git
+[submodule "third_party/micropython"]
+	path = third_party/micropython
+	url = https://github.com/micropython/micropython.git

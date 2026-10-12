@@ -297,3 +297,10 @@ The visualizer MUST provide a Flow Integrity & Pacing Eye tab (within `CoreStudi
 - **Transit Delay Plot**: $\Delta t_{\text{transit}} = t_{\text{pop}} - t_{\text{latch}}$ (µs) with saturation threshold line at 10 µs and monotonic sequence drop counters.
 - **Pacing Eye Diagram**: Inter-arrival intervals folded modulo 125.0 µs (8 kHz primary epoch), exposing jitter and drift.
 - **Anomaly Root-Cause Inspector Modal**: One-click drill-down from any contention/overrun event to the causality chain and direct jump to C++ or RTL source.
+
+### `[SPEC-STUDIO-13]` Integrated Interactive CLI Console & MicroPython / Hardware REPL
+The visualizer MUST provide a dedicated Interactive CLI Console tab (`_render_cli_console`) within `CoreStudioTabBar` (with independent pop-out capability `canvas_windows['cli']`), providing an interactive command-line interface connected to AbstractX and the co-processor execution plane.
+The CLI console MUST support:
+1. **Interactive Shell Execution**: Text input with Enter submission, command history buffer, auto-scrolling terminal output view with colored badges (`abstractx>`, `>>>`, `[TLP]`, `[ERROR]`, `[OK]`).
+2. **Built-in Firmware Diagnostics**: `help`, `ps` / `coro` (inspecting active coroutine table), `peek <addr>` (reading 32-bit physical/emulated hardware register), `poke <addr> <val>` (writing register), `ping` (measuring RTT latency), `tlp send <tag> <ch> <payload>` (injecting 64B TLP frames), `tasks` (FreeRTOS task CPU usage table), `clear`.
+3. **MicroPython Co-Processor Scripting Mode**: Support switching between Native AbstractX command mode and an interactive MicroPython REPL prompt (`>>> `) allowing developers to execute Python commands and inspect live hardware and AbstractX objects directly from the studio workbench.

@@ -309,7 +309,7 @@ def test_studio_floating_canvas_windows_and_user_canvas():
     """Validates movable floating canvas windows and independent User domain instruments canvas."""
     state = studio.TelemetryState()
     assert hasattr(state, "canvas_windows")
-    expected_keys = {"coro", "cpu", "tlp", "log", "timeline", "trace", "source", "fpga", "memory"}
+    expected_keys = {"coro", "cpu", "tlp", "log", "timeline", "trace", "source", "fpga", "memory", "cli"}
     assert expected_keys.issubset(set(state.canvas_windows.keys()))
 
     # Verify that all windows start docked as tabs inside Studio
@@ -329,6 +329,44 @@ def test_studio_floating_canvas_windows_and_user_canvas():
     # Verify runner params has post_render_dockable_windows configured for canvas windows
     runner = studio.create_docking_runner_params()
     assert runner.callbacks.post_render_dockable_windows is not None
+
+
+def test_studio_cli_console_and_repl():
+    """Validates [SPEC-STUDIO-13] Interactive CLI Console & MicroPython Hardware REPL."""
+    state = studio.TelemetryState()
+    assert hasattr(state, "cli_history")
+    assert hasattr(state, "cli_mode")
+    assert state.cli_mode == "AbstractX"
+    assert len(state.cli_history) > 0
+
+    # 1. Test AbstractX commands
+    state.execute_cli_command("help")
+    assert any("Available AbstractX CLI Commands" in line[1] for line in state.cli_history)
+
+    state.execute_cli_command("ps")
+    assert any("app_main" in line[1] for line in state.cli_history)
+
+    state.execute_cli_command("tasks")
+    assert any("bench_a" in line[1] for line in state.cli_history)
+
+    state.execute_cli_command("peek 0x07090000")
+    assert any("0x07090000" in line[1] for line in state.cli_history)
+
+    state.execute_cli_command("poke 0x07130000 0x12345678")
+    assert state.cli_simulated_regs[0x07130000] == 0x12345678
+
+    # 2. Test switching to MicroPython REPL mode
+    state.execute_cli_command("mode micropython")
+    assert state.cli_mode == "MicroPython"
+
+    state.execute_cli_command("2 + 2")
+    assert any(line[1] == "4" for line in state.cli_history)
+
+    state.execute_cli_command("abstractx.ping()")
+    assert any("1.85" in line[1] for line in state.cli_history)
+
+    state.execute_cli_command("len(abstractx.coros())")
+    assert any(line[1] == str(len(state.coro_frames)) for line in state.cli_history)
 
 
 
