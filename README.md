@@ -30,9 +30,16 @@ AbstractX executes a 4-step autonomous closed-loop architecture:
 
 ### 💡 Core Design Philosophy: Linear Programming with a Minimal Footprint
 
-> 📖 **Read the Full Deep-Dive**: [**Architectural Design Philosophy: Pros, Cons & RTOS Comparison**](docs/PROS_CONS.md)
-
-AbstractX is **not a flight controller**; it is an **embedded design pattern** that brings **linear, sequential async programming with an ultra-small memory footprint** to embedded systems:
+> 📖 **Read the Deep-Dives**:
+> * [**Architectural Design Philosophy: Pros, Cons & RTOS Comparison**](docs/PROS_CONS.md)
+> * [**Multi-Silicon Benchmark Series & Case Studies (5-Part Deep Dive)**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md):
+>   1. *RP2350 Pico 2 W*: Sub-microsecond C++20 coroutines vs. RTOS threads
+>   2. *Allwinner Radxa Cubie A5E*: Freestanding E906 coprocessor defeating Linux jitter
+>   3. *QMTECH Zynq-7020*: Polymorphic silicon — C++ to SystemVerilog FPGA switch fabric
+>   4. *CI Observability*: $0/month embedded memory budget tracking with pure GitHub
+>   5. *Interactive Scripting*: MicroPython as a C++20 coroutine on dormant DSP memory
+>
+> AbstractX is **not a flight controller**; it is an **embedded design pattern** that brings **linear, sequential async programming with an ultra-small memory footprint** to embedded systems:
 ## 🚀 The Vision: Emulating a Massive PCIe Fabric for Embedded Silicon
 
 AbstractX is built around a single, game-changing architectural concept: **What if your entire embedded system behaved like a massive PCIe bus topology with switches, endpoints, and transaction packets?**
@@ -677,6 +684,7 @@ Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenG
     - **Multi-Core Utilization**: Real-time breakdown of CPU/SPU cores, host process load, and mailbox doorbell latency.
     - **Continuous Memory Observability**: Real-time SRAM and Flash footprint gauges powered by MemBrowse.
     - **Dynamic CTF / TLP Inspector**: Byte-level inspection of 64-byte binary frames and decoded fields.
+    - **Interactive CLI Console & Hardware REPL (Tab 11)**: Live target console (`abstractx> `) and MicroPython REPL (`>>> `) with register peek/poke, real-time command macros (`ps`, `ping`, `tasks`, `peek MTIME`), and Pop-to-Canvas movable window support.
   * **Level 2 (Extensible Application Plugins)**:
     - Domain-specific instruments plug directly into the studio tab bar. For example, the reference flight plugin ([`tools/visualizer/flight_plugin.py`](tools/visualizer/flight_plugin.py)) adds:
       * **Primary Flight Display (PFD)**: Vector-rendered artificial horizon with sky/ground polygons, roll reticle, and pitch ladder.
@@ -823,16 +831,21 @@ flowchart LR
 AbstractX/
 ├── AGENTS.md                         # Non-negotiable AI agent invariants & architecture rules
 ├── apps/                             # Hardware-agnostic C++20 applications
-│   └── gps_imu_app/                  # Reference multi-rate sensor fusion & control application
-│       ├── README.md                 # Reference app documentation & multi-rate dataflows
-│       ├── SPECIFICATION.md          # Normative design specification ([SPEC-APP-01..10])
-│       ├── trace_schema.json         # Dynamic CTF 1.8 telemetry schema
-│       ├── tools/flight_display.py   # 3D attitude & instrument visualizer display
-│       ├── platforms/
-│       │   └── allwinner_e906/       # Companion XuanTie E906 coprocessor firmware (Allwinner A5E)
-│       └── src/main.cpp              # 100% linear C++20 coroutine application code
+│   ├── gps_imu_app/                  # Reference multi-rate sensor fusion & control application
+│   │   ├── README.md                 # Reference app documentation & multi-rate dataflows
+│   │   ├── SPECIFICATION.md          # Normative design specification ([SPEC-APP-01..10])
+│   │   ├── trace_schema.json         # Dynamic CTF 1.8 telemetry schema
+│   │   ├── tools/flight_display.py   # 3D attitude & instrument visualizer display
+│   │   ├── platforms/
+│   │   │   └── allwinner_e906/       # Companion XuanTie E906 coprocessor firmware (Allwinner A5E)
+│   │   └── src/main.cpp              # 100% linear C++20 coroutine application code
+│   ├── serial_loopback_app/          # TLP bus loopback & dual-core verification
+│   └── e906_repl_app/                # E906 Coprocessor Scripting Application (isolated DSP SRAM heap)
+├── ports/                            # Language runtimes & external engine bindings
+│   └── abstractx/                    # MicroPython C++20 coroutine adapter & native 'abstractx' module
 ├── docs/                             # 3-Tier specification & architecture hierarchy
 │   ├── README.md                     # Central documentation hub index (3-tier navigation)
+│   ├── articles/                     # Architectural deep-dives & 5-part benchmark case studies
 │   ├── DESIGN_SPECIFICATION.md       # Root system specification (SSOT)
 │   ├── SPECTRACE.md                  # SpecTrace closed-loop architecture & invariant methodology
 │   ├── SPEC_TEMPLATE.md              # Standard application & driver specification template
@@ -862,6 +875,9 @@ AbstractX/
 │   ├── asp_router.sv                 # AXI-Stream packet router
 │   ├── imu/asp_imu_auto_dma.sv       # Hardware IMU Auto-DMA core
 │   └── motor/asp_dshot_core.sv       # 4-Channel hardware DShot motor core
+├── third_party/                      # Upstream submodules & third-party libraries
+│   ├── etl/                          # Embedded Template Library (freestanding containers)
+│   └── micropython/                  # Upstream MicroPython core (tracked via Git submodule)
 ├── tools/                            # Developer tooling, schema compilers & auditors
 │   ├── spectrace.py                  # SpecTrace master CLI (full bidirectional round-tripping & sync)
 │   ├── audit_specs.py                # Automated specification-to-code traceability auditor
@@ -873,7 +889,7 @@ AbstractX/
 │   ├── setup_venv.sh                 # Automated Python venv & dependency installer
 │   ├── track_memory_membrowse.py     # Continuous zero-heap & ELF footprint tracker
 │   └── visualizer/                   # Observability Studio & dynamic CTF schema loader
-│       ├── abstractx_studio.py       # Two-Level Dear ImGui real-time dashboard
+│       ├── abstractx_studio.py       # Real-time dashboard + Tab 11 CLI & REPL ([SPEC-STUDIO-13])
 │       ├── flight_plugin.py          # Level 2 flight instruments & 3D wireframe plugin
 │       ├── sdk/plugin.py             # AbstractXStudioPlugin standard base class SDK
 │       └── ctf_schema_loader.py      # Dynamic barectf YAML/JSON binary decoder
