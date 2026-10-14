@@ -503,3 +503,24 @@ This log chronicles the development, technical decisions, and architecture miles
 * `SPEC-TRACE-07` is specified but not implemented; `audit_specs.py` reports it MISSING (96.6%) on purpose.
 * Not verified on silicon.
 
+## [2026-10-14] - Mistake & Lesson: UBSan reported but did not fail; misaligned coroutine frames and TLP slots
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/asp_coro.hpp`, `include/asp_tlp64.hpp`, E906 RPMsg TLP endpoint, `AGENTS.md` gates
+* **Symptoms**:
+  - The documented ASan/UBSan build let UBSan print and continue, so ctest reported 100% while two examples had misaligned-access UB.
+  - Coroutine frames were 16-byte aligned, but frames holding a `Tlp64` (`alignas(64)`) need 64.
+  - `asp_tlp64_t` is `packed, aligned(64)`; building TLPs in place 16 bytes into an RPMsg payload was a misaligned access (caught on the first strict run).
+  - A typedef that lowers `asp_tlp64_t`'s alignment worked in plain C++ but not when declared inside the header's `extern "C"` block, so it was not a reliable fix.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: the sanitizer gate omitted `-fno-sanitize-recover=all`; promise `operator new` gets no alignment and the allocator assumed 16; in-place TLP slots reused an aligned wire type.
+* **Architectural Lesson**: a check that can print an error and still pass is not a gate. Data written into transport buffers uses explicitly packed, alignment-1 wire views with offsets asserted against the canonical type.
+
+### 3. Specification Update (SSOT Defense)
+* **Target**: `AGENTS.md` §10 gate command; `[SPEC-E906-IPC-04]` (TLP slots are unaligned).
+
+### 4. Implementation & Verification
+* Coroutine frames rounded to 64 bytes (`kCoroFrameAlign`); `asp_tlp64_unaligned_t` with offset `static_assert`s and byte-wise `tlp_store`/`tlp_load`.
+* Strict build (`-fsanitize=address,undefined -fno-sanitize-recover=all`): 29/29; Debug 29/29; E906 cross-build clean.
+

@@ -148,7 +148,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
    cmake -S . -B build_asan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build_asan -j && ctest --test-dir build_asan
    ```
-   A sanitizer report is a failing test, even if the binary exits 0.
+   A sanitizer report is a failing test, even if the binary exits 0. `-fno-sanitize-recover=all` makes UBSan abort so ctest sees it; without it UBSan only prints and the test still "passes" (this hid misaligned coroutine frames until 2026-10-14).
 3. **Lifetime review for every span/pointer handed across a boundary.** Any `std::span`, raw pointer or reference stored in a request that is completed later (DMA, ISR, worker thread, other core) MUST point at storage that outlives the completion: a member buffer or the awaiting coroutine frame, never a loop-local or a temporary. State the owner in a comment.
 4. **Awaiter contract.** Every awaiter must (a) receive *its own* completion via `request.result_slot` (never pop "the next" result from a shared queue), (b) return `false` from `await_suspend` on submit failure instead of resuming inline, and (c) bind spans to its own members inside `await_suspend`, not the constructor.
 5. **Steady-state tests.** Any change to coroutine, allocator, queue or driver code needs a test that runs the path at least 1000 times and asserts that `coro::coro_pool_high_water()`, queue depth and `Dispatcher::dropped_resumes()` do not grow. One-shot tests do not catch leaks.
