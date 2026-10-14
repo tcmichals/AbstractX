@@ -524,3 +524,21 @@ This log chronicles the development, technical decisions, and architecture miles
 * Coroutine frames rounded to 64 bytes (`kCoroFrameAlign`); `asp_tlp64_unaligned_t` with offset `static_assert`s and byte-wise `tlp_store`/`tlp_load`.
 * Strict build (`-fsanitize=address,undefined -fno-sanitize-recover=all`): 29/29; Debug 29/29; E906 cross-build clean.
 
+## [2026-10-14] - Mistake & Lesson: single-cycle CRC32 limited the serial FPGA path to 13.7 MHz
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `rtl/spi/asp_spi_frontend.sv` (A5E <-> FPGA serial link: Tang / CYC1000)
+* **Symptoms**: first fit check for the Tang Nano 20K (via the same-die Tang Primer 20K build): routed Fmax 13.7 MHz, LUT4 50%, 13-minute build. The critical path ran from the SPI input synchroniser through `crc32_ieee()`, which unrolled the CRC over all 60 bytes (480 bit-steps) in one cycle, three copies (TX, RX dual, RX single). The Nano 20K clock is 27 MHz, so it would have failed timing; it also capped the link speed.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: the CRC was written as a function over the whole frame, which simulates correctly and quickly but is a 480-deep XOR chain in hardware. No fit/timing check existed for the serial targets.
+* **Architectural Lesson**: functions over whole frames in RTL are combinational hardware; compute running checks incrementally (one byte per clock). Every board target needs an `fpga-fit` result, not just simulation.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/tier2_contracts/TLP_BUS_SPECIFICATION.md` `[SPEC-TLP-CRC-01]` (incremental CRC, at most one byte per clock); `hw/tang_nano20k/SPECIFICATION.md` `[SPEC-TN20K-03]` (measured fit).
+
+### 4. Implementation & Verification
+* Running RX/TX CRC registers updated one clock after each byte; egress bytes 60-63 come from a separate CRC shift register; empty reads still return 64 zero bytes.
+* cocotb: front end 4/4 dual-SPI and 3/3 single-SPI (`SIM_PARAMS=-GDUAL_SPI_ENABLE=0`), including random back-to-back frames at the fastest SCLK (4 system clocks per period) checked against `zlib.crc32`; full regression 31 tests pass.
+* GW2A-18 after: LUT4 4 505 (21%), DFF 4 669 (30%), Fmax 126.7 MHz (9.2x), build 5 min. Bitstream sha256 3c651814c23006fa...
+

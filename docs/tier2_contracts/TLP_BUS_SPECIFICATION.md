@@ -98,6 +98,9 @@ The FPGA switch fabric decodes address ranges into Wishbone peripherals:
 * SPI/Dual-SPI ingress frames MUST carry the IEEE 802.3 CRC32 of wire bytes 0–59 in big-endian byte order at bytes 60–63. The receiver MUST validate the CRC before asserting the internal TLP valid signal.
 * After successful validation, the receiver MUST pass bytes 0–59 unchanged and replace bytes 60–63 with zeroes, because CRC is limited to the external transport boundary and the internal TLP footer is reserved.
 * SPI/Dual-SPI egress MUST compute the wire CRC over internal bytes 0–59 and transmit it in bytes 60–63, regardless of the internal reserved-footer value.
+* The CRC MUST be computed incrementally, at most one byte (8 bit-steps) per clock: on ingress each received byte updates a running CRC register; on egress each byte updates it as it leaves, and bytes 60–63 come from that register. A single-cycle CRC over all 60 bytes is not allowed: it unrolls 480 bit-steps into one combinational path (measured 2026-10-14 on GW2A-18: Fmax 13.7 MHz, below the Tang Nano 20K's 27 MHz clock).
+* An egress read with no TLP pending returns 64 zero bytes (no CRC), as before.
+* **Verified by**: `cocotb-regression` (`test_asp_spi_frontend_cocotb`, `test_asp_tlp_64b_cocotb`: CRC checked against `zlib.crc32`), `fpga-fit` (Fmax)
 
 ```mermaid
 flowchart LR

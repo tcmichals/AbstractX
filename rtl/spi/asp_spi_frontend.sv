@@ -119,26 +119,32 @@ module asp_spi_frontend #(
     logic         crc_err_flag;
     logic         overflow_flag;
 
-    // @impl [SPEC-TLP-CRC-01] rtl/spi/asp_spi_frontend.sv
-    // Reflected IEEE 802.3 CRC32, matching zlib.crc32 over wire bytes 0..59.
-    function automatic logic [31:0] crc32_ieee(input logic [479:0] frame_data);
+    // @impl [SPEC-TLP-CRC-01] docs/tier2_contracts/TLP_BUS_SPECIFICATION.md
+    // Reflected IEEE 802.3 CRC32 (zlib.crc32) over wire bytes 0..59, updated one
+    // byte per clock as bytes arrive or leave. A single-cycle CRC over all 60
+    // bytes unrolled 480 bit-steps into one path (Fmax 13.7 MHz on GW2A-18).
+    function automatic logic [31:0] crc32_byte(input logic [31:0] crc_in, input logic [7:0] data_byte);
         logic [31:0] crc;
-        logic [7:0] data_byte;
-        integer byte_idx;
         integer bit_idx;
         begin
-            crc = 32'hFFFFFFFF;
-            for (byte_idx = 0; byte_idx < 60; byte_idx = byte_idx + 1) begin
-                data_byte = frame_data[479 - (byte_idx * 8) -: 8];
-                crc = crc ^ {24'h000000, data_byte};
-                for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
-                    if (crc[0]) crc = (crc >> 1) ^ 32'hEDB88320;
-                    else        crc = crc >> 1;
-                end
+            crc = crc_in ^ {24'h000000, data_byte};
+            for (bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
+                if (crc[0]) crc = (crc >> 1) ^ 32'hEDB88320;
+                else        crc = crc >> 1;
             end
-            crc32_ieee = ~crc;
+            crc32_byte = crc;
         end
     endfunction
+
+    logic [31:0] rx_crc;       // running CRC of received bytes 0..59
+    logic [31:0] tx_crc;       // running CRC of transmitted bytes 0..59
+    logic [31:0] tx_crc_out;   // egress bytes 60..63 being shifted out
+    logic [7:0]  crc_rx_byte;
+    logic [7:0]  crc_tx_byte;
+    logic        crc_rx_v;
+    logic        crc_tx_v;
+    logic        tx_empty;     // no TLP pending: send 64 zero bytes, no CRC
+    wire  [31:0] tx_crc_wire = tx_empty ? 32'd0 : ~tx_crc;
 
     wire [511:0] rx_dual_complete =
         {rx_shift_reg[509:0], io1_in_sync[1], io0_in_sync[1]};
@@ -182,7 +188,21 @@ module asp_spi_frontend #(
             io1_out          <= 1'b0;
             crc_err_flag     <= 1'b0;
             overflow_flag    <= 1'b0;
+            rx_crc           <= 32'hFFFFFFFF;
+            tx_crc           <= 32'hFFFFFFFF;
+            tx_crc_out       <= 32'd0;
+            crc_rx_byte      <= 8'd0;
+            crc_tx_byte      <= 8'd0;
+            crc_rx_v         <= 1'b0;
+            crc_tx_v         <= 1'b0;
+            tx_empty         <= 1'b1;
         end else begin
+            // Apply the byte captured on the previous clock; the next byte is
+            // at least 4 SCLK edges away, so a capture never overlaps an update.
+            crc_rx_v <= 1'b0;
+            crc_tx_v <= 1'b0;
+            if (crc_rx_v) rx_crc <= crc32_byte(rx_crc, crc_rx_byte);
+            if (crc_tx_v) tx_crc <= crc32_byte(tx_crc, crc_tx_byte);
 
             // Clear valid flag once downstream consumer accepts TLP
             if (o_tlp_rx_valid && i_tlp_rx_ready) begin
@@ -219,15 +239,16 @@ module asp_spi_frontend #(
                                         status_shift_reg <= {8'h64, o_status_flags, 4'h0, i_egress_count, 8'h08};
                                     end
                                     CMD_WRITE_BURST: begin
-                                        state <= ST_WRITE_TLP_BURST;
+                                        state  <= ST_WRITE_TLP_BURST;
+                                        rx_crc <= 32'hFFFFFFFF;
                                     end
                                     CMD_READ_BURST: begin
-                                        state <= ST_READ_TLP_BURST;
+                                        state    <= ST_READ_TLP_BURST;
+                                        tx_crc   <= 32'hFFFFFFFF;
+                                        tx_empty <= !i_tlp_tx_valid;
                                         if (i_tlp_tx_valid) begin
-                                            tx_shift_reg <= {
-                                                i_tlp_tx_data[511:32],
-                                                crc32_ieee(i_tlp_tx_data[511:32])
-                                            };
+                                            // Bytes 60..63 are sent from tx_crc_out
+                                            tx_shift_reg <= {i_tlp_tx_data[511:32], 32'd0};
                                         end else begin
                                             tx_shift_reg <= 512'd0; // Pad if empty
                                         end
@@ -268,9 +289,14 @@ module asp_spi_frontend #(
                             if (DUAL_SPI_ENABLE) begin
                                 rx_shift_reg <= {rx_shift_reg[509:0], io1_in_sync[1], io0_in_sync[1]};
                                 clk_pulse_cnt <= clk_pulse_cnt + 9'd1;
+                                // Byte k completes on pulse 4k+3; CRC covers bytes 0..59
+                                if (clk_pulse_cnt[1:0] == 2'b11 && clk_pulse_cnt[8:2] < 7'd60) begin
+                                    crc_rx_byte <= {rx_shift_reg[5:0], io1_in_sync[1], io0_in_sync[1]};
+                                    crc_rx_v    <= 1'b1;
+                                end
                                 if (clk_pulse_cnt == 9'd255) begin
                                     state <= ST_TLP_COMPLETE;
-                                    if (rx_dual_complete[31:0] == crc32_ieee(rx_dual_complete[511:32])) begin
+                                    if (rx_dual_complete[31:0] == ~rx_crc) begin
                                         if (!o_tlp_rx_valid) begin
                                             o_tlp_rx_data  <= {rx_dual_complete[511:32], 32'd0};
                                             o_tlp_rx_valid <= 1'b1;
@@ -284,9 +310,14 @@ module asp_spi_frontend #(
                             end else begin
                                 rx_shift_reg <= {rx_shift_reg[510:0], io0_in_sync[1]};
                                 clk_pulse_cnt <= clk_pulse_cnt + 9'd1;
+                                // Byte k completes on pulse 8k+7
+                                if (clk_pulse_cnt[2:0] == 3'b111 && clk_pulse_cnt[8:3] < 6'd60) begin
+                                    crc_rx_byte <= {rx_shift_reg[6:0], io0_in_sync[1]};
+                                    crc_rx_v    <= 1'b1;
+                                end
                                 if (clk_pulse_cnt == 9'd511) begin
                                     state <= ST_TLP_COMPLETE;
-                                    if (rx_single_complete[31:0] == crc32_ieee(rx_single_complete[511:32])) begin
+                                    if (rx_single_complete[31:0] == ~rx_crc) begin
                                         if (!o_tlp_rx_valid) begin
                                             o_tlp_rx_data  <= {rx_single_complete[511:32], 32'd0};
                                             o_tlp_rx_valid <= 1'b1;
@@ -308,8 +339,23 @@ module asp_spi_frontend #(
                             io0_oe <= 1'b1;
                             io1_oe <= 1'b1;
                             if (sclk_fall) begin
-                                io0_out <= tx_shift_reg[510];
-                                io1_out <= tx_shift_reg[511];
+                                // Byte k is at the top on pulse 4k: fold it into the CRC
+                                if (clk_pulse_cnt[1:0] == 2'b00 && clk_pulse_cnt[8:2] < 7'd60) begin
+                                    crc_tx_byte <= tx_shift_reg[511:504];
+                                    crc_tx_v    <= 1'b1;
+                                end
+                                if (clk_pulse_cnt < 9'd240) begin
+                                    io0_out <= tx_shift_reg[510];
+                                    io1_out <= tx_shift_reg[511];
+                                end else if (clk_pulse_cnt == 9'd240) begin
+                                    io0_out    <= tx_crc_wire[30];
+                                    io1_out    <= tx_crc_wire[31];
+                                    tx_crc_out <= {tx_crc_wire[29:0], 2'b00};
+                                end else begin
+                                    io0_out    <= tx_crc_out[30];
+                                    io1_out    <= tx_crc_out[31];
+                                    tx_crc_out <= {tx_crc_out[29:0], 2'b00};
+                                end
                                 tx_shift_reg <= {tx_shift_reg[509:0], 2'b00};
                                 clk_pulse_cnt <= clk_pulse_cnt + 9'd1;
                                 if (clk_pulse_cnt == 9'd255) begin
@@ -321,7 +367,20 @@ module asp_spi_frontend #(
                             io0_oe <= 1'b0;
                             io1_oe <= 1'b1; // MISO
                             if (sclk_fall) begin
-                                io1_out <= tx_shift_reg[511];
+                                // Byte k is at the top on pulse 8k
+                                if (clk_pulse_cnt[2:0] == 3'b000 && clk_pulse_cnt[8:3] < 6'd60) begin
+                                    crc_tx_byte <= tx_shift_reg[511:504];
+                                    crc_tx_v    <= 1'b1;
+                                end
+                                if (clk_pulse_cnt < 9'd480) begin
+                                    io1_out <= tx_shift_reg[511];
+                                end else if (clk_pulse_cnt == 9'd480) begin
+                                    io1_out    <= tx_crc_wire[31];
+                                    tx_crc_out <= {tx_crc_wire[30:0], 1'b0};
+                                end else begin
+                                    io1_out    <= tx_crc_out[31];
+                                    tx_crc_out <= {tx_crc_out[30:0], 1'b0};
+                                end
                                 tx_shift_reg <= {tx_shift_reg[510:0], 1'b0};
                                 clk_pulse_cnt <= clk_pulse_cnt + 9'd1;
                                 if (clk_pulse_cnt == 9'd511) begin

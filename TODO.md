@@ -133,6 +133,8 @@ Remaining:
 - [ ] `tools/audit_specs.py` only checks the 28 requirements in `docs/DESIGN_SPECIFICATION.md`; per-target `SPECIFICATION.md` tags (e.g. `SPEC-E906-*`, `SPEC-ZYNQ-*`) are never counted. `run_adversarial_audit.py` Stage 5 passes if the test directories exist; it runs no tests. Current full sweep reports 99 violations.
 - [ ] **SpecTrace completion: 14/128 requirements VERIFIED** (`docs/verification/TRACEABILITY_MATRIX.md`). For each `IMPLEMENTED` row, find or write the test that exercises it and add its `Verified by` line; for each `SPEC-ONLY` row, implement or drop the requirement. Wire `spectrace_matrix.py --changes --strict` and `--matrix --require-complete` (once reachable) into CI.
 - [ ] **Tang Nano 20K A5E test target** (`hw/tang_nano20k/SPECIFICATION.md`): board top, `.cst` from the Sipeed schematic, `hw/Makefile` target, fit check, bench bring-up. Open: A5E header SPI controller and FPGA header pins.
+- [ ] SpecTrace change review ignores build files (`Makefile`, `CMakeLists.txt`, `.cst`, `.tcl`, `.xdc`): add them to the scanned types with a comment-tag convention.
+- [ ] FPGA FIFOs map to LUT/FF, not block RAM (BSRAM 0 used on GW2A-18): check inference for `asp_axis_fifo` if area grows.
 - [ ] Studio GUI shows hardcoded demo metrics (e.g. `coro_pool_used_bytes = 23040`, a fixed "23.4 µs overrun") next to live data; label simulated values.
 
 ---

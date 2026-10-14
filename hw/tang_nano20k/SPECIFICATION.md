@@ -88,7 +88,12 @@ not guessed.
   per the nextpnr report.
 * **Verified by**: `fpga-fit`. Proxy evidence: the existing Tang Primer 20K
   build (`make -f hw/Makefile primer20k`) uses the same GW2A-18 die.
-  **Status**: see the engineering log for the latest fit result.
+* **Measured 2026-10-14 (GW2A-18, Primer 20K top, nextpnr-himbaechel)**:
+  LUT4 4 505 / 20 736 (21%), DFF 4 669 / 15 552 (30%), ALU 1 068 (6%),
+  IOB 29 (7%), routed Fmax 126.7 MHz. Fits with headroom and clears the
+  Nano 20K's 27 MHz clock. (Before the incremental-CRC change,
+  `[SPEC-TLP-CRC-01]`: LUT4 50%, Fmax 13.7 MHz, which would fail at 27 MHz.)
+  **Status**: proxy met; Nano 20K's own build not yet run.
 
 ### `[SPEC-TN20K-04]` Bench Bring-up Test
 * **Requirement**: from A5E Linux, (1) read the `asp_sys_regs` ID register over the

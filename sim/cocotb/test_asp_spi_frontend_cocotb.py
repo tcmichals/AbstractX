@@ -1,6 +1,9 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# @verifies [SPEC-TLP-CRC-01] docs/tier2_contracts/TLP_BUS_SPECIFICATION.md
+import random
+
 import cocotb
 import zlib
 from cocotb.clock import Clock
@@ -169,3 +172,101 @@ async def test_write_and_read_tlp_bursts(dut):
 
     assert bytes(rx_readback) == tx_test_payload, "Egress Dual-SPI readback mismatch!"
     dut._log.info("[SUCCESS] Egress Dual-SPI Read 64B TLP verified!")
+
+
+# ---------------------------------------------------------------------------
+# Generic bit-level drivers (dual or single SPI, configurable SCLK speed).
+# half = system clocks per SCLK half period; 2 is the fastest the 3-stage
+# synchronizer samples reliably (4 clocks per SCLK period).
+# ---------------------------------------------------------------------------
+
+def is_dual(dut) -> bool:
+    return int(dut.DUAL_SPI_ENABLE.value) == 1
+
+
+async def sclk_pulse(dut, half: int):
+    await ClockCycles(dut.clk, half)
+    dut.i_sclk.value = 1
+    await ClockCycles(dut.clk, half)
+    dut.i_sclk.value = 0
+
+
+async def write_frame(dut, frame: bytes, half: int):
+    dut.i_cs_n.value = 0
+    await ClockCycles(dut.clk, 10)
+    await send_cmd_byte(dut, CMD_WRITE_BURST)
+    for byte_val in frame:
+        if is_dual(dut):
+            for pair_idx in range(3, -1, -1):
+                val2 = (byte_val >> (pair_idx * 2)) & 0x3
+                dut.io_sdio0.value = val2 & 1
+                dut.io_sdio1.value = (val2 >> 1) & 1
+                await sclk_pulse(dut, half)
+        else:
+            for bit in range(7, -1, -1):
+                dut.io_sdio0.value = (byte_val >> bit) & 1
+                await sclk_pulse(dut, half)
+    await ClockCycles(dut.clk, 5)
+
+
+async def read_frame(dut, half: int) -> bytes:
+    dut.i_cs_n.value = 0
+    await ClockCycles(dut.clk, 10)
+    await send_cmd_byte(dut, CMD_READ_BURST)
+    out = bytearray()
+    for _ in range(64):
+        byte_val = 0
+        steps = 4 if is_dual(dut) else 8
+        for _ in range(steps):
+            await ClockCycles(dut.clk, half)
+            dut.i_sclk.value = 1
+            await ClockCycles(dut.clk, half)
+            if is_dual(dut):
+                byte_val = (byte_val << 2) | (int(dut.io_sdio1_o.value) << 1) | int(dut.io_sdio0_o.value)
+            else:
+                byte_val = (byte_val << 1) | int(dut.io_sdio1_o.value)
+            dut.i_sclk.value = 0
+        out.append(byte_val)
+    dut.i_cs_n.value = 1
+    await ClockCycles(dut.clk, 10)
+    return bytes(out)
+
+
+async def end_frame(dut):
+    dut.i_cs_n.value = 1
+    await ClockCycles(dut.clk, 10)
+
+
+@cocotb.test()
+async def test_incremental_crc_varied_frames(dut):
+    """Random back-to-back frames both ways, at normal and fastest SCLK: the
+    incrementally computed CRC must match zlib.crc32 every time and reset per burst."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    rng = random.Random(1234)
+    for half in (4, 2):
+        for _ in range(5):
+            data = bytes(rng.randrange(256) for _ in range(60))
+            dut.i_tlp_rx_ready.value = 0
+            await write_frame(dut, data + zlib.crc32(data).to_bytes(4, "big"), half)
+            assert dut.o_tlp_rx_valid.value == 1, f"good frame rejected (half={half})"
+            assert int(dut.o_tlp_rx_data.value) == int.from_bytes(data + b"\x00" * 4, "big")
+            dut.i_tlp_rx_ready.value = 1
+            await ClockCycles(dut.clk, 2)
+            await end_frame(dut)
+
+            tx = bytes(rng.randrange(256) for _ in range(60))
+            dut.i_tlp_tx_data.value = int.from_bytes(tx + bytes(rng.randrange(256) for _ in range(4)), "big")
+            dut.i_tlp_tx_valid.value = 1
+            got = await read_frame(dut, half)
+            assert got == tx + zlib.crc32(tx).to_bytes(4, "big"), f"egress CRC mismatch (half={half})"
+    assert (int(dut.o_status_flags.value) & 0x4) == 0, "no CRC error expected"
+
+
+@cocotb.test()
+async def test_empty_read_returns_zeros(dut):
+    """A read with no TLP pending returns 64 zero bytes (no CRC)."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    dut.i_tlp_tx_valid.value = 0
+    assert await read_frame(dut, 4) == bytes(64)

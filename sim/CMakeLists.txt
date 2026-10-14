@@ -34,7 +34,7 @@ add_test(NAME sim_test_e906_rpmsg_trace COMMAND test_e906_rpmsg_trace)
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
     add_custom_target(${TARGET_NAME}
         COMMAND $(MAKE) clean
-        COMMAND $(MAKE) TOPLEVEL=${TOPLEVEL_MODULE} MODULE=${TEST_FILE}
+        COMMAND $(MAKE) TOPLEVEL=${TOPLEVEL_MODULE} MODULE=${TEST_FILE} ${ARGN}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cocotb
         COMMENT "Running Cocotb test: ${TEST_FILE} on ${TOPLEVEL_MODULE}"
         VERBATIM
@@ -43,6 +43,7 @@ endmacro()
 
 add_cocotb_test(sim-test-reg-bank     asp_spi_reg_bank       test_abstractx_axis_cocotb)
 add_cocotb_test(sim-test-spi-frontend asp_spi_frontend       test_asp_spi_frontend_cocotb)
+add_cocotb_test(sim-test-spi-frontend-single asp_spi_frontend test_asp_spi_frontend_single_cocotb SIM_PARAMS=-GDUAL_SPI_ENABLE=0)
 add_cocotb_test(sim-test-axis-fifo    asp_axis_fifo          test_asp_axis_fifo_cocotb)
 add_cocotb_test(sim-test-router       asp_router             test_asp_router_cocotb)
 add_cocotb_test(sim-test-sys-regs     asp_sys_regs           test_asp_sys_regs_cocotb)
@@ -53,7 +54,7 @@ add_cocotb_test(sim-test-axi-lite     asp_axi_lite_bridge    test_asp_axi_lite_b
 
 # Run all defined simulation targets
 add_custom_target(sim-test-all
-    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite
+    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite
     COMMENT "All simulation regression suites complete."
 )
 

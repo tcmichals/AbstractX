@@ -46,7 +46,11 @@ else ifeq ($(TOPLEVEL), asp_top)
                       $(RTL_DIR)/led/asp_neopixel_core.sv
 endif
 
-EXTRA_ARGS += --trace-fst --trace-structs -I$(RTL_DIR) -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-SELRANGE
+# Module parameter overrides for a test variant, e.g. SIM_PARAMS=-GDUAL_SPI_ENABLE=0
+SIM_PARAMS ?=
+# Waveform tracing needs lz4 headers; set TRACE= to build without it.
+TRACE ?= --trace-fst --trace-structs
+EXTRA_ARGS += $(TRACE) -I$(RTL_DIR) -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-SELRANGE $(SIM_PARAMS)
 
 include $(shell cocotb-config --makefiles)/Makefile.sim
 
