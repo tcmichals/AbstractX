@@ -19,10 +19,10 @@ add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)
 # and a fake message box ([SPEC-E906-IPC-04]).
 set(E906_DIR ${PROJECT_SOURCE_DIR}/targets/allwinner_e906)
 add_executable(test_e906_rpmsg_trace
-    test_e906_rpmsg_trace.cpp
+    test_e906_rpmsg_endpoints.cpp
     fakes/e906_msgbox_fake.cpp
     ${E906_DIR}/src/rpmsg.cpp
-    ${E906_DIR}/src/rpmsg_trace_transport.cpp
+    ${E906_DIR}/src/rpmsg_endpoints.cpp
 )
 target_include_directories(test_e906_rpmsg_trace PRIVATE ${E906_DIR}/include)
 target_compile_definitions(test_e906_rpmsg_trace PRIVATE CONFIG_RPROC_RPMSG=1)

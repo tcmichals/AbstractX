@@ -15,6 +15,45 @@
 #include <span>
 #include <array>
 
+// asp_tlp64_t is aligned(64). This is the same 64-byte wire layout with 1-byte
+// alignment, for TLPs inside transport buffers that are not 64-byte aligned
+// (an RPMsg payload starts 16 bytes into its buffer). Offsets are asserted
+// against asp_tlp64_t so the two cannot drift.
+struct __attribute__((packed)) asp_tlp64_unaligned_t {
+    uint8_t  type;
+    uint8_t  flags;
+    uint8_t  tag;
+    uint8_t  channel;
+    uint32_t target_address;
+    uint16_t length_dw;
+    uint16_t sequence;
+    uint64_t timestamp_ns;
+    uint8_t  payload[40];
+    uint32_t crc32;
+};
+static_assert(sizeof(asp_tlp64_unaligned_t) == sizeof(asp_tlp64_t), "TLP wire size");
+static_assert(alignof(asp_tlp64_unaligned_t) == 1, "in-buffer TLPs must not require alignment");
+static_assert(offsetof(asp_tlp64_unaligned_t, tag) == offsetof(asp_tlp64_t, tag), "TLP layout");
+static_assert(offsetof(asp_tlp64_unaligned_t, channel) == offsetof(asp_tlp64_t, channel), "TLP layout");
+static_assert(offsetof(asp_tlp64_unaligned_t, target_address) == offsetof(asp_tlp64_t, target_address), "TLP layout");
+static_assert(offsetof(asp_tlp64_unaligned_t, length_dw) == offsetof(asp_tlp64_t, length_dw), "TLP layout");
+static_assert(offsetof(asp_tlp64_unaligned_t, sequence) == offsetof(asp_tlp64_t, sequence), "TLP layout");
+static_assert(offsetof(asp_tlp64_unaligned_t, timestamp_ns) == offsetof(asp_tlp64_t, timestamp_ns), "TLP layout");
+static_assert(offsetof(asp_tlp64_unaligned_t, payload) == offsetof(asp_tlp64_t, payload), "TLP layout");
+static_assert(offsetof(asp_tlp64_unaligned_t, crc32) == offsetof(asp_tlp64_t, crc32), "TLP layout");
+
+// Byte-wise transfer between an aligned TLP and an in-buffer slot (64 bytes).
+inline void tlp_store(asp_tlp64_unaligned_t* dst, const asp_tlp64_t& src) noexcept {
+    const auto* s = reinterpret_cast<const uint8_t*>(&src);
+    auto* d = reinterpret_cast<uint8_t*>(dst);
+    for (size_t i = 0; i < sizeof(asp_tlp64_t); ++i) d[i] = s[i];
+}
+inline void tlp_load(asp_tlp64_t* dst, const asp_tlp64_unaligned_t* src) noexcept {
+    const auto* s = reinterpret_cast<const uint8_t*>(src);
+    auto* d = reinterpret_cast<uint8_t*>(dst);
+    for (size_t i = 0; i < sizeof(asp_tlp64_t); ++i) d[i] = s[i];
+}
+
 namespace abstractx {
 
 // Strongly typed TLP Operation Codes matching asp_tlp64.h

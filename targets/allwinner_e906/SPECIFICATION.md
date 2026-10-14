@@ -166,7 +166,7 @@ sequenceDiagram
   at bus speed with zero cache maintenance overhead.
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
-### `[SPEC-E906-IPC-04]` Zero-Copy Trace & Telemetry over RPMsg in SRAM
+### `[SPEC-E906-IPC-04]` Zero-Copy TLP and Trace Endpoints over RPMsg in SRAM
 * **Two channels, two purposes**: remoteproc `trace0` (`.trace_buffer`, debugfs) is
   the **low-speed processor channel**: boot log, exceptions, crash dumps. RPMsg is
   the **high-speed data channel** for AbstractX: 64-byte TLPs and CTF/telemetry
@@ -195,25 +195,53 @@ sequenceDiagram
   physical addresses; the E906 converts them with the proven cubie-a5e
   `translate_da()` (host `0x072C0000`+ → core `0x40000000`+, host `0x07280000`+
   → core `0x3FFC0000`+).
+* **Two endpoints, one mailbox channel** (option 1 of the 2026-10-14 review;
+  keeps cubie-a5e decision D11, `mboxes = <&msgbox 9>`):
+
+  | Endpoint | Address | Carries | Linux device |
+  | :--- | :--- | :--- | :--- |
+  | `abstractx-tlp` | 1024 | 64-byte TLPs, both directions, batched up to 7 per message (`asp_tlp64_t`, 7 × 64 = 448 of 496 payload bytes) | `/dev/rpmsgN` |
+  | `abstractx-trace` | 1025 | CTF (barectf) packets, E906 → Linux, one packet per message (≤ 496 B) | `/dev/rpmsgM` |
+
+  Both share the 16 host buffers that Linux posts in vring[0]. An alternative with
+  separate pools (two virtio devices) or a dedicated low-latency TLP doorbell
+  (second mailbox channel + SRAM ring, needs a Linux mailbox client) is deferred
+  until board measurements show RPMsg latency is insufficient.
+* **Buffer budget (no head-of-line blocking)**: the trace endpoint may borrow a
+  host buffer only while more than `kTlpReserve = 4` free buffers remain; the TLP
+  endpoint may use any free buffer. Several buffers may be outstanding at once
+  (`tx_acquire()` returns a token naming its descriptor; `tx_commit()` takes it),
+  so the trace engine holding a half-filled packet never blocks TLPs. Virtio
+  allows out-of-order completion (the `used` entry names the descriptor).
+* **Host address**: each endpoint learns its Linux peer address from the first
+  message Linux sends to it; until then it cannot transmit (trace events and TLPs
+  are counted as dropped, never blocking).
 * **Transport API** (implements `[SPEC-TRACE-07]`):
-  1. `acquire()`: take the next free buffer from Linux's RX vring `avail` ring;
-     return the 496-byte payload span (header filled in later), or empty if
-     Linux has posted no free buffer. Never blocks.
-  2. Trace engine writes the CTF packet header and events in place.
-  3. `commit(span, used)`: fill `rpmsg_hdr` (src/dst endpoint, `len = used`),
-     release fence (`fence rw, w`), publish the descriptor in the `used` ring,
-     then kick message box channel 9 (one channel, `[D11]` in cubie-a5e
-     `DESIGN_DECISIONS.md`).
-  4. At most one buffer is held by the engine at a time; if Linux stops
-     reading, `acquire` fails and events are counted as discarded.
+  1. `Rpmsg::tx_acquire(min_free_after)`: take the next free buffer from vring[0]
+     if at least `min_free_after` would remain free; returns `{payload span,
+     descriptor}` or empty. Never blocks.
+  2. The caller writes the payload in place (CTF events, or `asp_tlp64_t` slots).
+  3. `Rpmsg::tx_commit(token, used, src, dst)`: fill `rpmsg_hdr`, release fence,
+     publish the descriptor in the `used` ring, release fence, bump `used.idx`,
+     kick message box Channel1 (Linux channel 9).
+* **TLP endpoint API**: `emplace()` returns an in-place `asp_tlp64_t*` slot in the
+  current batch (nullptr if no buffer); `send(const Tlp64&)` copies an
+  already-built TLP into a slot (one 64-byte copy, for callers that build TLPs by
+  value); `flush()` commits a partial batch (called every `step()` via
+  `platform_poll_network()`). Received host batches are pushed into an optional
+  ingress `SpscTlpRing`; TLPs that do not fit are counted as dropped.
+* **Message encoding**: TLP messages are a whole number of 64-byte TLPs (length
+  multiple of 64); a length that is not is rejected by the receiver.
 * **Context**: main cooperative loop only; never from an ISR.
-* **Linux side**: a reader opens the RPMsg endpoint (`/dev/rpmsgN` via
-  `rpmsg_char`) and forwards each message as one UDP datagram to the Studio
-  (`127.0.0.1:9870` by default). The kernel copies into user space; nothing on
-  the E906 copies.
-* **Not yet implemented** (spec first): the transport, the trace-engine
-  `acquire`/`commit` change, the overlay and the Linux reader. Until then
-  `platform_send_telemetry()` drops records and counts them.
+* **Linux side**: one reader per endpoint opens `/dev/rpmsg_ctrl0`, creates the
+  endpoint (`RPMSG_CREATE_EPT_IOCTL`, `dst` = 1024 or 1025), sends one message so
+  the E906 learns its address, then reads. The trace reader forwards each message
+  as one UDP datagram to the Studio (`127.0.0.1:9870`); the TLP reader splits
+  messages into 64-byte TLPs. The kernel copies into user space; nothing on the
+  E906 copies.
+* **Status**: E906 side implemented and host-tested
+  (`sim/test_e906_rpmsg_trace.cpp`); the SRAM-pool device-tree overlay and the
+  Linux readers are not yet written; not verified on silicon.
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`
 
 ---
@@ -279,7 +307,7 @@ sequenceDiagram
 | `[SPEC-E906-IPC-01]`  | Pure Virtual `IRpmsg` | `include/hal/rpmsg.hpp` |
 | `[SPEC-E906-IPC-02]`  | Linux VirtIO RPMsg with D-Cache | `src/rpmsg.cpp` |
 | `[SPEC-E906-IPC-03]`  | Lite-Metal Direct SRAM Driver | `src/rpmsg.cpp` |
-| `[SPEC-E906-IPC-04]`  | Zero-Copy Trace over RPMsg in SRAM | `src/rpmsg.cpp` |
+| `[SPEC-E906-IPC-04]`  | Zero-Copy TLP + Trace Endpoints over RPMsg | `src/rpmsg.cpp`, `src/rpmsg_*` |
 | `[SPEC-E906-CORO-01]` | Async `async_receive()` | `include/hal/rpmsg.hpp` |
 | `[SPEC-E906-CORO-02]` | MSGBOX Doorbell ISR Waking | `src/rpmsg.cpp` |
 | `[SPEC-E906-HAL-01]`  | FIFO vs. DMA Balancing | `src/{spi,uart,i2c}.cpp` |

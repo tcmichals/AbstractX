@@ -22,6 +22,14 @@ struct RpmsgMessage {
 
 using EndpointCallback = void (*)(const RpmsgMessage &msg, void *user_data);
 
+// A host buffer lent by Rpmsg::tx_acquire(): write the payload in place, then
+// pass the same token to tx_commit(). Empty payload = no buffer.
+struct RpmsgTxBuffer {
+    std::span<uint8_t> payload{};
+    uint16_t           desc_idx{0};
+    explicit operator bool() const noexcept { return !payload.empty(); }
+};
+
 /*
  * ============================================================================
  * IRpmsg: Pure Virtual Interface for Inter-Processor Communication (IPC)
@@ -82,10 +90,12 @@ public:
     bool is_rx_pending() noexcept override;
 
     // Zero-copy transmit ([SPEC-E906-IPC-04]): borrow the next free host
-    // buffer (payload span, empty if none), write it in place, then commit.
-    // At most one buffer is outstanding; commit before the next acquire.
-    std::span<uint8_t> tx_acquire() noexcept;
-    bool tx_commit(uint16_t used_len, uint32_t src, uint32_t dst) noexcept;
+    // buffer if at least `min_free_after` would remain free (budget), write it
+    // in place, then commit. Several buffers may be outstanding.
+    RpmsgTxBuffer tx_acquire(uint16_t min_free_after = 0) noexcept;
+    bool tx_commit(const RpmsgTxBuffer &buf, uint16_t used_len, uint32_t src, uint32_t dst) noexcept;
+    // Host buffers posted in vring[0] and not yet taken.
+    uint16_t tx_free_buffers() noexcept;
 
     // Static convenience facade delegating to the globally active driver
     static void set_active_driver(IRpmsg *driver) noexcept;

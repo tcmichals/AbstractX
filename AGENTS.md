@@ -145,7 +145,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 2. **Run the real suite, both ways.** Before any commit touching `include/`, `src/`, `targets/linux/`, `tests/` or `sim/`:
    ```bash
    cmake -S . -B build_host -DABSTRACTX_TARGET=host && cmake --build build_host -j && ctest --test-dir build_host
-   cmake -S . -B build_asan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+   cmake -S . -B build_asan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build_asan -j && ctest --test-dir build_asan
    ```
    A sanitizer report is a failing test, even if the binary exits 0.

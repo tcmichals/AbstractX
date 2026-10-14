@@ -71,8 +71,13 @@ inline std::atomic<size_t> g_coro_live_bytes{0};
 // from ISR context (ISRs only post handles), so the spinlock cannot self-deadlock.
 inline std::atomic_flag g_coro_free_list_lock = ATOMIC_FLAG_INIT;
 
+// Promise operator new receives no alignment, and frames hold over-aligned
+// locals (Tlp64 is alignas(64)), so every frame is 64-byte aligned: the pool
+// is alignas(64) and every frame size is a multiple of 64.
+inline constexpr size_t kCoroFrameAlign = 64;
+
 inline size_t coro_frame_size(size_t sz) noexcept {
-    const size_t aligned_sz = (sz + 15U) & ~static_cast<size_t>(15U);
+    const size_t aligned_sz = (sz + kCoroFrameAlign - 1U) & ~(kCoroFrameAlign - 1U);
     return aligned_sz < sizeof(FreeFrame) ? sizeof(FreeFrame) : aligned_sz;
 }
 

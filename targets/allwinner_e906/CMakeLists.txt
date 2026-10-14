@@ -19,7 +19,7 @@ add_library(abstractx_target_e906 STATIC
     src/platform.cpp
     src/io_processor.cpp
     src/rpmsg.cpp
-    src/rpmsg_trace_transport.cpp
+    src/rpmsg_endpoints.cpp
 )
 
 target_include_directories(abstractx_target_e906 PUBLIC

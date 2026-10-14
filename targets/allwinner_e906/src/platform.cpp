@@ -15,7 +15,7 @@
 #include "hal/i2c.hpp"
 #include "hal/pio.hpp"
 #include "hal/msgbox.hpp"
-#include "hal/rpmsg_trace_transport.hpp"
+#include "hal/rpmsg_endpoints.hpp"
 #include "resource_table.h"
 
 extern "C" const struct rpmsg_resource_table global_resource_table;
@@ -210,12 +210,14 @@ IGpio& get_gpio_driver() noexcept {
 // RPMsg to Linux ([SPEC-E906-IPC-04]); ring state lives in rpmsg.cpp.
 ::hal::Rpmsg g_rpmsg;
 ::hal::RpmsgTraceTransport g_trace_transport{g_rpmsg};
+::hal::RpmsgTlpChannel g_tlp_channel{g_rpmsg};
 
 void platform_init() noexcept {
     ::hal::Ccu::init();
     ::hal::Timer::init();
     g_rpmsg.init(&global_resource_table);
     g_trace_transport.attach();
+    g_tlp_channel.attach();
 }
 
 void platform_launch_processing_domain(void (*entry)()) noexcept {
@@ -237,9 +239,13 @@ void platform_idle_wait() noexcept {
 }
 
 void platform_poll_network() noexcept {
-    // No network stack on the coprocessor: service RPMsg (name-service
-    // announcement, host messages) from the cooperative loop.
+    // No network stack on the coprocessor: service RPMsg from the cooperative
+    // loop: announcements, one poll for host messages, then send any partial
+    // TLP batch so TLPs never wait for a full message.
+    g_tlp_channel.service();
     g_trace_transport.service();
+    (void)g_rpmsg.poll();
+    g_tlp_channel.flush();
 }
 
 volatile uint32_t g_telemetry_dropped{0};
@@ -249,26 +255,28 @@ trace::ITraceTransport* platform_trace_transport() noexcept {
     return &g_trace_transport;
 }
 
-// Byte-buffer API for callers that already hold the data (e.g. a TLP built by
-// an application): one copy into the RPMsg buffer. Trace packets do not use
-// this path; they are written in place through platform_trace_transport().
+// Callers hand over already-built 64-byte TLPs (e.g. gps_imu_app): each goes
+// into a slot of the TLP endpoint's current batch (one 64-byte copy). Lengths
+// that are not a whole number of TLPs are dropped and counted.
 // @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
-    if (!data || len == 0) {
-        return;
-    }
-    std::span<uint8_t> buf = g_trace_transport.acquire(len);
-    if (buf.size() < len) {
-        if (!buf.empty()) {
-            g_trace_transport.commit(buf, 0);
-        }
+    constexpr size_t kTlp = ::hal::RpmsgTlpChannel::kTlpBytes;
+    if (!data || len == 0 || len % kTlp != 0) {
         g_telemetry_dropped = g_telemetry_dropped + 1u;
         return;
     }
-    for (size_t i = 0; i < len; ++i) {
-        buf[i] = data[i];
+    for (size_t off = 0; off < len; off += kTlp) {
+        asp_tlp64_unaligned_t* slot = g_tlp_channel.emplace();
+        if (!slot) {
+            g_telemetry_dropped = g_telemetry_dropped + 1u;
+            return;
+        }
+        // Caller's bytes may be unaligned: copy byte-wise into the slot.
+        auto* d = reinterpret_cast<uint8_t*>(slot);
+        for (size_t i = 0; i < kTlp; ++i) {
+            d[i] = data[off + i];
+        }
     }
-    g_trace_transport.commit(buf, len);
 }
 
 } // namespace abstractx::hal

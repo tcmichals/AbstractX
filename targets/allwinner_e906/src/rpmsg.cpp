@@ -131,9 +131,6 @@ namespace {
     VirtQueueLayout s_tx_vq; // vring[0]: remote -> host
     VirtQueueLayout s_rx_vq; // vring[1]: host -> remote
 
-    // Descriptor lent by tx_acquire() and not yet committed (at most one).
-    int32_t s_tx_pending_desc = -1;
-
     volatile struct rpmsg_hdr *tx_header(uint16_t desc_idx) {
         return reinterpret_cast<volatile struct rpmsg_hdr *>(translate_da(s_tx_vq.desc[desc_idx].addr));
     }
@@ -143,7 +140,6 @@ void Rpmsg::init(const struct rpmsg_resource_table *rsc) noexcept {
     MsgBox::init();
     s_linux_rsc = rsc;
     s_linux_vdev_ready = false;
-    s_tx_pending_desc = -1;
     s_linux_rx_count.store(0, std::memory_order_relaxed);
     s_linux_tx_count.store(0, std::memory_order_relaxed);
     s_num_linux_endpoints = 0;
@@ -187,16 +183,21 @@ bool Rpmsg::register_endpoint(uint32_t addr, EndpointCallback cb, void *user_dat
     return true;
 }
 
-// Borrow the next free host buffer from vring[0]; its payload is written in
-// place by the caller and sent by tx_commit(). No copy.
-// @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
-std::span<uint8_t> Rpmsg::tx_acquire() noexcept {
-    if (s_tx_pending_desc >= 0 || !is_driver_ready() || s_tx_vq.avail == nullptr) {
-        return {};
+uint16_t Rpmsg::tx_free_buffers() noexcept {
+    if (!is_driver_ready() || s_tx_vq.avail == nullptr) {
+        return 0;
     }
     std::atomic_thread_fence(std::memory_order_acquire);
-    if (s_tx_vq.last_avail_idx == s_tx_vq.avail->idx) {
-        return {}; // Linux has no free buffer posted
+    return static_cast<uint16_t>(s_tx_vq.avail->idx - s_tx_vq.last_avail_idx);
+}
+
+// Borrow the next free host buffer from vring[0]; its payload is written in
+// place by the caller and sent by tx_commit(). No copy. Refuses if fewer than
+// min_free_after buffers would remain (lets TLPs keep a reserve over trace).
+// @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
+RpmsgTxBuffer Rpmsg::tx_acquire(uint16_t min_free_after) noexcept {
+    if (tx_free_buffers() <= min_free_after) {
+        return {};
     }
     const uint16_t desc_idx = s_tx_vq.avail->ring[s_tx_vq.last_avail_idx % s_tx_vq.num];
     volatile struct VirtioDesc *desc = &s_tx_vq.desc[desc_idx];
@@ -204,22 +205,18 @@ std::span<uint8_t> Rpmsg::tx_acquire() noexcept {
         return {};
     }
     s_tx_vq.last_avail_idx++;
-    s_tx_pending_desc = desc_idx;
     uint8_t *payload = const_cast<uint8_t *>(tx_header(desc_idx)->data);
-    return {payload, desc->len - sizeof(struct rpmsg_hdr)};
+    return {{payload, desc->len - sizeof(struct rpmsg_hdr)}, desc_idx};
 }
 
-// Publish the buffer lent by tx_acquire(): header, release fence, used ring,
-// release fence, used index, kick.
+// Publish a buffer lent by tx_acquire(): header, release fence, used ring,
+// release fence, used index, kick. Completion may be out of order.
 // @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
-bool Rpmsg::tx_commit(uint16_t used_len, uint32_t src, uint32_t dst) noexcept {
-    if (s_tx_pending_desc < 0) {
+bool Rpmsg::tx_commit(const RpmsgTxBuffer &buf, uint16_t used_len, uint32_t src, uint32_t dst) noexcept {
+    if (!buf || used_len > buf.payload.size()) {
         return false;
     }
-    const uint16_t desc_idx = static_cast<uint16_t>(s_tx_pending_desc);
-    s_tx_pending_desc = -1;
-
-    volatile struct rpmsg_hdr *hdr = tx_header(desc_idx);
+    volatile struct rpmsg_hdr *hdr = tx_header(buf.desc_idx);
     hdr->src = src;
     hdr->dst = dst;
     hdr->len = used_len;
@@ -228,7 +225,7 @@ bool Rpmsg::tx_commit(uint16_t used_len, uint32_t src, uint32_t dst) noexcept {
     std::atomic_thread_fence(std::memory_order_release);
 
     const uint16_t used_slot = s_tx_vq.used->idx % s_tx_vq.num;
-    s_tx_vq.used->ring[used_slot].id = desc_idx;
+    s_tx_vq.used->ring[used_slot].id = buf.desc_idx;
     s_tx_vq.used->ring[used_slot].len = sizeof(struct rpmsg_hdr) + used_len;
     std::atomic_thread_fence(std::memory_order_release);
     s_tx_vq.used->idx = s_tx_vq.used->idx + 1;
@@ -245,14 +242,14 @@ bool Rpmsg::announce_service(const char *name, uint32_t addr) noexcept {
         uint32_t flags;
     } __attribute__((packed));
 
-    std::span<uint8_t> buf = tx_acquire();
-    if (buf.size() < sizeof(rpmsg_ns_msg)) {
-        if (!buf.empty()) {
-            (void)tx_commit(0, addr, RPMSG_NS_ADDR);
+    RpmsgTxBuffer buf = tx_acquire();
+    if (buf.payload.size() < sizeof(rpmsg_ns_msg)) {
+        if (buf) {
+            (void)tx_commit(buf, 0, addr, RPMSG_NS_ADDR);
         }
         return false;
     }
-    auto *ns = reinterpret_cast<rpmsg_ns_msg *>(buf.data());
+    auto *ns = reinterpret_cast<rpmsg_ns_msg *>(buf.payload.data());
     for (size_t i = 0; i < sizeof(ns->name); ++i) {
         ns->name[i] = 0;
     }
@@ -261,7 +258,7 @@ bool Rpmsg::announce_service(const char *name, uint32_t addr) noexcept {
     }
     ns->addr = addr;
     ns->flags = RPMSG_NS_CREATE;
-    return tx_commit(sizeof(rpmsg_ns_msg), addr, RPMSG_NS_ADDR);
+    return tx_commit(buf, sizeof(rpmsg_ns_msg), addr, RPMSG_NS_ADDR);
 }
 
 bool Rpmsg::poll() noexcept {
@@ -328,18 +325,18 @@ bool Rpmsg::poll() noexcept {
 
 // Small control replies; bulk data (trace) uses tx_acquire()/tx_commit().
 bool Rpmsg::reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept {
-    std::span<uint8_t> buf = tx_acquire();
-    if (buf.empty()) {
+    RpmsgTxBuffer buf = tx_acquire();
+    if (!buf) {
         return false;
     }
-    if (len > buf.size()) {
-        len = static_cast<uint16_t>(buf.size());
+    if (len > buf.payload.size()) {
+        len = static_cast<uint16_t>(buf.payload.size());
     }
     const auto *src = static_cast<const uint8_t *>(payload);
     for (uint16_t i = 0; payload && i < len; ++i) {
-        buf[i] = src[i];
+        buf.payload[i] = src[i];
     }
-    return tx_commit(payload ? len : 0, incoming.dst, incoming.src);
+    return tx_commit(buf, payload ? len : 0, incoming.dst, incoming.src);
 }
 
 uint32_t Rpmsg::get_rx_count() noexcept {
