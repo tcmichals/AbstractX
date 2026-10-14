@@ -62,7 +62,13 @@ bool init(const Config& config) noexcept {
     } else {
         g_active_sink = &g_null_sink;
     }
-    trace::g_tracer.set_flush_handler(trace_flush_callback, nullptr);
+    // Zero-copy transport if the platform has one ([SPEC-TRACE-07]), otherwise
+    // the static pool feeding the configured host sink.
+    if (trace::ITraceTransport* transport = hal::platform_trace_transport()) {
+        trace::g_tracer.set_transport(transport);
+    } else {
+        trace::g_tracer.set_flush_handler(trace_flush_callback, nullptr);
+    }
 
     // 3. Initialize and arm target ioProcessor
     auto& io_proc = hal::get_target_io_processor();

@@ -23,6 +23,10 @@
 #include "abstractx/hal/gpio.hpp"
 #include "abstractx/hal/io_processor.hpp"
 
+namespace abstractx::trace {
+class ITraceTransport;
+}
+
 namespace abstractx::hal {
 
 // Initialize silicon clocks, standard I/O console, and board power domains
@@ -44,6 +48,11 @@ void platform_poll_network() noexcept;
 
 // Send barectf or TLP telemetry packet over the platform's egress transport (UDP / Shared Memory)
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept;
+
+// Zero-copy trace transport for this platform ([SPEC-TRACE-07]): the tracer
+// writes CTF packets straight into its buffers. nullptr = use the static pool
+// and platform_send_telemetry() (host targets, where the kernel copies anyway).
+trace::ITraceTransport* platform_trace_transport() noexcept;
 
 // Universal HAL Driver Accessors
 ISpi&         get_spi_driver() noexcept;

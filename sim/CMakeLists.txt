@@ -13,6 +13,7 @@ add_abstractx_sim(test_halo_worker_pool     test_halo_worker_pool.cpp)
 add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
 add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
+add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)
 
 
 # Common macro to generate a test target for a specific module

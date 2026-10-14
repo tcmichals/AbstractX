@@ -47,6 +47,11 @@ void platform_poll_network() noexcept {
     // Linux network polling
 }
 
+// Host: static pool + sinks; the kernel copies on write()/sendto().
+trace::ITraceTransport* platform_trace_transport() noexcept {
+    return nullptr;
+}
+
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
     if (g_udp_sock >= 0 && data && len > 0) {
         sendto(g_udp_sock, data, len, 0,

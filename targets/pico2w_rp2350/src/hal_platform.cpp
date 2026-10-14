@@ -91,6 +91,11 @@ static ip_addr_t g_pico_dest_ip{};
 static bool g_pico_udp_ready = false;
 #endif
 
+// TODO [SPEC-PICO-TRACE-01]: return the PBUF_POOL transport.
+trace::ITraceTransport* platform_trace_transport() noexcept {
+    return nullptr;
+}
+
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
 #ifdef PICO_ON_DEVICE
     if (!g_pico_udp_ready) {

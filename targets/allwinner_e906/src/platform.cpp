@@ -236,6 +236,11 @@ void platform_poll_network() noexcept {
 // @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
 volatile uint32_t g_telemetry_dropped{0};
 
+// TODO [SPEC-E906-IPC-04]: return the RPMsg transport.
+trace::ITraceTransport* platform_trace_transport() noexcept {
+    return nullptr;
+}
+
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
     if (data && len > 0) {
         g_telemetry_dropped = g_telemetry_dropped + 1u;
