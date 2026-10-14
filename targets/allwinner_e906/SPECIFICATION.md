@@ -76,6 +76,7 @@ sequenceDiagram
   silicon-tested cubie-a5e firmware (`firmware/common/arch_riscv/*.ld`,
   `firmware/common/include/*_protocol.h`). The shared-tail protocol headers in
   `include/` are verbatim copies of cubie-a5e's so its Linux tools interoperate.
+* **Verified by**: `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/bsp/e906_sram.ld`, `bsp/e906_ddr.ld`, `include/memory_map.h`
 
 ### `[SPEC-E906-MEM-02]` Control vs. Data Plane Memory Split
@@ -121,6 +122,7 @@ sequenceDiagram
 * **Not yet verified on silicon**: the I-cache/branch-prediction setting
   (cubie-a5e leaves `mhcr` at reset defaults). Measure loop jitter with
   `mcycle` on the board.
+* **Verified by**: `e906-disassembly-check` (`csrw 0x7c1` with `0x1031`)
 * **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`
 
 ### `[SPEC-E906-CACHE-03]` Verified Machine-Code Cache Maintenance
@@ -156,6 +158,7 @@ sequenceDiagram
   * Clean (write-back) response buffers and `used` ring via
     `dcache.cpa` on TX before kicking MSGBOX Channel 0.
     on TX before kicking MSGBOX Channel 0.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp` runs the real `rpmsg.cpp`), `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ### `[SPEC-E906-IPC-03]` Lite-Metal Direct Driver (`class RpmsgLiteMetal`)
@@ -242,6 +245,7 @@ sequenceDiagram
 * **Status**: E906 side implemented and host-tested
   (`sim/test_e906_rpmsg_trace.cpp`); the SRAM-pool device-tree overlay and the
   Linux readers are not yet written; not verified on silicon.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`
 
 ---
@@ -274,6 +278,7 @@ sequenceDiagram
 * **Requirement**: The trap entry (`bsp/startup.S`) MUST classify a trap by bit 31 of **`mcause`** (1 = interrupt, 0 = synchronous exception). Interrupts go to `riscv_trap_dispatcher` and return with `mret`; every synchronous exception MUST go to `hal_crash_dispatcher`, which records the `CrashFrame` and never returns.
 * **Rationale**: `mstatus` bit 31 is the SD summary bit, which is always 1 here because `_start` sets `mstatus.FS = Dirty`. Branching on it sent faults down the interrupt path, where they were ignored and `mret` re-executed the faulting instruction forever, with no crash dump.
 * **Verification**: Disassemble `default_trap_entry` and confirm the branch operand is loaded from the saved `mcause` slot (`128(sp)`).
+* **Verified by**: `e906-disassembly-check` (`lw t0,128(sp); bltz t0`)
 
 ## 6. Threshold-Balanced Peripheral HAL (`SPEC-E906-HAL`)
 

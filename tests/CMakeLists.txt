@@ -51,3 +51,10 @@ add_abstractx_cpputest(test_sitl_serial_loopback
     test_main.cpp
     test_sitl_serial_loopback.cpp
 )
+
+# SpecTrace tooling ([SPEC-AUDIT-06..08]): plain python3, no pytest required.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME py_test_spectrace_matrix
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_spectrace_matrix.py)
+endif()

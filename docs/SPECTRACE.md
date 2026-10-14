@@ -105,6 +105,63 @@ python3 tools/audit_specs.py
 * Fails if any spec tag exists without implementing code.
 * Fails if any code tag references a non-existent spec requirement.
 
+### Stage 2b: Requirements, Skills and Evidence
+
+SpecTrace keeps two kinds of documents apart:
+
+| Kind | Answers | Where | Example |
+| :--- | :--- | :--- | :--- |
+| **Requirement** | *What* must be true and *why* | `*SPECIFICATION.md`, one `### [SPEC-*]` section each | `[SPEC-E906-MEM-01]` the E906 loads only into the SRAM windows remoteproc accepts |
+| **Skill** | *How* something is checked, measured or recorded | `.agents/skills/<name>.md` (tool-neutral: Claude, Gemini, humans) | `e906-build-layout`, `sanitizer-gate`, `memory-footprint`, `quality-trends` |
+| **Evidence** | *That* it was checked, and the result | test output, `tools/visualizer/*.json`, `docs/verification/evidence/` | ctest summary, nextpnr utilisation, board log |
+
+How a requirement is verified is itself a skill. Each requirement names its
+skills; each skill says what it verifies, the command, the pass criteria and
+where its evidence goes. SpecTrace connects them: requirement → code
+(`@impl`) → skills (`Verified by`) → evidence.
+
+### `[SPEC-AUDIT-06]` Every Requirement Names How It Is Verified
+* **Requirement**: each `[SPEC-*]` section has a line
+  `* **Verified by**: `skill-a`, `skill-b`` naming skills that exist in
+  `.agents/skills/`. A requirement with code but no verifying skill is
+  *implemented, not verified*.
+* **Requirement**: a skill file states what it verifies, how to run it, the pass
+  criteria and where its evidence is stored. Adding a new kind of check means
+  adding a skill, not a one-off command in a commit message.
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
+* **Implementation Target**: `.agents/skills/`, `tools/spectrace_matrix.py`
+
+### `[SPEC-AUDIT-07]` Traceability Matrix and the Meaning of 100%
+* **Requirement**: `python3 tools/spectrace_matrix.py --matrix` gives every
+  requirement one verdict:
+  `VERIFIED` (code tagged, no `@status Partial`, at least one existing skill),
+  `IMPLEMENTED` (code but no verifying skill), `PARTIAL` (an `@impl` tag marked
+  `@status Partial`), `SPEC-ONLY` (no code yet), `BROKEN` (names a skill that does
+  not exist).
+* **Requirement**: "100%" means every requirement is `VERIFIED`. Tag presence alone
+  (`audit_specs.py`) is never reported as completion.
+  `--require-complete` exits non-zero until then; `--write
+  docs/verification/TRACEABILITY_MATRIX.md` publishes the table.
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
+* **Implementation Target**: `tools/spectrace_matrix.py`
+
+### `[SPEC-AUDIT-08]` Change Review Retrieves the Governing Requirements
+* **Requirement**: `--changes [--base REF]` maps every changed code hunk to the
+  requirement that governs it: the nearest `@impl` tag at or above the hunk, up
+  to the next tag. Hunks with no governing tag are reported **UNTRACED**: new
+  behaviour needs a requirement before it is accepted.
+* **Requirement**: tests carry `@verifies [SPEC-*]` instead of `@impl`: a changed
+  test maps to the requirements it verifies, but a test never counts as an
+  implementation in the matrix.
+* **Requirement**: a changed requirement section is reported with the code that
+  implements it and the skills to re-run.
+* **Requirement**: `--prompt` retrieves the full text of every touched
+  requirement and bundles it with the diff, so a reviewer (human or AI) checks
+  the change against the requirement rather than against memory; this is the
+  retrieval step of SpecTrace. `--strict` fails on untraced hunks for CI.
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
+* **Implementation Target**: `tools/spectrace_matrix.py`
+
 ### Stage 3: Adversarial Invariant Auditing
 An independent Critic persona evaluates code and specifications across 6 strict stages:
 * **Stage 0: Specification SSOT Anti-Drift** (Validates markdown structure, Mermaid diagrams, formal requirement tags).

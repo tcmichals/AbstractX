@@ -165,6 +165,7 @@ configuration:
   * `0x40`: hardware ID `0x41535036` (`ASP6`).
 * Optional DDR profiles define their ring-base/head/tail map in a separate
   bitstream/overlay compatibility contract.
+* **Verified by**: `rtl-lint`, `rtl-synth-check`, `cocotb-regression` (`test_asp_axi_lite_bridge_cocotb`)
 
 ### `[SPEC-ZYNQ-02]` Interrupt Signaling via `IRQ_F2P[0]` and Linux UIO
 * The BRAM bridge MUST assert `IRQ_F2P[0]` when an egress TLP is available and

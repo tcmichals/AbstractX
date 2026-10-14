@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Tim Michals
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""
+Tests for tools/spectrace_matrix.py.
+@verifies [SPEC-AUDIT-06] [SPEC-AUDIT-07] [SPEC-AUDIT-08] docs/SPECTRACE.md
+Builds a throwaway git repository with known requirements, skills and code and
+checks the matrix verdicts and the change review. Runs with plain python3 or pytest.
+"""
+
+import contextlib
+import io
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+import spectrace_matrix as sm  # noqa: E402
+
+SPEC = """# Fixture Specification
+
+### `[SPEC-FIX-01]` Verified requirement
+* **Requirement**: does a thing. A sentence mentioning `* **Verified by**: `not-a-skill`` is prose.
+* **Verified by**: `host-tests` (`csrw 0x7c1` with `0x1031`, `sim/x.cpp`)
+
+### `[SPEC-FIX-02]` Implemented, no verifying skill
+* **Requirement**: does another thing.
+
+### `[SPEC-FIX-03]` Names a skill that does not exist
+* **Verified by**: `no-such-skill`
+
+### `[SPEC-FIX-04]` Specified only
+* **Verified by**: `host-tests`
+
+### `[SPEC-FIX-05]` Partial implementation
+* **Verified by**: `host-tests`
+"""
+
+IMPL = "@" + "impl"  # keep fixture tags out of the real repository scan
+
+A_CPP = """// header
+// {IMPL} [SPEC-FIX-01] docs/FIX_SPECIFICATION.md
+int one() {
+    return 1;
+}
+
+// {IMPL} [SPEC-FIX-02] docs/FIX_SPECIFICATION.md
+int two() {
+    return 2;
+}
+""".replace("{IMPL}", IMPL)
+
+B_CPP = """// {IMPL} [SPEC-FIX-03] [SPEC-FIX-05] docs/FIX_SPECIFICATION.md
+// @status Partial
+int three() { return 3; }
+""".replace("{IMPL}", IMPL)
+
+
+def run(cmd, cwd):
+    subprocess.run(cmd, cwd=cwd, check=True, capture_output=True)
+
+
+def make_repo(root: Path) -> None:
+    (root / "docs").mkdir()
+    (root / "src").mkdir()
+    (root / ".agents" / "skills").mkdir(parents=True)
+    (root / "docs" / "FIX_SPECIFICATION.md").write_text(SPEC)
+    (root / ".agents" / "skills" / "host-tests.md").write_text("---\nname: host-tests\n---\n")
+    (root / "src" / "a.cpp").write_text(A_CPP)
+    (root / "src" / "b.cpp").write_text(B_CPP)
+    (root / "src" / "t_test.cpp").write_text("// @" + "verifies [SPEC-FIX-04]\nint t() { return 0; }\n")
+    run(["git", "init", "-q"], root)
+    run(["git", "add", "-A"], root)
+    run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "fixture"], root)
+
+
+def review(root: Path, strict: bool = False, prompt: bool = False):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        rc = sm.review_changes(root, "", prompt, strict)
+    return rc, out.getvalue()
+
+
+def test_matrix_verdicts():
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        reqs, skills, _ = sm.build_matrix(root)
+        known = set(skills)
+        verdicts = {tag: r.verdict(known) for tag, r in reqs.items()}
+        assert verdicts == {
+            "SPEC-FIX-01": "VERIFIED",
+            "SPEC-FIX-02": "IMPLEMENTED",
+            "SPEC-FIX-03": "BROKEN",
+            "SPEC-FIX-04": "SPEC-ONLY",
+            "SPEC-FIX-05": "PARTIAL",
+        }, verdicts
+        assert reqs["SPEC-FIX-01"].skills == ["host-tests"], "a mention inside prose is not a Verified-by line"
+        assert verdicts["SPEC-FIX-04"] == "SPEC-ONLY", "@verifies is not an implementation"
+        with contextlib.redirect_stdout(io.StringIO()):
+            assert sm.print_matrix(reqs, skills, root / "m.md") == 1, "not complete -> non-zero"
+        text = (root / "m.md").read_text()
+        assert "1/5" in text and "| `SPEC-FIX-03` |" in text
+
+
+def test_change_review_maps_hunks_and_flags_untraced():
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        a = root / "src" / "a.cpp"
+        a.write_text(A_CPP.replace("return 2;", "return 22;"))  # governed by SPEC-FIX-02
+        (root / "src" / "new.cpp").write_text("int untagged() { return 0; }\n")
+        spec = root / "docs" / "FIX_SPECIFICATION.md"
+        spec.write_text(SPEC.replace("does a thing.", "does a thing, faster."))
+
+        rc, out = review(root)
+        assert rc == 0
+        assert "SPEC-FIX-02 Implemented, no verifying skill  <- src/a.cpp:9" in out, out
+        assert "[UNTRACED] src/new.cpp:1" in out, out
+        (root / "src" / "t_test.cpp").write_text("// @" + "verifies [SPEC-FIX-04]\nint t() { return 1; }\n")
+        _, out2 = review(root)
+        assert "SPEC-FIX-04 Specified only  <- src/t_test.cpp:2" in out2, "test change maps to what it verifies"
+        assert "[SPEC CHANGED] SPEC-FIX-01" in out and "re-check src/a.cpp:2" in out, out
+
+        rc, _ = review(root, strict=True)
+        assert rc == 1, "--strict fails on untraced hunks"
+
+        _, bundle = review(root, prompt=True)
+        assert "## SPEC-FIX-02" in bundle and "does another thing." in bundle, "requirement text retrieved"
+        assert "+    return 22;" in bundle, "diff included"
+
+
+if __name__ == "__main__":
+    test_matrix_verdicts()
+    test_change_review_maps_hunks_and_flags_untraced()
+    print("[PASS] spectrace_matrix")

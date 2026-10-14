@@ -131,6 +131,8 @@ Remaining:
 - [ ] RTL: `asp_top` uses `rst_n` both async and sync with no reset synchronizer. No testbenches for `asp_axi_dma`, `asp_ila_trace`, `asp_dshot_core`, `asp_pwm_decoder`, `asp_neopixel_core`. `asp_e2e_vip.py` / `test_asp_top_cocotb.py` still drive the pre-dual-SPI `spi_mosi` interface; port or delete.
 - [ ] Add a synthesis-level RTL check to CI: `yosys -p "read_verilog -sv <file>; proc; check -assert"` per module, plus `verilator --lint-only -Wall`.
 - [ ] `tools/audit_specs.py` only checks the 28 requirements in `docs/DESIGN_SPECIFICATION.md`; per-target `SPECIFICATION.md` tags (e.g. `SPEC-E906-*`, `SPEC-ZYNQ-*`) are never counted. `run_adversarial_audit.py` Stage 5 passes if the test directories exist; it runs no tests. Current full sweep reports 99 violations.
+- [ ] **SpecTrace completion: 14/128 requirements VERIFIED** (`docs/verification/TRACEABILITY_MATRIX.md`). For each `IMPLEMENTED` row, find or write the test that exercises it and add its `Verified by` line; for each `SPEC-ONLY` row, implement or drop the requirement. Wire `spectrace_matrix.py --changes --strict` and `--matrix --require-complete` (once reachable) into CI.
+- [ ] **Tang Nano 20K A5E test target** (`hw/tang_nano20k/SPECIFICATION.md`): board top, `.cst` from the Sipeed schematic, `hw/Makefile` target, fit check, bench bring-up. Open: A5E header SPI controller and FPGA header pins.
 - [ ] Studio GUI shows hardcoded demo metrics (e.g. `coro_pool_used_bytes = 23040`, a fixed "23.4 µs overrun") next to live data; label simulated values.
 
 ---
