@@ -15,6 +15,20 @@ add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
 add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)
 
+# E906 RPMsg core and trace transport, run on the host against fake vrings
+# and a fake message box ([SPEC-E906-IPC-04]).
+set(E906_DIR ${PROJECT_SOURCE_DIR}/targets/allwinner_e906)
+add_executable(test_e906_rpmsg_trace
+    test_e906_rpmsg_trace.cpp
+    fakes/e906_msgbox_fake.cpp
+    ${E906_DIR}/src/rpmsg.cpp
+    ${E906_DIR}/src/rpmsg_trace_transport.cpp
+)
+target_include_directories(test_e906_rpmsg_trace PRIVATE ${E906_DIR}/include)
+target_compile_definitions(test_e906_rpmsg_trace PRIVATE CONFIG_RPROC_RPMSG=1)
+target_link_libraries(test_e906_rpmsg_trace PRIVATE abstractx_core)
+add_test(NAME sim_test_e906_rpmsg_trace COMMAND test_e906_rpmsg_trace)
+
 
 # Common macro to generate a test target for a specific module
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)

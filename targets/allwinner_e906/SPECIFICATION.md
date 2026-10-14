@@ -167,6 +167,14 @@ sequenceDiagram
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ### `[SPEC-E906-IPC-04]` Zero-Copy Trace & Telemetry over RPMsg in SRAM
+* **Two channels, two purposes**: remoteproc `trace0` (`.trace_buffer`, debugfs) is
+  the **low-speed processor channel**: boot log, exceptions, crash dumps. RPMsg is
+  the **high-speed data channel** for AbstractX: 64-byte TLPs and CTF/telemetry
+  queues, encoded compactly and written in place. Never route bulk data through
+  `trace0`, and never depend on RPMsg for crash reporting.
+* **Baseline**: cubie-a5e `testPingRpmsg` / `testPing` are proofs of concept that
+  RPMsg and UIO work on silicon (ring roles, `translate_da`, kick channel). AbstractX
+  extends them to its model (zero-copy acquire/commit, TLP and CTF queues).
 * **Purpose**: the E906 side of `[SPEC-TRACE-07]`. The trace engine writes CTF
   packets directly into RPMsg buffers that live in on-chip SRAM; sending is a
   used-ring update plus a message box kick. No memcpy on the E906, no DRAM, no

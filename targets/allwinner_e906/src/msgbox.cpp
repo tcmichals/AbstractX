@@ -3,46 +3,77 @@
 
 namespace hal {
 
-#ifndef SUNXI_RISCV_MSGBOX_BASE
-#define SUNXI_RISCV_MSGBOX_BASE     MSGBOX_BASE
-#endif
+/*
+ * Allwinner T527 4-Port Hardware Message Box
+ * RISC-V Local Port Base: 0x07136000 (Port 3, Channels 8..11)
+ * DSP Local Port Base:    0x07120000 (Port 1, Channels 4..7)
+ * CPUS Local Port Base:   0x07094000 (Port 2)
+ * ARM Host Port Base:     0x03003000 (Port 0..3)
+ * Port Index for RV <-> ARM communication: n = 2 (Offset: 0x200)
+ * Port Index for DSP <-> ARM communication: n = 1 (Offset: 0x100)
+ */
+#define RV_MSGBOX_LOCAL_BASE        0x07136000U
+#define DSP_MSGBOX_LOCAL_BASE       0x07120000U
+#define ARM_MSGBOX_REMOTE_BASE      0x03003000U
+#define MSGBOX_PORT_OFFSET          0x00000200U
+#define ARM_DSP_MSGBOX_REMOTE_BASE  (ARM_MSGBOX_REMOTE_BASE + 0x100)
 
-#define MSGBOX_CTRL_REG(ch)         (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0000 + ((ch) * 0x04)))
-#define MSGBOX_REMOTE_IRQ_EN_REG    (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0040))
-#define MSGBOX_REMOTE_IRQ_STA_REG   (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0050))
-#define MSGBOX_LOCAL_IRQ_EN_REG     (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0060))
-#define MSGBOX_LOCAL_IRQ_STA_REG    (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0070))
-#define MSGBOX_FIFO_STA_REG(ch)     (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0100 + ((ch) * 0x04)))
-#define MSGBOX_MSG_STA_REG(ch)      (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0140 + ((ch) * 0x04)))
-#define MSGBOX_MSG_FIFO_REG(ch)     (*(volatile uint32_t *)(SUNXI_RISCV_MSGBOX_BASE + 0x0180 + ((ch) * 0x04)))
+#define RV_READ_IRQ_EN_REG          (*(volatile uint32_t *)(RV_MSGBOX_LOCAL_BASE + 0x020 + MSGBOX_PORT_OFFSET))
+#define RV_READ_IRQ_STA_REG         (*(volatile uint32_t *)(RV_MSGBOX_LOCAL_BASE + 0x024 + MSGBOX_PORT_OFFSET))
+#define RV_MSG_STA_REG(ch)          (*(volatile uint32_t *)(RV_MSGBOX_LOCAL_BASE + 0x060 + MSGBOX_PORT_OFFSET + ((ch) * 4)))
+#define RV_MSG_FIFO_REG(ch)         (*(volatile uint32_t *)(RV_MSGBOX_LOCAL_BASE + 0x070 + MSGBOX_PORT_OFFSET + ((ch) * 4)))
 
-// Hardware Status Bits (Matching Allwinner sun6i-msgbox FIFO_STAT)
-inline constexpr uint32_t FIFO_STATUS_FULL  = (1U << 0);
-inline constexpr uint32_t FIFO_STATUS_EMPTY = (1U << 0);
+#define ARM_MSG_STA_REG(ch)         (*(volatile uint32_t *)(ARM_MSGBOX_REMOTE_BASE + 0x060 + MSGBOX_PORT_OFFSET + ((ch) * 4)))
+#define ARM_MSG_FIFO_REG(ch)        (*(volatile uint32_t *)(ARM_MSGBOX_REMOTE_BASE + 0x070 + MSGBOX_PORT_OFFSET + ((ch) * 4)))
 
-void MsgBox::init() noexcept
+#define DSP_READ_IRQ_EN_REG         (*(volatile uint32_t *)(DSP_MSGBOX_LOCAL_BASE + 0x020))
+#define DSP_READ_IRQ_STA_REG        (*(volatile uint32_t *)(DSP_MSGBOX_LOCAL_BASE + 0x024))
+#define DSP_MSG_STA_REG(ch)         (*(volatile uint32_t *)(DSP_MSGBOX_LOCAL_BASE + 0x060 + ((ch) * 4)))
+#define DSP_MSG_FIFO_REG(ch)        (*(volatile uint32_t *)(DSP_MSGBOX_LOCAL_BASE + 0x070 + ((ch) * 4)))
+
+#define ARM_DSP_MSG_STA_REG(ch)     (*(volatile uint32_t *)(ARM_DSP_MSGBOX_REMOTE_BASE + 0x060 + ((ch) * 4)))
+#define ARM_DSP_MSG_FIFO_REG(ch)    (*(volatile uint32_t *)(ARM_DSP_MSGBOX_REMOTE_BASE + 0x070 + ((ch) * 4)))
+
+inline constexpr uint32_t MSG_NUM_MASK   = 0x0FU;
+inline constexpr uint32_t FIFO_DEPTH_MAX = 8U;
+
+void MsgBox::init(bool enable_irq) noexcept
 {
-    // Disable interrupts and clear pending status
-    MSGBOX_LOCAL_IRQ_EN_REG = 0x00000000U;
-    MSGBOX_LOCAL_IRQ_STA_REG = 0xFFFFFFFFU;
+    // Set Read IRQs on local port for channels 0..3:
+    // Bits 0, 2, 4, 6 enable RD IRQ for ch 0..3 (0x55) if enable_irq is true, else 0 (disabled)
+    RV_READ_IRQ_EN_REG = enable_irq ? 0x00000055U : 0x00000000U;
+    RV_READ_IRQ_STA_REG = 0xFFFFFFFFU; // W1C clear pending
+
+    DSP_READ_IRQ_EN_REG = enable_irq ? 0x00000055U : 0x00000000U;
+    DSP_READ_IRQ_STA_REG = 0xFFFFFFFFU;
+
+    // Flush any stale words in receive FIFOs
+    for (uint8_t c = 0; c < 4; ++c) {
+        while ((RV_MSG_STA_REG(c) & MSG_NUM_MASK) > 0) {
+            (void)RV_MSG_FIFO_REG(c);
+        }
+        while ((DSP_MSG_STA_REG(c) & MSG_NUM_MASK) > 0) {
+            (void)DSP_MSG_FIFO_REG(c);
+        }
+    }
 
     s_doorbell_token.store(0, std::memory_order_relaxed);
     std::atomic_thread_fence(std::memory_order_seq_cst);
 }
+
 
 bool MsgBox::send(Channel ch, uint32_t data) noexcept
 {
     const auto c = static_cast<uint8_t>(ch);
     if (c > 3) return false;
 
-    // Check Tx FIFO capacity
-    if (MSGBOX_FIFO_STA_REG(c) & FIFO_STATUS_FULL) {
+    // Check remote ARM Tx FIFO capacity (msg count < 8)
+    if ((ARM_MSG_STA_REG(c) & MSG_NUM_MASK) >= FIFO_DEPTH_MAX) {
         return false;
     }
 
-    // Acquire/Release ordering on write
     std::atomic_thread_fence(std::memory_order_release);
-    MSGBOX_MSG_FIFO_REG(c) = data;
+    ARM_MSG_FIFO_REG(c) = data;
     std::atomic_thread_fence(std::memory_order_seq_cst);
 
     return true;
@@ -53,13 +84,11 @@ void MsgBox::send_blocking(Channel ch, uint32_t data) noexcept
     const auto c = static_cast<uint8_t>(ch);
     if (c > 3) return;
 
-    while (MSGBOX_FIFO_STA_REG(c) & FIFO_STATUS_FULL) {
-        // Spin-wait hint on RISC-V pipeline
-        __asm__ volatile ("pause");
+    while ((ARM_MSG_STA_REG(c) & MSG_NUM_MASK) >= FIFO_DEPTH_MAX) {
     }
 
     std::atomic_thread_fence(std::memory_order_release);
-    MSGBOX_MSG_FIFO_REG(c) = data;
+    ARM_MSG_FIFO_REG(c) = data;
     std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
@@ -68,11 +97,13 @@ std::optional<uint32_t> MsgBox::receive(Channel ch) noexcept
     const auto c = static_cast<uint8_t>(ch);
     if (c > 3) return std::nullopt;
 
-    if (MSGBOX_FIFO_STA_REG(c) & FIFO_STATUS_EMPTY) {
+    if ((RV_MSG_STA_REG(c) & MSG_NUM_MASK) == 0) {
         return std::nullopt;
     }
 
-    uint32_t val = MSGBOX_MSG_FIFO_REG(c);
+    uint32_t val = RV_MSG_FIFO_REG(c);
+    // Clear pending IRQ status bit (W1C)
+    RV_READ_IRQ_STA_REG = (1U << (c * 2));
     std::atomic_thread_fence(std::memory_order_acquire);
 
     return val;
@@ -81,13 +112,13 @@ std::optional<uint32_t> MsgBox::receive(Channel ch) noexcept
 bool MsgBox::is_rx_pending(Channel ch) noexcept
 {
     const auto c = static_cast<uint8_t>(ch);
-    return (c <= 3) && !(MSGBOX_FIFO_STA_REG(c) & FIFO_STATUS_EMPTY);
+    return (c <= 3) && ((RV_MSG_STA_REG(c) & MSG_NUM_MASK) > 0);
 }
 
 bool MsgBox::is_tx_ready(Channel ch) noexcept
 {
     const auto c = static_cast<uint8_t>(ch);
-    return (c <= 3) && !(MSGBOX_FIFO_STA_REG(c) & FIFO_STATUS_FULL);
+    return (c <= 3) && ((ARM_MSG_STA_REG(c) & MSG_NUM_MASK) < FIFO_DEPTH_MAX);
 }
 
 void MsgBox::enable_rx_irq(Channel ch, bool enable) noexcept
@@ -97,9 +128,9 @@ void MsgBox::enable_rx_irq(Channel ch, bool enable) noexcept
 
     const uint32_t mask = (1U << (c * 2));
     if (enable) {
-        MSGBOX_LOCAL_IRQ_EN_REG |= mask;
+        RV_READ_IRQ_EN_REG |= mask;
     } else {
-        MSGBOX_LOCAL_IRQ_EN_REG &= ~mask;
+        RV_READ_IRQ_EN_REG &= ~mask;
     }
     std::atomic_thread_fence(std::memory_order_seq_cst);
 }
@@ -109,7 +140,58 @@ void MsgBox::clear_irq_status(Channel ch) noexcept
     const auto c = static_cast<uint8_t>(ch);
     if (c > 3) return;
 
-    MSGBOX_LOCAL_IRQ_STA_REG = (3U << (c * 2)); // W1C
+    RV_READ_IRQ_STA_REG = (1U << (c * 2)); // W1C
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+}
+
+bool MsgBox::is_dsp_rx_pending(Channel ch) noexcept
+{
+    const auto c = static_cast<uint8_t>(ch);
+    return (c <= 3) && ((DSP_MSG_STA_REG(c) & MSG_NUM_MASK) > 0);
+}
+
+std::optional<uint32_t> MsgBox::receive_dsp(Channel ch) noexcept
+{
+    const auto c = static_cast<uint8_t>(ch);
+    if (c > 3) return std::nullopt;
+
+    if ((DSP_MSG_STA_REG(c) & MSG_NUM_MASK) == 0) {
+        return std::nullopt;
+    }
+
+    uint32_t val = DSP_MSG_FIFO_REG(c);
+    DSP_READ_IRQ_STA_REG = (1U << (c * 2)); // W1C
+    std::atomic_thread_fence(std::memory_order_acquire);
+
+    return val;
+}
+
+bool MsgBox::send_dsp(Channel ch, uint32_t data) noexcept
+{
+    const auto c = static_cast<uint8_t>(ch);
+    if (c > 3) return false;
+
+    if ((ARM_DSP_MSG_STA_REG(c) & MSG_NUM_MASK) >= FIFO_DEPTH_MAX) {
+        return false;
+    }
+
+    std::atomic_thread_fence(std::memory_order_release);
+    ARM_DSP_MSG_FIFO_REG(c) = data;
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+
+    return true;
+}
+
+void MsgBox::send_dsp_blocking(Channel ch, uint32_t data) noexcept
+{
+    const auto c = static_cast<uint8_t>(ch);
+    if (c > 3) return;
+
+    while ((ARM_DSP_MSG_STA_REG(c) & MSG_NUM_MASK) >= FIFO_DEPTH_MAX) {
+    }
+
+    std::atomic_thread_fence(std::memory_order_release);
+    ARM_DSP_MSG_FIFO_REG(c) = data;
     std::atomic_thread_fence(std::memory_order_seq_cst);
 }
 
@@ -121,7 +203,6 @@ void MsgBox::notify_doorbell(uint32_t token) noexcept
 uint32_t MsgBox::wait_for_doorbell(uint32_t old_token) noexcept
 {
     while (s_doorbell_token.load(std::memory_order_acquire) == old_token) {
-        __asm__ volatile ("pause");
     }
     return s_doorbell_token.load(std::memory_order_acquire);
 }

@@ -1,4 +1,5 @@
 #include <coroutine>
+#include <span>
 #pragma once
 
 #include <stdint.h>
@@ -79,6 +80,12 @@ public:
     uint32_t get_rx_count() noexcept override;
     uint32_t get_tx_count() noexcept override;
     bool is_rx_pending() noexcept override;
+
+    // Zero-copy transmit ([SPEC-E906-IPC-04]): borrow the next free host
+    // buffer (payload span, empty if none), write it in place, then commit.
+    // At most one buffer is outstanding; commit before the next acquire.
+    std::span<uint8_t> tx_acquire() noexcept;
+    bool tx_commit(uint16_t used_len, uint32_t src, uint32_t dst) noexcept;
 
     // Static convenience facade delegating to the globally active driver
     static void set_active_driver(IRpmsg *driver) noexcept;

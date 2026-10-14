@@ -18,6 +18,8 @@ add_library(abstractx_target_e906 STATIC
     src/i2c.cpp
     src/platform.cpp
     src/io_processor.cpp
+    src/rpmsg.cpp
+    src/rpmsg_trace_transport.cpp
 )
 
 target_include_directories(abstractx_target_e906 PUBLIC
@@ -36,6 +38,7 @@ set(E906_LDSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bsp/e906_ddr.ld" CACHE FILEPATH "
 target_compile_definitions(abstractx_target_e906 PUBLIC
     TARGET_ALLWINNER_E906=1
     ETL_NO_CHECKS=1
+    CONFIG_RPROC_RPMSG=1
 )
 
 # Backward compatibility alias

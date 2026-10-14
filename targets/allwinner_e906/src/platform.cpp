@@ -15,6 +15,10 @@
 #include "hal/i2c.hpp"
 #include "hal/pio.hpp"
 #include "hal/msgbox.hpp"
+#include "hal/rpmsg_trace_transport.hpp"
+#include "resource_table.h"
+
+extern "C" const struct rpmsg_resource_table global_resource_table;
 
 namespace abstractx::hal {
 
@@ -203,9 +207,15 @@ IGpio& get_gpio_driver() noexcept {
     return g_e906_gpio;
 }
 
+// RPMsg to Linux ([SPEC-E906-IPC-04]); ring state lives in rpmsg.cpp.
+::hal::Rpmsg g_rpmsg;
+::hal::RpmsgTraceTransport g_trace_transport{g_rpmsg};
+
 void platform_init() noexcept {
     ::hal::Ccu::init();
     ::hal::Timer::init();
+    g_rpmsg.init(&global_resource_table);
+    g_trace_transport.attach();
 }
 
 void platform_launch_processing_domain(void (*entry)()) noexcept {
@@ -227,24 +237,38 @@ void platform_idle_wait() noexcept {
 }
 
 void platform_poll_network() noexcept {
-    // No direct wireless stack on coprocessor
+    // No network stack on the coprocessor: service RPMsg (name-service
+    // announcement, host messages) from the cooperative loop.
+    g_trace_transport.service();
 }
 
-// Records dropped until the zero-copy RPMsg transport exists. The previous
-// implementation wrote every flush to fixed 0x07131000, outside both SRAM
-// windows (likely bus fault) and overwriting itself.
-// @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
 volatile uint32_t g_telemetry_dropped{0};
 
-// TODO [SPEC-E906-IPC-04]: return the RPMsg transport.
+// @impl [SPEC-E906-IPC-04] [SPEC-TRACE-07] targets/allwinner_e906/SPECIFICATION.md
 trace::ITraceTransport* platform_trace_transport() noexcept {
-    return nullptr;
+    return &g_trace_transport;
 }
 
+// Byte-buffer API for callers that already hold the data (e.g. a TLP built by
+// an application): one copy into the RPMsg buffer. Trace packets do not use
+// this path; they are written in place through platform_trace_transport().
+// @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
-    if (data && len > 0) {
-        g_telemetry_dropped = g_telemetry_dropped + 1u;
+    if (!data || len == 0) {
+        return;
     }
+    std::span<uint8_t> buf = g_trace_transport.acquire(len);
+    if (buf.size() < len) {
+        if (!buf.empty()) {
+            g_trace_transport.commit(buf, 0);
+        }
+        g_telemetry_dropped = g_telemetry_dropped + 1u;
+        return;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        buf[i] = data[i];
+    }
+    g_trace_transport.commit(buf, len);
 }
 
 } // namespace abstractx::hal
