@@ -100,6 +100,12 @@ Fixed (see `engineering_log.md` 2026-10-14):
 - [x] Cocotb targets `sim-test-reg-bank` / `sim-test-tlp64-top` never compiled a design; IMU auto-DMA and AXI-Lite tests now registered.
 - [x] Duplicate unused E906 trace buffer (4 KB).
 
+Fixed / decided (see `engineering_log.md` 2026-10-14, E906 memory map):
+- [x] E906 linker scripts were shifted +256 KB from the silicon map (Space 0 at `0x40000000`, "Space 1" at nonexistent `0x40040000`); `.resource_table`/`.trace_buffer` were outside every window `sunxi_rproc` accepts, so remoteproc would refuse the firmware. Restored to `0x3FFC0000` / `0x40000000` (verified against `linux-cubie` `sunxi_rproc.h`); `tools/check_e906_layout.py` now fails the build on any out-of-window segment.
+- [x] Stale shared-memory headers (`shm_ping_protocol.h`, `dram_spsc_protocol.h`) pointed at the CFG register block (`0x07130000`/`0x07131000`); synced to cubie-a5e's silicon-tested versions. Unused `IPC_*` offsets that overlaid the vector table removed.
+- [x] E906 D-cache policy decided: OFF (I-cache on) because all firmware, IPC and DMA data live in SRAM ([SPEC-E906-CACHE-02]); matches cubie-a5e.
+- [x] E906 `platform_send_telemetry()` no longer writes to `0x07131000` (outside SRAM); drops and counts until the RPMsg transport lands.
+
 Remaining:
 - [ ] Add an ASan/UBSan host job to CI (`.github/workflows/`).
 - [ ] Fail the configure step clearly when `third_party/etl` is not initialised (currently a missing-header error); document `git submodule update --init third_party/etl`.
@@ -110,9 +116,13 @@ Remaining:
 - [ ] Move `docs/tier1_vision/GEMINI_*_PROMPT.md` to `docs/prompts/`; rename `hw/zynq7000/buildroot_external/REAMME`; consolidate `cmake/toolchain-*.cmake` vs `cmake/toolchains/`.
 - [ ] Fix `-Wall -Wextra` warnings (examples, `sim/sitl_coro_sim.cpp`, `targets/linux/include/i2c_worker.hpp:182`).
 - [ ] **Linux-target data races (ThreadSanitizer: 3 tests, 7 reports).** `InterruptLock` is a no-op on the host and emits Cortex-M `mrs primask`/`cpsid i` under `__aarch64__` (invalid on the Cubie's A55). `SpiWorker`/`I2cWorker` request queues and the Dispatcher queue are used across threads unprotected. Needs a host queue policy with real atomics or a mutex. Also `sitl_coro_sim` has two producers on one SPSC ring, and `test_tlp_msg` reads callback results without synchronization.
-- [ ] **Linux ingestion side of the E906 pipeline does not exist.** TODO §4 marks `linux_trace_receiver_task` / shared-SRAM mapping done, but no code maps or drains E906 rings. E906 `g_sensor_ring`/`g_telemetry_ring`/`g_tx_ring` live in private `.bss` with no published address.
-- [ ] **E906 `platform_send_telemetry`** overwrites fixed `0x07131000` on every flush (no ring/handshake), collides with `SHM_PING_SRAM_ADDR`, and reads `len` rounded up to words (over-read, possible misaligned load).
-- [ ] **E906 address map is inconsistent**: linker `0x40000000`, TODO `0x3FFC0000`/`0x07280000`, spec `0x3FFC8100`. Unused `IPC_*` defines in `memory_map.h` place IPC rings at `0x40000100`, on top of the vector table. Pick one map and delete the rest.
+- [ ] **Zero-copy trace transport ([SPEC-TRACE-07]) — specified, not implemented.** Steps, in order:
+  1. Trace engine: replace the private `buffer_pool_` + flush-copy with `acquire(max)` / `commit(span, used)` on a transport interface; keep a static-pool transport for Linux/SITL; host tests for acquire failure, discard counting and no-copy (pointer identity).
+  2. E906 ([SPEC-E906-IPC-04]): compile `src/rpmsg.cpp`; add `acquire()` (free buffer from Linux's RX vring, 496-byte payload, `translate_da`) and `commit()` (hdr, release fence, used ring, msgbox ch 9 kick); wire it as the E906 trace transport and for `platform_send_telemetry()`.
+  3. Device tree: AbstractX overlay giving Linux the upper half of Space 1 (`reg = <0x0 0x072e0000 0x0 0x20000>`, `shared-dma-pool`, `no-map`) as the remoteproc pool, derived from cubie-a5e `cubie-a5e-rpmsg-sram.dtso`.
+  4. Linux reader: `/dev/rpmsgN` → UDP 9870 (replaces the old "SRAM-to-UDP bridge daemon" item).
+  5. Pico 2 W ([SPEC-PICO-TRACE-01]) and ESP32-P4 ([SPEC-ESP32P4-TRACE-01]): `PBUF_POOL` pbuf as the trace buffer; replace the current `PBUF_RAM` + `memcpy` in Pico `platform_send_telemetry()`.
+  6. Board test on the Cubie A5E: trace reaches the Studio; measure E906 loop jitter with `mcycle` (I-cache on / D-cache off is not yet silicon-verified).
 - [ ] **E906 trap entry does not save FP registers** while `mstatus.FS` is enabled; any ISR path that uses float would corrupt the interrupted coroutine.
 - [ ] **Pico Core 1 is never launched** (`platform_launch_processing_domain()` has no callers): `[SPEC-ARCH-05]` dual-core split is not implemented; the ISR's SIO FIFO doorbell has no reader. When implemented, `InterruptLock` (single-core masking) will not protect cross-core queues.
 - [ ] **ESP32-P4 target is a stub** (141 lines; no io_processor/platform). Mark it as such in README/TODO.

@@ -230,18 +230,15 @@ void platform_poll_network() noexcept {
     // No direct wireless stack on coprocessor
 }
 
+// Records dropped until the zero-copy RPMsg transport exists. The previous
+// implementation wrote every flush to fixed 0x07131000, outside both SRAM
+// windows (likely bus fault) and overwriting itself.
+// @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
+volatile uint32_t g_telemetry_dropped{0};
+
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
     if (data && len > 0) {
-        // Direct zero-copy copy to Dedicated MCU SRAM C (0x07131000)
-        volatile uint32_t* dst = reinterpret_cast<volatile uint32_t*>(0x07131000);
-        const uint32_t* src = reinterpret_cast<const uint32_t*>(data);
-        size_t words = (len + 3) / 4;
-        for (size_t i = 0; i < words; ++i) {
-            dst[i] = src[i];
-        }
-        __asm__ volatile("fence rw, rw" ::: "memory");
-        // Doorbell notify Linux host
-        ::hal::MsgBox::notify_doorbell(0x01);
+        g_telemetry_dropped = g_telemetry_dropped + 1u;
     }
 }
 

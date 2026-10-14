@@ -27,6 +27,7 @@ elseif(ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907")
         -Wl,--gc-sections
         -nostartfiles
     )
+    abstractx_e906_check_layout(gps_imu_app)
     add_custom_command(TARGET gps_imu_app POST_BUILD
         COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:gps_imu_app> gps_imu_app.bin
         COMMAND ${CMAKE_SIZE} $<TARGET_FILE:gps_imu_app>

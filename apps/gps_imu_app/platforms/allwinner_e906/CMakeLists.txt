@@ -20,6 +20,8 @@ target_link_options(e906_coprocessor PRIVATE
     -nostartfiles
 )
 
+abstractx_e906_check_layout(e906_coprocessor)
+
 # Custom command to generate binary (.bin)
 add_custom_command(TARGET e906_coprocessor POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:e906_coprocessor> e906_coprocessor.bin

@@ -193,15 +193,21 @@ _start:
 
     /*
      * 5c. Enable Hardware Configuration (CSR_MHCR 0x7C1):
-     * Bit 0:  IE (Instruction Cache Enable)
-     * Bit 1:  DE (Data Cache Enable)
-     * Bit 2:  WB (Write-Back mode for D-Cache)
-     * Bit 3:  WA (Write-Allocate mode for D-Cache)
-     * Bit 4:  RS (Return Stack Enable)
-     * Bit 5:  BPE (Branch Prediction Enable)
-     * Bit 12: BTB (Branch Target Buffer Enable)
+     * Bit 0:  IE (Instruction Cache Enable)          -> ON
+     * Bit 1:  DE (Data Cache Enable)                 -> OFF
+     * Bit 2/3: WA/WB (D-Cache allocate/write-back)   -> OFF (no D-cache)
+     * Bit 4:  RS (Return Stack Enable)               -> ON
+     * Bit 5:  BPE (Branch Prediction Enable)         -> ON
+     * Bit 12: BTB (Branch Target Buffer Enable)      -> ON
+     *
+     * D-cache stays OFF: all firmware data, IPC and DMA buffers live in
+     * zero-wait-state on-chip SRAM, which SYSMAP hardwires as cacheable, so
+     * with DE=1 every store to memory Linux or DMA reads would need a clean.
+     * DE=0 gives deterministic load/store timing (low jitter) and needs no
+     * cache maintenance. Matches the silicon-tested cubie-a5e firmware.
+     * @impl [SPEC-E906-CACHE-02] targets/allwinner_e906/SPECIFICATION.md
      */
-    li t0, (1 << 12) | (0xF << 2) | (1 << 1) | (1 << 0)
+    li t0, (1 << 12) | (1 << 5) | (1 << 4) | (1 << 0)
     csrw 0x7c1, t0
 
     fence.i

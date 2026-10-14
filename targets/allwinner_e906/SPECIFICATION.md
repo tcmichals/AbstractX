@@ -55,20 +55,35 @@ sequenceDiagram
 ### `[SPEC-E906-MEM-01]` Pure Dedicated MCU SRAM Architecture (Zero TCM)
 * **Silicon Reality**: There is **NO ITCM and NO DTCM** on the T527 E906.
   Addresses `0x00000000` (ITCM) and `0x00080000` (DTCM) do not exist in silicon.
-* **Execution Window**: E906 executes out of dedicated on-chip **SRAM A3**:
-  * **SRAM Space 0**: `0x3FFC0000`–`0x40000000` (256 KB Dedicated Slice,
-    Host PA `0x07130000`). Reset vector and default boot window.
-  * **SRAM Space 1**: `0x40040000`–`0x40080000` (256 KB Switchable Slice,
-    enabled via `REMAP_CTRL_REG[1] = 1`).
-* **Implementation Target**: `targets/allwinner_e906/bsp/e906_sram.ld`
+* **Execution Windows** (E906 core address → Linux host physical address). These
+  are the only SRAM windows `sunxi_rproc_da_to_va()` accepts
+  (`E906_SRAM_SPACE{0,1}_DA` in `drivers/remoteproc/sunxi_rproc.h`):
+
+  | Region | Core address | Host PA | Size | Use |
+  | :--- | :--- | :--- | :--- | :--- |
+  | SRAM Space 0 | `0x3FFC0000` | `0x07280000` | 256 KB | vectors, code, data, stack (linker `SRAM_FAST`, first 192 KB) |
+  | Space 0 shared tail | `0x3FFF0000` | `0x072B0000` | 64 KB | host IPC: ping channel `+0x0000`, DRAM-SPSC control `+0x2000`, crash dump `+0xFF00` |
+  | SRAM Space 1, lower half | `0x40000000` | `0x072C0000` | 128 KB | resource table, trace0, firmware IPC state (`REMAP_CTRL_REG[1]=1`, set by remoteproc) |
+  | SRAM Space 1, upper half | `0x40020000` | `0x072E0000` | 128 KB | Linux RPMsg DMA pool: vrings + RPMsg buffers (`[SPEC-E906-IPC-04]`); firmware places nothing here |
+  | DRAM carveout | `0x48100000` | `0x48100000` | 1 MB | not used by AbstractX (SRAM-only rule, `[SPEC-E906-CACHE-02]`); allowed by the layout check for legacy images |
+
+* `0x07130000` is the RISC-V CFG register block (4 KB: `STA_ADD_REG` at `+0x204`,
+  `WORK_MODE_REG` at `+0x248`), **not SRAM**. Nothing may be stored there.
+* **Enforcement**: every E906 firmware target runs `tools/check_e906_layout.py`
+  after linking; the build fails if a loadable segment is outside Space 0 (below
+  the shared tail), the lower half of Space 1, or the DRAM carveout.
+* **Source of truth**: the window constants in the linux-cubie driver and the
+  silicon-tested cubie-a5e firmware (`firmware/common/arch_riscv/*.ld`,
+  `firmware/common/include/*_protocol.h`). The shared-tail protocol headers in
+  `include/` are verbatim copies of cubie-a5e's so its Linux tools interoperate.
+* **Implementation Target**: `targets/allwinner_e906/bsp/e906_sram.ld`, `bsp/e906_ddr.ld`, `include/memory_map.h`
 
 ### `[SPEC-E906-MEM-02]` Control vs. Data Plane Memory Split
-* **Control Plane in SRAM**: SPSC ring pointers, descriptor states, and
-  doorbell status flags MUST reside in on-chip SRAM
-  (`0x3FFC0000` / `0x07130000`) for single-cycle synchronization.
-  for zero-wait-state single-cycle synchronization.
-* **Data Plane in DDR**: Large streaming payload buffers (4 KB to multi-MB)
-  reside in external DDR DRAM carveouts (`0x48000000`+).
+* **Control Plane in SRAM**: SPSC ring indices, descriptor states, and doorbell
+  status flags MUST reside in on-chip SRAM (the Space 0 shared tail or Space 1).
+* **Data Plane in SRAM**: trace and telemetry payloads are RPMsg buffers in
+  the upper half of Space 1 (`[SPEC-E906-IPC-04]`). DRAM is not used while the
+  D-cache is off; introducing DRAM payloads requires revisiting `[SPEC-E906-CACHE-02]`.
 * **Target**: `targets/allwinner_e906/include/dram_spsc_protocol.h`
 
 ---
@@ -82,12 +97,30 @@ sequenceDiagram
   (`MM = 1`) in `CSR_MXSTATUS` (0x7C0).
 * **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`
 
-### `[SPEC-E906-CACHE-02]` Full L1 Cache Activation
-* **Requirement**: AbstractX operates with full L1 Instruction and Data caches
-  enabled for maximum computational throughput.
-* **Mechanism**: Invalidate cache lines via `CSR_MCOR` (0x7C2 bit 6 and 17),
-  then configure `CSR_MHCR` (0x7C1) with value `0x7177` (`IE=1, DE=1, WB=1,
-  WA=1, RS=1, BPE=1, BTB=1`).
+### `[SPEC-E906-CACHE-02]` L1 Cache Policy: I-Cache On, D-Cache Off (SRAM-Only Firmware)
+* **Goal**: fast, low-jitter execution.
+* **Requirement**: AbstractX E906 firmware, its data, IPC rings and DMA buffers
+  live entirely in on-chip SRAM (Space 0 and Space 1, `[SPEC-E906-MEM-01]`); no
+  DRAM is used. Under that rule the D-cache MUST stay disabled.
+* **Mechanism**: invalidate caches via `CSR_MCOR` (0x7C2), then write `CSR_MHCR`
+  (0x7C1) = `IE | RS | BPE | BTB` (`0x1031`): I-cache, return stack, branch
+  prediction and BTB on; `DE`, `WA`, `WB` off.
+* **Rationale**:
+  * SYSMAP hardwires on-chip SRAM as Normal Cacheable and nothing can mark a
+    region uncached (cubie-a5e `docs/TINA_ALLWINNER_COPROCESSOR_SOURCE_OF_TRUTH.md`
+    §10.3). With `DE = 1`, every E906 store that Linux or a DMA engine reads
+    (trace0, crash dump, telemetry ring, DMA buffers) would need `dcache.cpa`,
+    and every buffer they write would need `dcache.iva`.
+  * On-chip SRAM is zero-wait-state, so the D-cache buys little speed here,
+    while hit/miss and write-back eviction add timing variance. `DE = 0` gives
+    deterministic load/store latency and zero maintenance cost.
+  * The silicon-tested cubie-a5e firmware runs with `DE = 0`.
+* **When DRAM is introduced**: enabling `DE` then requires `[SPEC-E906-CACHE-03]`
+  maintenance on every shared buffer (32-byte aligned and sized) before the
+  change lands.
+* **Not yet verified on silicon**: the I-cache/branch-prediction setting
+  (cubie-a5e leaves `mhcr` at reset defaults). Measure loop jitter with
+  `mcycle` on the board.
 * **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`
 
 ### `[SPEC-E906-CACHE-03]` Verified Machine-Code Cache Maintenance
@@ -132,6 +165,48 @@ sequenceDiagram
   memory at bus speed with zero cache maintenance overhead.
   at bus speed with zero cache maintenance overhead.
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
+
+### `[SPEC-E906-IPC-04]` Zero-Copy Trace & Telemetry over RPMsg in SRAM
+* **Purpose**: the E906 side of `[SPEC-TRACE-07]`. The trace engine writes CTF
+  packets directly into RPMsg buffers that live in on-chip SRAM; sending is a
+  used-ring update plus a message box kick. No memcpy on the E906, no DRAM, no
+  cache maintenance (`[SPEC-E906-CACHE-02]`). Replaces the old write to fixed
+  `0x07131000`, which is outside both SRAM windows and overwrote itself.
+* **Memory**: the upper half of SRAM Space 1, core `0x40020000`–`0x4003FFFF`
+  = host `0x072E0000`–`0x072FFFFF` (128 KB), is the Linux remoteproc DMA pool
+  (`shared-dma-pool`, `no-map`) from an AbstractX device-tree overlay derived from
+  cubie-a5e `cubie-a5e-rpmsg-sram.dtso` (which proved RPMsg with an SRAM pool but
+  gives Linux all of Space 1). Linux allocates both vrings and all RPMsg buffers
+  there (the resource table uses `FW_RSC_ADDR_ANY`). The linker keeps firmware out
+  of it (region `IPC`, nothing placed), and `tools/check_e906_layout.py` rejects
+  any load segment there.
+* **Sizes**: `VRING_NUM_DESCS = 16`, `RPMSG_BUFFER_SIZE = 512` (16-byte
+  `rpmsg_hdr` + **496-byte payload** = one CTF packet). Linux allocates
+  2 × 16 buffers = 16 KB plus the vrings, well inside 128 KB.
+* **Address translation**: descriptor addresses written by Linux are host
+  physical addresses; the E906 converts them with the proven cubie-a5e
+  `translate_da()` (host `0x072C0000`+ → core `0x40000000`+, host `0x07280000`+
+  → core `0x3FFC0000`+).
+* **Transport API** (implements `[SPEC-TRACE-07]`):
+  1. `acquire()`: take the next free buffer from Linux's RX vring `avail` ring;
+     return the 496-byte payload span (header filled in later), or empty if
+     Linux has posted no free buffer. Never blocks.
+  2. Trace engine writes the CTF packet header and events in place.
+  3. `commit(span, used)`: fill `rpmsg_hdr` (src/dst endpoint, `len = used`),
+     release fence (`fence rw, w`), publish the descriptor in the `used` ring,
+     then kick message box channel 9 (one channel, `[D11]` in cubie-a5e
+     `DESIGN_DECISIONS.md`).
+  4. At most one buffer is held by the engine at a time; if Linux stops
+     reading, `acquire` fails and events are counted as discarded.
+* **Context**: main cooperative loop only; never from an ISR.
+* **Linux side**: a reader opens the RPMsg endpoint (`/dev/rpmsgN` via
+  `rpmsg_char`) and forwards each message as one UDP datagram to the Studio
+  (`127.0.0.1:9870` by default). The kernel copies into user space; nothing on
+  the E906 copies.
+* **Not yet implemented** (spec first): the transport, the trace-engine
+  `acquire`/`commit` change, the overlay and the Linux reader. Until then
+  `platform_send_telemetry()` drops records and counts them.
+* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`
 
 ---
 
@@ -191,11 +266,12 @@ sequenceDiagram
 | `[SPEC-E906-MEM-01]`  | Dedicated MCU SRAM (Zero TCM) | `bsp/e906_sram.ld` |
 | `[SPEC-E906-MEM-02]`  | SPSC in SRAM / DDR Buffers | `dram_spsc_protocol.h` |
 | `[SPEC-E906-CACHE-01]`| THEADISAEE Vendor Opcode Unlock | `bsp/startup.S` |
-| `[SPEC-E906-CACHE-02]`| L1 I/D-Cache Full Enable (0x7177)| `bsp/startup.S` |
+| `[SPEC-E906-CACHE-02]`| I-Cache On, D-Cache Off (0x1031) | `bsp/startup.S` |
 | `[SPEC-E906-CACHE-03]`| Tina SDK Machine Opcodes | `src/pmp.cpp` |
 | `[SPEC-E906-IPC-01]`  | Pure Virtual `IRpmsg` | `include/hal/rpmsg.hpp` |
 | `[SPEC-E906-IPC-02]`  | Linux VirtIO RPMsg with D-Cache | `src/rpmsg.cpp` |
 | `[SPEC-E906-IPC-03]`  | Lite-Metal Direct SRAM Driver | `src/rpmsg.cpp` |
+| `[SPEC-E906-IPC-04]`  | Zero-Copy Trace over RPMsg in SRAM | `src/rpmsg.cpp` |
 | `[SPEC-E906-CORO-01]` | Async `async_receive()` | `include/hal/rpmsg.hpp` |
 | `[SPEC-E906-CORO-02]` | MSGBOX Doorbell ISR Waking | `src/rpmsg.cpp` |
 | `[SPEC-E906-HAL-01]`  | FIFO vs. DMA Balancing | `src/{spi,uart,i2c}.cpp` |

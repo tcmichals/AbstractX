@@ -1,13 +1,15 @@
 /*
- * e906_sram.ld - SRAM A3 Linker Script for Allwinner T527 / A523 XuanTie E906
+ * e906_sram.ld - SRAM Linker Script for Allwinner T527 / A523 XuanTie E906
  *
- * Target: Allwinner XuanTie E906 / E906 RISC-V Co-Processor
- * Memory: Dedicated SRAM A3 Pools (Device Address 0x40000000, 256 KB)
+ * Target: Allwinner XuanTie E906 RISC-V Co-Processor
+ * Memory: SRAM Space 0 at core address 0x3FFC0000 (host 0x07280000), 256 KB,
+ *         minus the 64 KB shared tail at 0x3FFF0000 reserved for host IPC.
+ * See e906_ddr.ld for the full map and the remoteproc constraint.
+ * @impl [SPEC-E906-MEM-01] targets/allwinner_e906/SPECIFICATION.md
  *
  * HARDWARE TRUTHS:
  * - 0x00020000 (128 KB) is HiFi4 DSP Memory! DO NOT USE for E906!
  * - 0x00044000 (160 KB) is OP-TEE / TrustZone Memory (SRAM A2)! DO NOT USE!
- * - E906 firmware lives exclusively in SRAM A3 (0x40000000 / 0x40040000).
  */
 
 OUTPUT_ARCH("riscv")
@@ -15,7 +17,7 @@ ENTRY(_start)
 
 MEMORY
 {
-    SRAM (rwx) : ORIGIN = 0x40000000, LENGTH = 256K
+    SRAM (rwx) : ORIGIN = 0x3FFC0000, LENGTH = 192K
 }
 
 SECTIONS

@@ -18,6 +18,8 @@ target_link_options(e906_serial_loopback PRIVATE
     -nostartfiles
 )
 
+abstractx_e906_check_layout(e906_serial_loopback)
+
 add_custom_command(TARGET e906_serial_loopback POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:e906_serial_loopback> e906_serial_loopback.bin
     COMMAND ${CMAKE_SIZE} $<TARGET_FILE:e906_serial_loopback>

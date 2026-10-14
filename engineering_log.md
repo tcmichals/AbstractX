@@ -480,3 +480,26 @@ This log chronicles the development, technical decisions, and architecture miles
 * **RTL**: `verilator --lint-only -Wall` no `MULTIDRIVEN`; Yosys `check` no conflicting drivers (old RTL: `egr_buf_valid` and all 32 `reg_irq_status` bits). New `test_asp_axi_lite_bridge_cocotb` 5/5; `asp_spi_reg_bank` 3/3 and `asp_top` TLP64 2/2 now run.
 * **Host**: `ctest` 27/27 Debug and ASan/UBSan; `test_abstractx_runtime` 2000 yields in 1 ms (>= 200 ms if idling every step) and `spawn()` rejects the 17th live task.
 
+## [2026-10-14] - Mistake & Lesson: E906 memory map drifted from silicon; D-cache vs shared SRAM
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/bsp/*.ld`, `include/memory_map.h`, `include/*_protocol.h`, `bsp/startup.S`, `src/platform.cpp`
+* **Symptoms**:
+  - Linker scripts placed Space 0 at `0x40000000` and "Space 1" at `0x40040000`. Silicon (and `sunxi_rproc_da_to_va()`) has Space 0 at `0x3FFC0000` and Space 1 at `0x40000000`, 256 KB each. `.resource_table` and `.trace_buffer` landed at `0x40040000`, outside every loadable window, so remoteproc would refuse the image.
+  - Shared-memory headers put control blocks at `0x07130000`/`0x07131000` (the RISC-V CFG register block, not SRAM); `platform_send_telemetry()` wrote every flush there.
+  - `startup.S` enabled the write-back D-cache while trace0, crash dump and IPC live in SRAM, which SYSMAP hardwires as cacheable, with no cache maintenance on those paths: Linux would read stale data.
+* None of this was caught because E906 images were never loaded on the board and no build step checked addresses.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: the E906 BSP was copied from cubie-a5e `firmware/common` and then edited from memory instead of from the driver or silicon-tested sources; cubie-a5e later corrected its headers and AbstractX's copies were never resynced. The cache policy was changed without checking what reads the memory.
+* **Architectural Lesson**: hardware addresses come from the driver constants and silicon-tested code (cubie-a5e), never from prose docs. Enforce layout at link time. For fast, low-jitter firmware that lives entirely in zero-wait-state SRAM, the D-cache adds variance and maintenance cost without real speed-up: keep it off. Zero-copy IPC means the trace buffer is the transport buffer ([SPEC-TRACE-07]).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/allwinner_e906/SPECIFICATION.md` (`SPEC-E906-MEM-01`, `MEM-02`, `CACHE-02`, `IPC-04`), `docs/DESIGN_SPECIFICATION.md` (`SPEC-TRACE-03`, `-05`, new `-07`), `targets/pico2w_rp2350/SPECIFICATION.md` (`SPEC-PICO-TRACE-01`), `targets/esp32p4/SPECIFICATION.md` (`SPEC-ESP32P4-TRACE-01`).
+
+### 4. Implementation & Verification
+* E906 cross-build: all four images load only into Space 0 (`0x3FFC0000`, below the shared tail) and the lower half of Space 1 (`0x40000000`); `tools/check_e906_layout.py` runs after every E906 link and fails on an out-of-window segment (verified by relocating `.resource_table` back to `0x40040000`: exit 1).
+* `mhcr = 0x1031` (IE, RS, BPE, BTB; DE/WA/WB off).
+* `SPEC-TRACE-07` is specified but not implemented; `audit_specs.py` reports it MISSING (96.6%) on purpose.
+* Not verified on silicon.
+

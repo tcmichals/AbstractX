@@ -228,6 +228,28 @@ When implementing HAL drivers under `targets/pico2w_rp2350/src/`, AI agents must
   sio_hw->fifo_wr = 0x01; // Non-blocking hardware SIO FIFO write
   ```
 
+### 3.7 Zero-Copy Trace & Telemetry over UDP `[SPEC-PICO-TRACE-01]`
+The Pico side of `[SPEC-TRACE-07]` (`docs/DESIGN_SPECIFICATION.md`): the trace
+packet buffer **is** the lwIP pbuf that gets transmitted, so no memcpy happens
+between the trace engine and the Wi-Fi driver.
+* **acquire**: `pbuf_alloc(PBUF_TRANSPORT, max_bytes, PBUF_POOL)` from the static
+  `memp` pool. `PBUF_POOL_BUFSIZE` (lwIP default ≈ `TCP_MSS` + headers ≈ 1.5 KB
+  with `TCP_MSS = 1460` in `include/lwipopts.h`) MUST hold one full packet plus
+  UDP/IP/link headers, so the payload is a single contiguous pbuf (`p->next == NULL`;
+  otherwise treat as acquire failure). Returns `p->payload` as the span.
+* **commit**: `pbuf_realloc(p, used)`, `udp_sendto(pcb, p, &dest, 9870)`, `pbuf_free(p)`.
+  lwIP holds its own reference until the frame leaves the CYW43 driver.
+* **Not allowed**: `PBUF_RAM` (lwIP heap, `MEM_SIZE`) and `PBUF_REF` over a
+  static trace buffer (the buffer could be reused while a frame is still queued
+  for ARP or the driver). The current `platform_send_telemetry()` uses
+  `PBUF_RAM` + `memcpy` and must be replaced.
+* **Pool sizing**: `PBUF_POOL_SIZE` (24 today) is shared with RX; reserve at
+  least 2 for trace so a full pool drops trace, not network RX. Trace never
+  blocks: on acquire failure events are counted as discarded.
+* **Context**: `acquire`/`commit` run only on the core that owns lwIP and
+  `cyw43_arch_poll()` (`pico_cyw43_arch_lwip_poll` is not thread-safe). Today
+  everything runs on Core 0 (Core 1 is not launched yet, see TODO.md).
+
 ---
 
 ## 4. Execution Workflow & Step-by-Step Contract

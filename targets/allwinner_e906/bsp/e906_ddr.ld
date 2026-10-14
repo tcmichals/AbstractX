@@ -1,15 +1,23 @@
 /*
- * e906_ddr.ld - SRAM A3 & DDR Linker Script for Allwinner T527 / A523 XuanTie E906
+ * e906_ddr.ld - SRAM & DDR Linker Script for Allwinner T527 / A523 XuanTie E906
  *
- * Target: Allwinner XuanTie E906 / E906 RISC-V Co-Processor
- * Memory: Fast Dedicated SRAM A3 Pool 0 (256 KB @ 0x40000000),
- *         Dedicated SRAM A3 Pool 1 (256 KB @ 0x40040000),
- *         Reserved Non-Cacheable DDR DRAM Carveout (1 MB @ 0x48100000).
+ * Target: Allwinner XuanTie E906 RISC-V Co-Processor
+ * Memory (E906 core address -> Linux host physical address):
+ *   SRAM Space 0  0x3FFC0000 -> 0x07280000  256 KB  code, data, stack
+ *     shared tail 0x3FFF0000 -> 0x072B0000   64 KB  reserved for host IPC
+ *   SRAM Space 1  0x40000000 -> 0x072C0000  128 KB  resource table, trace0
+ *     upper half  0x40020000 -> 0x072E0000  128 KB  Linux RPMsg pool (not firmware)
+ *                                                   (REMAP_CTRL_REG[1]=1, set by remoteproc)
+ *   DDR carveout  0x48100000                  1 MB  streaming payloads
+ *
+ * These are the only SRAM windows sunxi_rproc_da_to_va() accepts
+ * (E906_SRAM_SPACE{0,1}_DA in drivers/remoteproc/sunxi_rproc.h); a segment
+ * outside them, or outside a DRAM carveout, makes remoteproc refuse the ELF.
+ * @impl [SPEC-E906-MEM-01] targets/allwinner_e906/SPECIFICATION.md
  *
  * HARDWARE TRUTHS:
  * - 0x00020000 (128 KB) is HiFi4 DSP Memory! DO NOT USE for E906!
  * - 0x00044000 (160 KB) is OP-TEE / TrustZone Memory (SRAM A2)! DO NOT USE!
- * - E906 firmware lives exclusively in SRAM A3 (0x40000000 / 0x40040000).
  */
 
 OUTPUT_ARCH("riscv")
@@ -17,10 +25,13 @@ ENTRY(_start)
 
 MEMORY
 {
-    /* Dedicated Fast SRAM A3 (Pool 0) */
-    SRAM_FAST (rwx) : ORIGIN = 0x40000000, LENGTH = 256K
-    /* Switchable SRAM A3 (Pool 1 / SRAMA3_2 via REMAP_CTRL_REG[1]=1) */
-    SRAM_A3_2 (rwx) : ORIGIN = 0x40040000, LENGTH = 256K
+    /* SRAM Space 0, minus the 64 KB shared tail at 0x3FFF0000 (host IPC) */
+    SRAM_FAST (rwx) : ORIGIN = 0x3FFC0000, LENGTH = 192K
+    /* SRAM Space 1 (SRAMA3_2 via REMAP_CTRL_REG[1]=1), lower half */
+    SRAM_A3_2 (rwx) : ORIGIN = 0x40000000, LENGTH = 128K
+    /* SRAM Space 1 upper half (host 0x072E0000): Linux RPMsg DMA pool,
+     * vrings + RPMsg buffers ([SPEC-E906-IPC-04]). Firmware places nothing here. */
+    IPC       (rw)  : ORIGIN = 0x40020000, LENGTH = 128K
     /* Non-cacheable DDR DMA Carveout */
     DRAM      (rwx) : ORIGIN = 0x48100000, LENGTH = 1M
 }

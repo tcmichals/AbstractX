@@ -25,6 +25,7 @@ elseif(ABSTRACTX_TARGET STREQUAL "e906" OR ABSTRACTX_TARGET STREQUAL "e907")
         -Wl,--gc-sections
         -nostartfiles
     )
+    abstractx_e906_check_layout(serial_loopback_app)
     add_custom_command(TARGET serial_loopback_app POST_BUILD
         COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:serial_loopback_app> serial_loopback_app.bin
         COMMAND ${CMAKE_SIZE} $<TARGET_FILE:serial_loopback_app>

@@ -46,8 +46,8 @@ Expected baseline: Debug and ASan 27/27; TSan 24/27 (three known race failures, 
 12. **Repo hygiene.** `git mv` `docs/tier1_vision/GEMINI_*_PROMPT.md` to `docs/prompts/`; rename `hw/zynq7000/buildroot_external/REAMME`; consolidate `cmake/toolchain-*.cmake` with `cmake/toolchains/`.
 13. **README and status claims.** Cite a measurement in the repo or reword as a goal: "formally verified", "15-cycle context switch", "<100 bytes" per frame, "sub-16 KB" binaries (the E906 `gps_imu_app` is 66 KB text), "120 FPS", "100% pass rate", "100% architectural compliance" (SpecTrace currently reports 99 violations). Mark the ESP32-P4 target as a stub and the Pico dual-core split as not yet implemented. Label hardcoded demo metrics in the Studio GUI as simulated.
 
-### Do NOT do these without the human (hardware/address decisions)
-- The E906 shared-memory design: the Linux ingestion side (`linux_trace_receiver_task`) does not exist, `platform_send_telemetry` overwrites a fixed address, and the address map is inconsistent across linker scripts, `memory_map.h`, TODO.md and the specs. Do not pick addresses. Write up the inconsistencies and a proposed single map as a Markdown note, and stop.
+### Do NOT do these without the human
+- The zero-copy trace transport (`[SPEC-TRACE-07]`, `[SPEC-E906-IPC-04]`, `[SPEC-PICO-TRACE-01]`): the design is decided and specified, and the implementation steps are in TODO.md, but it needs board testing. Implement only if the human asks, step by step, and never change the E906 memory map (`[SPEC-E906-MEM-01]`): it is verified against the Linux driver and enforced by `tools/check_e906_layout.py`.
 - Launching Pico Core 1 (`[SPEC-ARCH-05]`): needs a cross-core queue design first. Propose it in Markdown; do not implement.
 
 ## Rules for every item

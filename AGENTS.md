@@ -22,6 +22,10 @@ All code under `include/`, `apps/`, and `targets/` must remain freestanding-comp
   - `etl::*` embedded template library containers (e.g. `etl::queue_spsc_isr`).
   - Statically pooled allocations (`SpscRingBuffer`, `AsyncQueue`, `SpscTlpRing`).
 
+### Zero-Copy Data Plane `[SPEC-ARCH-08]`
+* **Top-level rule: no memory copies** between a data producer and its transport. The producer borrows the transport's buffer (`acquire`), fills it in place, and hands the same buffer back (`commit`).
+* **How is architecture-specific** and lives in each target's `SPECIFICATION.md` (E906: RPMsg buffers in SRAM; Pico 2 W / ESP32-P4: lwIP `PBUF_POOL` pbufs; Linux: static pool, kernel copy allowed). Write that per-target mapping *before* implementing, and do not add a `memcpy` or copy loop to a data path to make something work.
+
 ---
 
 ## 3. Execution Model: Simple Event Loop, Event-Driven Drivers & Hardware X-Fabric

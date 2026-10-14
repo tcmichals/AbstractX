@@ -40,4 +40,21 @@ target_compile_definitions(abstractx_target_e906 PUBLIC
 
 # Backward compatibility alias
 add_library(abstractx_target_e907 ALIAS abstractx_target_e906)
+
+# Fail the build if a firmware ELF has a loadable segment that sunxi_rproc
+# cannot place (outside SRAM Space 0/1 or the DRAM carveout).
+# @impl [SPEC-E906-MEM-01] targets/allwinner_e906/SPECIFICATION.md
+# Cache entries, not plain variables: the function runs in the caller's scope.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+string(REGEX REPLACE "objcopy$" "readelf" _e906_readelf "${CMAKE_OBJCOPY}")
+set(E906_READELF "${_e906_readelf}" CACHE INTERNAL "readelf for E906 layout check")
+set(E906_PYTHON3 "${Python3_EXECUTABLE}" CACHE INTERNAL "python3 for E906 layout check")
+function(abstractx_e906_check_layout target)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${E906_PYTHON3} ${PROJECT_SOURCE_DIR}/tools/check_e906_layout.py
+                --readelf ${E906_READELF} $<TARGET_FILE:${target}>
+        COMMENT "Checking ${target} load segments against remoteproc windows"
+        VERBATIM
+    )
+endfunction()
 set(E907_LDSCRIPT "${E906_LDSCRIPT}" CACHE FILEPATH "Legacy E907 Linker Script Alias")
