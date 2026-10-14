@@ -431,3 +431,28 @@ This log chronicles the development, technical decisions, and architecture miles
 ### 4. Implementation & Verification
 * **Code Implementation**: Tagged with `// @impl SPEC-E906-CORO-02`
 * **Regression Test**: Verified via CTest / Cocotb simulation
+
+## [2026-10-13] - Mistake & Lesson: Review found four runtime bugs behind a "100% verified" audit
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/asp_coro.hpp`, `include/abstractx/hal/*.hpp`, `include/abstractx/domain_dispatcher.hpp`, `targets/linux/src/io_processor.cpp`
+* **Symptoms**:
+  - `cpputest_test_sitl_imu` aborted (`std::optional` not engaged); README/TODO claimed 100% (23/23) passing while 27 tests existed.
+  - ASan: `sim_test_io_processor` stack-use-after-return on the SPI worker thread.
+  - Coroutine frame `operator delete` was a no-op on a bump allocator: every awaited sub-task leaked pool memory until allocation failed and a null `Task` was dereferenced.
+  - HAL awaiters popped "the next" completion from a shared queue (wrong result with >1 outstanding request), resumed inline on `QueueFull`, and the dispatcher dropped wake-ups silently when full.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: Verification was textual (`audit_specs.py` checks tag presence and banned headers) and status claims were written into docs without re-running tests. No sanitizer build, no long-running loop test, and the IMU unit test drove the coroutine by re-resuming the outer task instead of pumping the dispatcher.
+* **Architectural Lesson**: Traceability coverage is not correctness. Lifetime, ownership and queue-overflow behaviour need executable tests (ASan + steady-state loop tests), and docs may only state results that a command in the same change produced.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`docs/DESIGN_SPECIFICATION.md`](docs/DESIGN_SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-ARCH-01`, `SPEC-ARCH-02`
+* **Rule Added to Spec**:
+  > Awaiters receive their own completion via `result_slot`; submit failure returns `false` from `await_suspend`; dropped dispatcher resumes are counted; destroyed coroutine frames return to the pool.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl [SPEC-ARCH-01]`, `[SPEC-HAL-01]`, `[SPEC-HAL-02]`
+* **Regression Test**: `ctest` 27/27 in both Debug and `-fsanitize=address,undefined` builds; new `RepeatedAsyncInitDoesNotGrowFramePool` (1000 iterations, pool high-water unchanged).
+

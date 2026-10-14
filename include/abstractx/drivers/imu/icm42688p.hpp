@@ -191,24 +191,32 @@ public:
         std::array<uint8_t, 15> tx_buf{static_cast<uint8_t>(IcmRegs::TEMP_DATA1 | 0x80)};
         std::array<uint8_t, 15> rx_buf{};
         hal::SpiRequest         request{};
+        hal::SpiResult          result{};
         ImuSample               sample{};
 
-        explicit AsyncSampleAwaiter(Icm42688p& drv) : driver(drv) {
-            request.tx_data = tx_buf;
-            request.rx_data = rx_buf;
-        }
+        explicit AsyncSampleAwaiter(Icm42688p& drv) : driver(drv) {}
 
         bool await_ready() const noexcept { return false; }
 
-        void await_suspend(std::coroutine_handle<> handle) noexcept {
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
+            // Spans are bound here, not in the constructor: the awaiter may be
+            // moved into the coroutine frame after construction.
+            request.tx_data = tx_buf;
+            request.rx_data = rx_buf;
             request.coro_handle = handle;
-            driver.spi_.submit_request(request);
+            request.result_slot = &result;
+            if (!driver.spi_.submit_request(request)) {
+                result.status = hal::SpiStatus::QueueFull;
+                return false;
+            }
+            return true;
         }
 
         ImuSample await_resume() noexcept {
-            hal::SpiResult res{};
-            driver.spi_.pop_completion(res);
-            sample = parse_raw_buffer(rx_buf.data(), res.timestamp_us);
+            if (result.status != hal::SpiStatus::Ok) {
+                return sample; // valid == false
+            }
+            sample = parse_raw_buffer(rx_buf.data(), result.timestamp_us);
             trace::g_tracer.trace_imu(
                 0,
                 static_cast<int16_t>(sample.accel_g[0] * 1000.0f),

@@ -39,7 +39,7 @@ The AbstractX execution model is grounded in two software basics and a symmetric
 ---
 
 ## 4. Zero Synchronous Bus I/O Mandate
-1. Public HAL interfaces (`ISpi`, `II2c`, `IUart`, `ITimer`) and device drivers MUST NOT expose synchronous blocking transfer methods (`transfer_sync`, `read_sync`, `write_sync`).
+1. Public HAL interfaces (`ISpi`, `II2c`, `IUart`, `ITimer`) and device drivers MUST NOT add new synchronous blocking transfer methods. The existing `transfer_sync` / `transfer_byte` / driver `init()` fallbacks are tolerated **only for pre-scheduler bring-up** and MUST NOT be called from a coroutine or from `abstractx::step()`. Do not extend them; prefer removing them.
 2. Driver lifecycles and register transactions MUST be asynchronous C++20 coroutines returning `coro::Task<bool>`:
    - `co_await dev.init_async()`
    - `co_await dev.read_reg_async(reg)`
@@ -132,6 +132,23 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
    - Run the canonical review entry point `python3 tools/spectrace.py --review` (`--module <module>` for changed work; `--base-ref origin/main` for branch diffs; `--all-modules` only for an intentional full maintained-module sweep). Linux host code is excluded unless explicitly selected, and generated/vendor output is pruned.
    - Run `ctest --test-dir build` / Cocotb regression suites (100% pass rate).
 
+---
 
+## 10. Behavioural Verification Gates (Traceability Is Not Correctness)
+`audit_specs.py` only proves that tags exist. It found nothing wrong while four runtime bugs were present (see `engineering_log.md`, 2026-10-13). The following gates are mandatory in addition to Section 9:
 
+1. **No unverified claims.** Never write "100% passing", "N/N tests", "verified", "formally verified", cycle counts, byte counts or footprint numbers into any Markdown unless the same change ran the command that produced them. Quote the command and its output in the commit message. If you did not run it, say "not verified".
+2. **Run the real suite, both ways.** Before any commit touching `include/`, `src/`, `targets/linux/`, `tests/` or `sim/`:
+   ```bash
+   cmake -S . -B build_host -DABSTRACTX_TARGET=host && cmake --build build_host -j && ctest --test-dir build_host
+   cmake -S . -B build_asan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+         -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build_asan -j && ctest --test-dir build_asan
+   ```
+   A sanitizer report is a failing test, even if the binary exits 0.
+3. **Lifetime review for every span/pointer handed across a boundary.** Any `std::span`, raw pointer or reference stored in a request that is completed later (DMA, ISR, worker thread, other core) MUST point at storage that outlives the completion: a member buffer or the awaiting coroutine frame, never a loop-local or a temporary. State the owner in a comment.
+4. **Awaiter contract.** Every awaiter must (a) receive *its own* completion via `request.result_slot` (never pop "the next" result from a shared queue), (b) return `false` from `await_suspend` on submit failure instead of resuming inline, and (c) bind spans to its own members inside `await_suspend`, not the constructor.
+5. **Steady-state tests.** Any change to coroutine, allocator, queue or driver code needs a test that runs the path at least 1000 times and asserts that `coro::coro_pool_high_water()`, queue depth and `Dispatcher::dropped_resumes()` do not grow. One-shot tests do not catch leaks.
+6. **Tests drive coroutines like production does.** Unit tests must start a task once and then pump `Dispatcher::process()` (as `abstractx::step()` does). Calling `.resume()` on an outer task that is awaiting a child is undefined behaviour and is forbidden.
+7. **Rules must match the code.** If a rule in this file contradicts existing code, fix one of them in the same change and record which in `engineering_log.md`. Never leave a known contradiction in place.
+8. **Report what you did not check.** End every agent summary with a short list of what was *not* built or tested (e.g. cross-compiled targets, RTL, hardware).
 

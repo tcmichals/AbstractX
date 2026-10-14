@@ -85,6 +85,18 @@ public:
     }
 };
 
+// Start a task and pump the dispatcher, as abstractx::step() does. Resuming the
+// outer task directly while it awaits a child would re-enter it before the
+// child has produced a result.
+template <typename TTask>
+static bool run_to_completion(TTask& task) {
+    task.resume();
+    for (int spins = 0; spins < 1000 && !task.done(); ++spins) {
+        Dispatcher::process();
+    }
+    return task.done();
+}
+
 TEST_GROUP(SitlImuTestGroup) {
     MockSpi* spi{nullptr};
     Icm42688p* imu{nullptr};
@@ -93,6 +105,7 @@ TEST_GROUP(SitlImuTestGroup) {
         spi = new MockSpi();
         imu = new Icm42688p(*spi);
         mock().clear();
+        Dispatcher::reset();
     }
 
     void teardown() {
@@ -162,9 +175,29 @@ TEST(SitlImuTestGroup, VerifyAsyncInitSequenceWithMocks) {
     mock().expectOneCall("start_hardware_transfer_from_isr");
 
     auto task = imu->init_async();
-    while (!task.done()) {
-        task.resume();
+    CHECK_TRUE(run_to_completion(task));
+    CHECK_TRUE(task.get_result());
+    LONGS_EQUAL(0, Dispatcher::dropped_resumes());
+}
+
+// Repeated register traffic must recycle coroutine frames rather than
+// permanently consuming the static frame pool.
+TEST(SitlImuTestGroup, RepeatedAsyncInitDoesNotGrowFramePool) {
+    mock().ignoreOtherCalls();
+
+    {
+        auto first = imu->init_async();
+        CHECK_TRUE(run_to_completion(first));
+    }
+    const size_t high_water = coro::coro_pool_high_water();
+    const size_t live = coro::coro_pool_used();
+
+    for (int i = 0; i < 1000; ++i) {
+        auto task = imu->init_async();
+        CHECK_TRUE(run_to_completion(task));
+        CHECK_TRUE(task.get_result());
     }
 
-    CHECK_TRUE(task.done());
+    LONGS_EQUAL(high_water, coro::coro_pool_high_water());
+    LONGS_EQUAL(live, coro::coro_pool_used());
 }

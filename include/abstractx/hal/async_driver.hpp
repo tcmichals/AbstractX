@@ -36,6 +36,10 @@ struct AsyncTransactionMeta {
 
     Callback               callback{};
     std::coroutine_handle<> coro_handle{nullptr};
+    // Awaiter-owned result storage. When set, the completion is written here
+    // instead of the shared output queue, so concurrent awaiters on one driver
+    // each receive their own result.
+    TResult*               result_slot{nullptr};
     void*                  user_context{nullptr};
     uint64_t               submit_timestamp_us{0};
     uint64_t               start_timestamp_us{0};
@@ -117,8 +121,14 @@ protected:
      * DMA / ISR Domain: Push a finished transaction result to the output queue
      * and trigger callbacks / coroutine resumes.
      */
+    // @impl [SPEC-HAL-01] docs/DESIGN_SPECIFICATION.md#spec-hal-01
     bool push_completion_from_isr(const TRequest& completed_req, const TResult& result) noexcept {
-        bool pushed = output_queue_.push_from_isr(result);
+        bool pushed = true;
+        if (completed_req.result_slot) {
+            *completed_req.result_slot = result;
+        } else {
+            pushed = output_queue_.push_from_isr(result);
+        }
         completed_req.notify_completion(result);
         return pushed;
     }

@@ -18,6 +18,7 @@
 #ifndef ABSTRACTX_DOMAIN_DISPATCHER_HPP
 #define ABSTRACTX_DOMAIN_DISPATCHER_HPP
 
+#include <atomic>
 #include <concepts>
 #include <coroutine>
 #include <cstddef>
@@ -63,8 +64,14 @@ public:
     static constexpr size_t QUEUE_CAPACITY = static_cast<size_t>(QueuePolicy::MAX_SIZE);
 
     // I/O domain producer: called from an ISR, where interrupts are already masked.
+    // A false return means the coroutine will never be resumed; it is counted in
+    // dropped_resumes() so a hang caused by an undersized queue is diagnosable.
+    // @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md#spec-arch-01
     static inline bool post(value_type handle) noexcept {
-        return is_resumable(handle) && queue_.push_from_isr(handle);
+        if (!is_resumable(handle)) {
+            return false;
+        }
+        return record(queue_.push_from_isr(handle));
     }
 
     static inline bool isr_post_resume(value_type handle) noexcept {
@@ -73,7 +80,15 @@ public:
 
     // Coroutine domain producer: masks interrupts for the duration of the enqueue.
     static inline bool push(value_type handle) noexcept {
-        return is_resumable(handle) && queue_.push(handle);
+        if (!is_resumable(handle)) {
+            return false;
+        }
+        return record(queue_.push(handle));
+    }
+
+    // Resumes lost because the queue was full. Must stay zero in a healthy system.
+    static inline uint32_t dropped_resumes() noexcept {
+        return dropped_.load(std::memory_order_relaxed);
     }
 
     // Coroutine domain consumer: each pop is taken with interrupts masked, and the
@@ -99,14 +114,23 @@ public:
 
     static inline void reset() noexcept {
         queue_.clear();
+        dropped_.store(0, std::memory_order_relaxed);
     }
 
 private:
+    static inline bool record(bool pushed) noexcept {
+        if (!pushed) {
+            dropped_.fetch_add(1, std::memory_order_relaxed);
+        }
+        return pushed;
+    }
+
     static inline bool is_resumable(value_type handle) noexcept {
         return static_cast<bool>(handle) && handle.address() != nullptr;
     }
 
     static inline QueuePolicy queue_{};
+    static inline std::atomic<uint32_t> dropped_{0};
 };
 
 // Canonical public API: the dispatcher is domain-oriented, not ISR-only.

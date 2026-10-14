@@ -123,18 +123,17 @@ public:
             return request.tx_data.empty() && request.rx_data.empty();
         }
 
-        void await_suspend(std::coroutine_handle<> handle) noexcept {
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.coro_handle = handle;
+            request.result_slot = &result;
             if (!driver.submit_request(request)) {
                 result.status = SpiStatus::QueueFull;
-                if (handle && !handle.done()) {
-                    handle.resume();
-                }
+                return false; // resume immediately; never resume inline
             }
+            return true;
         }
 
         SpiResult await_resume() noexcept {
-            driver.pop_completion(result);
             return result;
         }
     };
@@ -158,20 +157,19 @@ public:
 
         bool await_ready() const noexcept { return false; }
 
-        void await_suspend(std::coroutine_handle<> handle) noexcept {
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.tx_data = tx_buf;
             request.rx_data = rx_buf;
             request.coro_handle = handle;
+            request.result_slot = &result;
             if (!driver.submit_request(request)) {
                 result.status = SpiStatus::QueueFull;
-                if (handle && !handle.done()) {
-                    handle.resume();
-                }
+                return false; // resume immediately; never resume inline
             }
+            return true;
         }
 
         uint8_t await_resume() noexcept {
-            driver.pop_completion(result);
             return rx_buf[1];
         }
     };

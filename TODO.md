@@ -14,7 +14,7 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [x] Implement `abstractx::step()` and `abstractx::step_async()` to pump AbstractX I/O and trace dispatchers cooperatively.
   - [x] Implement `abstractx::run(Task<void>)` to execute the user application and internal service tasks to completion.
   - [x] Implement `abstractx::service_task()` to pump `io_processor`, drain CTF trace packets, and route inter-domain TLP rings.
-- [x] **Runtime Verification Suite**: Created [`sim/test_abstractx_runtime.cpp`](sim/test_abstractx_runtime.cpp) (verified 100% passing across 23/23 CTest targets).
+- [x] **Runtime Verification Suite**: Created [`sim/test_abstractx_runtime.cpp`](sim/test_abstractx_runtime.cpp). Host suite is 27/27 in Debug and ASan/UBSan builds as of 2026-10-13.
 
 ### 2. `IIoProcessor` Coroutine & Init Interface Enhancement
 - [x] **Update Interface (`include/abstractx/hal/io_processor.hpp`)**:
@@ -54,7 +54,7 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [x] Map shared SRAM via `/dev/uio` or `/dev/mem`.
   - [x] Await MSGBox doorbell `eventfd` non-blockingly and drain 64-byte TLPs into the configured host sink (`UdpTraceSink` or `FileTraceSink`).
 - [ ] **SRAM-to-UDP Bridge Daemon**:
-  - [ ] Adapt `/home/tcmichals/ssdData/projects/home/CubieA5E/cubie-a5e/firmware/e906-riscv/apps/testStringBinaryTrace0/fast_sram_telemetry.py` to read popped SRAM telemetry packets and forward them over UDP (`sock.sendto(data, ("127.0.0.1", 9870))`).
+  - [ ] Adapt `fast_sram_telemetry.py` (cubie-a5e repo: `firmware/e906-riscv/apps/testStringBinaryTrace0/`) to read popped SRAM telemetry packets and forward them over UDP (`sock.sendto(data, ("127.0.0.1", 9870))`).
   - [ ] Wire to `/dev/uio0` for zero-overhead doorbell wakeups.
 
 ### 5. Application Modernization (`apps/gps_imu_app/`)
@@ -81,6 +81,28 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [ ] Validate real-time UBX-NAV-PVT track rendering and position history.
 - [ ] **Queue Watermark Gauges**:
   - [ ] Add live saturation and watermark gauges for inter-domain TLP rings.
+
+---
+
+## 🔍 Code Review Findings (2026-10-13)
+
+Fixed (see `engineering_log.md` 2026-10-13):
+- [x] Coroutine frames were never freed (bump allocator, no-op `operator delete`); pool exhausted in long-running loops.
+- [x] HAL awaiters (SPI/I2C/UART/mailbox/IMU sample) consumed whichever completion was next instead of their own; inline `resume()` on `QueueFull`.
+- [x] Dispatcher silently dropped wake-ups when its 32-entry queue was full; now counted in `Dispatcher::dropped_resumes()`.
+- [x] Linux io_processor SPI bridge handed a loop-local TLP span to the worker thread (ASan stack-use-after-return).
+- [x] `cpputest_test_sitl_imu` drove coroutines incorrectly (re-resumed outer task).
+
+Remaining:
+- [ ] Add an ASan/UBSan host job to CI (`.github/workflows/`).
+- [ ] Fail the configure step clearly when `third_party/etl` is not initialised (currently a missing-header error); document `git submodule update --init third_party/etl`.
+- [ ] `Task<T>`: `co_await` on a Task whose frame allocation failed dereferences a null handle; `promise_type` uses `std::function` (may heap-allocate) and `std::exception_ptr`, contrary to the freestanding rules.
+- [ ] Linux `LinuxIoProcessor` keeps a single `pending_spi_tag_` / `bridge_rx_buf_`; a second bridge SPI request before the first completes gets the wrong tag and shares buffers.
+- [ ] Remove or quarantine the synchronous HAL fallbacks (`transfer_sync`, `transfer_byte`, `Icm42688p::init()`).
+- [ ] README: remove or substantiate unmeasured claims ("formally verified", 15-cycle switch, <100 B frames, sub-16 KB), and shorten it.
+- [ ] Move `docs/tier1_vision/GEMINI_*_PROMPT.md` to `docs/prompts/`; rename `hw/zynq7000/buildroot_external/REAMME`; consolidate `cmake/toolchain-*.cmake` vs `cmake/toolchains/`.
+- [ ] Fix `-Wall -Wextra` warnings (examples, `sim/sitl_coro_sim.cpp`, `targets/linux/include/i2c_worker.hpp:182`).
+- [ ] Review not yet done: RTL (`rtl/`, cocotb), Python tools, E906 / Pico / ESP32-P4 / Zynq targets (cross-builds not run).
 
 ---
 

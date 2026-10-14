@@ -26,6 +26,7 @@
 #include <optional>
 #include <utility>
 #include <functional>
+#include <atomic>
 
 namespace abstractx {
 namespace coro {
@@ -53,11 +54,51 @@ inline std::atomic<size_t> g_coro_static_pool_offset{0};
 
 namespace detail {
 
-// Bump allocator for coroutine frames. Returns nullptr when exhausted so the
-// promise's get_return_object_on_allocation_failure() path runs; it must never
-// hand back storage that already belongs to a live coroutine.
-inline void* coro_frame_alloc(size_t sz) noexcept {
+// Freed frames go on an intrusive free list (the link lives inside the dead
+// frame, so it costs no extra RAM) and are reused for the next frame of the
+// exact same aligned size. Call sites have a small, fixed set of frame sizes, so
+// a steady-state loop that repeatedly awaits sub-tasks stops growing the bump
+// offset after its first iteration instead of exhausting the pool.
+// @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md#spec-arch-01
+struct FreeFrame {
+    FreeFrame* next;
+    size_t     size;
+};
+
+inline FreeFrame* g_coro_free_list{nullptr};
+inline std::atomic<size_t> g_coro_live_bytes{0};
+// Guards g_coro_free_list across cores. Frames must not be created or destroyed
+// from ISR context (ISRs only post handles), so the spinlock cannot self-deadlock.
+inline std::atomic_flag g_coro_free_list_lock = ATOMIC_FLAG_INIT;
+
+inline size_t coro_frame_size(size_t sz) noexcept {
     const size_t aligned_sz = (sz + 15U) & ~static_cast<size_t>(15U);
+    return aligned_sz < sizeof(FreeFrame) ? sizeof(FreeFrame) : aligned_sz;
+}
+
+struct FreeListGuard {
+    FreeListGuard() noexcept {
+        while (g_coro_free_list_lock.test_and_set(std::memory_order_acquire)) {}
+    }
+    ~FreeListGuard() { g_coro_free_list_lock.clear(std::memory_order_release); }
+};
+
+// Returns nullptr when exhausted so the promise's
+// get_return_object_on_allocation_failure() path runs; it must never hand back
+// storage that already belongs to a live coroutine.
+inline void* coro_frame_alloc(size_t sz) noexcept {
+    const size_t aligned_sz = coro_frame_size(sz);
+    {
+        FreeListGuard guard;
+        for (FreeFrame** link = &g_coro_free_list; *link; link = &(*link)->next) {
+            if ((*link)->size == aligned_sz) {
+                FreeFrame* frame = *link;
+                *link = frame->next;
+                g_coro_live_bytes.fetch_add(aligned_sz, std::memory_order_relaxed);
+                return frame;
+            }
+        }
+    }
     size_t offset = g_coro_static_pool_offset.load(std::memory_order_relaxed);
     for (;;) {
         if (aligned_sz > sizeof(g_coro_static_frame_pool) - offset) {
@@ -66,14 +107,34 @@ inline void* coro_frame_alloc(size_t sz) noexcept {
         if (g_coro_static_pool_offset.compare_exchange_weak(
                 offset, offset + aligned_sz,
                 std::memory_order_acq_rel, std::memory_order_relaxed)) {
+            g_coro_live_bytes.fetch_add(aligned_sz, std::memory_order_relaxed);
             return &g_coro_static_frame_pool[offset];
         }
     }
 }
 
+inline void coro_frame_free(void* ptr, size_t sz) noexcept {
+    if (!ptr) {
+        return;
+    }
+    const size_t aligned_sz = coro_frame_size(sz);
+    g_coro_live_bytes.fetch_sub(aligned_sz, std::memory_order_relaxed);
+    FreeListGuard guard;
+    auto* frame = static_cast<FreeFrame*>(ptr);
+    frame->size = aligned_sz;
+    frame->next = g_coro_free_list;
+    g_coro_free_list = frame;
+}
+
 } // namespace detail
 
+// Bytes held by currently live coroutine frames.
 inline size_t coro_pool_used() noexcept {
+    return detail::g_coro_live_bytes.load(std::memory_order_relaxed);
+}
+
+// Bytes ever carved from the pool by the bump allocator (high-water mark).
+inline size_t coro_pool_high_water() noexcept {
     return g_coro_static_pool_offset.load(std::memory_order_relaxed);
 }
 
@@ -132,7 +193,9 @@ public:
             return detail::coro_frame_alloc(sz);
         }
 
-        static void operator delete(void*, size_t) noexcept {}
+        static void operator delete(void* ptr, size_t sz) noexcept {
+            detail::coro_frame_free(ptr, sz);
+        }
     };
 
     explicit Task(handle_type handle) noexcept : handle_(handle) {}
@@ -262,7 +325,9 @@ public:
             return detail::coro_frame_alloc(sz);
         }
 
-        static void operator delete(void*, size_t) noexcept {}
+        static void operator delete(void* ptr, size_t sz) noexcept {
+            detail::coro_frame_free(ptr, sz);
+        }
     };
 
     explicit Task(handle_type handle) noexcept : handle_(handle) {}

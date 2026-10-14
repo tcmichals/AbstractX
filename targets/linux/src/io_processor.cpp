@@ -294,9 +294,18 @@ private:
                 pending_spi_tag_ = tlp.tag();
                 pending_spi_ch_  = tlp.channel();
 
+                // The TLP is a loop-local copy popped from the ring, but the
+                // transfer runs later on the SPI worker thread: copy tx into a
+                // member buffer so the worker never reads a dead stack frame.
+                // spidev clocks max(tx, rx) bytes into rx, so size rx to match.
+                // @impl [SPEC-HAL-02] docs/DESIGN_SPECIFICATION.md#spec-hal-02
+                size_t tx_n = std::min(tx.size(), sizeof(bridge_tx_buf_));
+                std::memcpy(bridge_tx_buf_, tx.data(), tx_n);
+                size_t xfer_n = std::min(std::max(tx_n, rx_len), sizeof(bridge_rx_buf_));
+
                 hal::SpiRequest req{};
-                req.tx_data = tx;
-                req.rx_data = std::span<uint8_t>(bridge_rx_buf_, rx_len);
+                req.tx_data = std::span<const uint8_t>(bridge_tx_buf_, tx_n);
+                req.rx_data = std::span<uint8_t>(bridge_rx_buf_, xfer_n);
                 req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<LinuxIoProcessor, &LinuxIoProcessor::on_bridge_spi_done>(*this);
 
                 spi_worker_.submit(req);
@@ -351,6 +360,7 @@ private:
 
     uint8_t pending_spi_tag_{0};
     Channel pending_spi_ch_{Channel::Control};
+    alignas(4) uint8_t bridge_tx_buf_[64]{};
     alignas(4) uint8_t bridge_rx_buf_[64]{};
 };
 

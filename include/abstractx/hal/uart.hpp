@@ -86,18 +86,17 @@ public:
             return request.data.empty();
         }
 
-        void await_suspend(std::coroutine_handle<> handle) noexcept {
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.coro_handle = handle;
+            request.result_slot = &result;
             if (!driver.submit_request(request)) {
                 result.status = UartStatus::QueueFull;
-                if (handle && !handle.done()) {
-                    handle.resume();
-                }
+                return false; // resume immediately; never resume inline
             }
+            return true;
         }
 
         UartResult await_resume() noexcept {
-            driver.pop_completion(result);
             return result;
         }
     };
@@ -120,19 +119,18 @@ public:
 
         bool await_ready() const noexcept { return false; }
 
-        void await_suspend(std::coroutine_handle<> handle) noexcept {
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.data = std::span<const uint8_t>(&byte_val, 1);
             request.coro_handle = handle;
+            request.result_slot = &result;
             if (!driver.submit_request(request)) {
                 result.status = UartStatus::QueueFull;
-                if (handle && !handle.done()) {
-                    handle.resume();
-                }
+                return false; // resume immediately; never resume inline
             }
+            return true;
         }
 
         UartResult await_resume() noexcept {
-            driver.pop_completion(result);
             return result;
         }
     };

@@ -66,18 +66,17 @@ public:
             return false;
         }
 
-        void await_suspend(std::coroutine_handle<> handle) noexcept {
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.coro_handle = handle;
+            request.result_slot = &result;
             if (!driver.submit_request(request)) {
                 result.status = MailboxStatus::QueueFull;
-                if (handle && !handle.done()) {
-                    handle.resume();
-                }
+                return false; // resume immediately; never resume inline
             }
+            return true;
         }
 
         MailboxResult await_resume() noexcept {
-            driver.pop_completion(result);
             return result;
         }
     };
