@@ -16,6 +16,7 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <chrono>
 
 using namespace abstractx;
 using namespace abstractx::coro;
@@ -50,6 +51,18 @@ Task<void> sample_coroutine_2() {
     co_await abstractx::step_async();
     g_step_counter += 10;
     g_task2_completed = true;
+}
+
+// Long-yielding task: run() must not idle between steps while it is runnable.
+constexpr int kYieldIterations = 2000;
+Task<void> yield_heavy_task() {
+    for (int i = 0; i < kYieldIterations; ++i) {
+        co_await abstractx::step_async();
+    }
+}
+
+Task<void> parked_forever() {
+    co_await std::suspend_always{};
 }
 
 // Primary Application Task
@@ -91,6 +104,34 @@ int main() {
     assert(g_task2_completed && "Expected Task 2 to complete");
     assert(g_step_counter == 23 && "Step counter mismatch (expected 3 + 20)");
     std::cout << "[+] abstractx::run() and cooperative coroutine scheduling verified!\n";
+
+    // 4b. run() must not sleep while coroutines are runnable. Each idle wait on
+    // the Linux target is 100 us, so 2000 yields would take >= 200 ms if run()
+    // idled every iteration as it used to.
+    {
+        const auto t0 = std::chrono::steady_clock::now();
+        abstractx::run(yield_heavy_task());
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - t0).count();
+        std::cout << "    run() with " << kYieldIterations << " yields took " << ms << " ms\n";
+        assert(ms < 100 && "run() idled while coroutines were ready");
+    }
+    std::cout << "[+] run() does not idle with ready work verified\n";
+
+    // 4c. spawn() reports a full task table instead of silently dropping.
+    {
+        int accepted = 0;
+        bool rejected = false;
+        for (int i = 0; i < 32 && !rejected; ++i) {
+            if (abstractx::spawn(parked_forever())) {
+                ++accepted;
+            } else {
+                rejected = true;
+            }
+        }
+        assert(rejected && accepted > 0 && "spawn() must return false when full");
+        std::cout << "[+] spawn() rejected task after " << accepted << " live tasks\n";
+    }
 
     // 5. Verify FileTraceSink
     trace::FileTraceSink file_sink;

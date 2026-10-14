@@ -160,6 +160,8 @@ configuration:
   * `0x14`: egress DWORD port; 16 reads consume one 64-byte packet.
   * `0x18`: egress packet count.
   * `0x1C`: ingress free-slot count.
+* `0x08` IRQ status bit 0 is level-type: it is set whenever an egress packet is pending and a write-1-to-clear in the same cycle does not drop it.
+* Every register MUST have exactly one driving `always_ff`. The AXI slave requests egress-buffer release and IRQ W1C through same-cycle strobes (`egr_consume`, `irq_w1c_mask`) instead of writing state owned by another block. Verified by `yosys ... proc; check` (no "multiple conflicting drivers") and `sim/cocotb/test_asp_axi_lite_bridge_cocotb.py`.
   * `0x40`: hardware ID `0x41535036` (`ASP6`).
 * Optional DDR profiles define their ring-base/head/tail map in a separate
   bitstream/overlay compatibility contract.

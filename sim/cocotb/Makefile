@@ -21,6 +21,10 @@ else ifeq ($(TOPLEVEL), asp_axis_fifo)
     VERILOG_SOURCES = $(RTL_DIR)/asp_axis_fifo.sv
 else ifeq ($(TOPLEVEL), asp_wishbone_master)
     VERILOG_SOURCES = $(RTL_DIR)/asp_wishbone_master.sv
+else ifeq ($(TOPLEVEL), asp_spi_reg_bank)
+    VERILOG_SOURCES = $(RTL_DIR)/spi/asp_spi_reg_bank.sv
+else ifeq ($(TOPLEVEL), asp_axi_lite_bridge)
+    VERILOG_SOURCES = $(RTL_DIR)/asp_axi_lite_bridge.sv
 else ifeq ($(TOPLEVEL), asp_imu_auto_dma)
     VERILOG_SOURCES = $(RTL_DIR)/imu/asp_imu_auto_dma.sv
 else ifeq ($(TOPLEVEL), asp_dshot_core)

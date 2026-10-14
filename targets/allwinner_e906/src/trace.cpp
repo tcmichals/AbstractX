@@ -12,7 +12,9 @@ static constexpr size_t    TRACE_BUFFER_SIZE = 0x4000; // 16 KB trace ring/linea
 static constexpr uintptr_t S_UART0_THR = 0x07080000;
 static constexpr uintptr_t S_UART0_LSR = 0x07080014;
 
-__attribute__((section(".trace_buffer"))) char g_rproc_trace_buffer[CONFIG_RPROC_TRACE0_LEN];
+// The trace buffer is the global ::g_rproc_trace_buffer defined in
+// bsp/resource_table.c, whose address the remoteproc resource table publishes.
+// A second definition here only wasted 4 KB of SRAM.
 
 static volatile uint32_t g_trace_head = 0;
 static bool g_mirror_uart           = false;

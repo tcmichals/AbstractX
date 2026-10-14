@@ -6,6 +6,8 @@
  */
 
 #include "abstractx/hal/platform.hpp"
+#include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/interrupt_lock.hpp"
 #include "hal/ccu.hpp"
 #include "hal/timer.hpp"
 #include "hal/uart.hpp"
@@ -212,8 +214,16 @@ void platform_launch_processing_domain(void (*entry)()) noexcept {
     }
 }
 
+// @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 void platform_idle_wait() noexcept {
-    __asm__ volatile("wfi");
+    // Mask MIE, re-check, then wfi: an ISR that posts a resume between the
+    // caller's check and the wfi would otherwise be slept through. wfi still
+    // wakes on a pending interrupt while MIE is clear; it is taken on unmask.
+    const interrupt_flags_t flags = disable_interrupts_save_flags();
+    if (!Dispatcher::has_pending_resumes()) {
+        __asm__ volatile("wfi");
+    }
+    restore_interrupts_flags(flags);
 }
 
 void platform_poll_network() noexcept {

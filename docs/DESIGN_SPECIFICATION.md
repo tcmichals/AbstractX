@@ -40,6 +40,8 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-ARCH-06]` Unified AbstractX Runtime API & Autonomous Domain Placement
 * **Requirement**: Applications must interface with the framework exclusively through the unified `abstractx::` API (`init()`, `spawn()`, `step()`, `step_async()`, `run()`). The runtime must automatically determine target topology and assign `io_processor`, `trace_dispatcher`, and user coroutines to their optimal hardware execution domains (Core 0 vs Core 1 on dual-core MCU, E906 vs Linux on heterogeneous SoCs, or cooperative coroutine loop on SITL), guaranteeing 0 application `#ifdef`s.
+* **Idle Policy**: `run()` MAY call `platform_idle_wait()` only when `Dispatcher::has_pending_resumes()` is false. On bare-metal targets `platform_idle_wait()` MUST mask interrupts, re-check the Dispatcher, then sleep (`wfi`), restoring the prior interrupt state, so an ISR posting between the check and the sleep is never slept through.
+* **Spawn Capacity**: `spawn()` returns `false` when every task slot holds a live task; it never drops a task silently.
 * **Implementation Target**: `include/abstractx/abstractx.hpp`, `src/runtime.cpp`
 
 ### `[SPEC-ARCH-07]` Platform Topology Table & Studio Multi-Window Observability

@@ -159,6 +159,11 @@ sequenceDiagram
 
 ---
 
+### `[SPEC-E906-CRASH-01]` Trap Classification & Crash Dump
+* **Requirement**: The trap entry (`bsp/startup.S`) MUST classify a trap by bit 31 of **`mcause`** (1 = interrupt, 0 = synchronous exception). Interrupts go to `riscv_trap_dispatcher` and return with `mret`; every synchronous exception MUST go to `hal_crash_dispatcher`, which records the `CrashFrame` and never returns.
+* **Rationale**: `mstatus` bit 31 is the SD summary bit, which is always 1 here because `_start` sets `mstatus.FS = Dirty`. Branching on it sent faults down the interrupt path, where they were ignored and `mret` re-executed the faulting instruction forever, with no crash dump.
+* **Verification**: Disassemble `default_trap_entry` and confirm the branch operand is loaded from the saved `mcause` slot (`128(sp)`).
+
 ## 6. Threshold-Balanced Peripheral HAL (`SPEC-E906-HAL`)
 
 ### `[SPEC-E906-HAL-01]` Direct FIFO vs. DMA Threshold Balancing

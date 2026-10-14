@@ -67,8 +67,9 @@ bool init(const Config& config = {}) noexcept;
 /*
  * 2. Spawn Application Coroutine:
  *    Registers a user coroutine into the cooperative runtime dispatcher.
+ *    Returns false (and destroys the task) when all task slots hold live tasks.
  */
-void spawn(coro::Task<void> task) noexcept;
+bool spawn(coro::Task<void> task) noexcept;
 
 // Cooperative Step Awaiter that re-enqueues the coroutine handle into the Dispatcher
 struct StepAwaiter {
@@ -94,15 +95,16 @@ StepAwaiter step_async() noexcept;
 
 /*
  * 5. Master Application Runner:
- *    Takes the user's primary coroutine, attaches internal AbstractX service tasks,
- *    and drives the system until completion.
+ *    Drives step() until the user's primary coroutine completes. The CPU idles
+ *    (platform_idle_wait) only when no coroutine is ready to run.
  */
 void run(coro::Task<void> main_app_task);
 
 /*
- * 6. Internal AbstractX Service Coroutine:
- *    Automatically spawned by init()/run(). Pumps io_processor, flushes CTF traces,
- *    and routes inter-domain TLP rings cooperatively.
+ * 6. AbstractX Service Coroutine:
+ *    Pumps io_processor and flushes CTF traces. run() does not need it (step()
+ *    already does this work); spawn it only when driving the Dispatcher from a
+ *    custom loop that does not call step().
  */
 coro::Task<void> service_task() noexcept;
 

@@ -456,3 +456,27 @@ This log chronicles the development, technical decisions, and architecture miles
 * **Code Implementation**: Tagged with `// @impl [SPEC-ARCH-01]`, `[SPEC-HAL-01]`, `[SPEC-HAL-02]`
 * **Regression Test**: `ctest` 27/27 in both Debug and `-fsanitize=address,undefined` builds; new `RepeatedAsyncInitDoesNotGrowFramePool` (1000 iterations, pool high-water unchanged).
 
+## [2026-10-14] - Mistake & Lesson: Full-repo review findings (E906 trap entry, Zynq bridge, runtime idle)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/bsp/startup.S`, `rtl/asp_axi_lite_bridge.sv`, `src/runtime.cpp`, `targets/allwinner_e906/src/platform.cpp`, `sim/`
+* **Symptoms**:
+  - E906 trap entry branched on `mstatus` bit 31 (SD, always 1 because `FS=Dirty`) instead of `mcause` bit 31, so every synchronous exception took the IRQ path, was ignored, and `mret` re-executed the faulting instruction forever. The crash dump was unreachable.
+  - `asp_axi_lite_bridge.sv` wrote `egr_buf_valid` and `reg_irq_status` from two `always_ff` blocks. Simulation passed (last write wins); Yosys reports "multiple conflicting drivers", so synthesized hardware was undefined. The module had no testbench.
+  - `run()` called `platform_idle_wait()` after every `step()` even with ready coroutines, and the E906 check-then-`wfi` could sleep through an ISR's wake-up. `spawn()` silently dropped tasks when full.
+  - Cocotb wiring: `sim-test-tlp64-top` named a nonexistent toplevel and `asp_spi_reg_bank` had no Makefile sources, so both silently never ran.
+  - A duplicate `hal::g_rproc_trace_buffer` wasted 4 KB of E906 SRAM (writes already used the published global buffer).
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: A code comment ("If mcause < 0") was trusted over the register actually in `t0`. RTL was verified only in simulation, which cannot see multi-driver conflicts. CI never checked that each registered test actually compiles a design.
+* **Architectural Lesson**: Verify bare-metal control flow from the disassembly, verify RTL with a synthesis-level check (`yosys proc; check`) as well as simulation, and treat "test target produced no TESTS= line" as a failure.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/allwinner_e906/SPECIFICATION.md`, `hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md`, `docs/DESIGN_SPECIFICATION.md`
+* **Requirement Tags Added/Updated**: `SPEC-E906-CRASH-01` (new), `SPEC-ZYNQ-01`, `SPEC-ARCH-06`
+
+### 4. Implementation & Verification
+* **E906**: `riscv-none-elf-objdump` shows `lw t0,128(sp); bltz t0` (mcause) in `default_trap_entry`, and `platform_idle_wait` as `csrrc mstatus` / queue check / `wfi` / conditional `csrsi`. One `g_rproc_trace_buffer` symbol remains.
+* **RTL**: `verilator --lint-only -Wall` no `MULTIDRIVEN`; Yosys `check` no conflicting drivers (old RTL: `egr_buf_valid` and all 32 `reg_irq_status` bits). New `test_asp_axi_lite_bridge_cocotb` 5/5; `asp_spi_reg_bank` 3/3 and `asp_top` TLP64 2/2 now run.
+* **Host**: `ctest` 27/27 Debug and ASan/UBSan; `test_abstractx_runtime` 2000 yields in 1 ms (>= 200 ms if idling every step) and `spawn()` rejects the 17th live task.
+

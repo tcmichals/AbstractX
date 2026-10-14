@@ -74,7 +74,12 @@ default_trap_entry:
      * FIX 2: Check if this trap is an asynchronous interrupt (bit 31).
      * If mcause < 0 (sign bit set), dispatch interrupt and return (mret).
      * Only true synchronous exceptions/faults enter hal_crash_dispatcher.
+     * Reload mcause: t0 last held mstatus, whose bit 31 is the SD (FP
+     * dirty) summary bit and is always set because _start sets FS=Dirty,
+     * which sent every fault down the IRQ path and mret'd back into it.
+     * @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md
      * ----------------------------------------------------------------- */
+    lw t0, 128(sp)
     bltz t0, .Lhandle_irq
 
     /* Pass pointer to CrashFrame (sp) in a0 to C++ crash dispatcher */

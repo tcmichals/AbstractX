@@ -50,9 +50,9 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [x] Configured onboard AIC8800 SDIO Wi-Fi 6 power regulators (PL7 `3v3-wifi`, PM1 `wifi-en`) and `&mmc1` node.
   - [x] Bound `&spi0`, `&spi1`, `&uart2`, and `&i2c1` to `generic-uio` with default `pinctrl` so Linux configures clocks/pins without driver contention.
   - [x] Added automated `e906_dtbo` compilation target in CMake.
-- [x] **Linux Ingestion Coroutine (`linux_trace_receiver_task`)**:
-  - [x] Map shared SRAM via `/dev/uio` or `/dev/mem`.
-  - [x] Await MSGBox doorbell `eventfd` non-blockingly and drain 64-byte TLPs into the configured host sink (`UdpTraceSink` or `FileTraceSink`).
+- [ ] **Linux Ingestion Coroutine (`linux_trace_receiver_task`)** (was marked done; not implemented, see review findings):
+  - [ ] Map shared SRAM via `/dev/uio` or `/dev/mem`.
+  - [ ] Await MSGBox doorbell `eventfd` non-blockingly and drain 64-byte TLPs into the configured host sink (`UdpTraceSink` or `FileTraceSink`).
 - [ ] **SRAM-to-UDP Bridge Daemon**:
   - [ ] Adapt `fast_sram_telemetry.py` (cubie-a5e repo: `firmware/e906-riscv/apps/testStringBinaryTrace0/`) to read popped SRAM telemetry packets and forward them over UDP (`sock.sendto(data, ("127.0.0.1", 9870))`).
   - [ ] Wire to `/dev/uio0` for zero-overhead doorbell wakeups.
@@ -84,7 +84,7 @@ This document is the authoritative roadmap and active engineering task tracker f
 
 ---
 
-## 🔍 Code Review Findings (2026-10-13)
+## 🔍 Code Review Findings (2026-10-13 / 2026-10-14)
 
 Fixed (see `engineering_log.md` 2026-10-13):
 - [x] Coroutine frames were never freed (bump allocator, no-op `operator delete`); pool exhausted in long-running loops.
@@ -92,6 +92,13 @@ Fixed (see `engineering_log.md` 2026-10-13):
 - [x] Dispatcher silently dropped wake-ups when its 32-entry queue was full; now counted in `Dispatcher::dropped_resumes()`.
 - [x] Linux io_processor SPI bridge handed a loop-local TLP span to the worker thread (ASan stack-use-after-return).
 - [x] `cpputest_test_sitl_imu` drove coroutines incorrectly (re-resumed outer task).
+
+Fixed (see `engineering_log.md` 2026-10-14):
+- [x] E906 trap entry classified traps by `mstatus` instead of `mcause`: every fault hung in a trap loop with no crash dump.
+- [x] `asp_axi_lite_bridge.sv` multi-driven `egr_buf_valid` / `reg_irq_status` (Yosys: conflicting drivers); added its first testbench.
+- [x] `run()` idled with ready coroutines; E906 check-then-`wfi` race; `spawn()` dropped tasks silently.
+- [x] Cocotb targets `sim-test-reg-bank` / `sim-test-tlp64-top` never compiled a design; IMU auto-DMA and AXI-Lite tests now registered.
+- [x] Duplicate unused E906 trace buffer (4 KB).
 
 Remaining:
 - [ ] Add an ASan/UBSan host job to CI (`.github/workflows/`).
@@ -102,7 +109,19 @@ Remaining:
 - [ ] README: remove or substantiate unmeasured claims ("formally verified", 15-cycle switch, <100 B frames, sub-16 KB), and shorten it.
 - [ ] Move `docs/tier1_vision/GEMINI_*_PROMPT.md` to `docs/prompts/`; rename `hw/zynq7000/buildroot_external/REAMME`; consolidate `cmake/toolchain-*.cmake` vs `cmake/toolchains/`.
 - [ ] Fix `-Wall -Wextra` warnings (examples, `sim/sitl_coro_sim.cpp`, `targets/linux/include/i2c_worker.hpp:182`).
-- [ ] Review not yet done: RTL (`rtl/`, cocotb), Python tools, E906 / Pico / ESP32-P4 / Zynq targets (cross-builds not run).
+- [ ] **Linux-target data races (ThreadSanitizer: 3 tests, 7 reports).** `InterruptLock` is a no-op on the host and emits Cortex-M `mrs primask`/`cpsid i` under `__aarch64__` (invalid on the Cubie's A55). `SpiWorker`/`I2cWorker` request queues and the Dispatcher queue are used across threads unprotected. Needs a host queue policy with real atomics or a mutex. Also `sitl_coro_sim` has two producers on one SPSC ring, and `test_tlp_msg` reads callback results without synchronization.
+- [ ] **Linux ingestion side of the E906 pipeline does not exist.** TODO §4 marks `linux_trace_receiver_task` / shared-SRAM mapping done, but no code maps or drains E906 rings. E906 `g_sensor_ring`/`g_telemetry_ring`/`g_tx_ring` live in private `.bss` with no published address.
+- [ ] **E906 `platform_send_telemetry`** overwrites fixed `0x07131000` on every flush (no ring/handshake), collides with `SHM_PING_SRAM_ADDR`, and reads `len` rounded up to words (over-read, possible misaligned load).
+- [ ] **E906 address map is inconsistent**: linker `0x40000000`, TODO `0x3FFC0000`/`0x07280000`, spec `0x3FFC8100`. Unused `IPC_*` defines in `memory_map.h` place IPC rings at `0x40000100`, on top of the vector table. Pick one map and delete the rest.
+- [ ] **E906 trap entry does not save FP registers** while `mstatus.FS` is enabled; any ISR path that uses float would corrupt the interrupted coroutine.
+- [ ] **Pico Core 1 is never launched** (`platform_launch_processing_domain()` has no callers): `[SPEC-ARCH-05]` dual-core split is not implemented; the ISR's SIO FIFO doorbell has no reader. When implemented, `InterruptLock` (single-core masking) will not protect cross-core queues.
+- [ ] **ESP32-P4 target is a stub** (141 lines; no io_processor/platform). Mark it as such in README/TODO.
+- [ ] Trace flushes in `step()` do blocking `fwrite`+`flush` and UDP send in the loop (AGENTS.md §7).
+- [ ] `targets/allwinner_e906/src/rpmsg.cpp` (502 lines) is not in the E906 CMake source list, so it is never compiled. Toolchain files hardcode `/home/tcmichals/...`; use `$ENV{HOME}`.
+- [ ] RTL: `asp_top` uses `rst_n` both async and sync with no reset synchronizer. No testbenches for `asp_axi_dma`, `asp_ila_trace`, `asp_dshot_core`, `asp_pwm_decoder`, `asp_neopixel_core`. `asp_e2e_vip.py` / `test_asp_top_cocotb.py` still drive the pre-dual-SPI `spi_mosi` interface; port or delete.
+- [ ] Add a synthesis-level RTL check to CI: `yosys -p "read_verilog -sv <file>; proc; check -assert"` per module, plus `verilator --lint-only -Wall`.
+- [ ] `tools/audit_specs.py` only checks the 28 requirements in `docs/DESIGN_SPECIFICATION.md`; per-target `SPECIFICATION.md` tags (e.g. `SPEC-E906-*`, `SPEC-ZYNQ-*`) are never counted. `run_adversarial_audit.py` Stage 5 passes if the test directories exist; it runs no tests. Current full sweep reports 99 violations.
+- [ ] Studio GUI shows hardcoded demo metrics (e.g. `coro_pool_used_bytes = 23040`, a fixed "23.4 µs overrun") next to live data; label simulated values.
 
 ---
 

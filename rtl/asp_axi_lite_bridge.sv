@@ -134,6 +134,28 @@ module asp_axi_lite_bridge #(
         end
     end
 
+    // -------------------------------------------------------------------------
+    // Single-driver strobes from the AXI slave into the blocks that own state.
+    // egr_buf_valid and reg_irq_status are each written by exactly one
+    // always_ff; the AXI side requests a change with a combinational strobe
+    // that fires in the same cycle the old cross-block write did, so the
+    // register timing is unchanged.
+    // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+    // -------------------------------------------------------------------------
+    logic [C_S_AXI_ADDR_WIDTH-1:0] axi_awaddr;
+    logic [C_S_AXI_ADDR_WIDTH-1:0] axi_araddr;
+
+    wire axi_wr_exec = s_axi_wready && s_axi_wvalid && s_axi_awready && s_axi_awvalid;
+    wire axi_rd_exec = s_axi_arready && s_axi_arvalid && !s_axi_rvalid;
+
+    // Last DWORD of the buffered egress TLP is being returned: release the buffer.
+    wire egr_consume = axi_rd_exec && (axi_araddr[7:0] == REG_TLP_OUT_PORT) &&
+                       egr_buf_valid && (egr_word_idx == 4'd15);
+
+    // Write-1-to-clear mask for REG_IRQ_STATUS.
+    wire [31:0] irq_w1c_mask = (axi_wr_exec && (axi_awaddr[7:0] == REG_IRQ_STATUS))
+                             ? s_axi_wdata : 32'h0;
+
     // Egress Buffer Latching (Pop next TLP into egr_buf when word 15 is read)
     wire [511:0] next_egr_tlp = egr_fifo_mem[egr_rd_ptr[$clog2(FIFO_DEPTH)-1:0]];
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
@@ -142,7 +164,9 @@ module asp_axi_lite_bridge #(
             egr_buf_valid <= 1'b0;
             for (int i = 0; i < 16; i++) egr_buf[i] <= '0;
         end else begin
-            if (!egr_buf_valid && !egr_fifo_empty) begin
+            if (egr_consume) begin
+                egr_buf_valid <= 1'b0; // Consumed this 64B packet
+            end else if (!egr_buf_valid && !egr_fifo_empty) begin
                 for (int i = 0; i < 16; i++) begin
                     egr_buf[i] <= next_egr_tlp[i*32 +: 32];
                 end
@@ -158,9 +182,10 @@ module asp_axi_lite_bridge #(
             irq_f2p        <= 1'b0;
             reg_irq_status <= '0;
         end else begin
-            if (!egr_fifo_empty || egr_buf_valid) begin
-                reg_irq_status[0] <= 1'b1;
-            end
+            // Level-type source: a pending packet re-asserts bit 0 even in the
+            // cycle software writes 1 to clear it.
+            reg_irq_status <= (reg_irq_status & ~irq_w1c_mask) |
+                              {31'h0, (!egr_fifo_empty || egr_buf_valid)};
             irq_f2p <= reg_irq_status[0] && reg_irq_enable[0];
         end
     end
@@ -169,8 +194,6 @@ module asp_axi_lite_bridge #(
     // AXI4-Lite Slave Logic
     // -------------------------------------------------------------------------
     logic aw_en;
-    logic [C_S_AXI_ADDR_WIDTH-1:0] axi_awaddr;
-    logic [C_S_AXI_ADDR_WIDTH-1:0] axi_araddr;
 
     // AXI Write Address & Data Handshake
     always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
@@ -199,13 +222,13 @@ module asp_axi_lite_bridge #(
             end
 
             // Write Execution
-            if (s_axi_wready && s_axi_wvalid && s_axi_awready && s_axi_awvalid) begin
+            if (axi_wr_exec) begin
                 s_axi_bvalid <= 1'b1;
                 s_axi_bresp  <= 2'b00; // OKAY
 
                 case (axi_awaddr[7:0])
                     REG_CONTROL:    reg_control    <= s_axi_wdata;
-                    REG_IRQ_STATUS: reg_irq_status <= reg_irq_status & ~s_axi_wdata; // W1C
+                    // REG_IRQ_STATUS is W1C; applied via irq_w1c_mask in the IRQ block.
                     REG_IRQ_ENABLE: reg_irq_enable <= s_axi_wdata;
                     REG_TLP_IN_PORT: begin
                         ing_buf[ing_word_idx] <= s_axi_wdata;
@@ -255,7 +278,7 @@ module asp_axi_lite_bridge #(
             end
 
             // Read Execution
-            if (s_axi_arready && s_axi_arvalid && !s_axi_rvalid) begin
+            if (axi_rd_exec) begin
                 s_axi_rvalid <= 1'b1;
                 s_axi_rresp  <= 2'b00; // OKAY
 
@@ -271,8 +294,7 @@ module asp_axi_lite_bridge #(
                         if (egr_buf_valid) begin
                             s_axi_rdata <= egr_buf[egr_word_idx];
                             if (egr_word_idx == 4'd15) begin
-                                egr_word_idx  <= '0;
-                                egr_buf_valid <= 1'b0; // Consumed this 64B packet
+                                egr_word_idx <= '0; // egr_consume releases the buffer
                             end else begin
                                 egr_word_idx <= egr_word_idx + 1'b1;
                             end

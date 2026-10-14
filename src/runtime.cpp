@@ -19,7 +19,6 @@ namespace {
 
 Config g_config{};
 bool g_initialized{false};
-bool g_service_task_started{false};
 
 // Fixed pool of active spawned application coroutines (0 B dynamic heap)
 constexpr size_t MAX_ACTIVE_TASKS = 16;
@@ -79,9 +78,9 @@ bool init(const Config& config) noexcept {
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
-void spawn(coro::Task<void> task) noexcept {
+bool spawn(coro::Task<void> task) noexcept {
     if (task.done()) {
-        return;
+        return false;
     }
 
     if (g_tasks.full()) {
@@ -95,11 +94,13 @@ void spawn(coro::Task<void> task) noexcept {
         }
     }
 
-    if (!g_tasks.full()) {
-        g_tasks.push_back(std::move(task));
-        // Kick off the coroutine into the cooperative scheduler
-        g_tasks.back().resume();
+    if (g_tasks.full()) {
+        return false;
     }
+    g_tasks.push_back(std::move(task));
+    // Kick off the coroutine into the cooperative scheduler
+    g_tasks.back().resume();
+    return true;
 }
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
@@ -158,16 +159,16 @@ void run(coro::Task<void> main_app_task) {
         init();
     }
 
-    if (!g_service_task_started) {
-        g_service_task_started = true;
-        spawn(service_task());
-    }
-
     main_app_task.resume();
 
     while (!main_app_task.done()) {
         step();
-        hal::platform_idle_wait();
+        // Sleep only when nothing is runnable; otherwise ready coroutines would
+        // wait for an unrelated interrupt. platform_idle_wait() must re-check
+        // with interrupts masked to close the check-then-sleep race.
+        if (!Dispatcher::has_pending_resumes()) {
+            hal::platform_idle_wait();
+        }
     }
 
     // Final cleanup and flush
