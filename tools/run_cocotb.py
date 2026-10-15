@@ -15,6 +15,7 @@ Usage:
 
 Skill: .agents/skills/cocotb-regression.md
 """
+# @impl [SPEC-AUDIT-06] docs/SPECTRACE.md (executable form of the cocotb-regression skill)
 
 import argparse
 import re
