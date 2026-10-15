@@ -188,6 +188,72 @@ threshold is a *Detect* event like a failing test.
 
 ---
 
+## 6b. The loop covers the tools too: log everything, track whether it works
+
+The feedback loop applies to SpecTrace's own tools, tests and skills, not only to
+the product code. A check that silently gives the wrong answer is worse than no
+check. This week three did:
+
+| Tool | Wrong answer | How it was caught | Fix |
+| :--- | :--- | :--- | :--- |
+| `audit_specs.py` | "100% verified" while four runtime bugs were present (tag presence only) | manual review, ASan run | matrix verdicts from evidence |
+| ASan/UBSan gate | UBSan printed errors, ctest still passed | a new test happened to misalign | `-fno-sanitize-recover=all` |
+| `spectrace_matrix.py` | marked a requirement BROKEN from an example sentence | its own output looked wrong | anchored parser + fixture test |
+
+### Rules
+
+1. **Every run is logged.** Every `check-`/`measure-` runner appends a ledger
+   record (section 4) with result, numbers, duration and tool version: builds,
+   tests, sanitizers, RTL sims, FPGA fits, memory, board runs. "We ran it" without
+   a record did not happen.
+2. **Tools are requirements too.** Each tool has a `[SPEC-AUDIT-*]` (or its own
+   area) requirement, its own tests (`@verifies`), and a `Verified by` line.
+   `tests/test_spectrace_matrix.py` is the pattern.
+3. **Tool engineering log.** `engineering_log.md` entries carry a category so tool
+   problems are tracked as seriously as product bugs:
+
+   | Category | Meaning |
+   | :--- | :--- |
+   | `product-bug` | the firmware, RTL or host code was wrong |
+   | `tool-bug` | a SpecTrace tool, test or skill gave a wrong answer |
+   | `false-alarm` | a check failed but the code was right (the check needs fixing) |
+   | `process-gap` | nothing checked it at all (a new skill is needed) |
+   | `hardware-fact` | a fact learned from silicon, the driver or the vendor |
+
+4. **Every check must prove it can fail.** When a check is added or changed,
+   record one run where it fails on the bad code (or a deliberately broken
+   copy) and one where it passes. A check that has never failed is unproven.
+
+### Skill scorecard ("are the checks working?")
+
+Generated from the ledger and the engineering log for every skill:
+
+| Column | Meaning |
+| :--- | :--- |
+| runs / last run | how often it runs and when it last did |
+| pass rate | share of passing runs |
+| real catches | failures that found a `product-bug` (it earns its keep) |
+| false alarms | failures logged as `false-alarm` (it needs fixing) |
+| proven | has a recorded fails-before / passes-after pair |
+| duration | median runtime (slow checks get skipped by people) |
+| gaps | `process-gap` lessons pointing at this area |
+
+A skill with zero catches over a long period, many false alarms, or no
+fails-before proof is itself a *Detect* event in the loop.
+
+### Status report ("what are the results, are we getting better?")
+
+`measure-trends --report` (one page, per commit or weekly) from the ledger:
+
+- **Health**: every gate's latest result (host tests, sanitizers, RTL sim, E906
+  layout, FPGA fit, board).
+- **Results**: key numbers and their change since the last report: test count and
+  pass rate, coverage (VERIFIED %), memory per target, FPGA LUT/Fmax per board,
+  board latency and jitter once measured.
+- **Loop activity**: lessons recorded by category, requirements that turned
+  `STALE` or `FAILING`, untraced changes, checks added and proven.
+- **Tool health**: the skill scorecard, worst first.
+
 ## 7. Gates
 
 | Gate | When | Runs | Blocks on |
@@ -219,6 +285,9 @@ threshold is a *Detect* event like a failing test.
    `measure-fpga-fit`, `measure-tests`).
 5. **Trends**: `measure-trends` reads the ledger, thresholds per metric, worsening
    = Detect event.
-6. **Feedback tooling**: `record-lesson` drafts the log entry and flags the
-   requirement; "fails-before / passes-after" proof recorded for every bug fix.
+6. **Feedback tooling**: `record-lesson` drafts the log entry with its category
+   and flags the requirement; "fails-before / passes-after" proof recorded for
+   every bug fix and every new or changed check.
+6b. **Scorecard and status report** (section 6b) generated from the ledger and
+   the categorised engineering log; existing log entries tagged with categories.
 7. **CI** (GitHub Actions): pre-push gate and nightly full matrix + trends.
