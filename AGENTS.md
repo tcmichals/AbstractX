@@ -159,3 +159,10 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 8. **Requirements, skills, evidence (`docs/SPECTRACE.md` Stage 2b).** Requirements (what/why) live in `*SPECIFICATION.md`; how things are checked lives in `.agents/skills/<name>.md`. Every requirement names its skills in a `* **Verified by**:` line. Before committing, run `python3 tools/spectrace_matrix.py --changes` (add `--prompt` for the review bundle; the opt-in hook `git config core.hooksPath tools/git-hooks` runs it on staged changes): every changed hunk must map to a requirement, and the listed skills must be re-run. "Complete" means `VERIFIED` in `python3 tools/spectrace_matrix.py --matrix`, never tag presence alone.
 9. **Report what you did not check.** End every agent summary with a short list of what was *not* built or tested (e.g. cross-compiled targets, RTL, hardware).
 
+
+---
+
+## 11. Git Identity and Commit Metadata
+* Every commit uses `Tim Michals <tcmichals@gmail.com>` (never an `@verityinst.com` address).
+* Commits never include `Co-Authored-By` trailers for AI assistants or any other AI metadata (same rule as cubie-a5e; decided 2026-10-15). Earlier commits that carry one are left as they are.
+* Work happens on more than one PC: commit and push `main` when a piece of work is done.
