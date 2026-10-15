@@ -1,5 +1,0 @@
-# AbstractX AI rules
-
-All rules for every AI tool (Cursor, Claude, Gemini, ...) live in AGENTS.md at the
-repository root. Read it first; its section 0 (the operating loop) applies to
-every change. Do not add rules here.

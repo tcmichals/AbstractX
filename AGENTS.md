@@ -34,6 +34,7 @@ the tools that check it, are getting better. Details:
 
 ---
 
+## 1. Core Rule: Markdown Drives the Code (SSOT)
 
 1. **Single Source of Truth**: All architectures, hardware memory maps, peripheral contracts, and multi-rate dataflows are specified in Markdown first (`SPECIFICATION.md`).
 2. **Read Before Writing**: Before modifying or creating code in `apps/`, `targets/`, or `include/`, you MUST read the corresponding `SPECIFICATION.md` document.
@@ -192,7 +193,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 
 ---
 
-## 12. RTL, Interface and Code Conventions (moved from `.cursorrules`)
+## 11. RTL, Interface and Code Conventions
 * **RTL naming**: SystemVerilog files and top modules use the `asp_` prefix (`asp_foo.sv` contains `module asp_foo`).
 * **Every `.sv` change has a cocotb testbench** in `sim/cocotb/test_<module>_cocotb.py`, registered in `sim/CMakeLists.txt` (unregistered tests never run). AXI-Stream testbenches use randomised backpressure (toggling `tready`) and check `tlast` framing.
 * **Interfaces**: physical SPI logic stays in its front end (`asp_spi_frontend.sv`); data plane is AXI-Stream (`tdata/tvalid/tready/tlast`); control plane is Wishbone (`cyc/stb/we/adr/dat/ack`). Every `always_ff`-driven register has exactly one driver (checked by `check-rtl-synth`).
@@ -200,7 +201,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 * **Comments**: short, and point to the requirement (`// @impl [SPEC-*] <spec file>`); architecture explanations live in the Markdown specs, not in code headers.
 * **Licensing**: dual GPLv3 / commercial; never copy code under a license that conflicts with that.
 
-## 13. Git Identity and Commit Metadata
+## 12. Git Identity and Commit Metadata
 * Every commit uses `Tim Michals <tcmichals@gmail.com>` (never an `@verityinst.com` address).
 * Commits never include `Co-Authored-By` trailers for AI assistants or any other AI metadata (same rule as cubie-a5e; decided 2026-10-15). Earlier commits that carry one are left as they are.
 * Work happens on more than one PC: commit and push `main` when a piece of work is done.
