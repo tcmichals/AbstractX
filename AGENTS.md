@@ -4,7 +4,37 @@ This file defines the mandatory engineering rules and architectural invariants f
 
 ---
 
-## 1. Core Rule: Markdown Drives the Code (SSOT)
+## 0. The Operating Loop (every agent, every change; read this first)
+
+AbstractX is **not plain RAG**. Requirements are retrieved to ground the work
+(that part is RAG), but every claim is then **checked by a skill, recorded as
+evidence in git, and every miss feeds back** into the requirements and the checks.
+Over time the git history is the database that shows whether the project, and
+the tools that check it, are getting better. Details:
+[`docs/SPECTRACE_GUIDE.md`](docs/SPECTRACE_GUIDE.md).
+
+1. **Retrieve before changing code.** Read the governing `[SPEC-*]` sections
+   (`python3 tools/spectrace_matrix.py --changes --prompt` lists them for a change).
+2. **Spec first.** Change the requirement (what and why) before the code.
+3. **Check with skills, not memory.** Run the skills in `.agents/skills/` named in
+   each requirement's `Verified by` line, the same way every time.
+4. **Record everything, in git:**
+   - results and numbers (tests, sanitizers, RTL sim, memory, FPGA fit, board runs)
+     go in the commit message now, and in the evidence ledger once it exists
+     (`SPECTRACE_GUIDE.md` §4);
+   - every lesson goes in `engineering_log.md` with a category: `product-bug`,
+     `tool-bug`, `false-alarm`, `process-gap` or `hardware-fact`.
+5. **Record misses honestly.** When something was missed by a check, a tool, a
+   review or by you: what was missed, which check should have caught it, and why
+   it did not. Fix the requirement, then add or fix a check and **show it fails on
+   the old code and passes on the new**.
+6. **Never claim done without evidence**, and end every report with what was not
+   checked (target, hardware, tool).
+7. **Commit and push** when a piece of work is done; results travel with the change.
+
+---
+
+
 1. **Single Source of Truth**: All architectures, hardware memory maps, peripheral contracts, and multi-rate dataflows are specified in Markdown first (`SPECIFICATION.md`).
 2. **Read Before Writing**: Before modifying or creating code in `apps/`, `targets/`, or `include/`, you MUST read the corresponding `SPECIFICATION.md` document.
 3. **Create Spec First**: When creating a new application or driver, you MUST generate its `SPECIFICATION.md` first (using `python3 tools/create_app_spec.py`) before writing any C++ implementation.
@@ -162,7 +192,15 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 
 ---
 
-## 11. Git Identity and Commit Metadata
+## 12. RTL, Interface and Code Conventions (moved from `.cursorrules`)
+* **RTL naming**: SystemVerilog files and top modules use the `asp_` prefix (`asp_foo.sv` contains `module asp_foo`).
+* **Every `.sv` change has a cocotb testbench** in `sim/cocotb/test_<module>_cocotb.py`, registered in `sim/CMakeLists.txt` (unregistered tests never run). AXI-Stream testbenches use randomised backpressure (toggling `tready`) and check `tlast` framing.
+* **Interfaces**: physical SPI logic stays in its front end (`asp_spi_frontend.sv`); data plane is AXI-Stream (`tdata/tvalid/tready/tlast`); control plane is Wishbone (`cyc/stb/we/adr/dat/ack`). Every `always_ff`-driven register has exactly one driver (checked by `check-rtl-synth`).
+* **Host tools** are Python; prefer user-space interfaces (`spidev`, `rpmsg_char`, UIO) over new kernel code.
+* **Comments**: short, and point to the requirement (`// @impl [SPEC-*] <spec file>`); architecture explanations live in the Markdown specs, not in code headers.
+* **Licensing**: dual GPLv3 / commercial; never copy code under a license that conflicts with that.
+
+## 13. Git Identity and Commit Metadata
 * Every commit uses `Tim Michals <tcmichals@gmail.com>` (never an `@verityinst.com` address).
 * Commits never include `Co-Authored-By` trailers for AI assistants or any other AI metadata (same rule as cubie-a5e; decided 2026-10-15). Earlier commits that carry one are left as they are.
 * Work happens on more than one PC: commit and push `main` when a piece of work is done.
