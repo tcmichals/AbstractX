@@ -9,7 +9,7 @@ GOWIN_PACK = $(TOOLS_DIR)/gowin_pack
 # Build directories
 BUILD_DIR = build_hw
 
-.PHONY: all tang9k clean primer20k tang_nano20k
+.PHONY: all tang9k clean primer20k tang_nano20k tang_nano20k_fit
 
 all: tang9k primer20k tang_nano20k
 
@@ -83,6 +83,18 @@ $(BUILD_DIR)/tang_nano20k_pnr.json: $(BUILD_DIR)/tang_nano20k.json hw/tang_nano2
 
 $(BUILD_DIR)/tang_nano20k.fs: $(BUILD_DIR)/tang_nano20k_pnr.json
 	$(GOWIN_PACK) -d $(TN20_DEVICE) -o $@ $<
+
+# Fit/timing measurement only: same design, arbitrary plain pins
+# (hw/tang_nano20k/gen_fitonly_cst.py). Never wire hardware to this bitstream.
+tang_nano20k_fit: $(BUILD_DIR)/tang_nano20k_fit_pnr.json
+
+$(BUILD_DIR)/tang_nano20k_fit_pnr.json: $(BUILD_DIR)/tang_nano20k.json hw/tang_nano20k/tang_nano20k_fitonly.cst
+	$(NEXTPNR) --device $(TN20_DEVICE) \
+		--json $< \
+		--write $@ \
+		--freq 27 \
+		--vopt family=$(TN20_FAMILY) \
+		--vopt cst=hw/tang_nano20k/tang_nano20k_fitonly.cst
 
 clean:
 	rm -rf $(BUILD_DIR)

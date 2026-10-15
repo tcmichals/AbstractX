@@ -91,9 +91,12 @@ not guessed.
 * **Requirement**: `rst_n` passes through a reset synchronizer (async assert,
   sync de-assert) before reaching `asp_top` (TODO.md RTL item).
 * **Open (deferred by decision, 2026-10-14)**: FPGA header pin numbers for the
-  link, IMU, 4 DShot outputs, 6 PWM inputs and the NeoPixel line. Until then the
-  build constrains only the clock and lets the placer choose the other pins, so
-  fit and timing can be measured; it is not a bitstream for wiring.
+  link, IMU, 4 DShot outputs, 6 PWM inputs and the NeoPixel line.
+  `tang_nano20k.cst` assigns only the clock, so `make tang_nano20k` stops with
+  "Unconstrained IO" until they are added (nextpnr's Gowin back end requires
+  every pin). For fit and timing, `make tang_nano20k_fit` uses
+  `tang_nano20k_fitonly.cst`, generated from the package's plain I/O pins by
+  `gen_fitonly_cst.py`; that bitstream must never be wired to hardware.
 * **Verified by**: `fpga-build`, `rtl-lint`. **Status**: not written.
 
 ### `[SPEC-TN20K-03]` Feature Set and Resource Budget
@@ -121,7 +124,11 @@ not guessed.
   IOB 29 (7%), routed Fmax 126.7 MHz. Fits with headroom and clears the
   Nano 20K's 27 MHz clock. (Before the incremental-CRC change,
   `[SPEC-TLP-CRC-01]`: LUT4 50%, Fmax 13.7 MHz, which would fail at 27 MHz.)
-  **Status**: proxy met; Nano 20K's own build not yet run.
+* **Measured 2026-10-15 on the real part** (GW2AR-LV18QN88C8/I7, `make -f
+  hw/Makefile tang_nano20k_fit`, 6 PWM inputs, arbitrary plain pins from
+  `gen_fitonly_cst.py`): LUT4 4 747 (22%), DFF 4 759 (30%), ALU 1 230 (7%),
+  IOB 27 (7%), routed Fmax 110.2 MHz against the 27 MHz constraint.
+  **Status**: met. Re-measure once real pins are assigned.
 
 ### `[SPEC-TN20K-04]` Bench Bring-up Test
 * **Requirement**: from A5E Linux, (1) read the `asp_sys_regs` ID register over the
