@@ -4,6 +4,10 @@ This file defines the mandatory engineering rules and architectural invariants f
 
 ---
 
+**Supported AI tools**: VS Code / GitHub Copilot (`.github/copilot-instructions.md`),
+Claude Code (`CLAUDE.md`) and Antigravity / Gemini (`.agents/rules/`, `GEMINI.md`).
+Each of those files only points here; every rule lives in this file.
+
 ## 0. The Operating Loop (every agent, every change; read this first)
 
 AbstractX is **not plain RAG**. Requirements are retrieved to ground the work
