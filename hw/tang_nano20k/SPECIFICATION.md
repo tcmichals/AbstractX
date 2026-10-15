@@ -53,6 +53,21 @@ not guessed.
   before it is used (target up to 50 MHz).
 * **Verified by**: `board-bringup`. **Status**: specified, not built.
 
+### `[SPEC-FPGA-CLK-01]` Timing Cores Derive Timing from the Real Fabric Clock
+* **Requirement**: `asp_top` takes `CLK_FREQ_HZ` (the actual `clk` frequency) and
+  passes it to every core whose output timing is protocol-defined:
+  `asp_dshot_core`, `asp_neopixel_core`, `asp_pwm_decoder`. Every board top sets it
+  explicitly (Tang 9K 27 MHz, Primer 20K 27 MHz, Nano 20K 27 MHz, CYC1000 12 MHz).
+* **Requirement**: those cores compute every clock count from `CLK_FREQ_HZ`,
+  rounded to the nearest clock; no count is hard-coded for one frequency:
+  DShot600 bit 1/600 kHz, T0H 0.625 µs, T1H 1.25 µs, 1 kHz frame rate;
+  WS2812 bit 1.25 µs, T0H 0.35 µs, T1H 0.70 µs, reset latch ≥ 50 µs.
+* **Why**: until 2026-10-14 the DShot and NeoPixel cores hard-coded 50 MHz counts
+  and `asp_top` did not pass a clock, so on the 27 MHz boards DShot600 ran at
+  ~324 kHz and WS2812 bits were ~2.3 µs: neither motors nor LED would respond.
+* **Verified by**: `cocotb-regression` (`test_asp_dshot_core_cocotb`,
+  `test_asp_neopixel_core_cocotb` measure pin timing at 27 MHz and 50 MHz)
+
 ---
 
 ## 2. Tang Nano 20K Board
@@ -75,13 +90,26 @@ not guessed.
   Every pin in the `.cst` cites the Sipeed schematic pin it comes from.
 * **Requirement**: `rst_n` passes through a reset synchronizer (async assert,
   sync de-assert) before reaching `asp_top` (TODO.md RTL item).
-* **Open**: FPGA header pin numbers for the link, IMU and DShot lines.
+* **Open (deferred by decision, 2026-10-14)**: FPGA header pin numbers for the
+  link, IMU, 4 DShot outputs, 6 PWM inputs and the NeoPixel line. Until then the
+  build constrains only the clock and lets the placer choose the other pins, so
+  fit and timing can be measured; it is not a bitstream for wiring.
 * **Verified by**: `fpga-build`, `rtl-lint`. **Status**: not written.
 
 ### `[SPEC-TN20K-03]` Feature Set and Resource Budget
-* **Included**: `asp_spi_frontend`, `asp_router`, `asp_sys_regs`,
-  `asp_wishbone_master`, `asp_imu_auto_dma`, `asp_dshot_core` ×4,
-  `asp_neopixel_core`, `asp_pwm_decoder` (all of `asp_top`).
+* **Feature set** (decided 2026-10-14):
+
+  | Function | Count | Core | `asp_top` parameter |
+  | :--- | :--- | :--- | :--- |
+  | A5E link | Dual-SPI (`SPI_IO0`, `SPI_IO1`) | `asp_spi_frontend` | `DUAL_SPI_ENABLE = 1` |
+  | Motor outputs | 4 (DShot600) | `asp_dshot_core` | 4 channels |
+  | RC PWM inputs | 6 | `asp_pwm_decoder` | `NUM_PWM_INPUTS = 6` |
+  | NeoPixel (WS2812) | 1 data pin | `asp_neopixel_core` | — |
+  | Fabric clock | 27 MHz | all timing cores | `CLK_FREQ_HZ = 27_000_000` |
+
+  Also included: `asp_router`, `asp_sys_regs`, `asp_wishbone_master`,
+  `asp_imu_auto_dma` (all of `asp_top`). PWM channels 1–6 read at
+  `0x40000304`–`0x40000318`.
 * **Excluded** (Zynq only): `asp_axi_lite_bridge`, `asp_axi_dma`, `asp_ila_trace`.
 * **Requirement**: the design fits with at least 20% LUT and FF headroom and
   meets timing at its system clock (27 MHz, or a PLL clock stated in the top),

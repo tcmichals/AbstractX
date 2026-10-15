@@ -11,9 +11,17 @@
 // 3. Wishbone Master Gateway (asp_wishbone_master)
 // 4. IMU SPI Master & Auto-DMA Core (asp_imu_auto_dma)
 // 5. External Interrupt Doorbell pin (o_int_req) to Host CPU
+//
+// Shared by every serial-link board; board tops only map pins and clocks.
+// @impl [SPEC-A5E-LINK-02] hw/tang_nano20k/SPECIFICATION.md
 
 module asp_top #(
-    parameter bit DUAL_SPI_ENABLE = 1'b1
+    // @impl [SPEC-FPGA-CLK-01] [SPEC-TN20K-03] hw/tang_nano20k/SPECIFICATION.md
+    parameter bit DUAL_SPI_ENABLE = 1'b1,
+    // Real frequency of `clk`; DShot, WS2812 and PWM timing derive from it.
+    // Every board top sets it explicitly. [SPEC-FPGA-CLK-01]
+    parameter int CLK_FREQ_HZ    = 27_000_000,
+    parameter int NUM_PWM_INPUTS = 4
 ) (
     input  wire        clk,
     input  wire        rst_n,
@@ -44,8 +52,8 @@ module asp_top #(
     output logic [3:0] o_motor_pins,
     output logic       o_neopixel_pin,
 
-    // PWM Receiver / Input Capture Pins (4 channels)
-    input  wire  [3:0] i_pwm_pins,
+    // PWM Receiver / Input Capture Pins (NUM_PWM_INPUTS channels)
+    input  wire  [NUM_PWM_INPUTS-1:0] i_pwm_pins,
 
     // Linux-Controllable Onboard LEDs (0..5)
     output logic [5:0] o_led,
@@ -56,6 +64,8 @@ module asp_top #(
     // Host CPU Interrupt Request Doorbell Pin
     output logic       o_int_req
 );
+
+    // @impl [SPEC-A5E-LINK-02] hw/tang_nano20k/SPECIFICATION.md
 
     // Monotonic 64-bit nanosecond system timestamp timer
     logic [63:0] sys_timestamp;
@@ -253,7 +263,9 @@ module asp_top #(
     );
 
     // DShot / PWM Motor Control IP Core (Base: 0x40000200, 4 Channels)
+    // @impl [SPEC-FPGA-CLK-01] hw/tang_nano20k/SPECIFICATION.md
     asp_dshot_core #(
+        .CLK_FREQ_HZ (CLK_FREQ_HZ),
         .NUM_CHANNELS(4)
     ) u_dshot_core (
         .clk           (clk),
@@ -268,10 +280,10 @@ module asp_top #(
         .o_motor_pins  (o_motor_pins)
     );
 
-    // PWM Receiver Decoder / Input Capture Core (Base: 0x40000300, 4 Channels)
+    // PWM Receiver Decoder / Input Capture Core (Base: 0x40000300, NUM_PWM_INPUTS channels)
     asp_pwm_decoder #(
-        .CLK_FREQ_HZ (27_000_000),
-        .NUM_CHANNELS(4)
+        .CLK_FREQ_HZ (CLK_FREQ_HZ),
+        .NUM_CHANNELS(NUM_PWM_INPUTS)
     ) u_pwm_decoder (
         .clk        (clk),
         .rst_n      (rst_n),
@@ -286,7 +298,9 @@ module asp_top #(
     );
 
     // NeoPixel WS2812B Status LED Core (Base: 0x40000600)
-    asp_neopixel_core u_neopixel_core (
+    asp_neopixel_core #(
+        .CLK_FREQ_HZ(CLK_FREQ_HZ)
+    ) u_neopixel_core (
         .clk            (clk),
         .rst_n          (rst_n),
         .wb_cyc         (wb_cyc && neopixel_sel),

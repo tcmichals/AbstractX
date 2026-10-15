@@ -69,7 +69,8 @@ module top_cyc1000 (
 
     // Instantiate universal AbstractX Top-Level Fabric
     asp_top #(
-        .DUAL_SPI_ENABLE(1'b1)
+        .DUAL_SPI_ENABLE(1'b1),
+        .CLK_FREQ_HZ    (12_000_000) // @impl [SPEC-FPGA-CLK-01] hw/tang_nano20k/SPECIFICATION.md (12 MHz MEMS)
     ) u_asp_top (
         .clk          (clk_logic),
         .rst_n        (rst_n),

@@ -32,14 +32,17 @@ module asp_neopixel_core #(
 );
 
     // WS2812B Timing Constants (@ 50 MHz clock)
-    // Bit Period = 1.25 us = 63 clocks
-    // T0H = 0.35 us = 18 clocks
-    // T1H = 0.70 us = 35 clocks
-    // Reset Latch = > 50 us = 2500 clocks
-    localparam logic [15:0] CLKS_BIT = 16'd63;
-    localparam logic [15:0] CLKS_T0H = 16'd18;
-    localparam logic [15:0] CLKS_T1H = 16'd35;
-    localparam logic [15:0] CLKS_RST = 16'd2500;
+    // WS2812 timing derived from the real clock, rounded to the nearest clock;
+    // the reset latch rounds up (it is a minimum). At 50 MHz: 63 / 18 / 35 / 2500.
+    // @impl [SPEC-FPGA-CLK-01] hw/tang_nano20k/SPECIFICATION.md
+    localparam int BIT_I = (CLK_FREQ_HZ + 400_000) / 800_000;              // 1.25 us
+    localparam int T0H_I = (CLK_FREQ_HZ * 7 + 10_000_000) / 20_000_000;    // 0.35 us
+    localparam int T1H_I = (CLK_FREQ_HZ * 7 + 5_000_000) / 10_000_000;     // 0.70 us
+    localparam int RST_I = (CLK_FREQ_HZ + 19_999) / 20_000;                // >= 50 us
+    localparam logic [15:0] CLKS_BIT = 16'(BIT_I);
+    localparam logic [15:0] CLKS_T0H = 16'(T0H_I);
+    localparam logic [15:0] CLKS_T1H = 16'(T1H_I);
+    localparam logic [15:0] CLKS_RST = 16'(RST_I);
 
     logic [23:0] led_colors [0:MAX_LEDS-1];
     logic [31:0] reg_ctrl; // [0] = Enable, [7:0] = Active LED count

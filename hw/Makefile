@@ -9,9 +9,9 @@ GOWIN_PACK = $(TOOLS_DIR)/gowin_pack
 # Build directories
 BUILD_DIR = build_hw
 
-.PHONY: all tang9k clean primer20k
+.PHONY: all tang9k clean primer20k tang_nano20k
 
-all: tang9k primer20k
+all: tang9k primer20k tang_nano20k
 
 # --- Tang Nano 9K ---
 T9_FAMILY = GW1N-9
@@ -58,6 +58,31 @@ $(BUILD_DIR)/primer20k_pnr.json: $(BUILD_DIR)/primer20k.json hw/primer20k/primer
 
 $(BUILD_DIR)/primer20k.fs: $(BUILD_DIR)/primer20k_pnr.json
 	$(GOWIN_PACK) -d $(TP20_DEVICE) -o $@ $<
+
+# --- Tang Nano 20K (Cubie A5E test target, [SPEC-TN20K-01]) ---
+TN20_FAMILY = GW2A-18C
+TN20_DEVICE = GW2AR-LV18QN88C8/I7
+TN20_RTL = $(wildcard rtl/*.sv rtl/*/*.sv)
+
+tang_nano20k: $(BUILD_DIR)/tang_nano20k.fs
+
+$(BUILD_DIR)/tang_nano20k.json: hw/tang_nano20k/top_tang_nano20k.sv $(TN20_RTL)
+	mkdir -p $(BUILD_DIR)
+	TOP_MODULE=top_tang_nano20k \
+	BOARD_TOP_FILE=hw/tang_nano20k/top_tang_nano20k.sv \
+	OUTPUT_JSON=$@ \
+	$(YOSYS) -p "tcl hw/common/gowin_synth.tcl"
+
+$(BUILD_DIR)/tang_nano20k_pnr.json: $(BUILD_DIR)/tang_nano20k.json hw/tang_nano20k/tang_nano20k.cst
+	$(NEXTPNR) --device $(TN20_DEVICE) \
+		--json $< \
+		--write $@ \
+		--freq 27 \
+		--vopt family=$(TN20_FAMILY) \
+		--vopt cst=hw/tang_nano20k/tang_nano20k.cst
+
+$(BUILD_DIR)/tang_nano20k.fs: $(BUILD_DIR)/tang_nano20k_pnr.json
+	$(GOWIN_PACK) -d $(TN20_DEVICE) -o $@ $<
 
 clean:
 	rm -rf $(BUILD_DIR)

@@ -50,7 +50,9 @@ module top_primer20k (
 
     wire [5:0] asp_led_bits;
 
-    asp_top u_asp_top (
+    asp_top #(
+        .CLK_FREQ_HZ(27_000_000) // @impl [SPEC-FPGA-CLK-01] hw/tang_nano20k/SPECIFICATION.md (27 MHz oscillator)
+    ) u_asp_top (
         .clk        (clk_logic),
         .rst_n      (rst_n),
         .spi_sclk   (i_spi_sclk),

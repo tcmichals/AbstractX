@@ -1,0 +1,9 @@
+// Sipeed Tang Nano 20K (GW2AR-LV18QN88C8/I7) constraints.
+// Only the clock is assigned. All other pins are deliberately unconstrained
+// until the wiring is decided ([SPEC-TN20K-02] open item): this build measures
+// fit and timing and must not be used to drive real wiring.
+
+// 27 MHz oscillator: pin 4 in Sipeed's Tang Nano 20K examples.
+// CONFIRM against the Tang Nano 20K schematic before relying on it.
+IO_LOC "i_clk" 4;
+IO_PORT "i_clk" IO_TYPE=LVCMOS33 PULL_MODE=UP;

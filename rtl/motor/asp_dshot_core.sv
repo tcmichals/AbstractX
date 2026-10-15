@@ -41,26 +41,32 @@ module asp_dshot_core #(
     logic [31:0] reg_enable;
     logic [15:0] throttle_val [0:NUM_CHANNELS-1];
 
-    // DShot Bit Timing Counters (@ 50MHz clock)
-    // DShot600: Bit period = 1.67 us (83 clocks), T0H = 0.625 us (31 clocks), T1H = 1.25 us (62 clocks)
-    localparam logic [7:0] DS600_BIT_CLKS = 8'd83;
-    localparam logic [7:0] DS600_T0H_CLKS = 8'd31;
-    localparam logic [7:0] DS600_T1H_CLKS = 8'd62;
+    // DShot600 timing derived from the real clock, rounded to the nearest clock
+    // (at 50 MHz: 83 / 31 / 62; at 27 MHz: 45 / 17 / 34).
+    // @impl [SPEC-FPGA-CLK-01] hw/tang_nano20k/SPECIFICATION.md
+    localparam int DS600_BIT_I = (CLK_FREQ_HZ + 300_000) / 600_000;              // 1/600 kHz
+    localparam int DS600_T0H_I = (CLK_FREQ_HZ * 5 + 4_000_000) / 8_000_000;      // 0.625 us
+    localparam int DS600_T1H_I = (CLK_FREQ_HZ * 5 + 2_000_000) / 4_000_000;      // 1.25 us
+    localparam int FRAME_I     = (CLK_FREQ_HZ + 500) / 1000;                     // 1 kHz frames
+    localparam logic [15:0] DS600_BIT_CLKS = 16'(DS600_BIT_I);
+    localparam logic [15:0] DS600_T0H_CLKS = 16'(DS600_T0H_I);
+    localparam logic [15:0] DS600_T1H_CLKS = 16'(DS600_T1H_I);
+    localparam logic [31:0] FRAME_CLKS     = 32'(FRAME_I);
 
-    logic [15:0] frame_cnt;
+    logic [31:0] frame_cnt;
     logic        frame_tick;
 
-    // 1 kHz DShot Frame Trigger (50,000 clocks @ 50MHz)
+    // 1 kHz DShot Frame Trigger
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            frame_cnt  <= 16'd0;
+            frame_cnt  <= 32'd0;
             frame_tick <= 1'b0;
         end else begin
-            if (frame_cnt >= 16'd49999) begin
-                frame_cnt  <= 16'd0;
+            if (frame_cnt >= FRAME_CLKS - 32'd1) begin
+                frame_cnt  <= 32'd0;
                 frame_tick <= 1'b1;
             end else begin
-                frame_cnt  <= frame_cnt + 16'd1;
+                frame_cnt  <= frame_cnt + 32'd1;
                 frame_tick <= 1'b0;
             end
         end
@@ -109,7 +115,7 @@ module asp_dshot_core #(
             logic [3:0]  crc;
             logic [15:0] shift_reg;
             logic [4:0]  bit_idx;
-            logic [7:0]  bit_clk_cnt;
+            logic [15:0] bit_clk_cnt;
             logic        active;
 
             // Calculate DShot 4-bit CRC: (packet ^ (packet >> 4) ^ (packet >> 8)) & 0x0F
@@ -121,18 +127,18 @@ module asp_dshot_core #(
                 if (!rst_n) begin
                     shift_reg     <= 16'd0;
                     bit_idx       <= 5'd0;
-                    bit_clk_cnt   <= 8'd0;
+                    bit_clk_cnt   <= 16'd0;
                     active        <= 1'b0;
                     o_motor_pins[c] <= 1'b0;
                 end else if (reg_enable[c]) begin
                     if (frame_tick) begin
                         shift_reg     <= packet;
                         bit_idx       <= 5'd16;
-                        bit_clk_cnt   <= 8'd0;
+                        bit_clk_cnt   <= 16'd0;
                         active        <= 1'b1;
                     end else if (active) begin
-                        if (bit_clk_cnt >= DS600_BIT_CLKS - 8'd1) begin
-                            bit_clk_cnt <= 8'd0;
+                        if (bit_clk_cnt >= DS600_BIT_CLKS - 16'd1) begin
+                            bit_clk_cnt <= 16'd0;
                             if (bit_idx == 5'd1) begin
                                 active <= 1'b0;
                                 o_motor_pins[c] <= 1'b0;
@@ -140,7 +146,7 @@ module asp_dshot_core #(
                                 bit_idx <= bit_idx - 5'd1;
                             end
                         end else begin
-                            bit_clk_cnt <= bit_clk_cnt + 8'd1;
+                            bit_clk_cnt <= bit_clk_cnt + 16'd1;
                             // Generate DShot NRZ pulse
                             if (shift_reg[bit_idx-1]) begin
                                 o_motor_pins[c] <= (bit_clk_cnt < DS600_T1H_CLKS);
