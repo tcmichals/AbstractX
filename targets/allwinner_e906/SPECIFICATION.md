@@ -243,8 +243,10 @@ sequenceDiagram
   messages into 64-byte TLPs. The kernel copies into user space; nothing on the
   E906 copies.
 * **Status**: E906 side implemented and host-tested
-  (`sim/test_e906_rpmsg_trace.cpp`); the SRAM-pool device-tree overlay and the
-  Linux readers are not yet written; not verified on silicon.
+  (`sim/test_e906_rpmsg_endpoints.cpp`); Linux side `tools/e906_rpmsg_bridge.py`
+  (`trace` and `tlp` modes) host-tested (`tests/test_e906_rpmsg_bridge.py`; ioctl
+  number checked against `linux/rpmsg.h`). The SRAM-pool device-tree overlay is
+  not yet written; nothing verified on silicon.
 * **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`
 
