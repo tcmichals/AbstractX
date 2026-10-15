@@ -71,7 +71,12 @@ public:
         if (!is_resumable(handle)) {
             return false;
         }
+#if ABSTRACTX_HOSTED
+        // Hosted: the posting "ISR" is a worker thread; take the lock.
+        return record(queue_.push(handle));
+#else
         return record(queue_.push_from_isr(handle));
+#endif
     }
 
     static inline bool isr_post_resume(value_type handle) noexcept {
@@ -109,7 +114,11 @@ public:
     }
 
     static inline bool has_pending_resumes() noexcept {
+#if ABSTRACTX_HOSTED
+        return !queue_.empty();
+#else
         return !queue_.empty_from_isr();
+#endif
     }
 
     static inline void reset() noexcept {

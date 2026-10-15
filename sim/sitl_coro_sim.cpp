@@ -1,3 +1,4 @@
+// @verifies [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md (coroutine I/O over TLP rings, simulated coprocessor)
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -74,6 +75,7 @@ public:
         tlp.wire.payload[2] = static_cast<uint8_t>(gyro_z >> 8);
         tlp.wire.payload[3] = static_cast<uint8_t>(gyro_z & 0xFF);
 
+        std::lock_guard<std::mutex> lock(rx_producer_mutex_);
         host_rx_ring_.push(tlp);
     }
 
@@ -128,7 +130,10 @@ private:
             // 2. Deliver completed transfers whose simulated physical bus time has elapsed
             for (auto it = pending_bus_transfers.begin(); it != pending_bus_transfers.end(); ) {
                 if (now >= it->ready_time) {
-                    host_rx_ring_.push(it->response_tlp);
+                    {
+                        std::lock_guard<std::mutex> lock(rx_producer_mutex_);
+                        host_rx_ring_.push(it->response_tlp);
+                    }
                     it = pending_bus_transfers.erase(it);
                 } else {
                     ++it;
@@ -141,6 +146,9 @@ private:
 
     SpscTlpRing<64>& host_tx_ring_;
     SpscTlpRing<64>& host_rx_ring_;
+    // Two threads produce into host_rx_ring_ (bus responses and the IMU
+    // generator); the ring is single-producer, so they are serialised here.
+    std::mutex rx_producer_mutex_;
     std::atomic<bool> running_{false};
     std::thread worker_thread_;
 };

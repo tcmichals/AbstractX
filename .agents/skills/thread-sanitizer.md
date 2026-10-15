@@ -18,7 +18,7 @@ ctest --test-dir build_tsan
 
 ## Pass criteria
 
-Every test passes with zero ThreadSanitizer reports. Known failing as of 2026-10-14: 3 tests (TODO.md).
+Every test passes with zero ThreadSanitizer reports (a report fails the test). Clean since 2026-10-15; required before every commit touching `include/`, `src/`, `targets/linux/`, `sim/`.
 
 ## Evidence
 

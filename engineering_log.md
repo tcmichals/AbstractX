@@ -542,3 +542,20 @@ This log chronicles the development, technical decisions, and architecture miles
 * cocotb: front end 4/4 dual-SPI and 3/3 single-SPI (`SIM_PARAMS=-GDUAL_SPI_ENABLE=0`), including random back-to-back frames at the fastest SCLK (4 system clocks per period) checked against `zlib.crc32`; full regression 31 tests pass.
 * GW2A-18 after: LUT4 4 505 (21%), DFF 4 669 (30%), Fmax 126.7 MHz (9.2x), build 5 min. Bitstream sha256 3c651814c23006fa...
 
+## [2026-10-15] - Mistake & Lesson: "interrupt lock" protected nothing on Linux
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/abstractx/interrupt_lock.hpp`, `domain_dispatcher.hpp`, `hal/async_driver.hpp`, Linux target workers, `sim/`
+* **Symptoms**: ThreadSanitizer: 3 tests, 7 data-race reports. `InterruptLock` (the ETL queue access policy) was a no-op on hosted builds, and its `__aarch64__` branch emitted Cortex-M `mrs primask`/`cpsid i` (invalid on the Cubie's A55). On Linux the "ISR" side of a queue is a worker thread, and `Dispatcher::post()` / driver completions used ETL's unlocked `*_from_isr` calls from those threads. Two tests also raced (an unsynchronised completion flag; two producers on one SPSC ring).
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: the bare-metal concurrency model (ISR vs main loop, masking interrupts) was reused on a threaded host without mapping "ISR" to "thread". The fallback for unknown platforms was a silent no-op.
+* **Architectural Lesson**: each concurrency primitive must state what it excludes on every platform it compiles for; unknown platforms must fail to compile, not degrade to nothing. Run ThreadSanitizer as a gate.
+
+### 3. Specification Update (SSOT Defense)
+* **Target**: `AGENTS.md` §10 gate now includes the TSan build; skill `thread-sanitizer` is required.
+
+### 4. Implementation & Verification
+* Hosted builds: `InterruptLock` is a process-wide recursive spinlock (atomics + thread-local depth, no `<mutex>`); dispatcher and async driver use the locked ETL calls. Bare metal: unchanged for RISC-V and Cortex-M; any other bare-metal architecture is a compile error.
+* TSan 30/30 (was 27/30), Debug 30/30, strict ASan/UBSan 30/30, E906 cross-build clean, Pico 2 W builds (first verified build: `gps_imu_app` 415 KB text, 141 KB bss).
+

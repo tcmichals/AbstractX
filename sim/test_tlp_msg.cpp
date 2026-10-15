@@ -1,3 +1,4 @@
+// @verifies [SPEC-TLP-01] [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md (TLP codecs, Linux SPI/I2C workers)
 #include "asp_tlp_msg.hpp"
 #include "abstractx/trace/tracer.hpp"
 #include "abstractx/drivers/imu/icm42688p.hpp"
@@ -9,6 +10,9 @@
 #include "spi_worker.hpp"
 #include "i2c_worker.hpp"
 #include "gpio_gpiod.hpp"
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <iostream>
 #include <cassert>
 
@@ -248,23 +252,33 @@ int main() {
     uint8_t sw_rx[] = { 0x00, 0x00 };
     sw_req.tx_data = sw_tx;
     sw_req.rx_data = sw_rx;
+    // Completion callbacks run on the worker threads: publish with an atomic
+    // (release) after the worker has written the RX buffer, and wait for it
+    // (acquire) before reading that buffer on this thread.
     struct WorkerTracker {
-        bool sw_done{false};
-        bool iw_done{false};
+        std::atomic<bool> sw_done{false};
+        std::atomic<bool> iw_done{false};
+        std::atomic<bool> sw_ok{false};
+        std::atomic<bool> iw_ok{false};
         void on_spi(const hal::SpiResult& r) {
-            sw_done = true;
-            assert(r.status == hal::SpiStatus::Ok);
+            sw_ok = (r.status == hal::SpiStatus::Ok);
+            sw_done.store(true, std::memory_order_release);
         }
         void on_i2c(const hal::I2cResult& r) {
-            iw_done = true;
-            assert(r.status == hal::I2cStatus::Ok);
+            iw_ok = (r.status == hal::I2cStatus::Ok);
+            iw_done.store(true, std::memory_order_release);
         }
     } wt{};
+    auto wait_for = [](const std::atomic<bool>& flag) {
+        for (int i = 0; i < 1000 && !flag.load(std::memory_order_acquire); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return flag.load(std::memory_order_acquire);
+    };
 
     sw_req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<WorkerTracker, &WorkerTracker::on_spi>(wt);
     assert(spi_w.submit(sw_req));
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    assert(wt.sw_done);
+    assert(wait_for(wt.sw_done) && wt.sw_ok);
     assert(sw_rx[1] == 0x47); // Simulated ICM-42688 WHO_AM_I
     spi_w.stop();
     std::cout << "    [v] SpiWorker async execution via EventFd verified (WHO_AM_I=0x47)\n";
@@ -280,8 +294,7 @@ int main() {
     iw_req.rx_data = iw_rx;
     iw_req.on_rx_complete = etl::delegate<void(const hal::I2cResult&)>::create<WorkerTracker, &WorkerTracker::on_i2c>(wt);
     assert(i2c_w.submit(iw_req));
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    assert(wt.iw_done);
+    assert(wait_for(wt.iw_done) && wt.iw_ok);
     assert(iw_rx[0] == 0x58); // Simulated BMP280 chip ID
     i2c_w.stop();
 

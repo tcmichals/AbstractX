@@ -142,11 +142,13 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 `audit_specs.py` only proves that tags exist. It found nothing wrong while four runtime bugs were present (see `engineering_log.md`, 2026-10-13). The following gates are mandatory in addition to Section 9:
 
 1. **No unverified claims.** Never write "100% passing", "N/N tests", "verified", "formally verified", cycle counts, byte counts or footprint numbers into any Markdown unless the same change ran the command that produced them. Quote the command and its output in the commit message. If you did not run it, say "not verified".
-2. **Run the real suite, both ways.** Before any commit touching `include/`, `src/`, `targets/linux/`, `tests/` or `sim/`:
+2. **Run the real suite: plain, ASan/UBSan and TSan.** Before any commit touching `include/`, `src/`, `targets/linux/`, `tests/` or `sim/`:
    ```bash
    cmake -S . -B build_host -DABSTRACTX_TARGET=host && cmake --build build_host -j && ctest --test-dir build_host
    cmake -S . -B build_asan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" && cmake --build build_asan -j && ctest --test-dir build_asan
+   cmake -S . -B build_tsan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=thread -O1 -g" \
+         -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread" && cmake --build build_tsan -j && ctest --test-dir build_tsan
    ```
    A sanitizer report is a failing test, even if the binary exits 0. `-fno-sanitize-recover=all` makes UBSan abort so ctest sees it; without it UBSan only prints and the test still "passes" (this hid misaligned coroutine frames until 2026-10-14).
 3. **Lifetime review for every span/pointer handed across a boundary.** Any `std::span`, raw pointer or reference stored in a request that is completed later (DMA, ISR, worker thread, other core) MUST point at storage that outlives the completion: a member buffer or the awaiting coroutine frame, never a loop-local or a temporary. State the owner in a comment.
