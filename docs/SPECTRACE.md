@@ -159,6 +159,10 @@ where its evidence goes. SpecTrace connects them: requirement → code
   requirement and bundles it with the diff, so a reviewer (human or AI) checks
   the change against the requirement rather than against memory; this is the
   retrieval step of SpecTrace. `--strict` fails on untraced hunks for CI.
+* **Requirement**: `--staged` reviews only the staged changes. The opt-in
+  pre-commit hook `tools/git-hooks/pre-commit` runs `--changes --staged --strict`
+  and refuses a commit containing untraced code (enable once per clone with
+  `git config core.hooksPath tools/git-hooks`).
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `tools/spectrace_matrix.py`
 

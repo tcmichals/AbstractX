@@ -1,0 +1,6 @@
+#!/bin/sh
+# SpecTrace pre-commit gate ([SPEC-AUDIT-08]): refuse a commit whose staged code
+# is not governed by any requirement. Opt in once per clone:
+#   git config core.hooksPath tools/git-hooks
+# Bypass for a single commit (e.g. a work-in-progress branch): git commit --no-verify
+exec python3 "$(git rev-parse --show-toplevel)/tools/spectrace_matrix.py" --changes --staged --strict

@@ -219,8 +219,11 @@ class Hunk:
     text: list[str]
 
 
-def diff_hunks(root: Path, base: str) -> list[Hunk]:
-    args = ["diff", "-U0", "--no-color", base] if base else ["diff", "-U0", "--no-color", "HEAD"]
+def diff_hunks(root: Path, base: str, staged: bool = False) -> list[Hunk]:
+    if staged:
+        args = ["diff", "-U0", "--no-color", "--cached"]
+    else:
+        args = ["diff", "-U0", "--no-color", base] if base else ["diff", "-U0", "--no-color", "HEAD"]
     out = git(root, *args)
     hunks: list[Hunk] = []
     path = None
@@ -233,7 +236,8 @@ def diff_hunks(root: Path, base: str) -> list[Hunk]:
                 hunks.append(Hunk(path, int(m.group(3)), int(m.group(4) or 1), [line]))
         elif hunks and path and hunks[-1].path == path and line[:1] in "+- ":
             hunks[-1].text.append(line)
-    for rel in git(root, "ls-files", "--others", "--exclude-standard").splitlines():
+    untracked = [] if staged else git(root, "ls-files", "--others", "--exclude-standard").splitlines()
+    for rel in untracked:
         p = root / rel
         if p.is_file():
             body = p.read_text(encoding="utf-8", errors="ignore").splitlines()
@@ -251,9 +255,9 @@ def governing(anchors: list[Anchor], start: int, count: int) -> Anchor | None:
     return best
 
 
-def review_changes(root: Path, base: str, prompt: bool, strict: bool) -> int:
+def review_changes(root: Path, base: str, prompt: bool, strict: bool, staged: bool = False) -> int:
     reqs, skills, anchors = build_matrix(root)
-    hunks = diff_hunks(root, base)
+    hunks = diff_hunks(root, base, staged)
     touched: dict[str, list[Hunk]] = {}
     untraced: list[Hunk] = []
     spec_changed: dict[str, list[Hunk]] = {}
@@ -274,7 +278,7 @@ def review_changes(root: Path, base: str, prompt: bool, strict: bool) -> int:
                 touched.setdefault(tag, []).append(h)
 
     print("=" * 78)
-    print(f"SpecTrace change review (base: {base or 'HEAD'})")
+    print(f"SpecTrace change review (base: {'staged changes' if staged else (base or 'HEAD')})")
     print("=" * 78)
     print(f"Changed code hunks governed by a requirement : {sum(len(v) for v in touched.values())}")
     print(f"Untraced code hunks (no requirement)          : {len(untraced)}")
@@ -327,11 +331,12 @@ def main() -> int:
     parser.add_argument("--base", default="", help="git ref to diff against (default: HEAD, i.e. uncommitted)")
     parser.add_argument("--prompt", action="store_true", help="with --changes: print a review bundle")
     parser.add_argument("--strict", action="store_true", help="with --changes: exit 1 on untraced hunks")
+    parser.add_argument("--staged", action="store_true", help="with --changes: review only staged changes (pre-commit)")
     args = parser.parse_args()
     root = args.root.resolve()
 
     if args.changes:
-        return review_changes(root, args.base, args.prompt, args.strict)
+        return review_changes(root, args.base, args.prompt, args.strict, args.staged)
     reqs, skills, _ = build_matrix(root)
     rc = print_matrix(reqs, skills, args.write)
     return rc if args.require_complete else 0

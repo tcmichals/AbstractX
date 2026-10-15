@@ -12,6 +12,8 @@ verifies: Every changed line of code is governed by a requirement, and changed r
 ```bash
 python3 tools/spectrace_matrix.py --changes --base origin/main          # report
 python3 tools/spectrace_matrix.py --changes --base origin/main --prompt   # review bundle for an AI
+python3 tools/spectrace_matrix.py --changes --staged --strict             # what the pre-commit hook runs
+git config core.hooksPath tools/git-hooks                                 # enable the hook once per clone
 ```
 
 ## Pass criteria

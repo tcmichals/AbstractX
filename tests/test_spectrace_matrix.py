@@ -126,6 +126,17 @@ def test_change_review_maps_hunks_and_flags_untraced():
         rc, _ = review(root, strict=True)
         assert rc == 1, "--strict fails on untraced hunks"
 
+        # --staged only sees what is staged: the untracked file is not reviewed
+        out_io = io.StringIO()
+        with contextlib.redirect_stdout(out_io):
+            rc = sm.review_changes(root, "", False, True, staged=True)
+        assert rc == 0 and "UNTRACED" not in out_io.getvalue(), "nothing staged -> nothing untraced"
+        run(["git", "add", "src/new.cpp"], root)
+        out_io = io.StringIO()
+        with contextlib.redirect_stdout(out_io):
+            rc = sm.review_changes(root, "", False, True, staged=True)
+        assert rc == 1 and "[UNTRACED] src/new.cpp:1" in out_io.getvalue(), "staged untagged file blocks the commit"
+
         _, bundle = review(root, prompt=True)
         assert "## SPEC-FIX-02" in bundle and "does another thing." in bundle, "requirement text retrieved"
         assert "+    return 22;" in bundle, "diff included"
