@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+/dts-v1/;
+/plugin/;
+/*
+ * Radxa Cubie A5E: AbstractX RPMsg pool in on-chip SRAM ([SPEC-E906-IPC-04]).
+ *
+ * Gives Linux the UPPER half of E906 SRAM Space 1 as the remoteproc DMA pool:
+ * host 0x072E0000-0x072FFFFF (E906 core 0x40020000-0x4003FFFF, 128 KB).
+ * virtio_rpmsg_bus allocates both vrings and all RPMsg buffers there, so the
+ * E906 trace and TLP endpoints write straight into SRAM: no DRAM, no copy, no
+ * cache maintenance (E906 D-cache off, [SPEC-E906-CACHE-02]).
+ *
+ * The lower half of Space 1 (resource table, trace0) and all of Space 0 stay
+ * with the firmware; tools/check_e906_layout.py fails the firmware build if
+ * anything is linked into this pool.
+ *
+ * Derived from cubie-a5e's cubie-a5e-rpmsg-sram.dtso (proven with
+ * testPingRpmsgSram, which gave Linux all of Space 1). memory-region index 0
+ * is the pool, per cubie-a5e decision D10.
+ *
+ * /boot/config.txt:
+ *   dtoverlay=cubie-a5e-flight-stack cubie-a5e-abstractx-rpmsg-sram
+ *
+ * NOT YET VERIFIED ON THE BOARD.
+ */
+
+&{/reserved-memory} {
+    abx_rpmsg_pool: abx-rpmsg-pool@72e0000 {
+        compatible = "shared-dma-pool";
+        reg = <0x0 0x072e0000 0x0 0x20000>;
+        no-map;
+    };
+};
+
+&rproc {
+    memory-region = <&abx_rpmsg_pool>;
+};

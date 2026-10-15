@@ -119,7 +119,7 @@ Remaining:
 - [ ] **Zero-copy trace transport ([SPEC-TRACE-07]) — specified, not implemented.** Steps, in order:
   1. Trace engine: replace the private `buffer_pool_` + flush-copy with `acquire(max)` / `commit(span, used)` on a transport interface; keep a static-pool transport for Linux/SITL; host tests for acquire failure, discard counting and no-copy (pointer identity).
   2. E906 ([SPEC-E906-IPC-04]): compile `src/rpmsg.cpp`; add `acquire()` (free buffer from Linux's RX vring, 496-byte payload, `translate_da`) and `commit()` (hdr, release fence, used ring, msgbox ch 9 kick); wire it as the E906 trace transport and for `platform_send_telemetry()`.
-  3. Device tree: AbstractX overlay giving Linux the upper half of Space 1 (`reg = <0x0 0x072e0000 0x0 0x20000>`, `shared-dma-pool`, `no-map`) as the remoteproc pool, derived from cubie-a5e `cubie-a5e-rpmsg-sram.dtso`.
+  3. [x] Device tree: `apps/gps_imu_app/platforms/allwinner_e906/cubie-a5e-abstractx-rpmsg-sram.dtso` (pool `0x072E0000`, 128 KB; compiles with dtc; `dtoverlay=cubie-a5e-flight-stack cubie-a5e-abstractx-rpmsg-sram`). Not board-verified.
   4. [x] Linux reader: `tools/e906_rpmsg_bridge.py` (`trace` → UDP 9870; `tlp` ↔ UDP 9871/9872), host-tested 2026-10-15.
   5. Pico 2 W ([SPEC-PICO-TRACE-01]) and ESP32-P4 ([SPEC-ESP32P4-TRACE-01]): `PBUF_POOL` pbuf as the trace buffer; replace the current `PBUF_RAM` + `memcpy` in Pico `platform_send_telemetry()`.
   6. Board test on the Cubie A5E: trace reaches the Studio; measure E906 loop jitter with `mcycle` (I-cache on / D-cache off is not yet silicon-verified).

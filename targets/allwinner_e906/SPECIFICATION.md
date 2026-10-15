@@ -245,8 +245,10 @@ sequenceDiagram
 * **Status**: E906 side implemented and host-tested
   (`sim/test_e906_rpmsg_endpoints.cpp`); Linux side `tools/e906_rpmsg_bridge.py`
   (`trace` and `tlp` modes) host-tested (`tests/test_e906_rpmsg_bridge.py`; ioctl
-  number checked against `linux/rpmsg.h`). The SRAM-pool device-tree overlay is
-  not yet written; nothing verified on silicon.
+  number checked against `linux/rpmsg.h`). Device-tree overlay
+  `apps/gps_imu_app/platforms/allwinner_e906/cubie-a5e-abstractx-rpmsg-sram.dtso`
+  (pool at host `0x072E0000`, 128 KB) compiles with `dtc`. Nothing verified on
+  silicon.
 * **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`
 

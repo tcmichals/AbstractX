@@ -30,14 +30,16 @@ add_custom_command(TARGET e906_coprocessor POST_BUILD
 )
 
 # Automated compilation of Device Tree Overlay if dtc is available
-find_program(DTC_EXECUTABLE dtc HINTS 
-    /home/tcmichals/tools/Xilinx/2025.2/Vivado/bin
-    /home/tcmichals/ssdData/projects/home/CubieA5E/bld.a7a/host/bin
+find_program(DTC_EXECUTABLE dtc HINTS
+    $ENV{HOME}/projects/cubie/bld.a5e/host/bin
+    $ENV{HOME}/tools/Xilinx/2025.2/Vivado/bin
 )
 if(DTC_EXECUTABLE)
     add_custom_target(e906_dtbo ALL
         COMMAND ${DTC_EXECUTABLE} -@ -I dts -O dtb -o ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e906_overlay.dtbo ${CMAKE_CURRENT_SOURCE_DIR}/cubie_a5e_e906_overlay.dtso
-        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e906_overlay.dtbo
+        # [SPEC-E906-IPC-04] RPMsg pool in the upper half of SRAM Space 1
+        COMMAND ${DTC_EXECUTABLE} -@ -I dts -O dtb -o ${CMAKE_CURRENT_BINARY_DIR}/cubie-a5e-abstractx-rpmsg-sram.dtbo ${CMAKE_CURRENT_SOURCE_DIR}/cubie-a5e-abstractx-rpmsg-sram.dtso
+        BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/cubie_a5e_e906_overlay.dtbo ${CMAKE_CURRENT_BINARY_DIR}/cubie-a5e-abstractx-rpmsg-sram.dtbo
         COMMENT "Compiled cubie_a5e_e906_overlay.dtbo using ${DTC_EXECUTABLE}"
     )
     add_custom_target(e907_dtbo DEPENDS e906_dtbo) # Legacy compatibility alias.
