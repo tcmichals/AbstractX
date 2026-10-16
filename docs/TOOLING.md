@@ -47,7 +47,7 @@ Status: **exists** = in the repo and in use; **planned** = described in
 | `tools/spectrace_drift.py`, `spectrace_dedupe.py` | repo-wide requirement parity, duplicate requirement text | exists |
 | `tools/audit_specs.py` | tag presence for `DESIGN_SPECIFICATION.md` only; **not** evidence of correctness | exists (legacy) |
 | `tools/log_mistake.py` | engineering-log entry template | exists |
-| evidence ledger + `record-evidence` | one record per run, in git | planned |
+| `tools/trac.py size\|perf\|report\|export-benchmark` | runs sizeTrac / perfTrac checks, appends evidence to `docs/verification/evidence/<YYYY-MM>/<host>.jsonl`, reports latest result and change, exports github-action-benchmark JSON | exists |
 | status report, skill scorecard | "are things working, are we getting better" | planned |
 
 ### testTrac
@@ -64,14 +64,14 @@ Status: **exists** = in the repo and in use; **planned** = described in
 
 | Tool | Measures | Status |
 | :--- | :--- | :--- |
-| `tools/track_memory_footprint.py` | ELF sections vs. budgets (`tools/membrowse-targets.json`) | exists; E906 budget needs correcting (192 KB window) |
-| `make -f hw/Makefile <board>` / `tang_nano20k_fit` | FPGA utilisation | exists; parser to ledger planned |
+| `tools/trac.py size --elf <target>=<elf>` | ELF sections vs. budgets (`tools/membrowse-targets.json`, E906 192 KB SRAM) | exists |
+| `tools/trac.py size --fpga <board>=<nextpnr.log>` | FPGA utilisation | exists |
 
 ### perfTrac
 
 | Tool | Measures | Status |
 | :--- | :--- | :--- |
-| nextpnr report | routed Fmax per clock | exists; parser planned |
+| `tools/trac.py perf --fpga <board>=<nextpnr.log>` | routed Fmax per clock (last line; the first is a placement estimate) | exists |
 | cocotb timing tests | DShot600 / WS2812 timing at 12/27/50 MHz | exists |
 | cubie-a5e `run_full_sweep.py` | RPMsg / UIO round trip on silicon | exists in cubie-a5e |
 | E906 loop jitter (`mcycle`) | on-board loop period and jitter | planned |
