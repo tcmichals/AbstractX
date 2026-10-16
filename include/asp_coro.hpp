@@ -25,7 +25,6 @@
 #include <variant>
 #include <optional>
 #include <utility>
-#include <functional>
 #include <atomic>
 
 namespace abstractx {
@@ -51,6 +50,32 @@ namespace coro {
 
 alignas(64) ABSTRACTX_CORO_POOL_ATTR inline uint8_t g_coro_static_frame_pool[ABSTRACTX_CORO_POOL_SIZE];
 inline std::atomic<size_t> g_coro_static_pool_offset{0};
+
+// @impl [SPEC-ARCH-09] docs/DESIGN_SPECIFICATION.md#spec-arch-09
+// An exception escaping a coroutine is a bug: report it, then trap. No
+// exception_ptr/rethrow, which would pull the C++ unwinder into firmware.
+using UnhandledExceptionHook = void (*)() noexcept;
+
+namespace detail {
+inline UnhandledExceptionHook g_unhandled_exception_hook = nullptr;
+
+[[noreturn]] inline void on_unhandled_exception() noexcept {
+    if (g_unhandled_exception_hook) g_unhandled_exception_hook();
+    __builtin_trap();
+}
+
+// Completion callback for when_all/when_any: function pointer + context
+// instead of std::function (no type erasure, no heap, no RTTI).
+struct CompletionHook {
+    void (*fn)(void*) noexcept = nullptr;
+    void* ctx = nullptr;
+    void operator()() const noexcept { if (fn) fn(ctx); }
+};
+} // namespace detail
+
+inline void set_unhandled_exception_hook(UnhandledExceptionHook hook) noexcept {
+    detail::g_unhandled_exception_hook = hook;
+}
 
 namespace detail {
 
@@ -156,8 +181,7 @@ public:
     struct promise_type {
         std::optional<T> result_{};
         std::coroutine_handle<> continuation_{nullptr};
-        std::exception_ptr exception_{nullptr};
-        std::function<void()> on_complete_{nullptr};
+        detail::CompletionHook on_complete_{};
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
@@ -172,9 +196,7 @@ public:
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
             std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                if (h.promise().on_complete_) {
-                    h.promise().on_complete_();
-                }
+                h.promise().on_complete_();
                 auto continuation = h.promise().continuation_;
                 if (continuation) {
                     return continuation;
@@ -191,7 +213,7 @@ public:
         }
 
         void unhandled_exception() noexcept {
-            exception_ = std::current_exception();
+            detail::on_unhandled_exception();
         }
 
         static void* operator new(size_t sz) noexcept {
@@ -234,10 +256,7 @@ public:
         return handle_;
     }
 
-    T await_resume() {
-        if (handle_.promise().exception_) {
-            std::rethrow_exception(handle_.promise().exception_);
-        }
+    T await_resume() noexcept {
         return std::move(*handle_.promise().result_);
     }
 
@@ -290,8 +309,7 @@ public:
 
     struct promise_type {
         std::coroutine_handle<> continuation_{nullptr};
-        std::exception_ptr exception_{nullptr};
-        std::function<void()> on_complete_{nullptr};
+        detail::CompletionHook on_complete_{};
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
@@ -306,9 +324,7 @@ public:
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
             std::coroutine_handle<> await_suspend(handle_type h) noexcept {
-                if (h.promise().on_complete_) {
-                    h.promise().on_complete_();
-                }
+                h.promise().on_complete_();
                 auto continuation = h.promise().continuation_;
                 if (continuation) {
                     return continuation;
@@ -323,7 +339,7 @@ public:
         void return_void() noexcept {}
 
         void unhandled_exception() noexcept {
-            exception_ = std::current_exception();
+            detail::on_unhandled_exception();
         }
 
         static void* operator new(size_t sz) noexcept {
@@ -366,11 +382,7 @@ public:
         return handle_;
     }
 
-    void await_resume() {
-        if (handle_.promise().exception_) {
-            std::rethrow_exception(handle_.promise().exception_);
-        }
-    }
+    void await_resume() noexcept {}
 
     handle_type handle() const noexcept { return handle_; }
 
@@ -801,7 +813,7 @@ private:
 //     atomic counters). Double-resume is a hard UB — the guards prevent it.
 //
 // Requires: Task<T>::promise_type has a field:
-//     std::function<void()> on_complete_{nullptr};
+//     detail::CompletionHook on_complete_{};  (fn + ctx, [SPEC-ARCH-09])
 // and FinalAwaiter calls on_complete_() before returning noop_coroutine().
 // ============================================================================
 
@@ -837,8 +849,8 @@ private:
 
     template <size_t Index>
     void inject_callback() {
-        std::get<Index>(tasks_).handle().promise().on_complete_ =
-            [this]() noexcept { notify_done(); };
+        std::get<Index>(tasks_).handle().promise().on_complete_ = {
+            [](void* self) noexcept { static_cast<WhenAllAwaiter*>(self)->notify_done(); }, this};
     }
 
     template <size_t Index>
@@ -889,8 +901,10 @@ public:
         starting_ = true;
 
         // Register callbacks BEFORE starting either task.
-        t1_.handle().promise().on_complete_ = [this]() noexcept { notify_winner(0); };
-        t2_.handle().promise().on_complete_ = [this]() noexcept { notify_winner(1); };
+        t1_.handle().promise().on_complete_ = {
+            [](void* self) noexcept { static_cast<WhenAnyAwaiter*>(self)->notify_winner(0); }, this};
+        t2_.handle().promise().on_complete_ = {
+            [](void* self) noexcept { static_cast<WhenAnyAwaiter*>(self)->notify_winner(1); }, this};
 
         // Start t1.
         t1_.resume();

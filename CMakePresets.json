@@ -28,6 +28,24 @@
       }
     },
     {
+      "name": "e906-debug",
+      "inherits": "e906",
+      "displayName": "E906 Debug (-Og -g3)",
+      "binaryDir": "${sourceDir}/build_e906_debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "e906-lto",
+      "inherits": "e906",
+      "displayName": "E906 Release + LTO",
+      "binaryDir": "${sourceDir}/build_e906_lto",
+      "cacheVariables": {
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      }
+    },
+    {
       "name": "e907",
       "displayName": "Allwinner XuanTie E907 RISC-V Bare-metal",
       "description": "Legacy alias for e906",
@@ -73,6 +91,14 @@
     {
       "name": "e906",
       "configurePreset": "e906"
+    },
+    {
+      "name": "e906-debug",
+      "configurePreset": "e906-debug"
+    },
+    {
+      "name": "e906-lto",
+      "configurePreset": "e906-lto"
     },
     {
       "name": "e907",

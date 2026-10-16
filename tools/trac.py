@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
+# @impl [SPEC-AUDIT-09] docs/SPECTRACE.md
 """
 trac: run the testTrac / sizeTrac / perfTrac checks and record evidence.
 
   python3 tools/trac.py size --elf e906=build_e906/apps/gps_imu_app/gps_imu_app [--record]
+  python3 tools/trac.py size --elf e906/debug=build_e906_debug/... --elf e906/lto=build_e906_lto/...
   python3 tools/trac.py size --fpga tang_nano20k=build_hw/nextpnr.log [--record]
   python3 tools/trac.py perf --fpga tang_nano20k=build_hw/nextpnr.log [--record]
   python3 tools/trac.py report            # latest result and change per check
@@ -13,7 +15,6 @@ trac: run the testTrac / sizeTrac / perfTrac checks and record evidence.
 Exit codes: 0 all pass, 1 a check failed, 2 nothing could run.
 Model and record format: docs/SPECTRACE.md [SPEC-AUDIT-09], docs/TOOLING.md.
 """
-# @impl [SPEC-AUDIT-09] docs/SPECTRACE.md
 
 import argparse
 import glob
@@ -62,7 +63,9 @@ def run_size(args, records) -> list[dict]:
     results = []
     targets = load_targets()
     for name, elf in pairs(args.elf):
-        t = targets.get(name)
+        # "e906/debug" = target e906, build variant debug; each variant is its own
+        # trend line (elf:e906/debug). A bare name is the Release build.
+        t = targets.get(name.split("/", 1)[0])
         if t is None:
             raise SystemExit(f"unknown target '{name}' (known: {', '.join(targets)})")
         if not elf.exists():
@@ -181,7 +184,7 @@ def main() -> int:
     ap.add_argument("--cocotb", action="store_true", help="test: run every registered cocotb target")
     ap.add_argument("--rtl", action="store_true", help="test: Verilator lint + Yosys driver check on rtl/")
     ap.add_argument("--matrix", action="store_true", help="test: SpecTrace matrix verdict counts")
-    ap.add_argument("--elf", action="append", help="target=path (target 'short' name from membrowse-targets.json)")
+    ap.add_argument("--elf", action="append", help="target[/variant]=path (target 'short' name from membrowse-targets.json; variant e.g. debug, lto)")
     ap.add_argument("--fpga", action="append", help="board=nextpnr.log")
     ap.add_argument("--max-util", type=int, default=80, help="sizeTrac FPGA LUT/DFF/ALU limit in percent")
     ap.add_argument("--record", action="store_true", help="append results to the evidence ledger")

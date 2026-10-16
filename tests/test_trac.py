@@ -88,10 +88,18 @@ def test_test_parsers():
     assert mx["verified"] == 20 and mx["total"] == 130 and mx["verified_pct"] == 15.4
 
 
+def test_size_build_variant_is_its_own_check():
+    trac = Path(__file__).resolve().parent.parent / "tools" / "trac.py"
+    out = subprocess.run([sys.executable, str(trac), "size", "--elf", "e906/debug=/nonexistent"],
+                         capture_output=True, text=True, check=True).stdout
+    assert "elf:e906/debug" in out and "not built" in out
+
+
 if __name__ == "__main__":
     test_test_parsers()
     test_size_parsing_and_models()
     test_size_budget_and_growth()
     test_nextpnr_routed_fmax_is_the_last_line()
     test_ledger_append_read_delta()
+    test_size_build_variant_is_its_own_check()
     print("[PASS] trac")

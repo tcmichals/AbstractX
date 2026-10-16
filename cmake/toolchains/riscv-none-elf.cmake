@@ -41,6 +41,13 @@ set(CMAKE_CXX_FLAGS_INIT "${ARCH_FLAGS} -ffunction-sections -fdata-sections -Wal
 set(CMAKE_ASM_FLAGS_INIT "${ARCH_FLAGS} -x assembler-with-cpp")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "--specs=nano.specs -Wl,--gc-sections")
 
+# Build types. Debug uses -Og, not CMake's default -O0: at -O0 the E906 image
+# overflows its 192 KB SRAM_FAST window. -g costs no target memory.
+set(CMAKE_C_FLAGS_DEBUG_INIT     "-Og -g3")
+set(CMAKE_CXX_FLAGS_DEBUG_INIT   "-Og -g3")
+set(CMAKE_C_FLAGS_RELEASE_INIT   "-O2 -g -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE_INIT "-O2 -g -DNDEBUG")
+
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

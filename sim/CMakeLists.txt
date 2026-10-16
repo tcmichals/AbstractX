@@ -14,6 +14,7 @@ add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
 add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
 add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)
+add_abstractx_sim(test_coro_failures       test_coro_failures.cpp)
 
 # E906 RPMsg core and trace transport, run on the host against fake vrings
 # and a fake message box ([SPEC-E906-IPC-04]).
