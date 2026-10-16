@@ -559,3 +559,30 @@ This log chronicles the development, technical decisions, and architecture miles
 * Hosted builds: `InterruptLock` is a process-wide recursive spinlock (atomics + thread-local depth, no `<mutex>`); dispatcher and async driver use the locked ETL calls. Bare metal: unchanged for RISC-V and Cortex-M; any other bare-metal architecture is a compile error.
 * TSan 30/30 (was 27/30), Debug 30/30, strict ASan/UBSan 30/30, E906 cross-build clean, Pico 2 W builds (first verified build: `gps_imu_app` 415 KB text, 141 KB bss).
 
+## [2026-10-15] - Decision: SpecTrace tooling model, Trac families, three projects
+
+* **Category**: `process-gap` (tooling and feedback loop design)
+* **Context**: this week three of the project's own tools gave wrong answers
+  (`audit_specs.py` "100% verified" with four live bugs; UBSan printing but not
+  failing; the matrix parser reading an example sentence as a skill), and CI
+  results were never saved (`*.json` git-ignored, `RUNNING_PROFILE.md` not
+  updated since `3fb9b55`) while CI ran only 4 of 31 host tests.
+* **Decisions**:
+  - AbstractX is three projects: SpecTrace, Framework, Studio (`README.md`, `docs/TOOLING.md`).
+  - Checks are grouped into **testTrac** (correctness), **sizeTrac** (memory and
+    FPGA fit) and **perfTrac** (timing and jitter); requirements name the skills
+    that verify them.
+  - The feedback loop covers the tools too: every run is recorded in git; lessons
+    carry a category (`product-bug`, `tool-bug`, `false-alarm`, `process-gap`,
+    `hardware-fact`); every new or changed check must be shown to fail on bad
+    code; a skill scorecard and status report answer "is it working, are we
+    getting better" and can be graphed from GitHub history.
+  - Results follow the format cubie-a5e's `test_sweep_history.json` already uses
+    (run, timestamp, commits of every repo involved, per-check status), made
+    multi-PC safe and linked to requirement IDs.
+  - The tree is pruned periodically; agents use a local cache of compact indexes
+    to spend fewer tokens.
+  - AI rules live only in `AGENTS.md` (section 0 = operating loop) for VS Code /
+    Copilot, Claude Code and Antigravity; no AI `Co-Authored-By` trailers.
+* **Next**: evidence ledger and STALE/FAILING verdicts (`SPECTRACE_GUIDE.md` §9 steps 2-3); fix CI to run the real checks and save results.
+

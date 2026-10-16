@@ -8,6 +8,16 @@
 >
 > **Here, humans design the architecture, and AI agents write the implementation.**
 
+### AbstractX is three projects
+
+| Project | What it is | Start here |
+| :--- | :--- | :--- |
+| **SpecTrace** | Spec-driven development with AI agents: requirements, skills, testing, evidence in git, feedback loop (testTrac / sizeTrac / perfTrac) | [`docs/TOOLING.md`](docs/TOOLING.md), [`docs/SPECTRACE_GUIDE.md`](docs/SPECTRACE_GUIDE.md) |
+| **Framework** | C++20 coroutine runtime, zero-copy transports, HAL/targets (E906, Pico 2 W, ESP32-P4, Linux) and the `asp_*` RTL fabric | [`docs/DESIGN_SPECIFICATION.md`](docs/DESIGN_SPECIFICATION.md) |
+| **Studio** | Observability GUI | [`tools/visualizer/SPECIFICATION.md`](tools/visualizer/SPECIFICATION.md) |
+
+License: GPLv3 (`LICENSE`); a commercial license is also available.
+
 ---
 
 ### 🤖 The Agentic Development Loop & SpecTrace

@@ -6,6 +6,17 @@ are implemented. The requirements themselves live in [`SPECTRACE.md`](SPECTRACE.
 
 ---
 
+AbstractX is three projects: **SpecTrace** (this guide: spec-driven development,
+testing, evidence, feedback), the **Framework** (C++20 coroutines, targets, RTL) and
+**Studio** (observability GUI). How the tools work day to day is in
+[`TOOLING.md`](TOOLING.md).
+
+**Trac families.** Every check and measurement belongs to one family:
+**testTrac** (is it correct?), **sizeTrac** (does it fit: memory, FPGA
+resources) and **perfTrac** (is it fast and steady enough: Fmax, protocol timing,
+latency, jitter). Skill names keep their kind prefix (`check-`, `measure-`, ...);
+each skill also states its family.
+
 ## 1. What SpecTrace is
 
 SpecTrace keeps an AI-assisted embedded project correct and **getting better over
@@ -253,6 +264,14 @@ fails-before proof is itself a *Detect* event in the loop.
 - **Loop activity**: lessons recorded by category, requirements that turned
   `STALE` or `FAILING`, untraced changes, checks added and proven.
 - **Tool health**: the skill scorecard, worst first.
+
+## 6c. Pruning and the local cache
+
+The tree is pruned periodically (`review-prune`: duplicates, superseded docs,
+unused tools and skills, dead tags), each removal logged with its reason. Agents
+use a git-ignored cache of compact indexes (`.spectrace/cache/`, rebuilt per
+`HEAD`) so they read only the requirements, skills and lessons a change touches.
+Details: [`TOOLING.md`](TOOLING.md) §4.
 
 ## 7. Gates
 
