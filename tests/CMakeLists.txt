@@ -58,6 +58,9 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME py_test_spectrace_matrix
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_spectrace_matrix.py)
     # [SPEC-E906-IPC-04] Linux-side RPMsg <-> UDP bridge (no hardware needed)
+    # [SPEC-AUDIT-09] Trac tools and evidence ledger
+    add_test(NAME py_test_trac
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_trac.py)
     add_test(NAME py_test_e906_rpmsg_bridge
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_e906_rpmsg_bridge.py)
 endif()

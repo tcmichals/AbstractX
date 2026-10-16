@@ -127,7 +127,8 @@ not guessed.
 * **Measured 2026-10-15 on the real part** (GW2AR-LV18QN88C8/I7, `make -f
   hw/Makefile tang_nano20k_fit`, 6 PWM inputs, arbitrary plain pins from
   `gen_fitonly_cst.py`): LUT4 4 747 (22%), DFF 4 759 (30%), ALU 1 230 (7%),
-  IOB 27 (7%), routed Fmax 110.2 MHz against the 27 MHz constraint.
+  IOB 27 (7%), routed Fmax 121.85 MHz against the 27 MHz constraint (110.2 MHz
+  is nextpnr's post-placement estimate, recorded here by mistake until 2026-10-15).
   **Status**: met. Re-measure once real pins are assigned.
 
 ### `[SPEC-TN20K-04]` Bench Bring-up Test

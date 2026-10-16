@@ -145,7 +145,7 @@ by skill runners, committed with the change it proves:
 ```json
 {"time": "2026-10-15T04:30:00Z", "commit": "d376d22", "skill": "measure-fpga-fit",
  "requirements": ["SPEC-TN20K-03"], "result": "pass",
- "metrics": {"board": "tang_nano20k", "lut_pct": 22, "dff_pct": 30, "fmax_mhz": 110.2},
+ "metrics": {"board": "tang_nano20k", "lut_pct": 22, "dff_pct": 30, "fmax_mhz": 121.85},
  "host": "pc-1", "tool_versions": {"nextpnr": "himbaechel 0.x"}, "notes": ""}
 ```
 

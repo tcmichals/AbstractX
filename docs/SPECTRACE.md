@@ -166,6 +166,25 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `tools/spectrace_matrix.py`
 
+### `[SPEC-AUDIT-09]` Trac Tools and the Evidence Ledger
+* **Requirement**: `python3 tools/trac.py <family>` runs the checks of one family
+  (`test`, `size`, `perf`) and, with `--record`, appends one evidence record per
+  check to `docs/verification/evidence/<YYYY-MM>/<host>.jsonl` (append-only,
+  one file per month and machine so several PCs never conflict on merge).
+* **Record**: `time`, `commit`, `dirty`, `host`, `family`, `check`,
+  `requirements`, `result` (`pass` / `fail` / `skip`), `metrics`, `delta` (change
+  of each metric since the previous record of the same check), `duration_s`,
+  `tool`. Same fields as cubie-a5e's `test_sweep_history.json` run records, plus
+  requirement links.
+* **sizeTrac**: ELF sections per target against `tools/membrowse-targets.json`
+  budgets (fail when over budget or when growth exceeds
+  `max_allowed_growth_bytes`); FPGA utilisation from the nextpnr log.
+* **perfTrac**: routed Fmax per clock from the nextpnr log (fail below the
+  constrained frequency).
+* **Exit codes**: 0 pass, 1 any check failed, 2 nothing could run.
+* **Verified by**: `host-tests` (`tests/test_trac.py`)
+* **Implementation Target**: `tools/trac.py`, `tools/trac_lib/`
+
 ### Stage 3: Adversarial Invariant Auditing
 An independent Critic persona evaluates code and specifications across 6 strict stages:
 * **Stage 0: Specification SSOT Anti-Drift** (Validates markdown structure, Mermaid diagrams, formal requirement tags).

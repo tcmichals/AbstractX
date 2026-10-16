@@ -11,7 +11,11 @@
       "map_path": "build_pico2w/apps/gps_imu_app/gps_imu_app.elf.map",
       "ram_budget_bytes": 524288,
       "flash_budget_bytes": 4194304,
-      "max_allowed_growth_bytes": 4096
+      "max_allowed_growth_bytes": 4096,
+      "short": "pico2w",
+      "memory_model": "flash_ram",
+      "size_tool": "arm-none-eabi-size",
+      "requirements": []
     },
     {
       "name": "allwinner_e906_gps_imu_app",
@@ -20,9 +24,15 @@
       "architecture": "riscv32_e906",
       "binary_path": "build_e906/apps/gps_imu_app/gps_imu_app",
       "map_path": "build_e906/apps/gps_imu_app/gps_imu_app.map",
-      "ram_budget_bytes": 65536,
-      "flash_budget_bytes": 1048576,
-      "max_allowed_growth_bytes": 2048
+      "ram_budget_bytes": 196608,
+      "max_allowed_growth_bytes": 2048,
+      "short": "e906",
+      "memory_model": "sram_only",
+      "size_tool": "riscv-none-elf-size",
+      "requirements": [
+        "SPEC-E906-MEM-01"
+      ],
+      "budget_note": "E906 has no flash: text+data+bss load into the 192 KB SRAM_FAST window (SPEC-E906-MEM-01)"
     },
     {
       "name": "desktop_sitl_gps_imu_app",
@@ -32,7 +42,11 @@
       "binary_path": "build_host/apps/gps_imu_app/gps_imu_app",
       "ram_budget_bytes": 16777216,
       "flash_budget_bytes": 33554432,
-      "max_allowed_growth_bytes": 16384
+      "max_allowed_growth_bytes": 16384,
+      "short": "host",
+      "memory_model": "sram_only",
+      "size_tool": "size",
+      "requirements": []
     }
   ]
 }

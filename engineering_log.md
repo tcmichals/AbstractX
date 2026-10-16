@@ -586,3 +586,16 @@ This log chronicles the development, technical decisions, and architecture miles
     Copilot, Claude Code and Antigravity; no AI `Co-Authored-By` trailers.
 * **Next**: evidence ledger and STALE/FAILING verdicts (`SPECTRACE_GUIDE.md` §9 steps 2-3); fix CI to run the real checks and save results.
 
+## [2026-10-15] - Miss: post-placement Fmax recorded as routed Fmax
+
+* **Category**: `process-gap` (manual reading of a tool log)
+* **Symptom**: `[SPEC-TN20K-03]`, TODO.md and commit `d10a46f` recorded the Tang
+  Nano 20K Fmax as 110.2 MHz. nextpnr prints Fmax twice: after placement
+  (estimate, 110.19 MHz) and after routing (final, 121.85 MHz). The first line
+  was copied by hand. (The Primer 20K figure, 126.7 MHz, was the routed one.)
+* **Should have caught it**: nothing; numbers were read from logs by hand.
+* **Fix**: `tools/trac.py perf` parses the log and takes the last (routed) line;
+  `tests/test_trac.py` checks that the placement estimate is not used. Spec,
+  TODO and guide corrected to 121.85 MHz. Lesson: numbers that go into
+  requirements and evidence come from a parser, not from reading a log.
+
