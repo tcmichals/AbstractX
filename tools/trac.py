@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 from trac_lib import ledger  # noqa: E402
 from trac_lib import size_perf as sp  # noqa: E402
+from trac_lib import test_checks as tc  # noqa: E402
 
 TARGETS_FILE = ROOT / "tools" / "membrowse-targets.json"
 
@@ -94,6 +95,39 @@ def run_size(args, records) -> list[dict]:
     return results
 
 
+def run_test(args, records) -> list[dict]:
+    """testTrac: correctness checks; each becomes one record with counts."""
+    results = []
+
+    def add(check, ok, metrics, reqs, duration, tool, notes=""):
+        prev = ledger.previous(records, check)
+        rec = ledger.make_record(ROOT, "test", check, "pass" if ok else "fail", metrics, reqs,
+                                 duration, tool, notes)
+        results.append(ledger.with_delta(rec, prev))
+
+    for label, build in pairs(args.ctest):
+        code, out, dur = tc.run(["ctest", "--test-dir", str(build), "-j8", "--timeout", "300"], ROOT)
+        m = tc.parse_ctest(out)
+        add(f"ctest:{label}", code == 0 and bool(m) and m["failed"] == 0, m, [], dur, "ctest",
+            "" if m else "no ctest summary")
+    if args.cocotb:
+        code, out, dur = tc.run(["python3", "tools/run_cocotb.py"], ROOT, tc.oss_env())
+        m = tc.parse_cocotb(out)
+        add("cocotb:all", code == 0 and bool(m) and m["targets"] == m["targets_passed"], m, [], dur,
+            "cocotb", "" if m else "no summary (oss-cad-suite missing?)")
+    if args.rtl:
+        m, issues, dur = tc.run_rtl_lint(ROOT)
+        add("rtl:lint", not issues, m, [], dur, "verilator", "; ".join(issues[:5]))
+        m, bad, dur = tc.run_rtl_synth(ROOT)
+        add("rtl:synth-check", not bad, m, ["SPEC-ZYNQ-01"], dur, "yosys", "; ".join(bad[:5]))
+    if args.matrix:
+        code, out, dur = tc.run(["python3", "tools/spectrace_matrix.py", "--matrix"], ROOT)
+        m = tc.parse_matrix(out)
+        add("spectrace:matrix", bool(m) and m.get("broken", 0) == 0, m, ["SPEC-AUDIT-07"], dur,
+            "spectrace_matrix", "")
+    return results
+
+
 def run_perf(args, records) -> list[dict]:
     results = []
     for board, log in pairs(args.fpga):
@@ -142,12 +176,16 @@ def export_benchmark(records, family):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    ap.add_argument("family", choices=["size", "perf", "report", "export-benchmark"])
+    ap.add_argument("family", choices=["test", "size", "perf", "report", "export-benchmark"])
+    ap.add_argument("--ctest", action="append", help="test: label=build_dir (e.g. debug=build_host)")
+    ap.add_argument("--cocotb", action="store_true", help="test: run every registered cocotb target")
+    ap.add_argument("--rtl", action="store_true", help="test: Verilator lint + Yosys driver check on rtl/")
+    ap.add_argument("--matrix", action="store_true", help="test: SpecTrace matrix verdict counts")
     ap.add_argument("--elf", action="append", help="target=path (target 'short' name from membrowse-targets.json)")
     ap.add_argument("--fpga", action="append", help="board=nextpnr.log")
     ap.add_argument("--max-util", type=int, default=80, help="sizeTrac FPGA LUT/DFF/ALU limit in percent")
     ap.add_argument("--record", action="store_true", help="append results to the evidence ledger")
-    ap.add_argument("--of", default="size", choices=["size", "perf"], help="export-benchmark: which family")
+    ap.add_argument("--of", default="size", choices=["test", "size", "perf"], help="export-benchmark: which family")
     args = ap.parse_args()
 
     records = ledger.read_all(ROOT)
@@ -157,7 +195,8 @@ def main() -> int:
     if args.family == "export-benchmark":
         print(json.dumps(export_benchmark(records, args.of), indent=1))
         return 0
-    results = run_size(args, records) if args.family == "size" else run_perf(args, records)
+    runners = {"test": run_test, "size": run_size, "perf": run_perf}
+    results = runners[args.family](args, records)
     if not results:
         print("nothing to check (give --elf or --fpga)", file=sys.stderr)
         return 2

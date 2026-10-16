@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from trac_lib import ledger  # noqa: E402
 from trac_lib import size_perf as sp  # noqa: E402
+from trac_lib import test_checks as tc  # noqa: E402
 
 SIZE_A = """build/app  :
 section              size         addr
@@ -77,7 +78,18 @@ def test_ledger_append_read_delta():
         assert len(ledger.read_all(root)) == 2
 
 
+def test_test_parsers():
+    ct = tc.parse_ctest("100% tests passed, 0 tests failed out of 31\n\nTotal Test time (real) =  12.34 sec")
+    assert ct == {"tests": 31, "passed": 31, "failed": 0, "test_time_s": 12.34}
+    assert tc.parse_ctest("90% tests passed, 3 tests failed out of 30")["failed"] == 3
+    cb = tc.parse_cocotb("PASS  a  TESTS=4 PASS=4 FAIL=0\nPASS  b  TESTS=3 PASS=3 FAIL=0\n\n2/2 cocotb targets passed")
+    assert cb == {"targets": 2, "targets_passed": 2, "tests": 7, "tests_failed": 0}
+    mx = tc.parse_matrix("Requirements : 130   skills: 14\n  VERIFIED    : 20\n  BROKEN      : 0\n")
+    assert mx["verified"] == 20 and mx["total"] == 130 and mx["verified_pct"] == 15.4
+
+
 if __name__ == "__main__":
+    test_test_parsers()
     test_size_parsing_and_models()
     test_size_budget_and_growth()
     test_nextpnr_routed_fmax_is_the_last_line()
