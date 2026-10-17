@@ -4,6 +4,7 @@
  *
  * Test: Target IIoProcessor Sensor HW Fusion API & Bus Lockout Verification
  * @verifies [SPEC-ARCH-01] [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md
+ * @verifies [SPEC-LINUX-SPI-01] targets/linux/SPECIFICATION.md#spec-linux-spi-01
  */
 
 #include "abstractx/hal/io_processor.hpp"
@@ -152,6 +153,32 @@ int main() {
     assert(coro_cpl.tag() == 55 && "Tag mismatch");
     assert(coro_cpl.wire.payload[0] == ASP_STATUS_OK && "Expected OK from coroutine execution");
     std::cout << "  -> IIoProcessor::run_coroutine() pumped and serviced TLP request cleanly." << std::endl;
+
+    // 11. Verify pipelined concurrent bridge SPI requests [SPEC-LINUX-SPI-01]
+    std::cout << "  -> Testing pipelined concurrent bridge SPI requests [SPEC-LINUX-SPI-01]..." << std::endl;
+    constexpr size_t NUM_PIPELINED_REQS = 8;
+    for (size_t i = 0; i < NUM_PIPELINED_REQS; ++i) {
+        uint8_t tag = static_cast<uint8_t>(200 + i);
+        Tlp64 pipe_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, ASP_SPI_FLAG_AUTO_CS, tag, Channel::Control);
+        assert(app_to_io_tx_ring.push(pipe_req) && "Failed to push pipelined SPI request");
+    }
+
+    // Step reactor to drain all queued requests into SpiWorker
+    io_proc.step(20);
+    // Allow worker thread to execute
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    io_proc.step(20);
+
+    for (size_t i = 0; i < NUM_PIPELINED_REQS; ++i) {
+        Tlp64 pipe_cpl{};
+        assert(io_to_app_rx_ring.pop(pipe_cpl) && "Missing completion for pipelined SPI request");
+        assert(pipe_cpl.type() == TlpType::Completion && "Expected Completion TLP");
+        uint8_t expected_tag = static_cast<uint8_t>(200 + i);
+        assert(pipe_cpl.tag() == expected_tag && "Pipelined tag mismatch");
+        assert(pipe_cpl.wire.payload[0] == ASP_STATUS_OK && "Expected ASP_STATUS_OK for pipelined request");
+        assert(pipe_cpl.wire.payload[sizeof(asp_tlp_spi_cpl_header_t) + 1] == 0x47 && "Expected ICM WHO_AM_I byte 0x47 in payload");
+    }
+    std::cout << "  -> Pipelined concurrent requests verified: all 8 completions correlated with matching tags." << std::endl;
 
     io_proc.stop();
     assert(!io_proc.is_running() && "Expected is_running() to be false after final stop()");

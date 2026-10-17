@@ -808,4 +808,45 @@ This log chronicles the development, technical decisions, and architecture miles
   - 35/35 Host ctest targets passed.
   - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
 
+## [2026-10-17] - Linux SPI Bridge Request Correlation & In-Flight Descriptor Pool [SPEC-LINUX-SPI-01]
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/linux/SPECIFICATION.md`, `targets/linux/src/io_processor.cpp`, `sim/test_io_processor.cpp`
+* **Category**: `product-bug`
+* **Symptoms**:
+  - `LinuxIoProcessor` maintained only a single scalar `pending_spi_tag_`, `pending_spi_ch_`, and single static 64-byte `bridge_tx_buf_` and `bridge_rx_buf_`.
+  - When back-to-back or pipelined manual SPI bridge requests arrived on `egress_tx_ring`, subsequent requests immediately overwrote `pending_spi_tag_` and `pending_spi_ch_` and clobbered the TX/RX buffers before `SpiWorker` completed the previous request.
+  - When completions arrived, every completion TLP was constructed with whichever tag was written last, losing earlier tags entirely and delivering corrupted data or causing coroutine awaiters to hang indefinitely.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - The bridge SPI path assumed single-request lock-step execution, but `drain_egress_requests()` loops through all available requests on `egress_tx_ring` while `SpiWorker` executes asynchronously on a background thread.
+  - Pipelining asynchronous requests requires per-transaction context descriptors so that each request retains its tag, channel, and distinct buffers throughout execution until completion.
+* **Architectural Lesson**:
+  - In asynchronous split-queue bridges, every in-flight transaction must be tracked in a dedicated descriptor pool sized to the worker queue depth (16 entries).
+  - Callbacks should bind directly to the descriptor instance (e.g. via `etl::delegate`) so completion handlers receive the exact originating context without global state lookups.
+  - When descriptor pools or worker queues exhaust, requests must be rejected cleanly with `ASP_STATUS_QUEUE_FULL` (0x04) rather than clobbering in-flight state.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/linux/SPECIFICATION.md` (`[SPEC-LINUX-SPI-01]`), `docs/DESIGN_SPECIFICATION.md` (`[SPEC-HAL-02]`)
+* **Requirement Tags Added/Updated**:
+  - `[SPEC-LINUX-SPI-01]`: Added formal requirement in Section 2.1 for Linux SPI bridge request correlation and pipelined completions with fixed in-flight descriptors (`BridgeSpiSlot`, capacity 16).
+* **Implementation Target**: `targets/linux/src/io_processor.cpp`
+
+### 4. Implementation & Verification
+* In `targets/linux/src/io_processor.cpp`:
+  - Replaced scalar `pending_spi_tag_`, `pending_spi_ch_`, `bridge_tx_buf_`, and `bridge_rx_buf_` with `std::array<BridgeSpiSlot, 16> bridge_spi_slots_`.
+  - Implemented lock-free slot allocation (`alloc_bridge_slot`) using `std::atomic<bool> in_use` with CAS.
+  - Bound `req.on_rx_complete` to `BridgeSpiSlot::on_done` via `etl::delegate`, which calls `on_bridge_spi_slot_done` with the slot reference.
+  - Handled slot pool and worker queue exhaustion by returning `ASP_STATUS_QUEUE_FULL` completions.
+* In `sim/test_io_processor.cpp`:
+  - Added test case verifying 8 back-to-back pipelined SPI requests with distinct tags (200..207) receive correlated completion TLPs in FIFO order with matching tags, status OK, and expected data bytes (`@verifies [SPEC-LINUX-SPI-01]`).
+* Verification gates:
+  - 35/35 Host ctest targets passed in Debug, ASan/UBSan, and TSan (0 leaks, 0 races).
+  - 16/16 Cocotb targets passed.
+  - All E906 build configurations (Release, Debug, LTO) and Pico 2 W built cleanly.
+  - `python3 tools/spectrace_matrix.py --matrix` reached 23/133 VERIFIED.
+  - `python3 tools/spectrace_matrix.py --changes --staged --strict` passed with 0 untraced hunks.
+
+
 

@@ -26,13 +26,19 @@
 
 namespace abstractx::target {
 
+// @impl [SPEC-LINUX-SPI-01] targets/linux/SPECIFICATION.md#spec-linux-spi-01
 class LinuxIoProcessor final : public hal::IIoProcessor {
 public:
     static constexpr size_t MAX_EVENTS = 16;
     static constexpr size_t MAX_CHANNELS = 4;
 
     LinuxIoProcessor() noexcept
-        : tx_doorbell_(true), rx_doorbell_(true) {}
+        : tx_doorbell_(true), rx_doorbell_(true) {
+        for (auto& slot : bridge_spi_slots_) {
+            slot.owner = this;
+            slot.in_use.store(false, std::memory_order_relaxed);
+        }
+    }
 
     ~LinuxIoProcessor() override {
         stop();
@@ -81,6 +87,11 @@ public:
             num_channels_++;
         }
 
+        for (auto& slot : bridge_spi_slots_) {
+            slot.owner = this;
+            slot.in_use.store(false, std::memory_order_relaxed);
+        }
+
         configured_ = true;
         return true;
     }
@@ -99,6 +110,9 @@ public:
             }
             spi_worker_.stop();
             i2c_worker_.stop();
+            for (auto& slot : bridge_spi_slots_) {
+                slot.in_use.store(false, std::memory_order_relaxed);
+            }
             for (size_t i = 0; i < num_channels_; ++i) {
                 gpiod_monitors_[i].close();
             }
@@ -147,6 +161,34 @@ public:
     SpiWorker& spi_worker() noexcept { return spi_worker_; }
 
 private:
+    struct BridgeSpiSlot {
+        LinuxIoProcessor* owner{nullptr};
+        alignas(4) uint8_t tx_buf[64]{};
+        alignas(4) uint8_t rx_buf[64]{};
+        uint8_t tag{0};
+        Channel channel{Channel::Control};
+        std::atomic<bool> in_use{false};
+
+        void on_done(const hal::SpiResult& res) noexcept {
+            if (owner) {
+                owner->on_bridge_spi_slot_done(*this, res);
+            }
+        }
+    };
+
+    static constexpr size_t MAX_BRIDGE_SPI_SLOTS = 16;
+    std::array<BridgeSpiSlot, MAX_BRIDGE_SPI_SLOTS> bridge_spi_slots_{};
+
+    BridgeSpiSlot* alloc_bridge_slot() noexcept {
+        for (auto& slot : bridge_spi_slots_) {
+            bool expected = false;
+            if (slot.in_use.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+                return &slot;
+            }
+        }
+        return nullptr;
+    }
+
     int process_events(int timeout_ms) noexcept {
         std::array<struct epoll_event, MAX_EVENTS> events{};
         int count = reactor_.wait(events, timeout_ms);
@@ -291,37 +333,72 @@ private:
                 const auto* hdr = spi_view.req_header();
                 size_t rx_len = hdr ? hdr->rx_len : 0;
 
-                pending_spi_tag_ = tlp.tag();
-                pending_spi_ch_  = tlp.channel();
-
                 // The TLP is a loop-local copy popped from the ring, but the
-                // transfer runs later on the SPI worker thread: copy tx into a
-                // member buffer so the worker never reads a dead stack frame.
+                // transfer runs later on the SPI worker thread: copy tx into
+                // the slot buffer so the worker never reads a dead stack frame.
                 // spidev clocks max(tx, rx) bytes into rx, so size rx to match.
+                // @impl [SPEC-LINUX-SPI-01] targets/linux/SPECIFICATION.md#spec-linux-spi-01
                 // @impl [SPEC-HAL-02] docs/DESIGN_SPECIFICATION.md#spec-hal-02
-                size_t tx_n = std::min(tx.size(), sizeof(bridge_tx_buf_));
-                std::memcpy(bridge_tx_buf_, tx.data(), tx_n);
-                size_t xfer_n = std::min(std::max(tx_n, rx_len), sizeof(bridge_rx_buf_));
+                BridgeSpiSlot* slot = alloc_bridge_slot();
+                if (!slot) {
+                    if (setup_.ingress_rx_ring) {
+                        Tlp64 err_cpl = Tlp64::make_spi_cpl(
+                            tlp.tag(),
+                            ASP_STATUS_QUEUE_FULL,
+                            {},
+                            0,
+                            0,
+                            tlp.channel()
+                        );
+                        setup_.ingress_rx_ring->push(err_cpl);
+                        rx_doorbell_.notify(1);
+                        if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
+                    }
+                    continue;
+                }
+
+                slot->tag = tlp.tag();
+                slot->channel = tlp.channel();
+
+                size_t tx_n = std::min(tx.size(), sizeof(slot->tx_buf));
+                std::memcpy(slot->tx_buf, tx.data(), tx_n);
+                size_t xfer_n = std::min(std::max(tx_n, rx_len), sizeof(slot->rx_buf));
 
                 hal::SpiRequest req{};
-                req.tx_data = std::span<const uint8_t>(bridge_tx_buf_, tx_n);
-                req.rx_data = std::span<uint8_t>(bridge_rx_buf_, xfer_n);
-                req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<LinuxIoProcessor, &LinuxIoProcessor::on_bridge_spi_done>(*this);
+                req.tx_data = std::span<const uint8_t>(slot->tx_buf, tx_n);
+                req.rx_data = std::span<uint8_t>(slot->rx_buf, xfer_n);
+                req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<BridgeSpiSlot, &BridgeSpiSlot::on_done>(*slot);
 
-                spi_worker_.submit(req);
+                if (!spi_worker_.submit(req)) {
+                    slot->in_use.store(false, std::memory_order_release);
+                    if (setup_.ingress_rx_ring) {
+                        Tlp64 err_cpl = Tlp64::make_spi_cpl(
+                            tlp.tag(),
+                            ASP_STATUS_QUEUE_FULL,
+                            {},
+                            0,
+                            0,
+                            tlp.channel()
+                        );
+                        setup_.ingress_rx_ring->push(err_cpl);
+                        rx_doorbell_.notify(1);
+                        if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
+                    }
+                }
             }
         }
     }
 
-    void on_bridge_spi_done(const hal::SpiResult& res) noexcept {
+    // @impl [SPEC-LINUX-SPI-01] targets/linux/SPECIFICATION.md#spec-linux-spi-01
+    void on_bridge_spi_slot_done(BridgeSpiSlot& slot, const hal::SpiResult& res) noexcept {
         if (setup_.ingress_rx_ring) {
             Tlp64 cpl = Tlp64::make_spi_cpl(
-                pending_spi_tag_,
+                slot.tag,
                 (res.status == hal::SpiStatus::Ok) ? 0 : 1,
-                std::span<const uint8_t>(bridge_rx_buf_, res.transferred_bytes),
-                res.bus_duration_us,
+                std::span<const uint8_t>(slot.rx_buf, res.transferred_bytes),
+                static_cast<uint16_t>(res.bus_duration_us),
                 res.timestamp_us * 1000ULL,
-                pending_spi_ch_
+                slot.channel
             );
             setup_.ingress_rx_ring->push(cpl);
             rx_doorbell_.notify(1);
@@ -329,6 +406,7 @@ private:
                 setup_.on_rx_pushed();
             }
         }
+        slot.in_use.store(false, std::memory_order_release);
     }
 
 private:
@@ -357,11 +435,6 @@ private:
     uint64_t last_trigger_ts_ns_{0};
     alignas(4) uint8_t auto_tx_buf_[32]{};
     alignas(4) uint8_t auto_rx_buf_[64]{};
-
-    uint8_t pending_spi_tag_{0};
-    Channel pending_spi_ch_{Channel::Control};
-    alignas(4) uint8_t bridge_tx_buf_[64]{};
-    alignas(4) uint8_t bridge_rx_buf_[64]{};
 };
 
 static LinuxIoProcessor g_linux_io_processor;

@@ -88,6 +88,19 @@ For mission-critical industrial applications where Linux kernel scheduling jitte
 * **Lock-Free Concurrency**: Dedicated `etl::queue_spsc_isr<SpiRequest, 16>` ensures strict FIFO hardware serialization with zero mutex locks.
 * **Workstation Fallback**: If `/dev/spidev*` is absent, automatically simulates sensor responses (e.g. ICM-42688 WHO_AM_I = 0x47) for desktop CTest validation.
 
+### `[SPEC-LINUX-SPI-01]` Linux SPI Bridge Request Correlation & Pipelined Completions
+The Linux target `LinuxIoProcessor` bridge SPI path forwards manual SPI transactions received via egress TLPs to `SpiWorker`.
+* **Goal**: Support pipelined and back-to-back asynchronous SPI requests on the Linux SPI bridge without tag corruption, channel mismatch, or buffer clobbering.
+* **Requirement**:
+  - `LinuxIoProcessor` MUST maintain an array of in-flight transaction descriptors (`BridgeSpiSlot`, capacity 16 matching `SpiWorker::RequestQueue`).
+  - Each descriptor holds its own dedicated TX buffer (64B), dedicated RX buffer (64B), request tag, and channel.
+  - The completion callback MUST be bound directly to the descriptor instance via `etl::delegate` so that the completion TLP is constructed with the exact tag, channel, and RX payload corresponding to the request.
+  - If all slots are in use or `SpiWorker`'s queue is full, the request MUST be rejected immediately with `ASP_STATUS_QUEUE_FULL` (`0x04`) rather than overwriting in-flight transactions.
+  - On completion, the descriptor MUST be returned to the pool for reuse.
+* **Verified by**: `host-tests` (`sim/test_io_processor.cpp`), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `targets/linux/src/io_processor.cpp`
+
+
 ### 2.2 I2C Subsystem (`i2c-dev` & `I2cWorker`)
 * **Interface**: Linux kernel `/dev/i2c-X` via `<linux/i2c-dev.h>` and `<linux/i2c.h>`.
 * **Execution**: Dedicated `I2cWorker` background thread.
