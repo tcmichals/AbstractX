@@ -977,4 +977,50 @@ This log chronicles the development, technical decisions, and architecture miles
   - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
   - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 0 untraced hunks.
 
+## [2026-10-17] - SpecTrace Hardware Interconnect & System Config Expansion: Device Tree & YAML Traceability
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `tools/spectrace_matrix.py`, `tools/spectrace_drift.py`, `tools/audit_specs.py`, `tools/run_adversarial_audit.py`, `tools/spectrace.py`
+* **Category**: `process-gap`
+* **Symptoms**:
+  - SpecTrace only scanned C/C++, assembly, SystemVerilog, and Python source files (`CODE_EXTS`).
+  - Device Tree overlays (`.dts`, `.dtsi`, `.dtso`) and system configuration files (`.yaml`, `.yml`, such as `barectf_config.yaml` and `io_processor.yaml`) were completely invisible to SpecTrace scanning.
+  - As a result, critical hardware allocations (e.g. Radxa Cubie A5E RPMsg SRAM DMA pools, Zynq PL UIO/IRQ CSR mappings, and target I/O processor queue configurations) could not be verified or governed under pre-commit change reviews (`--changes --strict`). Changes to device trees or YAML could drift without any requirement check.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - Requirements tracing was initially conceived around executable code and unit test files, overlooking that in embedded and silicon projects, Device Tree nodes and system YAML schemas are real engineering implementations of architectural requirements.
+* **Architectural Lesson**:
+  - Hardware peripheral contracts, pinmux mappings, memory reservations, and trace serialization schemas declared in Device Trees and YAML files must carry `@impl [SPEC-*]` anchors and be subject to the same strict change review gates as C++ or RTL.
+  - Adding multi-format scanner support allows SpecTrace to govern full-stack changes from kernel device trees down to bare-metal firmware and FPGA bitstreams.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**:
+  - `docs/SPECTRACE.md`: Updated `[SPEC-AUDIT-08]` to explicitly mandate that governed source files include Linker Scripts (`.ld`), Device Tree files (`.dts`, `.dtsi`, `.dtso`), and System / Schema YAML configs (`.yaml`, `.yml`).
+  - `targets/esp32p4/SPECIFICATION.md`: Formatted `[SPEC-ESP32P4-TRACE-01]` heading to standard SSOT tag syntax.
+
+### 4. Implementation & Verification
+* **Tool Updates**:
+  - `tools/spectrace_drift.py`: Added `.dts`, `.dtsi`, `.dtso`, `.yaml`, `.yml` to `CODE_EXTS`.
+  - `tools/audit_specs.py`: Added `trace` to `scan_dirs` and expanded `valid_exts` to include `.ld`, `.dts`, `.dtsi`, `.dtso`, `.yaml`, `.yml`.
+  - `tools/run_adversarial_audit.py`: Expanded `AUDIT_SUFFIXES`, `CODE_SUFFIXES`, and `AUDIT_ROOTS` while keeping C++ specific checks (zero-heap, blocking HAL) strictly bound to `C_CPP_SUFFIXES`.
+  - `tools/spectrace.py`: Added `#` comment prefix for YAML and `//` for DTS.
+* **Traceability Tags Added**:
+  - `apps/gps_imu_app/platforms/allwinner_e906/cubie-a5e-abstractx-rpmsg-sram.dtso`: Tagged with `@impl [SPEC-E906-IPC-04] [SPEC-E906-CACHE-02] [SPEC-E906-MEM-01]`.
+  - `apps/gps_imu_app/platforms/allwinner_e906/cubie_a5e_e906_overlay.dtso`: Tagged with `@impl [SPEC-E906-ARCH-02] [SPEC-E906-HAL-01]`.
+  - `hw/zynq7000/buildroot_external/board/zynq/overlays/xilinx/abstractx-uio.dtso`: Tagged with `@impl [SPEC-ZYNQ-02] [SPEC-ZYNQ-03]`.
+  - `hw/zynq7000/buildroot_external/board/zynq/overlays/xilinx/abstractx-trace.dtso`: Tagged with `@impl [SPEC-ZYNQ-05]`.
+  - `targets/pico2w_rp2350/io_processor.yaml`: Tagged with `@impl [SPEC-ARCH-01] [SPEC-ARCH-08] [SPEC-PICO-TRACE-01]`.
+  - `targets/esp32p4/io_processor.yaml`: Tagged with `@impl [SPEC-ARCH-01] [SPEC-ARCH-08] [SPEC-ESP32P4-TRACE-01]`.
+  - `targets/linux/io_processor.yaml`: Tagged with `@impl [SPEC-ARCH-01] [SPEC-LINUX-SPI-01]`.
+* **Test Suite Updates**:
+  - `tests/test_spectrace_matrix.py`: Added `test_device_tree_and_yaml_traceability()` verifying that `.dtso` and `.yaml` files are indexed as implementations, governed under change reviews, and untraced hunks fail under `--strict`.
+* **Verification Gates**:
+  - `tests/test_spectrace_matrix.py` passed cleanly.
+  - 37/37 host ctest passed in Debug (`build_host`), ASan/UBSan (`build_asan`), and TSan (`build_tsan`).
+  - 16/16 Cocotb targets passed (37/37 tests).
+  - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
+  - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 55 governed hunks, 0 untraced hunks.
+
+
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
+# @impl [SPEC-AUDIT-06] [SPEC-AUDIT-08] docs/SPECTRACE.md
 """
 SpecTrace Anti-Drift & Traceability Parity Engine (spectrace_drift.py)
 ====================================================================
@@ -34,7 +35,10 @@ TARGET_PATTERN = re.compile(r"\*\s+\*\*Implementation Target\*\*:\s*`?([^`\n\r]+
 IMPL_PATTERN = re.compile(r"@impl\s+`?\[(SPEC-[A-Z0-9\-]+)\]`?\s*(.*)")
 IGNORED_TAGS = {"SPEC-XXX-YY", "SPEC-X", "SPEC-SAMPLE", "SPEC-TEMPLATE"}
 
-CODE_EXTS = {".hpp", ".cpp", ".h", ".c", ".S", ".ld", ".sv", ".py"}
+CODE_EXTS = {
+    ".hpp", ".cpp", ".h", ".c", ".S", ".ld", ".sv", ".py",
+    ".dts", ".dtsi", ".dtso", ".yaml", ".yml",
+}
 
 
 def get_root_dir() -> Path:

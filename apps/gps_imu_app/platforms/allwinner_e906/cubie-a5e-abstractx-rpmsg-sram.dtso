@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR MIT)
+// @impl [SPEC-E906-IPC-04] [SPEC-E906-CACHE-02] [SPEC-E906-MEM-01] targets/allwinner_e906/SPECIFICATION.md
 /dts-v1/;
 /plugin/;
 /*

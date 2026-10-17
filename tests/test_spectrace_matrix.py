@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
+# @verifies [SPEC-AUDIT-06] [SPEC-AUDIT-07] [SPEC-AUDIT-08] docs/SPECTRACE.md
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
 Tests for tools/spectrace_matrix.py.
-@verifies [SPEC-AUDIT-06] [SPEC-AUDIT-07] [SPEC-AUDIT-08] docs/SPECTRACE.md
 Builds a throwaway git repository with known requirements, skills and code and
 checks the matrix verdicts and the change review. Runs with plain python3 or pytest.
 """
@@ -176,9 +176,48 @@ def test_stale_and_failing_verdicts():
         assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "STALE", "governed code change after test marks requirement STALE"
 
 
+def test_device_tree_and_yaml_traceability():
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        # Add a device tree overlay and a yaml configuration implementing SPEC-FIX-01 and SPEC-FIX-02
+        dt_file = root / "src" / "board.dtso"
+        dt_file.write_text(f"// {IMPL} [SPEC-FIX-01] docs/FIX_SPECIFICATION.md\n/dts-v1/;\n/plugin/;\n")
+        yaml_file = root / "src" / "config.yaml"
+        yaml_file.write_text(f"# {IMPL} [SPEC-FIX-02] docs/FIX_SPECIFICATION.md\nversion: '1.0'\n")
+
+        run(["git", "add", "src/board.dtso", "src/config.yaml"], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "add dt and yaml"], root)
+
+        reqs, skills, _ = sm.build_matrix(root)
+        impl_files_01 = [file for file, _, _ in reqs["SPEC-FIX-01"].impls]
+        impl_files_02 = [file for file, _, _ in reqs["SPEC-FIX-02"].impls]
+        assert "src/board.dtso" in impl_files_01, "device tree overlay is an implementation"
+        assert "src/config.yaml" in impl_files_02, "yaml config is an implementation"
+
+        # Check that changes in .dtso and .yaml are governed by requirements
+        dt_file.write_text(f"// {IMPL} [SPEC-FIX-01] docs/FIX_SPECIFICATION.md\n/dts-v1/;\n/plugin/;\n/* new node */\n")
+        yaml_file.write_text(f"# {IMPL} [SPEC-FIX-02] docs/FIX_SPECIFICATION.md\nversion: '1.0'\nchannels: 4\n")
+
+        rc, out = review(root)
+        assert rc == 0
+        assert "SPEC-FIX-01" in out and "src/board.dtso" in out
+        assert "SPEC-FIX-02" in out and "src/config.yaml" in out
+
+        # Check that an untraced .yaml or .dtso hunk is flagged
+        (root / "src" / "untraced.yaml").write_text("untraced_field: true\n")
+        run(["git", "add", "src/untraced.yaml"], root)
+        out_io = io.StringIO()
+        with contextlib.redirect_stdout(out_io):
+            rc = sm.review_changes(root, "", False, True, staged=True)
+        assert rc == 1 and "[UNTRACED] src/untraced.yaml:1" in out_io.getvalue(), "untraced yaml fails --strict"
+
+
 if __name__ == "__main__":
     test_matrix_verdicts()
     test_change_review_maps_hunks_and_flags_untraced()
     test_stale_and_failing_verdicts()
+    test_device_tree_and_yaml_traceability()
     print("[PASS] spectrace_matrix")
+
 

@@ -2,6 +2,7 @@
 # ==============================================================================
 # AbstractX Target I/O Processor Configuration: Raspberry Pi Pico 2 W (RP2350)
 # ==============================================================================
+# @impl [SPEC-ARCH-01] [SPEC-ARCH-08] [SPEC-PICO-TRACE-01] targets/pico2w_rp2350/SPECIFICATION.md
 version: '1.0'
 
 target:

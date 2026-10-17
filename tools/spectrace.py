@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# @impl [SPEC-AUDIT-05] [SPEC-AUDIT-08] docs/SPECTRACE.md
 """
 SpecTrace Master CLI: Full Round-Trip Synchronization & Verification Engine
 ============================================================================
@@ -77,7 +78,7 @@ def parse_specification(spec_file: Path) -> dict:
 
 def scan_codebase_impls(root_dir: Path) -> dict:
     """Scans all source code for // @impl [SPEC-*] tags."""
-    scan_dirs = ["include", "targets", "apps", "examples", "sim", "rtl", "tools", "bsp", "src"]
+    scan_dirs = ["include", "targets", "apps", "examples", "sim", "rtl", "tools", "bsp", "src", "hw", "trace"]
     code_impls = {}
     impl_regex = re.compile(r"@impl\s+`?\[(SPEC-[A-Z0-9\-]+)\]`?\s*(.*)")
     IGNORED_TAGS = {"SPEC-XXX-YY", "SPEC-X", "SPEC-SAMPLE", "SPEC-TEMPLATE"}
@@ -86,7 +87,7 @@ def scan_codebase_impls(root_dir: Path) -> dict:
         dir_path = root_dir / s_dir
         if not dir_path.exists():
             continue
-        for ext in ["*.hpp", "*.cpp", "*.h", "*.c", "*.S", "*.ld", "*.sv", "*.py"]:
+        for ext in ["*.hpp", "*.cpp", "*.h", "*.c", "*.S", "*.ld", "*.sv", "*.py", "*.dts", "*.dtsi", "*.dtso", "*.yaml", "*.yml"]:
             for f_path in dir_path.rglob(ext):
                 rel_path = f_path.relative_to(root_dir)
                 try:
@@ -197,7 +198,7 @@ def forward_sync_to_code(status: dict, root_dir: Path, apply: bool = False):
             continue
 
         comment_prefix = "//"
-        if target_path.suffix in [".S", ".s", ".py"]:
+        if target_path.suffix in [".S", ".s", ".py", ".yaml", ".yml"]:
             comment_prefix = "#"
         elif target_path.suffix in [".ld"]:
             comment_prefix = "/*"

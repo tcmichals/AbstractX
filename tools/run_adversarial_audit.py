@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
+# @impl [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] docs/SPECTRACE.md
 """
 AbstractX Static Invariant & Specification Auditor (run_adversarial_audit.py)
 =============================================================================
@@ -30,10 +31,16 @@ BLUE = "\033[94m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
 
-# @impl [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] docs/SPECTRACE.md
-AUDIT_SUFFIXES = {".hpp", ".h", ".cpp", ".c", ".S", ".sv", ".md", ".py"}
-CODE_SUFFIXES = {".hpp", ".h", ".cpp", ".c", ".S", ".sv", ".py"}
-AUDIT_ROOTS = ("include", "apps", "targets", "docs", "rtl", "hw", "sim", "examples", "src", "tools")
+AUDIT_SUFFIXES = {
+    ".hpp", ".h", ".cpp", ".c", ".S", ".sv", ".md", ".py",
+    ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml",
+}
+CODE_SUFFIXES = {
+    ".hpp", ".h", ".cpp", ".c", ".S", ".sv", ".py",
+    ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml",
+}
+C_CPP_SUFFIXES = {".hpp", ".h", ".cpp", ".c"}
+AUDIT_ROOTS = ("include", "apps", "targets", "docs", "rtl", "hw", "sim", "examples", "src", "tools", "trace")
 GENERATED_DIRS = {".git", ".venv", "venv", "third_party", "node_modules", "__pycache__", "build", "dist", "out"}
 
 

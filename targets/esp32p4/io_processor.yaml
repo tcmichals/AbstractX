@@ -3,6 +3,7 @@
 # AbstractX Target I/O Processor Configuration: Espressif ESP32-P4
 # Hardware: Waveshare ESP32-P4-WiFi6 (SKU 32021, ESP32-P4NRW32X v3.x)
 # ==============================================================================
+# @impl [SPEC-ARCH-01] [SPEC-ARCH-08] [SPEC-ESP32P4-TRACE-01] targets/esp32p4/SPECIFICATION.md
 version: '1.0'
 
 target:

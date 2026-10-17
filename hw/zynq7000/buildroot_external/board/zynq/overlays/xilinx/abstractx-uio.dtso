@@ -1,5 +1,6 @@
 /dts-v1/;
 /plugin/;
+// @impl [SPEC-ZYNQ-02] [SPEC-ZYNQ-03] hw/zynq7000/SPECIFICATION.md
 
 /* Default AbstractX BRAM FIFO CSR/IRQ contract. */
 

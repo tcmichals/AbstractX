@@ -151,6 +151,13 @@ where its evidence goes. SpecTrace connects them: requirement → code
   requirement that governs it: the nearest `@impl` tag at or above the hunk, up
   to the next tag. Hunks with no governing tag are reported **UNTRACED**: new
   behaviour needs a requirement before it is accepted.
+* **Requirement**: Governed source files include C/C++ (`.hpp`, `.cpp`, `.h`, `.c`),
+  Assembly (`.S`), SystemVerilog (`.sv`), Python (`.py`), Linker Scripts (`.ld`),
+  Device Tree sources and overlays (`.dts`, `.dtsi`, `.dtso`), and System /
+  Schema YAML configurations (`.yaml`, `.yml`). Hardware peripheral contracts,
+  memory node allocations, and pinmux configurations declared in device trees and
+  system configs MUST carry `@impl [SPEC-*]` anchors and are subject to pre-commit
+  change review gating.
 * **Requirement**: tests carry `@verifies [SPEC-*]` instead of `@impl`: a changed
   test maps to the requirements it verifies, but a test never counts as an
   implementation in the matrix.

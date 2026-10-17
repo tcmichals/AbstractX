@@ -2,6 +2,7 @@
 # ==============================================================================
 # AbstractX Target I/O Processor Configuration: Linux Host / SITL / Cubie A5E
 # ==============================================================================
+# @impl [SPEC-ARCH-01] [SPEC-LINUX-SPI-01] targets/linux/SPECIFICATION.md
 version: '1.0'
 
 target:

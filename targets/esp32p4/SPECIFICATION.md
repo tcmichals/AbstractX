@@ -149,16 +149,17 @@ When implementing HAL drivers under `targets/esp32p4/src/`, AI agents must use s
 ### 3.5 Inter-Core Doorbell
 * **Header**: `#include "esp_ipc.h"` or FreeRTOS task notification across pinned cores (`xTaskNotifyFromISR`).
 
-### 3.6 Zero-Copy Trace & Telemetry over UDP `[SPEC-ESP32P4-TRACE-01]`
-The ESP32-P4 side of `[SPEC-TRACE-07]` (`docs/DESIGN_SPECIFICATION.md`), using the
-ESP-IDF lwIP raw API exactly as `[SPEC-PICO-TRACE-01]`:
-* **acquire**: `pbuf_alloc(PBUF_TRANSPORT, max_bytes, PBUF_POOL)`; the payload
-  must be one contiguous pbuf (`CONFIG_LWIP_PBUF_POOL_BUFSIZE` / IDF defaults
-  sized for one packet plus headers).
-* **commit**: `pbuf_realloc`, `udp_sendto` to port 9870, `pbuf_free`, called
-  inside the lwIP TCP/IP context (`tcpip_callback` or `LOCK_TCPIP_CORE()`), since
-  ESP-IDF runs lwIP in its own task.
-* **No copies, no heap**: no `PBUF_RAM`, no BSD `sendto()` (it copies).
+### `[SPEC-ESP32P4-TRACE-01]` Zero-Copy Trace & Telemetry over UDP
+* **Requirement**: The ESP32-P4 side of `[SPEC-TRACE-07]` (`docs/DESIGN_SPECIFICATION.md`), using the
+  ESP-IDF lwIP raw API exactly as `[SPEC-PICO-TRACE-01]`:
+  * **acquire**: `pbuf_alloc(PBUF_TRANSPORT, max_bytes, PBUF_POOL)`; the payload
+    must be one contiguous pbuf (`CONFIG_LWIP_PBUF_POOL_BUFSIZE` / IDF defaults
+    sized for one packet plus headers).
+  * **commit**: `pbuf_realloc`, `udp_sendto` to port 9870, `pbuf_free`, called
+    inside the lwIP TCP/IP context (`tcpip_callback` or `LOCK_TCPIP_CORE()`), since
+    ESP-IDF runs lwIP in its own task.
+  * **No copies, no heap**: no `PBUF_RAM`, no BSD `sendto()` (it copies).
+* **Verified by**: `memory-footprint`
 * **Status**: the ESP32-P4 target is currently a stub (no io_processor or
   platform layer); this section defines the transport it must implement.
 

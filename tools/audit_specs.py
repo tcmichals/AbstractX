@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# @impl [SPEC-AUDIT-07] [SPEC-AUDIT-08] docs/SPECTRACE.md
 """
 AbstractX Design Specification & Implementation Traceability Auditor
 ---------------------------------------------------------------------
@@ -41,8 +42,11 @@ def run_traceability_audit(spec_file=None, root_dir=None):
                 }
 
     # 2. Scan codebase for @impl tags
-    scan_dirs = ["include", "targets", "apps", "examples", "sim", "tools", "rtl", "hw"]
-    valid_exts = {".hpp", ".cpp", ".h", ".c", ".S", ".sv", ".py", ".xdc"}
+    scan_dirs = ["include", "targets", "apps", "examples", "sim", "tools", "rtl", "hw", "trace"]
+    valid_exts = {
+        ".hpp", ".cpp", ".h", ".c", ".S", ".sv", ".py", ".xdc",
+        ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml",
+    }
     skip_dirs = {"build", "bld", ".git", "dl", "venv", ".system_generated"}
 
     for s_dir in scan_dirs:

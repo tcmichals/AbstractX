@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+// @impl [SPEC-E906-ARCH-02] [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 /*
  * Copyright (C) 2026 Tim Michals
  *

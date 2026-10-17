@@ -1,5 +1,6 @@
 /dts-v1/;
 /plugin/;
+// @impl [SPEC-ZYNQ-05] hw/zynq7000/SPECIFICATION.md
 
 /* Trace metadata overlay. Requires abstractx-uio.dtbo first. */
 / {
