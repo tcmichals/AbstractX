@@ -185,6 +185,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   3. `commit(span, used_bytes)` → the transport sends exactly that memory (no copy) and takes ownership until the hardware or remote side releases it.
   4. If `acquire` returns empty, events are counted as discarded (`CtfPacketHeader::events_discarded`) and the engine retries `acquire` on the next event or flush. It never blocks and never overwrites a committed buffer.
 * **Packet size** is the transport's buffer capacity, reported by the transport (for example 496 B of RPMsg payload on the E906); `BufferProfile` (`[SPEC-TRACE-06]`) applies only to the static-pool transport.
+* **Static Pool Elision on Zero-Copy Platforms**: When the platform provides a native zero-copy transport (`hal::platform_trace_transport() != nullptr`, e.g. E906 RPMsg in on-chip SRAM `[SPEC-E906-IPC-04]` or Pico 2 W `PBUF_POOL` `[SPEC-PICO-TRACE-01]`), the trace engine (`g_tracer`) MUST NOT allocate the fallback static pool (`StaticPoolTraceTransport`). The static pool is only allocated when the platform has no transport of its own (`ABSTRACTX_STATIC_TRACE_PACKETS > 0`, default 2 on Linux/SITL).
 * **Per-target transport**:
 
   | Target | Packet buffer comes from | `commit` does | Copies on the device |

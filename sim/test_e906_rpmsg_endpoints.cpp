@@ -1,3 +1,4 @@
+// @verifies [SPEC-E906-IPC-04] [SPEC-TRACE-07]
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -122,7 +123,7 @@ int main() {
     hal::RpmsgTraceTransport trace(rpmsg);
     tlp.attach();
     trace.attach();
-    abstractx::trace::CtfTraceEngine<1024, 2> engine;
+    abstractx::trace::CtfTraceEngine<1024, 0> engine;
     engine.set_transport(&trace);
     abstractx::SpscTlpRing<64> ingress;
     tlp.set_ingress_ring(&ingress);

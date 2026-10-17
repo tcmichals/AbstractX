@@ -22,8 +22,8 @@ static size_t g_high_water_after_warmup = 0;
 static size_t g_high_water_after_steady = 0;
 
 static Task<void> run_measured_app(int steady_steps) {
-    // 1. Run app_main boot and 100 warmup steps to allow multi-rate sensors to cycle
-    co_await app_main(100);
+    // 1. Run app_main boot and 1100 warmup steps to allow multi-rate sensors (including 1000ms monitor) to cycle
+    co_await app_main(1100);
     g_high_water_after_warmup = coro_pool_high_water();
 
     // 2. Run 1000 steady-state steps (AGENTS.md Section 10.5 rule)

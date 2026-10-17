@@ -626,3 +626,41 @@ This log chronicles the development, technical decisions, and architecture miles
   - LTO: text 56,878 B, data 336 B, bss 53,928 B, total RAM 111,142 B.
 * Fixed TSan data race with `InterruptGuard` in `AsyncDriverBase::set_hardware_idle_from_isr` and implemented atomic shutdown/join tracking in `LinuxTimerDriver`. All 34 host tests pass in Debug, ASan/UBSan, and TSan suites.
 
+## [2026-10-16] - Elided static trace pool allocation when a zero-copy transport is used
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/abstractx/trace/tracer.hpp`, `targets/allwinner_e906/CMakeLists.txt`, `targets/allwinner_e906/SPECIFICATION.md`
+* **Category**: `product-bug`
+* **Symptoms**:
+  - On the Allwinner XuanTie E906 (and any zero-copy platform), `g_tracer` allocated a 2,048 B fallback `StaticPoolTraceTransport` in `.bss` inside `SRAM_FAST` (total `g_tracer` size 2,104 B).
+  - Because `runtime.cpp` and `platform.cpp` bind a zero-copy transport (`RpmsgTraceTransport` writing directly into host RPMsg buffers in SRAM Space 1, `[SPEC-E906-IPC-04]`), this 2 KB static pool was never used, wasting precious SRAM in the 192 KB `SRAM_FAST` window.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: `CtfTraceEngine` originally embedded `StaticPoolTraceTransport<PacketSize, NumPackets> pool_{}` as a private member to provide a default fallback transport for host builds and tests. On platforms with a native zero-copy transport, this fallback storage was retained even though `g_tracer.set_transport()` immediately rebound the engine to the native transport.
+* **Architectural Lesson**: Decouple static buffer storage from the serialization engine. Use template specialization / empty base class (`TracePoolStorage<PacketSize, NumPackets>`) so that when `NumPackets == 0`, zero bytes are allocated in `.bss` and `g_tracer` occupies only its pointer and offset control fields (~32 bytes).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `docs/DESIGN_SPECIFICATION.md` (`SPEC-TRACE-07`), `targets/allwinner_e906/SPECIFICATION.md` (`SPEC-E906-MEM-01`, `SPEC-E906-IPC-04`)
+* **Requirement Tags Added/Updated**:
+  - `[SPEC-TRACE-07]`: Added explicit mandate that when a platform provides a native zero-copy transport (`hal::platform_trace_transport() != nullptr`), `g_tracer` MUST NOT allocate the fallback static pool (`StaticPoolTraceTransport`).
+  - `[SPEC-E906-MEM-01]`, `[SPEC-E906-IPC-04]`: Added zero-copy trace pool elision requirement (`ABSTRACTX_STATIC_TRACE_PACKETS = 0`), freeing 2,112 B of SRAM Space 0 `.bss`.
+
+### 4. Implementation & Verification
+* Created `TracePoolStorage` helper in `include/abstractx/trace/tracer.hpp`. For `NumPackets == 0`, the struct is empty (zero bytes overhead). `CtfTraceEngine` inherits privately from `TracePoolStorage`.
+* Defaulted `ABSTRACTX_STATIC_TRACE_PACKETS` to 0 on E906 (`CONFIG_RPROC_RPMSG` / `TARGET_ALLWINNER_E906`) and 2 on host/SITL.
+* Configured `ABSTRACTX_STATIC_TRACE_PACKETS=0` in `targets/allwinner_e906/CMakeLists.txt`.
+* Sized E906 binaries with `trac.py size --record`:
+  - Release: text 52,600 B (-576 B), data 332 B, bss 50,752 B (-2,112 B), total RAM 103,684 B (-2,688 B).
+  - Debug: text 39,230 B (-224 B), data 332 B, bss 50,752 B (-2,112 B), total RAM 90,314 B (-2,336 B).
+  - LTO: text 59,438 B, data 336 B, bss 51,880 B (-2,048 B), total RAM 111,654 B.
+  - Verified symbol `abstractx::trace::g_tracer` size dropped from 2,104 B (`0x838`) to 32 B (`0x20`).
+* Extended `sim/test_trace_zero_copy.cpp` with `test_zero_copy_engine_allocates_no_static_pool` asserting `sizeof(CtfTraceEngine<1024, 0>) <= 64`, zero static pool overhead, and verifying in-place recording and commit.
+* Updated `sim/test_e906_rpmsg_endpoints.cpp` to use `CtfTraceEngine<1024, 0>`.
+* Fixed `test_gps_imu_coro_pool.cpp` warmup step count (from 100 to 1,100 steps) so that the 1,000 ms `flight_monitor_task` timer fires during warmup, proving strictly non-growing steady-state coroutine pool usage (3,520 B in ASan, 3,136 B in Release).
+* Verification gates:
+  - 34/34 Host tests passed in Debug, ASan/UBSan, and TSan.
+  - 16/16 Cocotb targets passed.
+  - 100% `audit_specs.py` traceability.
+  - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
+
+

@@ -37,18 +37,21 @@ target_link_libraries(abstractx_target_e906 PUBLIC
 set(E906_LDSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bsp/e906_ddr.ld" CACHE FILEPATH "E906 Linker Script")
 # Coroutine frame pool: right-sized for E906 from measured gps_imu_app high-water mark
 # (3,136 B + 25% headroom = 3,920 B -> 4,096 B / 4 KB) [SPEC-ARCH-02] [SPEC-E906-MEM-01]
-# @impl [SPEC-E906-MEM-01] targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
+# Zero-copy RPMsg trace pool elision: 0 static fallback buffers [SPEC-TRACE-07] [SPEC-E906-IPC-04]
+# @impl [SPEC-E906-MEM-01] [SPEC-E906-IPC-04] [SPEC-TRACE-07] targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
 if(NOT DEFINED ABSTRACTX_CORO_POOL_SIZE)
     set(ABSTRACTX_CORO_POOL_SIZE 4096)
 endif()
 target_compile_definitions(abstractx_core PUBLIC
     ABSTRACTX_CORO_POOL_SIZE=${ABSTRACTX_CORO_POOL_SIZE}
+    ABSTRACTX_STATIC_TRACE_PACKETS=0
 )
 target_compile_definitions(abstractx_target_e906 PUBLIC
     TARGET_ALLWINNER_E906=1
     ETL_NO_CHECKS=1
     CONFIG_RPROC_RPMSG=1
     ABSTRACTX_CORO_POOL_SIZE=${ABSTRACTX_CORO_POOL_SIZE}
+    ABSTRACTX_STATIC_TRACE_PACKETS=0
 )
 
 # Backward compatibility alias

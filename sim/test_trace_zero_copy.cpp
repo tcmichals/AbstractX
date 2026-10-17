@@ -171,6 +171,39 @@ void test_static_pool_keeps_callback_api() {
     std::cout << "  -> static-pool transport keeps the flush-callback API and ping-pong swap\n";
 }
 
+// @verifies [SPEC-TRACE-07]
+void test_zero_copy_engine_allocates_no_static_pool() {
+    // A zero-copy engine must not allocate static packet buffers in .bss
+    static_assert(sizeof(CtfTraceEngine<1024, 0>) <= 64, "Zero-copy trace engine must not embed a static pool");
+    static_assert(CtfTraceEngine<1024, 0>::NUM_PACKETS == 0);
+    static_assert(CtfTraceEngine<1024, 0>::TOTAL_CAPACITY_BYTES == 0);
+    static_assert(!CtfTraceEngine<1024, 0>::is_ping_pong());
+
+    CtfTraceEngine<1024, 0> eng;
+    assert(eng.get_active_fill_idx() == 0);
+    assert(eng.get_ready_transmit_idx() == 0);
+
+    // Without a transport, events are discarded safely without crashing
+    eng.trace_imu(1, 1, 2, 3, 4, 5, 6, 2500, 100);
+    assert(eng.get_discarded_count() == 1);
+
+    // When bound to a zero-copy transport, events write in place and commit
+    RecordingTransport t;
+    eng.set_transport(&t);
+    eng.trace_imu(2, 10, 20, 30, 40, 50, 60, 2500, 200);
+    eng.flush(300);
+
+    assert(t.commits == 1);
+    assert(t.committed_ptr[0] == t.last_acquired);
+    assert(t.committed_len[0] == kHdr + sizeof(ImuSamplePayload));
+
+    const CtfPacketHeader h = read_header(t.committed_ptr[0]);
+    assert(h.magic == CTF_MAGIC);
+    assert(h.content_size_bits == t.committed_len[0] * 8);
+    assert(h.timestamp_begin_us == 200 && h.timestamp_end_us == 300);
+    std::cout << "  -> CtfTraceEngine<1024, 0> embeds zero static pool and operates zero-copy\n";
+}
+
 } // namespace
 
 int main() {
@@ -181,6 +214,7 @@ int main() {
     test_misaligned_transport_buffer();
     test_switching_transport_flushes_pending_packet();
     test_static_pool_keeps_callback_api();
+    test_zero_copy_engine_allocates_no_static_pool();
     std::cout << "[PASS] zero-copy trace transport\n";
     return 0;
 }

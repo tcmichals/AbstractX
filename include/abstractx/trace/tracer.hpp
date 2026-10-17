@@ -225,12 +225,47 @@ private:
     void*              context_{nullptr};
 };
 
+// Default number of packets allocated in the fallback static pool.
+// On targets providing a native zero-copy transport (e.g. E906 RPMsg in SRAM,
+// [SPEC-TRACE-07], [SPEC-E906-IPC-04]), this defaults to 0 to prevent allocating
+// unused ping-pong buffers in .bss.
+#ifndef ABSTRACTX_STATIC_TRACE_PACKETS
+#if defined(CONFIG_RPROC_RPMSG) || defined(TARGET_ALLWINNER_E906)
+#define ABSTRACTX_STATIC_TRACE_PACKETS 0
+#else
+#define ABSTRACTX_STATIC_TRACE_PACKETS 2
+#endif
+#endif
+
+// Internal storage helper for CtfTraceEngine.
+// When NumPackets > 0, embeds a StaticPoolTraceTransport.
+// When NumPackets == 0, allocates zero bytes and provides empty/null fallbacks.
+// @impl [SPEC-TRACE-06] [SPEC-TRACE-07] docs/DESIGN_SPECIFICATION.md#spec-trace-07
+template <size_t PacketSize, size_t NumPackets>
+struct TracePoolStorage {
+    StaticPoolTraceTransport<PacketSize, NumPackets> pool_{};
+    size_t pool_next_index() const noexcept { return pool_.next_index(); }
+    void pool_reset() noexcept { pool_.reset(); }
+    void pool_set_flush_handler(TracePacketFlushFn flush_fn, void* context) noexcept {
+        pool_.set_flush_handler(flush_fn, context);
+    }
+    ITraceTransport* pool_transport() noexcept { return &pool_; }
+};
+
+template <size_t PacketSize>
+struct TracePoolStorage<PacketSize, 0> {
+    size_t pool_next_index() const noexcept { return 0; }
+    void pool_reset() noexcept {}
+    void pool_set_flush_handler(TracePacketFlushFn, void*) noexcept {}
+    ITraceTransport* pool_transport() noexcept { return nullptr; }
+};
+
 // Events are constructed directly in the transport's buffer (emplace), so a
 // traced sample is written once, where it will be sent.
 // @impl [SPEC-TRACE-01] [SPEC-TRACE-02] [SPEC-TRACE-06] [SPEC-TRACE-07] docs/DESIGN_SPECIFICATION.md#spec-trace-07
 // @status Complete
-template <size_t PacketSize = 1024, size_t NumPackets = 2>
-class CtfTraceEngine {
+template <size_t PacketSize = 1024, size_t NumPackets = ABSTRACTX_STATIC_TRACE_PACKETS>
+class CtfTraceEngine : private TracePoolStorage<PacketSize, NumPackets> {
 public:
     static constexpr size_t PACKET_SIZE = PacketSize;
     static constexpr size_t NUM_PACKETS = NumPackets;
@@ -238,9 +273,13 @@ public:
 
     static constexpr bool is_ping_pong() noexcept { return NumPackets == 2; }
     // Static-pool buffer the next packet will be written into.
-    size_t get_active_fill_idx() const noexcept { return pool_.next_index(); }
+    size_t get_active_fill_idx() const noexcept { return this->pool_next_index(); }
     size_t get_ready_transmit_idx() const noexcept {
-        return (pool_.next_index() + NumPackets - 1) % NumPackets;
+        if constexpr (NumPackets == 0) {
+            return 0;
+        } else {
+            return (this->pool_next_index() + NumPackets - 1) % NumPackets;
+        }
     }
     size_t get_current_offset() const noexcept {
         return buf_.empty() ? sizeof(CtfPacketHeader) : offset_;
@@ -251,9 +290,9 @@ public:
     }
 
     void init(TracePacketFlushFn flush_fn = nullptr, void* context = nullptr) noexcept {
-        pool_.set_flush_handler(flush_fn, context);
-        pool_.reset();
-        transport_ = &pool_;
+        this->pool_set_flush_handler(flush_fn, context);
+        this->pool_reset();
+        transport_ = this->pool_transport();
         buf_ = {};
         offset_ = 0;
         discarded_count_ = 0;
@@ -262,15 +301,15 @@ public:
     // Send packets to a callback through the built-in static pool.
     void set_flush_handler(TracePacketFlushFn flush_fn, void* context) noexcept {
         flush(last_event_us_);
-        pool_.set_flush_handler(flush_fn, context);
-        transport_ = &pool_;
+        this->pool_set_flush_handler(flush_fn, context);
+        transport_ = this->pool_transport();
     }
 
     // Write packets directly into a zero-copy transport's buffers
-    // (nullptr returns to the static pool).
+    // (nullptr returns to the static pool if available).
     void set_transport(ITraceTransport* transport) noexcept {
         flush(last_event_us_);
-        transport_ = transport ? transport : &pool_;
+        transport_ = transport ? transport : this->pool_transport();
     }
 
     // Trace Coroutine Lifecycle Event (legacy, no name/token)
@@ -465,6 +504,9 @@ private:
     }
 
     bool open_packet(uint64_t now_us) noexcept {
+        if (!transport_) {
+            return false;
+        }
         std::span<uint8_t> buf = transport_->acquire(PacketSize);
         if (buf.size() < sizeof(CtfPacketHeaderWire)) {
             return false;
@@ -481,6 +523,9 @@ private:
     }
 
     void commit_packet(uint64_t now_us) noexcept {
+        if (!transport_ || buf_.empty()) {
+            return;
+        }
         auto* hdr = reinterpret_cast<CtfPacketHeaderWire*>(buf_.data());
         hdr->content_size_bits = static_cast<uint32_t>(offset_ * 8);
         hdr->timestamp_end_us  = now_us;
@@ -492,16 +537,18 @@ private:
         transport_->commit(buf, used);
     }
 
-    StaticPoolTraceTransport<PacketSize, NumPackets> pool_{};
-    ITraceTransport*   transport_{&pool_};
+    ITraceTransport*   transport_{nullptr};
     std::span<uint8_t> buf_{};
     size_t             offset_{0};
     uint32_t           discarded_count_{0};
     uint64_t           last_event_us_{0};
 };
 
-// Global default tracer instance: 1024-byte ping-pong buffer (2 x 1024 B = 2 KB total)
-inline CtfTraceEngine<1024, 2> g_tracer;
+// Global default tracer instance:
+// When ABSTRACTX_STATIC_TRACE_PACKETS > 0 (host/SITL), embeds a ping-pong static pool (2 x 1024 B).
+// When ABSTRACTX_STATIC_TRACE_PACKETS == 0 (e.g. E906 zero-copy), no static pool is allocated.
+// @impl [SPEC-TRACE-06] [SPEC-TRACE-07] docs/DESIGN_SPECIFICATION.md#spec-trace-07
+inline CtfTraceEngine<1024, ABSTRACTX_STATIC_TRACE_PACKETS> g_tracer;
 
 } // namespace abstractx::trace
 

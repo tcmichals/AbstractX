@@ -75,6 +75,11 @@ sequenceDiagram
   measured high-water mark of the multi-rate `gps_imu_app` task set (3,136 B
   measured + 25% headroom = 3,920 B, rounded to 4,096 B / +30.6% headroom),
   freeing 56 KB of SRAM Space 0 compared to the 60 KB default.
+* **Zero-Copy Trace Pool Elision**: Because the E906 provides a native zero-copy
+  RPMsg trace transport (`RpmsgTraceTransport`, `[SPEC-E906-IPC-04]`, `[SPEC-TRACE-07]`)
+  writing directly into host RPMsg buffers in SRAM Space 1, the fallback static trace buffer
+  pool is completely elided (`ABSTRACTX_STATIC_TRACE_PACKETS = 0`), freeing 2,112 B
+  of SRAM Space 0 `.bss` (from 52,864 B down to 50,752 B; `g_tracer` dropped from 2,104 B to 32 B).
 * **Enforcement**: every E906 firmware target runs `tools/check_e906_layout.py`
   after linking; the build fails if a loadable segment is outside Space 0 (below
   the shared tail), the lower half of Space 1, or the DRAM carveout.
@@ -189,6 +194,10 @@ sequenceDiagram
   used-ring update plus a message box kick. No memcpy on the E906, no DRAM, no
   cache maintenance (`[SPEC-E906-CACHE-02]`). Replaces the old write to fixed
   `0x07131000`, which is outside both SRAM windows and overwrote itself.
+* **Zero Static Buffer Overhead**: Because the RPMsg transport supplies DMA buffers
+  directly to the trace engine (`[SPEC-TRACE-07]`), `g_tracer` configures
+  `ABSTRACTX_STATIC_TRACE_PACKETS = 0`, ensuring that no unused static ping-pong
+  buffers are allocated in SRAM `.bss`.
 * **Memory**: the upper half of SRAM Space 1, core `0x40020000`–`0x4003FFFF`
   = host `0x072E0000`–`0x072FFFFF` (128 KB), is the Linux remoteproc DMA pool
   (`shared-dma-pool`, `no-map`) from an AbstractX device-tree overlay derived from
