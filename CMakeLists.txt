@@ -21,6 +21,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(CMAKE_CROSSCOMPILING)
+    add_compile_options(
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-threadsafe-statics>
+        $<$<COMPILE_LANGUAGE:CXX>:-fno-use-cxa-atexit>
+    )
+endif()
+
 if(ABSTRACTX_TARGET STREQUAL "e907")
     message(DEPRECATION "ABSTRACTX_TARGET=e907 is a legacy alias; use e906")
     set(ABSTRACTX_TARGET "e906")

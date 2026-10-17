@@ -697,4 +697,42 @@ This log chronicles the development, technical decisions, and architecture miles
   - 100% `audit_specs.py` traceability.
   - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
 
+## [2026-10-17] - Pico 2 W Zero-Copy lwIP UDP Trace Transport & Unwind Symbol Elimination (-47.6 KB Flash)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/pico2w_rp2350/SPECIFICATION.md`, `targets/pico2w_rp2350/include/hal/pico_trace_transport.hpp`, `targets/pico2w_rp2350/src/hal_platform.cpp`, `cmake/toolchain-pico2w.cmake`, `cmake/toolchains/arm-none-eabi.cmake`
+* **Category**: `product-bug` / `hardware-fact`
+* **Symptoms**:
+  - Pico 2 W bare-metal `gps_imu_app.elf` contained ~55 `_Unwind_*` symbols in its symbol table despite compiling with `-fno-exceptions` and `-fno-rtti`, bloating the text section by ~47 KB.
+  - `platform_send_telemetry()` called `pbuf_alloc(..., PBUF_RAM)` which allocated dynamically from the lwIP heap (`MEM_SIZE`) and copied packet data via `memcpy`, violating zero-copy data plane invariants (`[SPEC-ARCH-08]`).
+  - Fallback static trace pool allocated 1,024 B in `.bss` on Pico 2 W even though native zero-copy network transport was intended.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - In GCC on ARM Cortex-M/Thumb, function-local static variables emit calls to `__cxa_guard_acquire` / `__cxa_guard_release` for thread-safe initialization. In `libstdc++.a`, `guard.o` contains exception handling calls (`recursive_init_error`, `__cxa_throw`), which recursively drags in `eh_arm.o`, `vterminate.o`, the C++ demangler, and `libgcc.a(unwind-arm.o)`.
+  - Adding `-fno-threadsafe-statics` and `-fno-use-cxa-atexit` to bare-metal cross-compilation flags (`CMakeLists.txt`, `cmake/toolchains/arm-none-eabi.cmake`, and `cmake/toolchain-pico2w.cmake`) prevents GCC from generating calls to `__cxa_guard_*`, completely eliminating all 55 unwind symbols and 47.6 KB of text overhead.
+  - lwIP provides static memory pool buffers (`PBUF_POOL`) sized at `PBUF_POOL_BUFSIZE` (~1.5 KB). Implementing `ITraceTransport` directly over `PBUF_POOL` allows the CTF trace engine to format packets directly inside the lwIP pbuf payload in place. `pbuf_realloc` shrinks the buffer to the exact serialized size before calling `udp_sendto`, achieving 0 memcpy and 0 dynamic heap usage. Chained pbufs are rejected to guarantee a single contiguous datagram.
+  - Setting `ABSTRACTX_STATIC_TRACE_PACKETS=0` on Pico 2 W elides the static ping-pong buffers (`[SPEC-TRACE-07]`), saving 1,024 B in `.bss`.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/pico2w_rp2350/SPECIFICATION.md` (`[SPEC-PICO-TRACE-01]`), `docs/DESIGN_SPECIFICATION.md` (`[SPEC-TRACE-07]`, `[SPEC-ARCH-08]`)
+* **Requirement Tags Added/Updated**:
+  - `[SPEC-PICO-TRACE-01]`: Added formal requirement for Pico 2 W zero-copy lwIP UDP trace transport over `PBUF_POOL` (0 memcpy, 0 heap, single pbuf contiguous payload, non-blocking on pool exhaustion).
+  - Linked `[SPEC-TRACE-07]` and `[SPEC-ARCH-08]` to `PicoUdpTraceTransport` and `platform_trace_transport()`.
+
+### 4. Implementation & Verification
+* Implemented `PicoUdpTraceTransport` in `targets/pico2w_rp2350/include/hal/pico_trace_transport.hpp`.
+* Updated `targets/pico2w_rp2350/src/hal_platform.cpp` to initialize and return `&g_pico_trace_transport` and replaced `PBUF_RAM` in `platform_send_telemetry()` with `PBUF_POOL`.
+* Added `-fno-threadsafe-statics` and `-fno-use-cxa-atexit` to ARM bare-metal toolchain and target flags.
+* Added host unit test in `sim/test_pico_zero_copy_trace.cpp` and registered in `sim/CMakeLists.txt`.
+* Sized Pico 2 W binaries with `trac.py size --elf pico2w=... --record` into `docs/verification/evidence/2026-10/hp.jsonl`:
+  - Text: 365,920 B (dropped by 47,632 B from 413,552 B).
+  - BSS: 141,852 B (dropped by 1,024 B).
+  - Verified symbol table has exactly 0 `_Unwind_*` symbols remaining.
+* Verification gates:
+  - 35/35 Host tests passed in Debug, ASan/UBSan, and TSan.
+  - 16/16 Cocotb targets passed.
+  - 100% `audit_specs.py` traceability.
+  - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
+
 

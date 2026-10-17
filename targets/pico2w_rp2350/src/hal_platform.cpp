@@ -10,6 +10,8 @@
 
 #include "abstractx/hal/platform.hpp"
 #include "abstractx_pico.hpp"
+// @impl [SPEC-PICO-TRACE-01] targets/pico2w_rp2350/SPECIFICATION.md
+#include "hal/pico_trace_transport.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
@@ -86,27 +88,44 @@ void platform_poll_network() noexcept {
 #include "lwip/udp.h"
 #include "lwip/pbuf.h"
 
+// @impl [SPEC-PICO-TRACE-01] targets/pico2w_rp2350/SPECIFICATION.md
 static struct udp_pcb *g_pico_udp_pcb = nullptr;
 static ip_addr_t g_pico_dest_ip{};
 static bool g_pico_udp_ready = false;
+static PicoUdpTraceTransport g_pico_trace_transport;
 #endif
 
-// TODO [SPEC-PICO-TRACE-01]: return the PBUF_POOL transport.
+// Zero-copy UDP trace transport over lwIP PBUF_POOL
+// @impl [SPEC-PICO-TRACE-01] [SPEC-TRACE-07] targets/pico2w_rp2350/SPECIFICATION.md#37-zero-copy-trace--telemetry-over-udp-spec-pico-trace-01
 trace::ITraceTransport* platform_trace_transport() noexcept {
+#ifdef PICO_ON_DEVICE
+    if (!g_pico_udp_ready) {
+        g_pico_udp_pcb = udp_new();
+        ip4addr_aton("255.255.255.255", &g_pico_dest_ip);
+        g_pico_trace_transport.init(g_pico_udp_pcb, g_pico_dest_ip, 9870);
+        g_pico_udp_ready = true;
+    }
+    return &g_pico_trace_transport;
+#else
     return nullptr;
+#endif
 }
 
+// Emits telemetry packets using static memp PBUF_POOL (0 B heap, no PBUF_RAM)
+// @impl [SPEC-PICO-TRACE-01] [SPEC-ARCH-08] targets/pico2w_rp2350/SPECIFICATION.md#37-zero-copy-trace--telemetry-over-udp-spec-pico-trace-01
 void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
 #ifdef PICO_ON_DEVICE
     if (!g_pico_udp_ready) {
         g_pico_udp_pcb = udp_new();
         ip4addr_aton("255.255.255.255", &g_pico_dest_ip);
+        g_pico_trace_transport.init(g_pico_udp_pcb, g_pico_dest_ip, 9870);
         g_pico_udp_ready = true;
     }
     if (g_pico_udp_pcb && data && len > 0) {
-        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, len, PBUF_RAM);
+        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, static_cast<uint16_t>(len), PBUF_POOL);
         if (p) {
             std::memcpy(p->payload, data, len);
+            pbuf_realloc(p, static_cast<uint16_t>(len));
             udp_sendto(g_pico_udp_pcb, p, &g_pico_dest_ip, 9870);
             pbuf_free(p);
         }

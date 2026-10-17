@@ -32,6 +32,16 @@ target_compile_definitions(test_e906_rpmsg_trace PRIVATE CONFIG_RPROC_RPMSG=1)
 target_link_libraries(test_e906_rpmsg_trace PRIVATE abstractx_core)
 add_test(NAME sim_test_e906_rpmsg_trace COMMAND test_e906_rpmsg_trace)
 
+# Pico 2 W zero-copy lwIP PBUF_POOL trace transport, run on host with mock lwIP pbufs ([SPEC-PICO-TRACE-01])
+set(PICO_DIR ${PROJECT_SOURCE_DIR}/targets/pico2w_rp2350)
+add_executable(test_pico_zero_copy_trace
+    test_pico_zero_copy_trace.cpp
+)
+target_include_directories(test_pico_zero_copy_trace PRIVATE ${PICO_DIR}/include)
+target_link_libraries(test_pico_zero_copy_trace PRIVATE abstractx_core)
+add_test(NAME sim_test_pico_zero_copy_trace COMMAND test_pico_zero_copy_trace)
+
+
 
 # Common macro to generate a test target for a specific module
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)

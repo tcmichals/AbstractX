@@ -230,7 +230,7 @@ private:
 // [SPEC-TRACE-07], [SPEC-E906-IPC-04]), this defaults to 0 to prevent allocating
 // unused ping-pong buffers in .bss.
 #ifndef ABSTRACTX_STATIC_TRACE_PACKETS
-#if defined(CONFIG_RPROC_RPMSG) || defined(TARGET_ALLWINNER_E906)
+#if defined(CONFIG_RPROC_RPMSG) || defined(TARGET_ALLWINNER_E906) || defined(TARGET_PICO2W_RP2350)
 #define ABSTRACTX_STATIC_TRACE_PACKETS 0
 #else
 #define ABSTRACTX_STATIC_TRACE_PACKETS 2

@@ -40,8 +40,12 @@ if(COMMAND pico_sdk_init)
         hardware_sync
     )
 
+    target_compile_definitions(abstractx_core PUBLIC
+        ABSTRACTX_STATIC_TRACE_PACKETS=0
+    )
     target_compile_definitions(abstractx_target_pico2w PUBLIC
         TARGET_PICO2W_RP2350=1
+        ABSTRACTX_STATIC_TRACE_PACKETS=0
     )
 
     if(DEFINED WIFI_SSID)

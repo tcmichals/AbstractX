@@ -28,7 +28,7 @@ set(CMAKE_SIZE         "${TOOLCHAIN_PREFIX}size"    CACHE FILEPATH "size")
 
 set(ARM_ARCH_FLAGS "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mcmse")
 set(CMAKE_C_FLAGS_INIT   "${ARM_ARCH_FLAGS}")
-set(CMAKE_CXX_FLAGS_INIT "${ARM_ARCH_FLAGS} -fno-rtti -fno-exceptions")
+set(CMAKE_CXX_FLAGS_INIT "${ARM_ARCH_FLAGS} -fno-rtti -fno-exceptions -fno-threadsafe-statics -fno-use-cxa-atexit")
 set(CMAKE_ASM_FLAGS_INIT "${ARM_ARCH_FLAGS}")
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

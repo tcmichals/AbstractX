@@ -228,10 +228,11 @@ When implementing HAL drivers under `targets/pico2w_rp2350/src/`, AI agents must
   sio_hw->fifo_wr = 0x01; // Non-blocking hardware SIO FIFO write
   ```
 
-### 3.7 Zero-Copy Trace & Telemetry over UDP `[SPEC-PICO-TRACE-01]`
+### [SPEC-PICO-TRACE-01] Zero-Copy Trace & Telemetry over UDP
 The Pico side of `[SPEC-TRACE-07]` (`docs/DESIGN_SPECIFICATION.md`): the trace
 packet buffer **is** the lwIP pbuf that gets transmitted, so no memcpy happens
 between the trace engine and the Wi-Fi driver.
+* **Goal**: zero memory copies between the trace engine and the lwIP UDP network stack on Pico 2 W.
 * **acquire**: `pbuf_alloc(PBUF_TRANSPORT, max_bytes, PBUF_POOL)` from the static
   `memp` pool. `PBUF_POOL_BUFSIZE` (lwIP default ≈ `TCP_MSS` + headers ≈ 1.5 KB
   with `TCP_MSS = 1460` in `include/lwipopts.h`) MUST hold one full packet plus
@@ -249,6 +250,11 @@ between the trace engine and the Wi-Fi driver.
 * **Context**: `acquire`/`commit` run only on the core that owns lwIP and
   `cyw43_arch_poll()` (`pico_cyw43_arch_lwip_poll` is not thread-safe). Today
   everything runs on Core 0 (Core 1 is not launched yet, see TODO.md).
+* **Static Pool Elision**: When `platform_trace_transport()` provides this native
+  zero-copy transport, `ABSTRACTX_STATIC_TRACE_PACKETS = 0` elides the fallback
+  static trace pool on Pico 2 W (`[SPEC-TRACE-07]`).
+* **Verified by**: `host-tests` (`sim/test_pico_zero_copy_trace.cpp`: pointer identity and single-pbuf invariants), `memory-footprint` (0 `_Unwind_*` symbols in Pico ELF)
+* **Implementation Target**: `targets/pico2w_rp2350/include/hal/pico_trace_transport.hpp`, `targets/pico2w_rp2350/src/hal_platform.cpp`, `cmake/toolchains/arm-none-eabi.cmake`
 
 ---
 
