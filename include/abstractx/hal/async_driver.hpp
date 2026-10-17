@@ -147,6 +147,7 @@ protected:
     virtual void start_hardware_transfer_from_isr(const TRequest& request) noexcept = 0;
 
     void set_hardware_idle_from_isr() noexcept {
+        InterruptGuard guard;
         hardware_busy_ = false;
         // Check if more requests arrived while we were finishing
         TRequest next_req;

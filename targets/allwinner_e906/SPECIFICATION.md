@@ -69,6 +69,12 @@ sequenceDiagram
 
 * `0x07130000` is the RISC-V CFG register block (4 KB: `STA_ADD_REG` at `+0x204`,
   `WORK_MODE_REG` at `+0x248`), **not SRAM**. Nothing may be stored there.
+* **Coroutine Frame Pool Right-Sizing**: The static coroutine frame pool
+  (`g_coro_static_frame_pool`) resides in `.bss` inside `SRAM_FAST`. The E906 build
+  configures `ABSTRACTX_CORO_POOL_SIZE = 4096` (4 KB), right-sized from the
+  measured high-water mark of the multi-rate `gps_imu_app` task set (3,136 B
+  measured + 25% headroom = 3,920 B, rounded to 4,096 B / +30.6% headroom),
+  freeing 56 KB of SRAM Space 0 compared to the 60 KB default.
 * **Enforcement**: every E906 firmware target runs `tools/check_e906_layout.py`
   after linking; the build fails if a loadable segment is outside Space 0 (below
   the shared tail), the lower half of Space 1, or the DRAM carveout.
@@ -76,8 +82,8 @@ sequenceDiagram
   silicon-tested cubie-a5e firmware (`firmware/common/arch_riscv/*.ld`,
   `firmware/common/include/*_protocol.h`). The shared-tail protocol headers in
   `include/` are verbatim copies of cubie-a5e's so its Linux tools interoperate.
-* **Verified by**: `e906-build-layout`
-* **Implementation Target**: `targets/allwinner_e906/bsp/e906_sram.ld`, `bsp/e906_ddr.ld`, `include/memory_map.h`
+* **Verified by**: `e906-build-layout`, `host-tests` (`sim_test_gps_imu_coro_pool`)
+* **Implementation Target**: `targets/allwinner_e906/bsp/e906_sram.ld`, `bsp/e906_ddr.ld`, `targets/allwinner_e906/CMakeLists.txt`, `include/memory_map.h`
 
 ### `[SPEC-E906-MEM-02]` Control vs. Data Plane Memory Split
 * **Control Plane in SRAM**: SPSC ring indices, descriptor states, and doorbell

@@ -9,6 +9,10 @@ add_executable(gps_imu_app
     src/main.cpp
 )
 
+target_include_directories(gps_imu_app PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 target_link_libraries(gps_imu_app PRIVATE
     abstractx_core
     etl

@@ -599,3 +599,30 @@ This log chronicles the development, technical decisions, and architecture miles
   TODO and guide corrected to 121.85 MHz. Lesson: numbers that go into
   requirements and evidence come from a parser, not from reading a log.
 
+## [2026-10-16] - Right-sized E906 coroutine pool; fixed hosted timer concurrency in TSan
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/CMakeLists.txt`, `include/asp_coro.hpp`, `targets/linux/src/hal_timer.cpp`, `include/abstractx/hal/async_driver.hpp`
+* **Category**: `product-bug`
+* **Symptoms**:
+  - `ABSTRACTX_CORO_POOL_SIZE` defaulted to 60 KB across all targets, consuming 61,440 B of `.bss` in `SRAM_FAST` on E906 (where total SRAM is 192 KB), leaving only 33 KB free headroom.
+  - ThreadSanitizer flagged a data race on `hardware_busy_` between `check_and_start_hardware_if_idle()` and `set_hardware_idle_from_isr()`.
+  - `LinuxTimerDriver::start_hardware_transfer_from_isr` spawned detached worker threads with raw pointers to `this` that could sleep past `main()` exit and crash with a SEGV against destroyed globals.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The coroutine static frame pool was given a conservative 60 KB default without profiling actual high-water mark requirements. In `AsyncDriverBase`, `set_hardware_idle_from_isr()` lacked `InterruptGuard` synchronization, which is required on multi-threaded hosted Linux environments. Detached threads in `hal_timer.cpp` had no lifecycle coordination or shutdown mechanism.
+* **Architectural Lesson**: Measure coroutine pool usage with automated steady-state tests (`coro_pool_high_water()`) and right-size pools with headroom per-target. In hosted HAL mock drivers, always coordinate thread lifecycles and wrap state mutations in `InterruptGuard`.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/allwinner_e906/SPECIFICATION.md` (`SPEC-E906-MEM-01`), `docs/DESIGN_SPECIFICATION.md` (`SPEC-ARCH-02`)
+* **Requirement Tags Added/Updated**: `SPEC-E906-MEM-01` (right-sized coroutine pool at 4 KB), `SPEC-ARCH-02` (steady-state test verification)
+
+### 4. Implementation & Verification
+* Created `sim/test_gps_imu_coro_pool.cpp` and `apps/gps_imu_app/include/gps_imu_tasks.hpp` executing the full multi-rate sensor fusion pipeline. Measured high-water mark: 3,136 B (1,600 B live). Steady-state verification across 1,000 steps confirmed zero leaks (high-water mark strictly unchanged).
+* Configured `ABSTRACTX_CORO_POOL_SIZE=4096` in `targets/allwinner_e906/CMakeLists.txt` (+30.6% headroom over measured high-water mark).
+* Sized E906 binaries with `trac.py size --record`:
+  - Release: text 53,176 B, data 332 B, bss 52,864 B, total RAM 106,372 B (freed 57,160 B RAM vs baseline 163,532 B).
+  - Debug: text 39,454 B, data 332 B, bss 52,864 B, total RAM 92,650 B.
+  - LTO: text 56,878 B, data 336 B, bss 53,928 B, total RAM 111,142 B.
+* Fixed TSan data race with `InterruptGuard` in `AsyncDriverBase::set_hardware_idle_from_isr` and implemented atomic shutdown/join tracking in `LinuxTimerDriver`. All 34 host tests pass in Debug, ASan/UBSan, and TSan suites.
+

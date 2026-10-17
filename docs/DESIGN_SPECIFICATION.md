@@ -20,7 +20,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 ### `[SPEC-ARCH-02]` Zero Dynamic Memory Allocation (0 B Heap)
 * **Requirement**: No dynamic memory (`malloc`, `free`, `operator new`) is permitted in real-time execution paths.
 * **Mechanism**: Coroutine frames draw from static atomic frame pools (`CoroutineStaticPool`), queues use fixed-capacity ETL rings (`etl::queue_spsc_isr`).
-* **Verified by**: `host-tests` (`RepeatedAsyncInitDoesNotGrowFramePool`), `sanitizer-gate` (frame alignment)
+* **Verified by**: `host-tests` (`RepeatedAsyncInitDoesNotGrowFramePool`, `sim_test_gps_imu_coro_pool`), `sanitizer-gate` (frame alignment)
 * **Implementation Target**: `include/asp_coro.hpp`, `include/abstractx/domain_dispatcher.hpp`
 * **Frame Reclamation**: Destroyed coroutine frames MUST return to the static pool (exact-size free list) so steady-state loops reach a fixed pool high-water mark. `coro_pool_used()` reports live bytes; `coro_pool_high_water()` reports bytes ever carved from the pool. Regression: `tests/test_sitl_imu.cpp` `RepeatedAsyncInitDoesNotGrowFramePool`.
 
