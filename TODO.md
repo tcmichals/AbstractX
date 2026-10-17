@@ -111,7 +111,7 @@ Remaining:
 - [ ] Fail the configure step clearly when `third_party/etl` is not initialised (currently a missing-header error); document `git submodule update --init third_party/etl`.
 - [ ] `Task<T>`: `co_await` on a Task whose frame allocation failed dereferences a null handle; `promise_type` uses `std::function` (may heap-allocate) and `std::exception_ptr`, contrary to the freestanding rules.
 - [x] Linux `LinuxIoProcessor` keeps a single `pending_spi_tag_` / `bridge_rx_buf_`; fixed with in-flight descriptor pool `[SPEC-LINUX-SPI-01]` (2026-10-17).
-- [ ] Remove or quarantine the synchronous HAL fallbacks (`transfer_sync`, `transfer_byte`, `Icm42688p::init()`).
+- [x] Removed synchronous SPI HAL fallbacks (`transfer_sync`, `transfer_byte`) and `Icm42688p::init()` across all platforms (2026-10-17).
 - [ ] README: remove or substantiate unmeasured claims ("formally verified", 15-cycle switch, <100 B frames, sub-16 KB), and shorten it.
 - [ ] Move `docs/tier1_vision/GEMINI_*_PROMPT.md` to `docs/prompts/`; rename `hw/zynq7000/buildroot_external/REAMME`; consolidate `cmake/toolchain-*.cmake` vs `cmake/toolchains/`.
 - [ ] Fix `-Wall -Wextra` warnings (examples, `sim/sitl_coro_sim.cpp`, `targets/linux/include/i2c_worker.hpp:182`).

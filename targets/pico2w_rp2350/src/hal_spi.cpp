@@ -24,6 +24,7 @@
 
 namespace abstractx::hal {
 
+// @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
 #ifdef PICO_ON_DEVICE
 static int g_spi_rx_dma_chan = -1;
 static int g_spi_tx_dma_chan = -1;
@@ -85,30 +86,6 @@ void PicoSpi::select(bool active) {
 #endif
 }
 
-uint8_t PicoSpi::transfer_byte(uint8_t tx) {
-    uint8_t rx = 0;
-    transfer_sync(std::span<const uint8_t>(&tx, 1), std::span<uint8_t>(&rx, 1));
-    return rx;
-}
-
-bool PicoSpi::transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) {
-    // Non-blocking queuing or synchronous fallback without hard spinning
-    size_t len = tx_data.empty() ? rx_data.size() : tx_data.size();
-    if (len == 0) return true;
-
-#ifdef PICO_ON_DEVICE
-    start_dma_transfer_raw(tx_data.data(), rx_data.data(), len);
-    // Wait for DMA completion interrupt in low-power WFE
-    while (is_hardware_busy()) {
-        __asm__ volatile("wfe");
-    }
-    return true;
-#else
-    (void)tx_data;
-    (void)rx_data;
-    return true;
-#endif
-}
 
 void PicoSpi::start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len) noexcept {
 #ifdef PICO_ON_DEVICE

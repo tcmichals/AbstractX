@@ -848,5 +848,42 @@ This log chronicles the development, technical decisions, and architecture miles
   - `python3 tools/spectrace_matrix.py --matrix` reached 23/133 VERIFIED.
   - `python3 tools/spectrace_matrix.py --changes --staged --strict` passed with 0 untraced hunks.
 
+## [2026-10-17] - Elimination of Synchronous HAL SPI Fallbacks & Driver Sync Init [SPEC-HAL-02]
 
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/abstractx/hal/spi.hpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, `targets/*/src/hal_spi.cpp`
+* **Category**: `process-gap`
+* **Symptoms**:
+  - `ISpi` retained legacy synchronous blocking methods `transfer_byte()` and `transfer_sync()`, which were implemented via polling or sleep spinloops across Linux, RP2350, E906, and ESP32-P4 HAL drivers.
+  - `Icm42688p` driver exposed synchronous blocking methods `init()`, `read_reg()`, and `write_reg()`, which bypassed the coroutine event loop.
+  - These synchronous fallbacks violated the Zero Synchronous Bus I/O Mandate (AGENTS.md Section 4) and risked blocking the single-threaded `abstractx::step()` dispatcher.
 
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - Synchronous fallbacks were initially retained as convenience bring-up stubs during early target bring-up before async interrupt/DMA drivers and coroutines were fully functional.
+  - Over time, asynchronous split-queue drivers (`transfer_async`) and coroutine driver lifecycles (`init_async`, `read_reg_async`, `write_reg_async`) completely matured, rendering synchronous fallbacks dead code except for a legacy example caller.
+* **Architectural Lesson**:
+  - Public HAL contracts must enforce pure asynchronous split-queue semantics. Retaining synchronous methods creates confusion, allows accidental blocking I/O calls inside coroutines, and pollutes platform HAL implementations.
+  - Driver initialization and register access must be 100% asynchronous coroutines returning `coro::Task<bool>`.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/SPECIFICATION.md`, `AGENTS.md` (Section 4)
+* **Requirement Tags Added/Updated**:
+  - `[SPEC-HAL-02]`: Updated `ISpi` interface declaration in `targets/SPECIFICATION.md` to remove `transfer_byte` and `transfer_sync`.
+  - Updated `AGENTS.md` Section 4 to record that synchronous SPI bus methods and driver sync `init()` have been eliminated.
+* **Implementation Targets**: `include/abstractx/hal/spi.hpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, platform HAL implementations (`targets/linux/src/hal_spi.cpp`, `targets/pico2w_rp2350/src/hal_spi.cpp`, `targets/allwinner_e906/src/platform.cpp`, `targets/esp32p4/src/hal_spi.cpp`).
+
+### 4. Implementation & Verification
+* In `include/abstractx/hal/spi.hpp`:
+  - Removed `transfer_byte` and `transfer_sync` from `ISpi` and `AsyncSpiDriver`.
+* In `include/abstractx/drivers/imu/icm42688p.hpp`:
+  - Removed synchronous `init()`, `read_reg()`, `write_reg()`, `read_reg_sync_impl()`, and `write_reg_sync_impl()`.
+* In platform HALs:
+  - Removed synchronous `transfer_byte` and `transfer_sync` implementations from `LinuxSpiDriver`, `PicoSpi`, `E906SpiDriver`, and `Esp32P4SpiDriver`.
+* In callers:
+  - Updated `examples/gps_imu_flight_node.cpp` to use `co_await imu.init_async()`.
+  - Removed unused mock sync methods from `tests/test_sitl_imu.cpp`.
+* Verification gates:
+  - 35/35 Host ctest targets passed in Debug, ASan/UBSan, and TSan (0 leaks, 0 races).
+  - All E906 build configurations (Release, Debug, LTO) and Pico 2 W built cleanly.
+  - Cocotb test suite passed (16/16).

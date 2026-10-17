@@ -22,6 +22,7 @@ extern "C" const struct rpmsg_resource_table global_resource_table;
 
 namespace abstractx::hal {
 
+// @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
 // SPI HAL Adapter for E906
 class E906SpiDriver final : public ISpi {
 public:
@@ -36,16 +37,6 @@ public:
         fc::hal::Pio::set_cs1(active);
     }
 
-    uint8_t transfer_byte(uint8_t tx) override {
-        uint8_t rx = 0;
-        fc::hal::Spi0::transceive_imu_single_sync(&tx, &rx, 1);
-        return rx;
-    }
-
-    bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) override {
-        size_t len = tx_data.empty() ? rx_data.size() : tx_data.size();
-        return fc::hal::Spi0::transceive_imu_single_sync(tx_data.data(), rx_data.data(), len);
-    }
 
 protected:
     void start_hardware_transfer_from_isr(const SpiRequest& req) noexcept override {

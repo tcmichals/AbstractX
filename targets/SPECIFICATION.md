@@ -718,8 +718,6 @@ class ISpi {
 public:
     virtual bool init(const SpiConfig& config) = 0;
     virtual void select(bool active) = 0;
-    virtual uint8_t transfer_byte(uint8_t tx) = 0;
-    virtual bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) = 0;
     virtual AsyncTransferAwaiter transfer_async(std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept = 0;
 };
 ```

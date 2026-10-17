@@ -101,35 +101,6 @@ public:
         co_return true;
     }
 
-    /*
-     * Synchronous bringup fallback for pre-scheduler bare-metal setup.
-     * WARNING: Do NOT call inside coroutines or the event loop! Use init_async() instead.
-     */
-    bool init() {
-        hal::SpiConfig config;
-        config.frequency_hz = 24'000'000; // 24 MHz Max SPI clock
-        config.mode = hal::SpiMode::Mode0;
-        config.use_dma = true;
-
-        if (!spi_.init(config)) {
-            return false;
-        }
-
-        // Verify WHO_AM_I
-        uint8_t who_am_i = read_reg_sync_impl(IcmRegs::WHO_AM_I);
-        (void)who_am_i;
-
-        // Configure Power: Low-Noise Accelerometer + Low-Noise Gyroscope (0x0F)
-        write_reg_sync_impl(IcmRegs::PWR_MGMT0, 0x0F);
-
-        // Gyro: ±2000 dps, 8 kHz ODR (0x03)
-        write_reg_sync_impl(IcmRegs::GYRO_CONFIG0, 0x03);
-
-        // Accel: ±16g, 8 kHz ODR (0x03)
-        write_reg_sync_impl(IcmRegs::ACCEL_CONFIG0, 0x03);
-
-        return true;
-    }
 
     /*
      * Parse raw 15-byte SPI DMA buffer:
@@ -236,36 +207,7 @@ public:
         return AsyncSampleAwaiter(*this);
     }
 
-    /*
-     * Synchronous register read fallback for pre-scheduler bare-metal setup.
-     * WARNING: Do NOT call inside coroutines or the event loop! Use read_reg_async() instead.
-     */
-    uint8_t read_reg(uint8_t reg) {
-        return read_reg_sync_impl(reg);
-    }
-
-    /*
-     * Synchronous register write fallback for pre-scheduler bare-metal setup.
-     * WARNING: Do NOT call inside coroutines or the event loop! Use write_reg_async() instead.
-     */
-    void write_reg(uint8_t reg, uint8_t val) {
-        write_reg_sync_impl(reg, val);
-    }
-
 private:
-    uint8_t read_reg_sync_impl(uint8_t reg) {
-        uint8_t tx[2] = {static_cast<uint8_t>(reg | 0x80), 0x00};
-        uint8_t rx[2] = {0x00, 0x00};
-        spi_.transfer_sync(tx, rx);
-        return rx[1];
-    }
-
-    void write_reg_sync_impl(uint8_t reg, uint8_t val) {
-        uint8_t tx[2] = {static_cast<uint8_t>(reg & 0x7F), val};
-        uint8_t rx[2] = {0x00, 0x00};
-        spi_.transfer_sync(tx, rx);
-    }
-
     hal::ISpi& spi_;
 };
 

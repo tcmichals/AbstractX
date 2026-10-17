@@ -18,6 +18,7 @@
 using namespace abstractx;
 using namespace abstractx::drivers::imu;
 
+// @verifies [SPEC-HAL-02] [SPEC-IMU-01] [SPEC-IMU-02] include/abstractx/drivers/imu/icm42688p.hpp
 class MockSpi : public hal::ISpi {
 public:
     bool init(const hal::SpiConfig& config) override {
@@ -31,24 +32,6 @@ public:
         mock().actualCall("select").withParameter("active", active);
     }
 
-    uint8_t transfer_byte(uint8_t tx) override {
-        return mock().actualCall("transfer_byte")
-                     .withParameter("tx", tx)
-                     .returnUnsignedIntValueOrDefault(0);
-    }
-
-    bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) override {
-        uint8_t reg = tx_data.empty() ? 0 : tx_data[0];
-        mock().actualCall("transfer_sync").withParameter("reg", reg);
-
-        if (!rx_data.empty()) {
-            if ((reg & 0x7F) == IcmRegs::WHO_AM_I) {
-                if (rx_data.size() > 1) rx_data[1] = IcmRegs::WHO_AM_I_VAL;
-                else rx_data[0] = IcmRegs::WHO_AM_I_VAL;
-            }
-        }
-        return true;
-    }
 
     void start_hardware_transfer_from_isr(const hal::SpiRequest& req) noexcept override {
         mock().actualCall("start_hardware_transfer_from_isr");

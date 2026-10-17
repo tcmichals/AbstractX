@@ -78,7 +78,7 @@ The AbstractX execution model is grounded in two software basics and a symmetric
 ---
 
 ## 4. Zero Synchronous Bus I/O Mandate
-1. Public HAL interfaces (`ISpi`, `II2c`, `IUart`, `ITimer`) and device drivers MUST NOT add new synchronous blocking transfer methods. The existing `transfer_sync` / `transfer_byte` / driver `init()` fallbacks are tolerated **only for pre-scheduler bring-up** and MUST NOT be called from a coroutine or from `abstractx::step()`. Do not extend them; prefer removing them.
+1. Public HAL interfaces (`ISpi`, `II2c`, `IUart`, `ITimer`) and device drivers MUST NOT add new synchronous blocking transfer methods. Synchronous SPI bus methods (`transfer_sync`, `transfer_byte`) and driver sync `init()` have been eliminated. Any remaining synchronous fallbacks on other buses are tolerated **only for pre-scheduler bring-up** and MUST NOT be called from a coroutine or from `abstractx::step()`.
 2. Driver lifecycles and register transactions MUST be asynchronous C++20 coroutines returning `coro::Task<bool>`:
    - `co_await dev.init_async()`
    - `co_await dev.read_reg_async(reg)`

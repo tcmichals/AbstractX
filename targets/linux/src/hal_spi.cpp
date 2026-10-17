@@ -14,6 +14,7 @@
 
 namespace abstractx::hal {
 
+// @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
 class LinuxSpiDriver : public ISpi {
 public:
     LinuxSpiDriver() = default;
@@ -36,40 +37,6 @@ public:
         (void)active;
     }
 
-    uint8_t transfer_byte(uint8_t tx) override {
-        uint8_t rx = 0;
-        transfer_sync(std::span<const uint8_t>(&tx, 1), std::span<uint8_t>(&rx, 1));
-        return rx;
-    }
-
-    bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) override {
-        size_t len = std::max(tx_data.size(), rx_data.size());
-        if (len == 0) return true;
-
-        uint64_t t0 = get_timer_driver().get_time_us();
-        bool ok = false;
-        if (worker_.is_hardware_active()) {
-            struct spi_ioc_transfer tr{};
-            tr.tx_buf = reinterpret_cast<uint64_t>(tx_data.data());
-            tr.rx_buf = reinterpret_cast<uint64_t>(rx_data.data());
-            tr.len = static_cast<uint32_t>(len);
-            tr.speed_hz = config_.frequency_hz;
-            tr.bits_per_word = 8;
-            ok = (::ioctl(worker_.fd(), SPI_IOC_MESSAGE(1), &tr) >= 0);
-        } else {
-            size_t copy_n = std::min(tx_data.size(), rx_data.size());
-            if (copy_n > 0) {
-                std::memcpy(rx_data.data(), tx_data.data(), copy_n);
-            }
-            ok = true;
-        }
-        uint64_t t1 = get_timer_driver().get_time_us();
-        trace::g_tracer.trace_hal(2 /* SPI */, static_cast<uint16_t>(len),
-                                  ok ? static_cast<uint16_t>(len) : 0,
-                                  static_cast<uint32_t>(t1 - t0),
-                                  ok ? 0 : 1, t1);
-        return ok;
-    }
 
     target::SpiWorker& worker() noexcept {
         return worker_;

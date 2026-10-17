@@ -92,13 +92,6 @@ public:
     virtual bool init(const SpiConfig& config) = 0;
     virtual void select(bool active) = 0;
 
-    // ------------------------------------------------------------------------
-    // Isolated Synchronous Fallbacks (Pre-scheduler bare-metal setup only)
-    // NOTE: MUST NOT be called inside coroutines or the reactive event loop!
-    // See docs/architecture/DESIGN_RULES.md Section 12.
-    // ------------------------------------------------------------------------
-    virtual uint8_t transfer_byte(uint8_t tx) = 0;
-    virtual bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) = 0;
     virtual bool set_frequency(uint32_t frequency_hz) { (void)frequency_hz; return true; }
 
     /*

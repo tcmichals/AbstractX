@@ -30,14 +30,13 @@ namespace abstractx::hal {
 // ----------------------------------------------------------------------------
 // PicoSpi: Hardware SPI1 with DMA Channels (INAV/Linux Style)
 // ----------------------------------------------------------------------------
+// @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
 class PicoSpi : public ISpi {
 public:
     PicoSpi() = default;
 
     bool init(const SpiConfig& config) override;
     void select(bool active) override;
-    uint8_t transfer_byte(uint8_t tx) override;
-    bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) override;
 
     void start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len) noexcept;
     void on_dma_complete_from_isr() noexcept;

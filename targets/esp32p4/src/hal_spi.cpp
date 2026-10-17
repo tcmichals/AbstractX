@@ -9,6 +9,7 @@
 
 namespace abstractx::hal {
 
+// @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
 class Esp32p4Spi : public ISpi {
 public:
     bool init(const SpiConfig& config) override {
@@ -20,15 +21,6 @@ public:
         (void)active;
     }
 
-    uint8_t transfer_byte(uint8_t tx) override {
-        return tx;
-    }
-
-    bool transfer_sync(std::span<const uint8_t> tx_data, std::span<uint8_t> rx_data) override {
-        (void)tx_data;
-        (void)rx_data;
-        return true;
-    }
 
 protected:
     void start_hardware_transfer_from_isr(const SpiRequest& req) noexcept override {

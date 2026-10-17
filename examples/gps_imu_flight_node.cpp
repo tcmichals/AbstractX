@@ -26,32 +26,33 @@ using namespace abstractx::coro;
 using namespace abstractx::drivers::imu;
 using namespace abstractx::drivers::gps;
 
+// @impl [SPEC-HAL-02] docs/DESIGN_SPECIFICATION.md#spec-hal-02
 /* Mock Loopback SPI Driver for ICM-42688-P simulation */
 class MockImuSpi : public hal::ISpi {
 public:
     bool init(const hal::SpiConfig&) override { return true; }
     void select(bool) override {}
-    uint8_t transfer_byte(uint8_t) override { return 0x47; } // WHO_AM_I
-    bool transfer_sync(std::span<const uint8_t>, std::span<uint8_t> rx) override {
-        if (rx.size() >= 2) rx[1] = 0x47;
-        return true;
-    }
 
 protected:
     void start_hardware_transfer_from_isr(const hal::SpiRequest& req) noexcept override {
-        // Synthesize a realistic 14-byte IMU burst: 1.0g on Z, 5.0 deg/s on yaw
-        if (req.rx_data.size() >= 15) {
-            req.rx_data[0] = 0x00;
-            // Temp: 25.0 C (raw 0)
-            req.rx_data[1] = 0x00; req.rx_data[2] = 0x00;
-            // Accel X=0, Y=0, Z=1.0g (raw 2048 = 0x0800)
-            req.rx_data[3] = 0x00; req.rx_data[4] = 0x00;
-            req.rx_data[5] = 0x00; req.rx_data[6] = 0x00;
-            req.rx_data[7] = 0x08; req.rx_data[8] = 0x00;
-            // Gyro X=0, Y=0, Z=5.0 dps (raw 82 = 0x0052)
-            req.rx_data[9]  = 0x00; req.rx_data[10] = 0x00;
-            req.rx_data[11] = 0x00; req.rx_data[12] = 0x00;
-            req.rx_data[13] = 0x00; req.rx_data[14] = 0x52;
+        if (!req.rx_data.empty()) {
+            if (!req.tx_data.empty() && (req.tx_data[0] & 0x7F) == IcmRegs::WHO_AM_I) {
+                req.rx_data[0] = 0x00;
+                if (req.rx_data.size() > 1) req.rx_data[1] = 0x47; // WHO_AM_I
+            } else if (req.rx_data.size() >= 15) {
+                // Synthesize a realistic 14-byte IMU burst: 1.0g on Z, 5.0 deg/s on yaw
+                req.rx_data[0] = 0x00;
+                // Temp: 25.0 C (raw 0)
+                req.rx_data[1] = 0x00; req.rx_data[2] = 0x00;
+                // Accel X=0, Y=0, Z=1.0g (raw 2048 = 0x0800)
+                req.rx_data[3] = 0x00; req.rx_data[4] = 0x00;
+                req.rx_data[5] = 0x00; req.rx_data[6] = 0x00;
+                req.rx_data[7] = 0x08; req.rx_data[8] = 0x00;
+                // Gyro X=0, Y=0, Z=5.0 dps (raw 82 = 0x0052)
+                req.rx_data[9]  = 0x00; req.rx_data[10] = 0x00;
+                req.rx_data[11] = 0x00; req.rx_data[12] = 0x00;
+                req.rx_data[13] = 0x00; req.rx_data[14] = 0x52;
+            }
         }
         hal::SpiResult res{};
         res.status = hal::SpiStatus::Ok;
@@ -146,6 +147,8 @@ private:
 // @impl [SPEC-ARCH-03] docs/DESIGN_SPECIFICATION.md#spec-arch-03
 // @status Complete
 Task<void> run_inav_telemetry(Icm42688p& imu, UbloxGps& gps, SpscTlpRing<32>& tlp_ring, size_t iterations) {
+    co_await imu.init_async();
+    gps.init();
     for (size_t i = 0; i < iterations; ++i) {
         // 1. Asynchronously await next IMU sample (8 kHz DMA burst)
         ImuSample imu_sample = co_await imu.next_sample_async();
@@ -177,9 +180,6 @@ int main() {
     Icm42688p   imu(mock_spi);
     UbloxGps    gps(mock_uart);
     SpscTlpRing<32> tlp_ring;
-
-    imu.init();
-    gps.init();
 
     // Start coroutine
     constexpr size_t TEST_CYCLES = 5;
