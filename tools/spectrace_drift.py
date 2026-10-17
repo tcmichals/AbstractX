@@ -36,7 +36,7 @@ IMPL_PATTERN = re.compile(r"@impl\s+`?\[(SPEC-[A-Z0-9\-]+)\]`?\s*(.*)")
 IGNORED_TAGS = {"SPEC-XXX-YY", "SPEC-X", "SPEC-SAMPLE", "SPEC-TEMPLATE"}
 
 CODE_EXTS = {
-    ".hpp", ".cpp", ".h", ".c", ".S", ".ld", ".sv", ".py",
+    ".hpp", ".cpp", ".h", ".c", ".S", ".s", ".ld", ".sv", ".py",
     ".dts", ".dtsi", ".dtso", ".yaml", ".yml",
 }
 

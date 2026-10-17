@@ -205,6 +205,19 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Verified by**: `host-tests` (`tests/test_trac.py`)
 * **Implementation Target**: `tools/trac.py`, `tools/trac_lib/`
 
+### `[SPEC-AUDIT-10]` ReqIF Requirements Interchange Format Export
+* **Requirement**: `python3 tools/spectrace.py --export-reqif <output.reqif>` (or
+  `python3 tools/spectrace_matrix.py --export-reqif <output.reqif>`) exports
+  repository specifications, requirement derivation hierarchies (`Refines:` parent links),
+  verification methods (`Method:`), and implementation file anchors into an OMG ReqIF
+  (XML) standard document.
+* **Requirement**: Output conforms to OMG ReqIF 1.0/1.2 standard XML schema with
+  `SPEC-OBJECTS`, `SPEC-OBJECT-TYPES`, `SPEC-RELATIONS` (refines hierarchy), and
+  `SPECIFICATIONS` hierarchy nodes, enabling bidirectional interchange with
+  automotive and aerospace ALM tooling (DOORS, Polarion, Capra, StrictDoc).
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
+* **Implementation Target**: `tools/spectrace_matrix.py`, `tools/spectrace.py`
+
 ### Stage 3: Adversarial Invariant Auditing
 An independent Critic persona evaluates code and specifications across 6 strict stages:
 * **Stage 0: Specification SSOT Anti-Drift** (Validates markdown structure, Mermaid diagrams, formal requirement tags).

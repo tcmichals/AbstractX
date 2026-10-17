@@ -97,6 +97,8 @@ The Linux target `LinuxIoProcessor` bridge SPI path forwards manual SPI transact
   - The completion callback MUST be bound directly to the descriptor instance via `etl::delegate` so that the completion TLP is constructed with the exact tag, channel, and RX payload corresponding to the request.
   - If all slots are in use or `SpiWorker`'s queue is full, the request MUST be rejected immediately with `ASP_STATUS_QUEUE_FULL` (`0x04`) rather than overwriting in-flight transactions.
   - On completion, the descriptor MUST be returned to the pool for reuse.
+* **Refines**: `[SPEC-ARCH-01]`
+* **Method**: `Test`
 * **Verified by**: `host-tests` (`sim/test_io_processor.cpp`), `sanitizer-gate`, `thread-sanitizer`
 * **Implementation Target**: `targets/linux/src/io_processor.cpp`
 

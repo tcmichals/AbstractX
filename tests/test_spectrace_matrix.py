@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# @verifies [SPEC-AUDIT-06] [SPEC-AUDIT-07] [SPEC-AUDIT-08] docs/SPECTRACE.md
+# @verifies [SPEC-AUDIT-06] [SPEC-AUDIT-07] [SPEC-AUDIT-08] [SPEC-AUDIT-10] docs/SPECTRACE.md
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
@@ -236,12 +236,59 @@ def test_hierarchy_and_graph_export():
         assert "Method: Analysis" in graph
 
 
+def test_reqif_export():
+    import xml.etree.ElementTree as ET
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        spec = root / "docs" / "FIX_SPECIFICATION.md"
+        spec.write_text(SPEC + """
+### `[SPEC-FIX-06]` Child derived requirement
+* **Refines**: `[SPEC-FIX-01]`
+* **Method**: `Analysis`
+* **Verified by**: `host-tests`
+""")
+        reqs, skills, _ = sm.build_matrix(root)
+        reqif_file = root / "build" / "specs.reqif"
+        sm.export_reqif(reqs, skills, reqif_file)
+        assert reqif_file.exists()
+
+        # Parse and validate XML schema
+        tree = ET.parse(reqif_file)
+        root_elem = tree.getroot()
+        assert root_elem.tag.endswith("REQ-IF")
+
+        # Check tool ID in header
+        header = root_elem.find(".//{*}REQ-IF-HEADER")
+        assert header is not None
+        tool_id = header.find("{*}REQ-IF-TOOL-ID")
+        assert tool_id is not None and tool_id.text == "AbstractX SpecTrace"
+
+        # Check spec objects
+        spec_objs = root_elem.findall(".//{*}SPEC-OBJECT")
+        obj_ids = [so.attrib.get("IDENTIFIER") for so in spec_objs]
+        assert "SO-SPEC-FIX-01" in obj_ids
+        assert "SO-SPEC-FIX-06" in obj_ids
+
+        # Check relations (Refines)
+        relations = root_elem.findall(".//{*}SPEC-RELATION")
+        assert len(relations) >= 1
+        rel = relations[0]
+        assert rel.find("{*}SOURCE/{*}SPEC-OBJECT-REF").text == "SO-SPEC-FIX-06"
+        assert rel.find("{*}TARGET/{*}SPEC-OBJECT-REF").text == "SO-SPEC-FIX-01"
+
+        # Check specification document hierarchy
+        docs = root_elem.findall(".//{*}SPECIFICATION")
+        assert len(docs) >= 1
+
+
 if __name__ == "__main__":
     test_matrix_verdicts()
     test_change_review_maps_hunks_and_flags_untraced()
     test_stale_and_failing_verdicts()
     test_device_tree_and_yaml_traceability()
     test_hierarchy_and_graph_export()
+    test_reqif_export()
     print("[PASS] spectrace_matrix")
 
 

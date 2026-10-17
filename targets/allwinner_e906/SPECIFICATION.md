@@ -32,6 +32,9 @@ sequenceDiagram
 * **Privilege Modes**: Machine (M) and User (U) modes only.
 * **MMU Absence**: The E906 does NOT implement Supervisor mode virtual memory
   (no `satp` register, no Sv32/Sv39 page tables).
+* **Refines**: `[SPEC-ARCH-04]`
+* **Method**: `Analysis`
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 * **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`
 
 ### `[SPEC-E906-ARCH-02]` Fixed Hardware System Memory Map (SYSMAP)
@@ -46,6 +49,9 @@ sequenceDiagram
     Hardwired to **Normal / Cacheable**.
 * **Immutability**: Memory attributes cannot be modified via instructions or
   runtime CSRs on this processor.
+* **Refines**: `[SPEC-ARCH-04]`
+* **Method**: `Analysis`
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 * **Implementation Target**: `targets/allwinner_e906/include/memory_map.h`
 
 ---

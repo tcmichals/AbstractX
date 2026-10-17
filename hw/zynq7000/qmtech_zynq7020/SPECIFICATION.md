@@ -165,6 +165,8 @@ configuration:
   * `0x40`: hardware ID `0x41535036` (`ASP6`).
 * Optional DDR profiles define their ring-base/head/tail map in a separate
   bitstream/overlay compatibility contract.
+* **Refines**: `[SPEC-ARCH-01]`
+* **Method**: `Test`
 * **Verified by**: `rtl-lint`, `rtl-synth-check`, `cocotb-regression` (`test_asp_axi_lite_bridge_cocotb`)
 
 ### `[SPEC-ZYNQ-02]` Interrupt Signaling via `IRQ_F2P[0]` and Linux UIO
@@ -184,6 +186,9 @@ configuration:
   };
   ```
 * The user-space driver MUST await the interrupt using `epoll()` / non-blocking read on `/dev/uio0` without busy-waiting or thread locks.
+* **Refines**: `[SPEC-ARCH-01]`
+* **Method**: `Test`
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 
 ### `[SPEC-ZYNQ-03]` Fixed 64-Byte TLP Routing (`asp-tlp-64b`)
 * All transactions between PS and PL MUST be encapsulated into strict 64-byte (16 x 32-bit DWORD) TLP containers.
@@ -192,6 +197,9 @@ configuration:
   * `Channel 0x02` (`TELEMETRY`): Autonomous IMU sensor telemetry frames.
   * `Channel 0x04` (`DEBUG_TRACE`): Binary CTF 1.8 diagnostic trace stream.
   * `Channel 0x05` (`ESC_SERIAL`): Bidirectional serial/UART tunneling.
+* **Refines**: `[SPEC-TLP-01]`
+* **Method**: `Test`
+* **Verified by**: `cocotb-regression` (`test_asp_router_cocotb`)
 
 ### `[SPEC-ZYNQ-04]` Autonomous IMU Auto-DMA & Direct SPI Engine
 * The PL MUST integrate a hardware SPI Master and Auto-DMA state machine mapped to Wishbone base `0x4000_0100`:
@@ -203,6 +211,9 @@ configuration:
   * `0x4000_0104` (`IMU_REG_ADDR`): Target IMU register offset (e.g. `0x75` WHO_AM_I, `0x4E` PWR_MGMT0, `0x1D` TEMP_DATA1).
   * `0x4000_0108` (`IMU_REG_LEN`): Payload transfer length in bytes (`1` for single register, `14` for the full temperature/6-axis sample from `0x1D` through `0x2A`; the SPI command byte is additional).
   * `0x4000_010C` (`IMU_REG_WDATA`): Data word to shift out over MOSI during manual register write.
+* **Refines**: `[SPEC-ARCH-01]`
+* **Method**: `Test`
+* **Verified by**: `cocotb-regression` (`test_asp_top_cocotb`)
   * `0x4000_0110` (`IMU_REG_RDATA`): Captured data word from MISO during manual register read.
   * `0x4000_0114 - 0x4000_0118`: 64-bit nanosecond timestamp latched at the start of the last SPI transfer (high word then low word).
   * `0x4000_011C` (`IMU_REG_STATUS`): Bit 0 direct-transfer busy, bit 1 direct-transfer done (write-one-to-clear), bit 2 Auto-DMA enabled, bit 3 SPI engine busy.

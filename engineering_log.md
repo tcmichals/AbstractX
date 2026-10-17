@@ -1066,6 +1066,52 @@ This log chronicles the development, technical decisions, and architecture miles
   - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
   - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 0 untraced hunks.
 
+## [2026-10-17] - SpecTrace OMG ReqIF XML Requirements Interchange & Multi-Tier Subsystem Derivation Hierarchy
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `docs/SPECTRACE.md`, `tools/spectrace_matrix.py`, `tools/spectrace.py`, `tests/test_spectrace_matrix.py`, `apps/gps_imu_app/SPECIFICATION.md`, `targets/allwinner_e906/SPECIFICATION.md`, `targets/linux/SPECIFICATION.md`, `docs/tier2_contracts/TLP_BUS_SPECIFICATION.md`, `hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md`
+* **Category**: `process-gap`
+* **Symptoms**:
+  - Traditional aerospace and automotive ALM toolchains (IBM DOORS, Siemens Polarion, PTC Integrity, Eclipse Capra, and OpenFastTrace) exchange requirements via the OMG ReqIF (Requirements Interchange Format, ISO/IEC 17560:2014) XML standard. SpecTrace previously only generated local Markdown and Mermaid DAG outputs.
+  - Subsystem requirements in `apps/gps_imu_app`, `targets/allwinner_e906`, `targets/linux`, `docs/tier2_contracts`, and `hw/zynq7000` were not yet wired into the derivation tree (`Refines: [SPEC-*]`), leaving only 4 derivation links repository-wide.
+  - Assembly scanner rules lacked lowercase `.s` in `CODE_EXTS` and `valid_exts`.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - SpecTrace was built Git-native around Markdown specifications as SSOT. While Markdown is optimal for human and AI diffing, enterprise DO-178C/ISO 26262 audits often require exporting the entire requirement graph, types, objects, relations, and verdicts into a standard ReqIF XML exchange container.
+* **Architectural Lesson**:
+  - Implement a zero-external-dependency ReqIF generator in Python standard library (`xml.etree.ElementTree`) mapping AbstractX specifications to OMG ReqIF 1.0/1.2 standard XML schemas (`THE-HEADER`, `SPEC-TYPES`, `SPEC-OBJECTS`, `SPEC-RELATIONS`, `SPECIFICATIONS`).
+  - Expand parent-child derivation (`Refines:`) across tier-2 and application specs, linking flight control (`SPEC-APP-*`), Linux drivers (`SPEC-LINUX-SPI-01`), Zynq FPGA bridges (`SPEC-ZYNQ-*`), and E906 RISC-V coprocessor contracts (`SPEC-E906-*`) to top-level architecture invariants (`SPEC-ARCH-*`, `SPEC-TLP-*`).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**:
+  - `docs/SPECTRACE.md`: Added `[SPEC-AUDIT-10]` mandating OMG ReqIF XML export via `--export-reqif <output.reqif>`.
+  - `apps/gps_imu_app/SPECIFICATION.md`: Added `Refines:` and `Method:` tags to `[SPEC-APP-01]` through `[SPEC-APP-10]`.
+  - `targets/linux/SPECIFICATION.md`: Added `Refines: [SPEC-ARCH-01]` and `Method: Test` to `[SPEC-LINUX-SPI-01]`.
+  - `docs/tier2_contracts/TLP_BUS_SPECIFICATION.md`: Added `Refines: [SPEC-TLP-01]` and `Method: Test` to `[SPEC-TLP-CRC-01]`.
+  - `targets/allwinner_e906/SPECIFICATION.md`: Added `Refines:` and `Method:` to `[SPEC-E906-ARCH-01]`, `[SPEC-E906-ARCH-02]`.
+  - `hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md`: Added `Refines:` and `Method:` to `[SPEC-ZYNQ-01]`..`[SPEC-ZYNQ-04]`.
+
+### 4. Implementation & Verification
+* **Tool Updates**:
+  - `tools/spectrace_matrix.py`:
+    - Tagged line 24 with `[SPEC-AUDIT-10]`.
+    - Implemented `export_reqif(reqs, skills, output_path)` emitting fully-formed OMG ReqIF XML.
+    - Added `--export-reqif` CLI argument.
+  - `tools/spectrace.py`:
+    - Tagged line 2 with `[SPEC-AUDIT-10]`.
+    - Added `--export-reqif` CLI argument delegating to `spectrace_matrix.export_reqif`.
+  - `tools/spectrace_drift.py` & `tools/audit_specs.py`: Added `.s` assembly extension.
+* **Test Suite Updates**:
+  - `tests/test_spectrace_matrix.py`: Tagged line 2 with `@verifies [SPEC-AUDIT-10]`; implemented `test_reqif_export()` validating XML tag parsing, tool ID, spec objects, Refines relations, and document hierarchy.
+* **Verification Gates**:
+  - `tests/test_spectrace_matrix.py` passed cleanly (`[PASS] spectrace_matrix`).
+  - 37/37 host ctest passed in Debug (`build_host`), ASan/UBSan (`build_asan`), and TSan (`build_tsan`).
+  - 16/16 Cocotb targets passed (37/37 tests).
+  - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
+  - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 49 governed hunks, 0 untraced hunks.
+
+
 
 
 

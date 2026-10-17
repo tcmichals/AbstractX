@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# @impl [SPEC-AUDIT-05] [SPEC-AUDIT-08] docs/SPECTRACE.md
+# @impl [SPEC-AUDIT-05] [SPEC-AUDIT-08] [SPEC-AUDIT-10] docs/SPECTRACE.md
 """
 SpecTrace Master CLI: Full Round-Trip Synchronization & Verification Engine
 ============================================================================
@@ -290,9 +290,18 @@ def main():
     parser.add_argument("--no-ai-prompt", action="store_true", help="Run static checks without printing AI context")
     parser.add_argument("--graph", nargs="?", const="", default=None,
                         help="Generate a Mermaid traceability DAG for a requirement tag (or all if omitted)")
+    parser.add_argument("--export-reqif", type=Path,
+                        help="Export specifications and hierarchy as OMG ReqIF XML to this file")
     args = parser.parse_args()
 
     root_dir = get_root_dir()
+
+    if args.export_reqif:
+        import spectrace_matrix as sm
+        reqs, skills, _ = sm.build_matrix(root_dir)
+        sm.export_reqif(reqs, skills, args.export_reqif.resolve())
+        print(f"Exported ReqIF XML to {args.export_reqif}")
+        return
 
     if args.graph is not None:
         import spectrace_matrix as sm
