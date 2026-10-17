@@ -56,8 +56,6 @@ examples/dual_processor_io_and_processing
 *.log
 *.pds
 *.dtbo
-*.json
-!CMakePresets.json
 !.vscode/*.json
 !docs/evidence/**/*.json
 !apps/gps_imu_app/trace_schema.json

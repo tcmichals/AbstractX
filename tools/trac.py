@@ -153,13 +153,108 @@ def print_results(results):
               + (f"  ({r['notes']})" if r["notes"] else ""))
 
 
+def sparkline(values: list[float], length: int = 10) -> str:
+    if not values:
+        return ""
+    vals = values[-length:]
+    mn, mx = min(vals), max(vals)
+    if mn == mx:
+        return "▅" * len(vals)
+    bars = " ▂▃▄▅▆▇█"
+    return "".join(bars[min(7, max(0, int((v - mn) / (mx - mn) * 7)))] for v in vals)
+
+
+def progress_bar(val: float, max_val: float, width: int = 16) -> str:
+    if max_val <= 0:
+        return "░" * width
+    pct = min(1.0, max(0.0, val / max_val))
+    filled = int(round(pct * width))
+    return "█" * filled + "░" * (width - filled)
+
+
 def report(records):
     latest = {}
+    history: dict[str, list[dict]] = {}
     for r in records:
         latest[r["check"]] = r
+        history.setdefault(r["check"], []).append(r)
+
+    print("=" * 78)
+    print("AbstractX SpecTrace Evidence & Quality Report")
+    print("=" * 78)
+    print(f"Total Ledger Records: {len(records)} across {len(latest)} checks\n")
+
+    print(f"{'STATUS':<6} {'CHECK':<30} {'LATEST METRICS':<28} {'DELTA':<10} {'TREND'}")
+    print("-" * 78)
     for check in sorted(latest):
-        print_results([latest[check]])
-    print(f"\n{len(latest)} checks, {len(records)} records")
+        r = latest[check]
+        delta_str = " ".join(f"{k}{v:+g}" for k, v in r["delta"].items() if v) or "-"
+        shown = {k: v for k, v in r["metrics"].items() if not k.endswith("_used")}
+        shown_str = json.dumps(shown)
+        if len(shown_str) > 27:
+            shown_str = shown_str[:24] + "..."
+
+        # Compute sparkline for primary numerical metric
+        spark = ""
+        past = history.get(check, [])
+        for primary in ("ram_bytes", "flash_bytes", "passed", "lut4_pct", "fmax_mhz", "verified"):
+            vals = [p["metrics"][primary] for p in past if primary in p.get("metrics", {})]
+            if len(vals) >= 2:
+                spark = f"[{sparkline(vals)}]"
+                break
+
+        res_str = r['result'].upper()
+        print(f"{res_str:<6} {check:<30} {shown_str:<28} {delta_str:<10} {spark}")
+
+    # Target Sizing & Memory Limits
+    targets = load_targets()
+    print("\n" + "=" * 78)
+    print("Silicon Memory Utilization & Budgets")
+    print("=" * 78)
+    for check in sorted(latest):
+        if not check.startswith("elf:"):
+            continue
+        r = latest[check]
+        variant = check[4:]
+        tgt_name = variant.split("/")[0]
+        t = targets.get(tgt_name)
+        if not t:
+            continue
+        ram_budget = t.get("ram_budget_bytes", 0)
+        flash_budget = t.get("flash_budget_bytes", 0)
+        ram = r["metrics"].get("ram_bytes", 0)
+        flash = r["metrics"].get("flash_bytes", 0)
+        if ram_budget and ram:
+            pct = 100.0 * ram / ram_budget
+            pbar = progress_bar(ram, ram_budget, 16)
+            past_ram = [p["metrics"]["ram_bytes"] for p in history.get(check, []) if "ram_bytes" in p.get("metrics", {})]
+            spark = f" trend: [{sparkline(past_ram)}]" if len(past_ram) >= 2 else ""
+            print(f"  {check:<20} RAM  : {ram:>7,d} / {ram_budget:>7,d} B [{pbar}] {pct:>5.1f}%{spark}")
+        if flash_budget and flash:
+            pct = 100.0 * flash / flash_budget
+            pbar = progress_bar(flash, flash_budget, 16)
+            past_fl = [p["metrics"]["flash_bytes"] for p in history.get(check, []) if "flash_bytes" in p.get("metrics", {})]
+            spark = f" trend: [{sparkline(past_fl)}]" if len(past_fl) >= 2 else ""
+            print(f"  {check:<20} Flash: {flash:>7,d} / {flash_budget:>7,d} B [{pbar}] {pct:>5.1f}%{spark}")
+
+    # Engineering Log Lessons Breakdown
+    eng_log = ROOT / "engineering_log.md"
+    if eng_log.exists():
+        categories = ["product-bug", "tool-bug", "false-alarm", "process-gap", "hardware-fact"]
+        cat_counts = {c: 0 for c in categories}
+        text = eng_log.read_text(encoding="utf-8", errors="ignore")
+        for line in text.splitlines():
+            for c in categories:
+                if f"`{c}`" in line or f"**Category**: {c}" in line or f"category: `{c}`" in line:
+                    cat_counts[c] += 1
+        total_lessons = sum(cat_counts.values())
+        print("\n" + "=" * 78)
+        print(f"Engineering Log Lessons & Feedback Loop ({total_lessons} recorded)")
+        print("=" * 78)
+        for c in categories:
+            bar_c = progress_bar(cat_counts[c], max(total_lessons, 1), 16)
+            print(f"  {c:<15}: {cat_counts[c]:>3} [{bar_c}]")
+    print()
 
 
 def export_benchmark(records, family):

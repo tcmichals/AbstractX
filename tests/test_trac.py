@@ -95,6 +95,15 @@ def test_size_build_variant_is_its_own_check():
     assert "elf:e906/debug" in out and "not built" in out
 
 
+def test_trac_report_and_charts():
+    trac = Path(__file__).resolve().parent.parent / "tools" / "trac.py"
+    out = subprocess.run([sys.executable, str(trac), "report"],
+                         capture_output=True, text=True, check=True).stdout
+    assert "AbstractX SpecTrace Evidence & Quality Report" in out
+    assert "Silicon Memory Utilization" in out
+    assert "Engineering Log Lessons" in out
+
+
 if __name__ == "__main__":
     test_test_parsers()
     test_size_parsing_and_models()
@@ -102,4 +111,5 @@ if __name__ == "__main__":
     test_nextpnr_routed_fmax_is_the_last_line()
     test_ledger_append_read_delta()
     test_size_build_variant_is_its_own_check()
+    test_trac_report_and_charts()
     print("[PASS] trac")

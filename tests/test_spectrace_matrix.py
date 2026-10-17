@@ -142,7 +142,43 @@ def test_change_review_maps_hunks_and_flags_untraced():
         assert "+    return 22;" in bundle, "diff included"
 
 
+def test_stale_and_failing_verdicts():
+    from trac_lib import ledger
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "VERIFIED", "baseline without ledger"
+
+        commit = subprocess.check_output(["git", "rev-parse", "--short=12", "HEAD"], cwd=root, text=True).strip()
+        rec_fail = {
+            "check": "ctest:debug", "commit": commit, "dirty": False,
+            "family": "test", "host": "test-box", "metrics": {"failed": 1},
+            "requirements": ["SPEC-FIX-01"], "result": "fail", "time": "2026-10-17T00:00:00Z"
+        }
+        ledger.append(root, rec_fail)
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "FAILING", "failed check marks requirement FAILING"
+
+        rec_pass = {
+            "check": "ctest:debug", "commit": commit, "dirty": False,
+            "family": "test", "host": "test-box", "metrics": {"failed": 0},
+            "requirements": ["SPEC-FIX-01"], "result": "pass", "time": "2026-10-17T00:01:00Z"
+        }
+        ledger.append(root, rec_pass)
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "VERIFIED", "passing check marks requirement VERIFIED"
+
+        (root / "src" / "a.cpp").write_text(A_CPP + "\n// modified\n")
+        run(["git", "add", "src/a.cpp"], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "modify a.cpp"], root)
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "STALE", "governed code change after test marks requirement STALE"
+
+
 if __name__ == "__main__":
     test_matrix_verdicts()
     test_change_review_maps_hunks_and_flags_untraced()
+    test_stale_and_failing_verdicts()
     print("[PASS] spectrace_matrix")
+

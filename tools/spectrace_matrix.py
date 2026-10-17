@@ -34,6 +34,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from spectrace_drift import CODE_EXTS, IGNORED_TAGS, SPEC_PATTERN, discover_all_specs  # noqa: E402
 
+from trac_lib import ledger  # noqa: E402
+
 TAG_RE = re.compile(r"\[(SPEC-[A-Z0-9\-]+)\]")
 # Only a bullet that starts with **Verified by**: (not a mention inside prose).
 VERIFIED_RE = re.compile(r"^\s*[*-]\s+\*\*Verified by\*\*\s*:\s*(.*)")
@@ -43,7 +45,31 @@ HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 SKILL_TOKEN_RE = re.compile(r"`([a-z0-9][a-z0-9\-]*)`")
 EXCLUDED_PARTS = {"third_party", ".git", "build", "node_modules"}
 
-VERDICTS = ("VERIFIED", "IMPLEMENTED", "PARTIAL", "SPEC-ONLY", "BROKEN")
+VERDICTS = ("VERIFIED", "STALE", "FAILING", "IMPLEMENTED", "PARTIAL", "SPEC-ONLY", "BROKEN")
+
+SKILL_MAP = {
+    "host-tests": {"ctest:debug", "ctest:host", "ctest:plain"},
+    "check-host-tests": {"ctest:debug", "ctest:host", "ctest:plain"},
+    "sanitizer-gate": {"ctest:asan", "ctest:asan-ubsan"},
+    "check-asan-ubsan": {"ctest:asan", "ctest:asan-ubsan"},
+    "thread-sanitizer": {"ctest:tsan"},
+    "check-tsan": {"ctest:tsan"},
+    "cocotb-regression": {"cocotb:all"},
+    "check-rtl-sim": {"cocotb:all"},
+    "rtl-lint": {"rtl:lint"},
+    "check-rtl-lint": {"rtl:lint"},
+    "rtl-synth-check": {"rtl:synth-check"},
+    "check-rtl-synth": {"rtl:synth-check"},
+    "e906-build-layout": {"elf:e906", "elf:e906/release", "e906:layout"},
+    "check-e906-layout": {"elf:e906", "elf:e906/release", "e906:layout"},
+    "e906-disassembly-check": {"disasm:e906"},
+    "check-e906-disasm": {"disasm:e906"},
+    "memory-footprint": {"elf:e906", "elf:pico2w", "elf:esp32p4"},
+    "measure-memory": {"elf:e906", "elf:pico2w", "elf:esp32p4"},
+    "fpga-fit": {"fpga-fit:tang_nano20k", "fpga-fit:primer20k"},
+    "measure-fpga-fit": {"fpga-fit:tang_nano20k", "fpga-fit:primer20k"},
+    "spectrace-matrix": {"spectrace:matrix"},
+}
 
 
 @dataclass
@@ -56,6 +82,7 @@ class Requirement:
     body: list[str] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     impls: list[tuple[str, int, str]] = field(default_factory=list)  # (file, line, status)
+    evidence: dict = field(default_factory=dict)
 
     def verdict(self, known_skills: set[str]) -> str:
         if any(s not in known_skills for s in self.skills):
@@ -64,7 +91,16 @@ class Requirement:
             return "SPEC-ONLY"
         if any(st.lower() == "partial" for _, _, st in self.impls):
             return "PARTIAL"
-        return "VERIFIED" if self.skills else "IMPLEMENTED"
+        if not self.skills:
+            return "IMPLEMENTED"
+        if self.evidence:
+            if self.evidence.get("failing"):
+                return "FAILING"
+            if self.evidence.get("stale"):
+                return "STALE"
+            if self.evidence.get("verified"):
+                return "VERIFIED"
+        return "VERIFIED"
 
 
 @dataclass
@@ -156,6 +192,86 @@ def tracked_files(root: Path) -> list[str]:
     return files
 
 
+def evaluate_evidence(root: Path, reqs: dict[str, Requirement], records: list[dict]) -> None:
+    if not records:
+        return
+
+    latest_by_check: dict[str, dict] = {}
+    for r in records:
+        latest_by_check[r["check"]] = r
+
+    latest_by_tag: dict[str, dict] = {}
+    for r in records:
+        for tag in r.get("requirements", []):
+            latest_by_tag[tag] = r
+
+    dirty_files = set()
+    try:
+        status_out = git(root, "status", "--porcelain", "--untracked-files=no")
+        for line in status_out.splitlines():
+            if len(line) > 3:
+                dirty_files.add(line[3:].strip())
+    except Exception:
+        pass
+
+    changed_cache: dict[str, set[str]] = {}
+
+    def get_changed_since(commit: str) -> set[str]:
+        if not commit or commit == "unknown":
+            return set()
+        if commit in changed_cache:
+            return changed_cache[commit]
+        try:
+            out = git(root, "diff", "--name-only", commit, "HEAD")
+            res = set(out.splitlines())
+        except Exception:
+            res = set()
+        changed_cache[commit] = res
+        return res
+
+    for tag, r in reqs.items():
+        if not r.skills or not r.impls:
+            continue
+        governed_files = {r.spec} | {f for f, _, _ in r.impls}
+        failing = False
+        stale = False
+        skills_tested = 0
+
+        for sk in r.skills:
+            candidate = None
+            if tag in latest_by_tag:
+                candidate = latest_by_tag[tag]
+            else:
+                checks = SKILL_MAP.get(sk, {sk})
+                matching = [latest_by_check[c] for c in checks if c in latest_by_check]
+                if matching:
+                    candidate = max(matching, key=lambda x: x.get("time", ""))
+
+            if candidate is None:
+                stale = True
+            else:
+                skills_tested += 1
+                if candidate.get("result") == "fail":
+                    failing = True
+                elif candidate.get("result") == "pass":
+                    cmt = candidate.get("commit", "")
+                    changed = get_changed_since(cmt)
+                    if any(gf in changed or gf in dirty_files for gf in governed_files):
+                        stale = True
+                else:
+                    stale = True
+
+        if skills_tested == 0:
+            continue
+
+        if failing:
+            r.evidence = {"failing": True}
+        elif stale:
+            r.evidence = {"stale": True}
+        else:
+            r.evidence = {"verified": True}
+
+
 def build_matrix(root: Path) -> tuple[dict[str, Requirement], dict[str, Path], dict[str, list[Anchor]]]:
     reqs = parse_requirements(root)
     skills = load_skills(root)
@@ -167,6 +283,11 @@ def build_matrix(root: Path) -> tuple[dict[str, Requirement], dict[str, Path], d
             for tag in a.tags:
                 if tag in reqs:
                     reqs[tag].impls.append((rel, a.line, a.status))
+    try:
+        records = ledger.read_all(root)
+    except Exception:
+        records = []
+    evaluate_evidence(root, reqs, records)
     return reqs, skills, anchors
 
 

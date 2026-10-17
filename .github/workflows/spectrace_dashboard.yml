@@ -26,14 +26,55 @@ jobs:
           sudo apt-get install -y cmake ninja-build python3-pip binutils
           python3 -m pip install pytest
 
-      - name: Build Host Verification Binaries & CppUTest Suites
+      - name: Build Host Verification Binaries & Suites
         run: |
           cmake --preset host
-          cmake --build --preset host --target gps_imu_app test_sitl_imu test_sitl_gps test_sitl_fusion test_sitl_serial_loopback
+          cmake --build --preset host -j
 
-      - name: CppUTest SITL Hardware Mocking & Memory Leak Gate
+      - name: Host Tests (All 35 Test Suites)
         run: |
-          ctest --test-dir build_host -R cpputest --output-on-failure
+          ctest --test-dir build_host --output-on-failure
+
+      - name: ASan / UBSan Build & Test Gate
+        run: |
+          cmake -S . -B build_asan -DABSTRACTX_TARGET=host \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build_asan -j
+          ctest --test-dir build_asan --output-on-failure
+
+      - name: SpecTrace Matrix & Evidence Verification
+        run: |
+          python3 tools/spectrace_matrix.py --matrix
+          python3 tools/trac.py test --ctest debug=build_host --ctest asan=build_asan --matrix
+          python3 tools/trac.py report
+
+      - name: Export Benchmark JSON for GitHub Action Benchmark
+        run: |
+          python3 tools/trac.py export-benchmark --of size > benchmark_size.json
+          python3 tools/trac.py export-benchmark --of test > benchmark_test.json
+
+      - name: Publish Size Benchmark to GitHub Pages
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: AbstractX Static Size Metrics
+          tool: 'customSmallerIsBetter'
+          output-file-path: benchmark_size.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          benchmark-data-dir-path: 'benchmarks_size'
+
+      - name: Publish Test Execution Benchmark to GitHub Pages
+        uses: benchmark-action/github-action-benchmark@v1
+        if: github.ref == 'refs/heads/main'
+        with:
+          name: AbstractX Test Execution Metrics
+          tool: 'customSmallerIsBetter'
+          output-file-path: benchmark_test.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          benchmark-data-dir-path: 'benchmarks_test'
 
       - name: SpecTrace Parity Audit (100% SSOT Requirement Gate)
         run: |

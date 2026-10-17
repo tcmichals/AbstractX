@@ -887,3 +887,50 @@ This log chronicles the development, technical decisions, and architecture miles
   - 35/35 Host ctest targets passed in Debug, ASan/UBSan, and TSan (0 leaks, 0 races).
   - All E906 build configurations (Release, Debug, LTO) and Pico 2 W built cleanly.
   - Cocotb test suite passed (16/16).
+
+## [2026-10-17] - SpecTrace Tooling: STALE/FAILING Evidence Verdicts, Report Charts, and CI Benchmark Export [SPEC-AUDIT-07] [SPEC-AUDIT-09]
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/spectrace_matrix.py`, `tools/trac.py`, `.gitignore`, `.github/workflows/spectrace_dashboard.yml`
+* **Category**: `tool-bug` / `process-gap`
+* **Symptoms**:
+  - `spectrace_matrix.py` previously evaluated verdicts purely based on static text presence (`Verified by` line and `@impl` tags) without consulting the evidence ledger (`docs/verification/evidence/`).
+  - As a result, requirements were marked `VERIFIED` even when their verifying skills failed or when governed code was modified after the check passed without being re-tested.
+  - `trac report` printed only basic key-value lines without historical trend sparklines or hardware budget progress bars.
+  - `.gitignore` contained a broad `*.json` rule that hid benchmark outputs and required manual un-ignore hole punching.
+  - CI lacked ASan/UBSan testing and automated benchmark metrics export.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - The evidence ledger (`hp.jsonl`) had been introduced to record test, size, and perf runs, but closed-loop integration back into `spectrace_matrix.py` verdicts remained a planned next step.
+  - Without ledger awareness, requirements could not distinguish fresh verification from stale passes or active test regressions.
+* **Architectural Lesson**:
+  - Verification is a temporal claim: a requirement is `VERIFIED` only if its verifying skill passed at or after the latest change to the requirement text or its implementing code.
+  - When governed files change after a test pass, the requirement must transition to `STALE`.
+  - When any verifying check fails in the ledger, the requirement must immediately flag as `FAILING`.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `docs/SPECTRACE.md` (`[SPEC-AUDIT-07]`, `[SPEC-AUDIT-09]`), `docs/SPECTRACE_GUIDE.md` (§5, §9)
+* **Requirement Tags Added/Updated**:
+  - `[SPEC-AUDIT-07]`: Traceability matrix joins requirements, code anchors, and evidence ledger runs to produce `VERIFIED`, `STALE`, `FAILING`, `IMPLEMENTED`, `PARTIAL`, `SPEC-ONLY`, `BROKEN` verdicts.
+  - `[SPEC-AUDIT-09]`: Trac evidence ledger, rich terminal reporting with sparklines and progress bars, and CI benchmark export.
+* **Implementation Targets**: `tools/spectrace_matrix.py`, `tools/trac.py`, `tools/trac_lib/test_checks.py`, `.github/workflows/spectrace_dashboard.yml`, `.gitignore`.
+
+### 4. Implementation & Verification
+* In `tools/spectrace_matrix.py`:
+  - Added `STALE` and `FAILING` to `VERDICTS`.
+  - Implemented `SKILL_MAP` mapping skills to ledger check identifiers.
+  - Implemented `evaluate_evidence()` checking git diff history between the record's commit and HEAD.
+* In `tools/trac.py`:
+  - Implemented `sparkline()` and `progress_bar()` helpers.
+  - Enhanced `report()` to display gate status, delta, trend sparklines, silicon memory utilization against hardware limits, and engineering log feedback breakdown.
+* In `.github/workflows/spectrace_dashboard.yml`:
+  - Added full host ctest execution, ASan/UBSan build & test gate, trac test/report verification, and `benchmark-action/github-action-benchmark@v1` publishing.
+* In `.gitignore`:
+  - Removed blanket `*.json` rule and redundant un-ignores.
+* Verification gates:
+  - Added `test_stale_and_failing_verdicts()` in `tests/test_spectrace_matrix.py` (proves FAILING on bad check, STALE on modified code, VERIFIED on fresh pass).
+  - Added `test_trac_report_and_charts()` in `tests/test_trac.py`.
+  - 35/35 Host ctest passed in Debug, ASan/UBSan, and TSan.
+  - `python3 tools/spectrace_matrix.py --changes --staged --strict` passed with 0 untraced hunks.
+

@@ -107,7 +107,7 @@ Fixed / decided (see `engineering_log.md` 2026-10-14, E906 memory map):
 - [x] E906 `platform_send_telemetry()` no longer writes to `0x07131000` (outside SRAM); drops and counts until the RPMsg transport lands.
 
 Remaining:
-- [ ] Add an ASan/UBSan host job to CI (`.github/workflows/`).
+- [x] Added ASan/UBSan host gate, full ctest suite, and benchmark export to CI workflow (2026-10-17).
 - [ ] Fail the configure step clearly when `third_party/etl` is not initialised (currently a missing-header error); document `git submodule update --init third_party/etl`.
 - [ ] `Task<T>`: `co_await` on a Task whose frame allocation failed dereferences a null handle; `promise_type` uses `std::function` (may heap-allocate) and `std::exception_ptr`, contrary to the freestanding rules.
 - [x] Linux `LinuxIoProcessor` keeps a single `pending_spi_tag_` / `bridge_rx_buf_`; fixed with in-flight descriptor pool `[SPEC-LINUX-SPI-01]` (2026-10-17).
