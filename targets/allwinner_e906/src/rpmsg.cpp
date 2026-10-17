@@ -115,6 +115,8 @@ IRpmsg* Rpmsg::get_active_driver() noexcept {
 // @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
 // ============================================================================
 namespace {
+    constexpr uint16_t VRING_USED_F_NO_NOTIFY = 1;
+
     const struct rpmsg_resource_table *s_linux_rsc = nullptr;
     bool s_linux_vdev_ready = false;
 
@@ -160,6 +162,9 @@ bool Rpmsg::is_driver_ready() noexcept {
             rsc->vdev.vring[0].da != 0 && rsc->vdev.vring[1].da != 0) {
             setup_vq(s_tx_vq, rsc->vdev.vring[0].da, rsc->vdev.vring[0].num, rsc->vdev.vring[0].align);
             setup_vq(s_rx_vq, rsc->vdev.vring[1].da, rsc->vdev.vring[1].num, rsc->vdev.vring[1].align);
+            s_tx_vq.used->flags = VRING_USED_F_NO_NOTIFY;
+            s_rx_vq.used->flags = 0;
+            std::atomic_thread_fence(std::memory_order_release);
             s_linux_vdev_ready = true;
         }
     }
@@ -188,7 +193,15 @@ uint16_t Rpmsg::tx_free_buffers() noexcept {
         return 0;
     }
     std::atomic_thread_fence(std::memory_order_acquire);
-    return static_cast<uint16_t>(s_tx_vq.avail->idx - s_tx_vq.last_avail_idx);
+    uint16_t free_bufs = static_cast<uint16_t>(s_tx_vq.avail->idx - s_tx_vq.last_avail_idx);
+    if (free_bufs == 0) {
+        // Free buffers exhausted: clear NO_NOTIFY so host kicks when buffers are returned
+        s_tx_vq.used->flags = 0;
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+    } else {
+        s_tx_vq.used->flags = VRING_USED_F_NO_NOTIFY;
+    }
+    return free_bufs;
 }
 
 // Borrow the next free host buffer from vring[0]; its payload is written in
@@ -266,55 +279,76 @@ bool Rpmsg::poll() noexcept {
         return false;
     }
 
-    if (MsgBox::is_rx_pending(MsgBox::Channel::Channel0)) {
+    while (MsgBox::is_rx_pending(MsgBox::Channel::Channel0)) {
         (void)MsgBox::receive(MsgBox::Channel::Channel0);
     }
-    if (MsgBox::is_rx_pending(MsgBox::Channel::Channel1)) {
+    while (MsgBox::is_rx_pending(MsgBox::Channel::Channel1)) {
         (void)MsgBox::receive(MsgBox::Channel::Channel1);
     }
 
     std::atomic_thread_fence(std::memory_order_acquire);
-    const uint16_t avail_idx = s_rx_vq.avail->idx;
+    uint16_t avail_idx = s_rx_vq.avail->idx;
     if (s_rx_vq.last_avail_idx == avail_idx) {
         return false;
     }
 
+    // Suppress redundant host kicks while actively draining
+    s_rx_vq.used->flags = VRING_USED_F_NO_NOTIFY;
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+
     bool processed = false;
-    while (s_rx_vq.last_avail_idx != avail_idx) {
-        const uint16_t desc_idx = s_rx_vq.avail->ring[s_rx_vq.last_avail_idx % s_rx_vq.num];
-        volatile struct VirtioDesc *desc = &s_rx_vq.desc[desc_idx];
+    for (;;) {
+        while (s_rx_vq.last_avail_idx != avail_idx) {
+            const uint16_t desc_idx = s_rx_vq.avail->ring[s_rx_vq.last_avail_idx % s_rx_vq.num];
+            volatile struct VirtioDesc *desc = &s_rx_vq.desc[desc_idx];
 
-        if (desc->addr != 0 && desc->len >= sizeof(struct rpmsg_hdr)) {
-            volatile struct rpmsg_hdr *hdr =
-                reinterpret_cast<volatile struct rpmsg_hdr *>(translate_da(desc->addr));
+            if (desc->addr != 0 && desc->len >= sizeof(struct rpmsg_hdr)) {
+                volatile struct rpmsg_hdr *hdr =
+                    reinterpret_cast<volatile struct rpmsg_hdr *>(translate_da(desc->addr));
 
-            RpmsgMessage msg;
-            msg.src = hdr->src;
-            msg.dst = hdr->dst;
-            msg.len = hdr->len;
-            msg.data = const_cast<const uint8_t *>(hdr->data);
-            msg.desc_idx = desc_idx;
+                RpmsgMessage msg;
+                msg.src = hdr->src;
+                msg.dst = hdr->dst;
+                msg.len = hdr->len;
+                msg.data = const_cast<const uint8_t *>(hdr->data);
+                msg.desc_idx = desc_idx;
 
-            s_linux_rx_count.fetch_add(1, std::memory_order_relaxed);
-            processed = true;
+                s_linux_rx_count.fetch_add(1, std::memory_order_relaxed);
+                processed = true;
 
-            for (size_t i = 0; i < s_num_linux_endpoints; ++i) {
-                if (s_linux_endpoints[i].addr == msg.dst || s_linux_endpoints[i].addr == 0) {
-                    if (s_linux_endpoints[i].cb) {
-                        s_linux_endpoints[i].cb(msg, s_linux_endpoints[i].user_data);
+                for (size_t i = 0; i < s_num_linux_endpoints; ++i) {
+                    if (s_linux_endpoints[i].addr == msg.dst || s_linux_endpoints[i].addr == 0) {
+                        if (s_linux_endpoints[i].cb) {
+                            s_linux_endpoints[i].cb(msg, s_linux_endpoints[i].user_data);
+                        }
+                        break;
                     }
-                    break;
                 }
-            }
 
-            // Return the consumed host buffer
-            const uint16_t used_slot = s_rx_vq.used->idx % s_rx_vq.num;
-            s_rx_vq.used->ring[used_slot].id = desc_idx;
-            s_rx_vq.used->ring[used_slot].len = 0;
-            std::atomic_thread_fence(std::memory_order_release);
-            s_rx_vq.used->idx = s_rx_vq.used->idx + 1;
+                // Return the consumed host buffer
+                const uint16_t used_slot = s_rx_vq.used->idx % s_rx_vq.num;
+                s_rx_vq.used->ring[used_slot].id = desc_idx;
+                s_rx_vq.used->ring[used_slot].len = 0;
+                std::atomic_thread_fence(std::memory_order_release);
+                s_rx_vq.used->idx = s_rx_vq.used->idx + 1;
+            }
+            s_rx_vq.last_avail_idx++;
         }
-        s_rx_vq.last_avail_idx++;
+
+        // Batch finished: clear NO_NOTIFY so host knows to kick when idle
+        s_rx_vq.used->flags = 0;
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+
+        // Re-check: did more buffers arrive while we were processing?
+        std::atomic_thread_fence(std::memory_order_acquire);
+        avail_idx = s_rx_vq.avail->idx;
+        if (s_rx_vq.last_avail_idx == avail_idx) {
+            break;
+        }
+
+        // More arrived: re-suppress kicks and continue draining
+        s_rx_vq.used->flags = VRING_USED_F_NO_NOTIFY;
+        std::atomic_thread_fence(std::memory_order_seq_cst);
     }
 
     if (processed) {
@@ -398,6 +432,9 @@ bool RpmsgLiteMetal::is_driver_ready() noexcept {
             rsc->vdev.vring[0].da != 0 && rsc->vdev.vring[1].da != 0) {
             setup_vq(s_lite_rx_vq, rsc->vdev.vring[0].da, rsc->vdev.vring[0].num, rsc->vdev.vring[0].align);
             setup_vq(s_lite_tx_vq, rsc->vdev.vring[1].da, rsc->vdev.vring[1].num, rsc->vdev.vring[1].align);
+            s_lite_rx_vq.used->flags = VRING_USED_F_NO_NOTIFY;
+            s_lite_tx_vq.used->flags = VRING_USED_F_NO_NOTIFY;
+            std::atomic_thread_fence(std::memory_order_release);
             s_lite_vdev_ready = true;
         }
     }

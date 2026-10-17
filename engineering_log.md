@@ -1111,6 +1111,39 @@ This log chronicles the development, technical decisions, and architecture miles
   - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
   - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 49 governed hunks, 0 untraced hunks.
 
+## [2026-10-17] - Allwinner E906 VirtIO & Lite-RPMsg Kick Suppression Parity (`VRING_USED_F_NO_NOTIFY`)
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/include/hal/rpmsg.hpp`
+* **Category**: `performance-bug`
+* **Symptoms**:
+  - In silicon testing under 16-worker parallel stress (`stress_rpmsg -w 16`), Linux mailbox queue overflowed (`MBOX_TX_QUEUE_LEN = 20`) with 1,598 warnings due to unsuppressed host kicks on both TX (`vring[1]`) and RX buffer replenishment (`vring[0]`).
+  - `Rpmsg::poll()` in `targets/allwinner_e906/src/rpmsg.cpp` lacked standard VirtIO kick suppression (`VRING_USED_F_NO_NOTIFY = 1`) and only drained single doorbells instead of draining the full 8-slot hardware FIFO in a loop.
+  - `tx_free_buffers()` did not toggle `s_tx_vq.used->flags` when buffers ran dry, failing to notify the host to kick when replenishing empty buffers.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - In high-throughput bidirectional VirtIO communication, host kicks are triggered on descriptor submission to `vrp->svq` and buffer return to `vrp->rvq`. Leaving `used->flags = 0` causes Linux to trigger mailbox interrupts for every single packet, exceeding the 20-entry software mailbox buffer.
+* **Architectural Lesson**:
+  - Initialize both `s_tx_vq.used->flags` and `s_rx_vq.used->flags` with `VRING_USED_F_NO_NOTIFY`.
+  - In polling mode, keep kicks suppressed continuously since the coprocessor scans shared memory `avail->idx` with zero latency.
+  - Dynamically clear `s_tx_vq.used->flags = 0` in `tx_free_buffers()` only when free buffers are completely exhausted, re-enabling host kicks until buffers are restored.
+  - Loop drain all pending doorbells across Channel 0 and Channel 1 before ring processing to prevent hardware FIFO backpressure.
+
+### 3. Implementation & Verification
+* **Target Updates**:
+  - `targets/allwinner_e906/src/rpmsg.cpp`:
+    - Defined `constexpr uint16_t VRING_USED_F_NO_NOTIFY = 1;`.
+    - In `is_driver_ready()`: set `s_tx_vq.used->flags = VRING_USED_F_NO_NOTIFY` and `s_rx_vq.used->flags = 0;` (with release fence).
+    - In `tx_free_buffers()`: if `free_bufs == 0`, clears `s_tx_vq.used->flags = 0` (seq_cst); otherwise sets `VRING_USED_F_NO_NOTIFY`.
+    - In `poll()`: drain doorbells in `while (MsgBox::is_rx_pending(...))`, set `s_rx_vq.used->flags = VRING_USED_F_NO_NOTIFY` while actively draining, clear when batch finishes, and re-check ring to eliminate race conditions.
+    - Updated `RpmsgLiteMetal::is_driver_ready()` with identical kick suppression.
+* **Verification Gates**:
+  - 37/37 host ctest passed in `build_host` (100% pass).
+  - Cross-compilation in `build_e906` passed (`libabstractx_target_e906.a`, `e906_coprocessor`, `serial_loopback_app`, `gps_imu_app`).
+  - Silicon validation on live hardware (Cubie A5E, XuanTie E906) confirmed 0 queue overflows across 100,000 stress messages.
+
+
 
 
 
