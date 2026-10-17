@@ -26,6 +26,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-ARCH-03]` Universal Multi-Target Application Portability
 * **Requirement**: Top-level flight control and telemetry logic (`FlightApp` / `inav-abstractx`) must compile unmodified across Linux SBCs, Raspberry Pi Pico 2 W, ESP32-P4, and Desktop SITL.
+* **Verified by**: `host-tests` (`tests/test_sitl_fusion.cpp`)
 * **Implementation Target**: `examples/gps_imu_flight_node.cpp`, `apps/`
 
 ### `[SPEC-ARCH-04]` Heterogeneous Co-Processor Interconnect & Single-Core MPSC (E906 + Linux)
@@ -82,18 +83,22 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Channel Routing**:
   - `Channel::Telemetry` (`0x02`): CTF Stream 1 (`ImuSamplePayload` 23B, `GpsFixPayload` 35B).
   - `Channel::FlightLog` / `Channel::Debug` (`0x03` / `0x04`): CTF Stream 0 (`CoroEventPayload` 17B), CTF Stream 2 (`HalIoPayload` 16B / `TlpTracePayload` 19B).
+* **Verified by**: `host-tests` (`sim/test_tlp_msg.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_tlp_64b_cocotb.py`)
 * **Implementation Target**: `include/asp_tlp64.hpp`, `include/asp_tlp64.h`
 
 ### `[SPEC-TLP-02]` Memory-Mapped Virtual Addressing & Routing
 * **Requirement**: Sensor and actuator requests must target virtual BAR memory regions (`IMU_BASE = 0x40000100`, `GPS_BASE = 0x40000300`), remaining transport-agnostic.
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_sys_regs_cocotb.py`, `sim/cocotb/test_asp_wishbone_master_cocotb.py`)
 * **Implementation Target**: `include/pcie_bar_map.hpp`
 
 ### `[SPEC-TLP-03]` Lock-Free SPSC & Wait-Free MPSC Ring Transport
 * **Requirement**: Inter-core and inter-domain FIFO queues must operate lock-free via single-producer single-consumer rings (`SpscTlpRing<64>`) with atomic head/tail pointers. Intra-core and single-core coprocessor event queues must operate wait-free via multi-producer single-consumer queues (`MpscIsrQueue<T, Capacity>`) with hardware IRQ masking (`csrrci` on RV32 / `cpsid i` on Cortex-M).
+* **Verified by**: `host-tests` (`sim/test_spsc_channel_array.cpp`), `thread-sanitizer` (`sim/test_baremetal_isr_spsc.cpp`)
 * **Implementation Target**: `include/spsc_tlp_ring.hpp`, `include/mpsc_isr_queue.hpp`
 
 ### `[SPEC-TLP-04]` Multi-Register Burst Memory Operations
 * **Requirement**: The TLP memory interface MUST support packed multi-register burst writes (`MemWrBurst`) and burst reads (`MemRdBurst`) packing up to 9 consecutive 32-bit registers (36 bytes payload) into a single 64-byte TLP with `length_dw = N (1..9)`. The receiving gateway (`asp_wishbone_master.sv`) MUST sequentially write/read consecutive memory-mapped Wishbone addresses starting at `target_address` without issuing separate 64-byte control frames.
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_wishbone_master_cocotb.py`)
 * **Implementation Target**: `include/asp_tlp64.hpp`, `rtl/asp_wishbone_master.sv`
 
 ---
@@ -103,14 +108,17 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-HAL-01]` DMA/ISR Split-Queue Driver Base
 * **Requirement**: `AsyncDriverBase<TReq, TRes, Depth>` must manage dual ETL `queue_spsc_isr` rings with nesting-aware `InterruptLock` masking.
+* **Verified by**: `host-tests` (`sim/test_baremetal_isr_spsc.cpp`), `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/async_driver.hpp`
 
 ### `[SPEC-HAL-02]` Asynchronous SPI / Dual-SPI DMA Interface
 * **Requirement**: `AsyncSpiDriver` must support single-channel and dual-channel high-speed SPI transactions with `co_await transfer_async()`.
+* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/hal/spi.hpp`
 
 ### `[SPEC-HAL-03]` Asynchronous UART Streaming & Framing Interface
 * **Requirement**: `AsyncUartDriver` must provide interrupt/DMA driven non-blocking RX byte streaming and `co_await write_async()` packet ingestion.
+* **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/uart.hpp`
 
 ### `[SPEC-HAL-04]` Inter-Core Mailbox & Doorbell Interface
@@ -120,6 +128,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 ### `[SPEC-HAL-05]` Asynchronous Timer & Alarm Engine
 * **Requirement**: Timer delays, alarms, and periodic tasks must operate asynchronously through `AsyncTimerDriver` inheriting from `AsyncDriverBase<TimerRequest, TimerResult>`. Coroutines yield to the work queue and are awakened by hardware alarm ISRs, OS timer callbacks, or I/O processor queue completions. Coroutines never block or busy-spin on timers.
 * **Mechanism**: Request Queue $\rightarrow$ Hardware Alarm / OS Timer Callback $\rightarrow$ Completion Queue $\rightarrow$ `IsrDispatcher::post(handle)`.
+* **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`), `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/timer.hpp`
 
 ---
@@ -129,19 +138,23 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 ### `[SPEC-IMU-01]` ICM-42688-P 8 kHz SPI DMA Auto-Read & CTF TLP Emission
 * **Requirement**: Read 15-byte burst (`Temp[1..2]`, `Accel_XYZ[3..8]`, `Gyro_XYZ[9..14]`) on `DRDY` edge, convert to engineering units, and format into a 23-byte CTF `ImuSamplePayload` encapsulated in `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_IMU, payload)`.
 * **ODR & Scaling**: Gyro $\pm 2000\ \text{dps}$ ($16.4\ \text{LSB/dps}$), Accel $\pm 16g$ ($2048\ \text{LSB/g}$).
+* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_imu_auto_dma_cocotb.py`)
 * **Implementation Target**: `include/abstractx/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-IMU-02]` ICM-42688-P Coroutine Awaiter
 * **Requirement**: `co_await imu.next_sample_async()` suspends the calling task with zero CPU polling until the SPI DMA completes.
+* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-GPS-01]` U-Blox UBX-NAV-PVT Binary Parser & CTF TLP Emission
 * **Requirement**: Zero-allocation streaming byte parser for UBX Class `0x01`, ID `0x07` (92-byte payload) with Fletcher-8 checksum verification, emitting a 35-byte CTF `GpsFixPayload` inside `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_GPS, payload)`.
 * **Extracted Fields**: `lat_1e7`, `lon_1e7`, `alt_msl_mm`, `ground_speed_mm_s`, `heading_1e5`, `satellites`, `fix_type`, `itow_ms`.
+* **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/drivers/gps/ublox_gps.hpp`
 
 ### `[SPEC-GPS-02]` U-Blox GPS Coroutine Awaiter & TLP Emission
 * **Requirement**: `co_await gps.next_fix_async()` yields until a verified 3D fix frame is parsed, emitting `Tlp64` containing the full CTF navigation payload.
+* **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/drivers/gps/ublox_gps.hpp`
 
 ---
@@ -150,10 +163,12 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-TRACE-01]` barectf Common Trace Format (CTF) Event Specification & TLP Carrier
 * **Requirement**: System must emit binary CTF event packets conforming to `trace/barectf_config.yaml` (`magic = 0xC1FC1FC1`) capturing Coroutine lifecycles (`coro_state`), IMU bursts (`imu_sample`), GPS fixes (`gps_fix`), HAL driver I/O (`hal_io`), and TLP routing (`tlp_msg`), with individual CTF events directly transportable inside 64-byte `Tlp64` messages.
+* **Verified by**: `host-tests` (`sim/test_abstractx_runtime.cpp`), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `trace/barectf_config.yaml`
 
 ### `[SPEC-TRACE-02]` Zero-Allocation Trace Buffer & Ring Engine
 * **Requirement**: Tracing operations must incur 0 dynamic memory allocations and execute in $< 200\ \text{ns}$ per event using static circular packet buffers with automatic packet commit and overflow tracking.
+* **Verified by**: `host-tests` (`sim/test_trace_zero_copy.cpp`), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/trace/tracer.hpp`
 
 ### `[SPEC-TRACE-03]` Multi-Target Visualizer Transport
@@ -203,6 +218,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-ILA-01]` Decoupled Hardware ILA Trace Memory Pool & Non-Blocking DMA Reader
 * **Requirement**: Hardware and software tracing must operate on a dedicated memory pool completely isolated from the primary 64-byte control TLP plane. The FPGA hardware ILA (`asp_ila_trace.sv`) MUST capture timestamped internal events into an on-chip dual-port Block RAM circular buffer without consuming TLP bus bandwidth. The egress DMA reader MUST stream accumulated ILA trace frames only when the primary control TLP egress channel is idle, or upon receiving an explicit host DMA pull request, guaranteeing 0 head-of-line blocking for flight-critical control packets.
+* **Verified by**: `rtl-lint`, `rtl-synth-check`
 * **Implementation Target**: `rtl/asp_ila_trace.sv`
 
 ---

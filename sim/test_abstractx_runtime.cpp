@@ -1,3 +1,4 @@
+// @verifies [SPEC-ARCH-06] [SPEC-TRACE-01] [SPEC-TRACE-04] [SPEC-TRACE-06] docs/DESIGN_SPECIFICATION.md
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later

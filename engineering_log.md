@@ -934,3 +934,47 @@ This log chronicles the development, technical decisions, and architecture miles
   - 35/35 Host ctest passed in Debug, ASan/UBSan, and TSan.
   - `python3 tools/spectrace_matrix.py --changes --staged --strict` passed with 0 untraced hunks.
 
+---
+
+## [2026-10-17] - SpecTrace Verification & Evidence Linking: Connecting Implemented Requirements to Verification Gates [SPEC-ARCH-03] [SPEC-TLP-01..04] [SPEC-HAL-01..03,05] [SPEC-IMU-01..02] [SPEC-GPS-01..02] [SPEC-TRACE-01..02] [SPEC-APP-01..07,10] [SPEC-LOOP-01,08,09] [SPEC-AUDIT-01..05] [SPEC-ZYNQ-PLATFORM-07..11] [SPEC-ZYNQ-IMU-POC-07]
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `docs/DESIGN_SPECIFICATION.md`, `apps/gps_imu_app/SPECIFICATION.md`, `apps/serial_loopback_app/SPECIFICATION.md`, `docs/SPECTRACE.md`, `hw/zynq7000/SPECIFICATION.md`, `hw/zynq7000/testApps/imu_backend_validation_poc/SPECIFICATION.md`
+* **Category**: `process-gap`
+* **Symptoms**:
+  - Over 38 requirements had complete production code and comprehensive tests (in CppUTest SITL, sim testbenches, and cocotb regressions), but remained classified as `IMPLEMENTED` because their specifications lacked normative `* **Verified by**:` lines naming their verification skills.
+  - Test files in `tests/` and `sim/` tested those requirements without explicit `@verifies [SPEC-*]` tags, preventing automated bidirectional audit and evidence linking.
+  - Two test suites (`tests/test_adversarial_invariants.py` and `tests/test_zynq_buildroot_config.py`) were not registered in `tests/CMakeLists.txt` or required external pytest rather than standard Python3.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - Requirements were written with architectural prose and `@impl` references, but the formal Stage 2b `* **Verified by**:` lines were omitted when tests were initially authored.
+  - As a result, `spectrace_matrix.py` could not evaluate whether those requirements were actively verified by ctest, sanitizers, or cocotb.
+* **Architectural Lesson**:
+  - Every implemented requirement must declare *how* it is verified (`* **Verified by**: <skill> (<test>)`).
+  - Tests must explicitly declare `@verifies [SPEC-*]` so changes to tests and requirements are mechanically tracked by `spectrace_matrix.py --changes`.
+  - All test scripts in `tests/` must run self-contained under standard library `python3` and be registered in `tests/CMakeLists.txt` so every ctest invocation covers them.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**:
+  - `docs/DESIGN_SPECIFICATION.md`: Added `Verified by` lines to `[SPEC-ARCH-03]`, `[SPEC-TLP-01]`, `[SPEC-TLP-02]`, `[SPEC-TLP-03]`, `[SPEC-TLP-04]`, `[SPEC-HAL-01]`, `[SPEC-HAL-02]`, `[SPEC-HAL-03]`, `[SPEC-HAL-05]`, `[SPEC-IMU-01]`, `[SPEC-IMU-02]`, `[SPEC-GPS-01]`, `[SPEC-GPS-02]`, `[SPEC-TRACE-01]`, `[SPEC-TRACE-02]`, `[SPEC-ILA-01]`.
+  - `apps/gps_imu_app/SPECIFICATION.md`: Added `Verified by` lines to `[SPEC-APP-01]`, `[SPEC-APP-02]`, `[SPEC-APP-03]`, `[SPEC-APP-04]`, `[SPEC-APP-05]`, `[SPEC-APP-06]`, `[SPEC-APP-07]`, `[SPEC-APP-10]`.
+  - `apps/serial_loopback_app/SPECIFICATION.md`: Added `Verified by` lines to `[SPEC-LOOP-01]`, `[SPEC-LOOP-08]`, `[SPEC-LOOP-09]`.
+  - `docs/SPECTRACE.md`: Added `Verified by` lines to `[SPEC-AUDIT-01]`, `[SPEC-AUDIT-02]`, `[SPEC-AUDIT-03]`, `[SPEC-AUDIT-04]`, `[SPEC-AUDIT-05]`.
+  - `hw/zynq7000/SPECIFICATION.md`: Added `Verified by` lines to `[SPEC-ZYNQ-PLATFORM-07]`, `[SPEC-ZYNQ-PLATFORM-08]`, `[SPEC-ZYNQ-PLATFORM-09]`, `[SPEC-ZYNQ-PLATFORM-10]`, `[SPEC-ZYNQ-PLATFORM-11]`.
+  - `hw/zynq7000/testApps/imu_backend_validation_poc/SPECIFICATION.md`: Added `Verified by` line to `[SPEC-ZYNQ-IMU-POC-07]`.
+
+### 4. Implementation & Verification
+* **Test Code Updates**:
+  - Added `@verifies` tags in `tests/test_sitl_fusion.cpp`, `tests/test_sitl_gps.cpp`, `tests/test_sitl_serial_loopback.cpp`, `sim/test_spsc_channel_array.cpp`, `sim/test_baremetal_isr_spsc.cpp`, `sim/test_gps_imu_coro_pool.cpp`, `sim/test_abstractx_runtime.cpp`, `sim/test_trace_zero_copy.cpp`.
+  - Updated `tests/test_adversarial_invariants.py` and `tests/test_zynq_buildroot_config.py` with standalone `__main__` runners using Python standard library (no pytest dependency).
+  - Registered `py_test_adversarial_invariants` and `py_test_zynq_buildroot_config` in `tests/CMakeLists.txt`.
+* **Verification Gates**:
+  - 37/37 host ctest passed in Debug (`build_host`).
+  - 37/37 host ctest passed in ASan/UBSan (`build_asan`).
+  - 37/37 host ctest passed in TSan (`build_tsan`).
+  - 16/16 Cocotb targets passed (37/37 tests).
+  - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
+  - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 0 untraced hunks.
+
+

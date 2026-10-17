@@ -1,3 +1,4 @@
+// @verifies [SPEC-ARCH-03] [SPEC-APP-04] [SPEC-APP-05] [SPEC-APP-06] [SPEC-APP-10] apps/gps_imu_app/SPECIFICATION.md
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later

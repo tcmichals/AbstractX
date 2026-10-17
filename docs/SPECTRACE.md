@@ -20,6 +20,7 @@
     system safety/certification authority and separately address applicable
     planning, independence, coverage, configuration management, tool qualification,
     and objective evidence requirements.
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 
 ---
 
@@ -211,6 +212,7 @@ python3 tools/run_adversarial_audit.py --all
     project modules and MUST prune build, vendor, and generated-output directories.
 * Requirement-tag indexing MUST use maintained production source roots and MUST
     not load generated Buildroot/kernel/toolchain trees.
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 
 ### `[SPEC-AUDIT-02]` Bounded AI Review Context
 * The audit CLI MUST be able to emit an AI-review prompt containing the selected
@@ -220,11 +222,13 @@ python3 tools/run_adversarial_audit.py --all
 * AI review MUST stay within the selected module unless cross-module interfaces
     are named as dependencies; unrelated Linux host code MUST NOT be pulled into
     the context by default.
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 
 ### `[SPEC-AUDIT-03]` Foldable Audit Tool Sections
 * The Python audit tool MUST group its CLI, scope selection, and invariant stages
     with named VS Code-recognized folding regions so maintainers can navigate each
     audit stage independently.
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 
 ### `[SPEC-AUDIT-05]` Canonical Cross-Agent Review Command
 * Copilot, Antigravity, and terminal users MUST share one repository command for
@@ -235,6 +239,7 @@ python3 tools/run_adversarial_audit.py --all
 * The command MUST emit the bounded AI-review prompt by default; disabling the
     prompt MUST NOT skip static checks. Agent-specific prompts and rules MUST call
     this same command rather than implementing competing audit logic.
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
 
 ```mermaid
 flowchart LR

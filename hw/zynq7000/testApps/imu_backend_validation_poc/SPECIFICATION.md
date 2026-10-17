@@ -451,6 +451,7 @@ effective bus-rate differences and MUST NOT assert an unmeasured winner.
 Standard-library host unit tests MUST exercise common suite logic, backend
 failure paths, sample/TLP parsing, ring accounting, and report comparison.
 Hardware integration failures MUST be explicit and nonzero.
+* **Verified by**: `host-tests` (`hw/zynq7000/testApps/imu_backend_validation_poc/test_imu_validation.py`), `cocotb-regression` (`sim/cocotb/test_asp_imu_auto_dma_cocotb.py`)
 
 ### `[SPEC-ZYNQ-IMU-POC-08]` Evidence-based article
 

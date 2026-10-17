@@ -163,24 +163,31 @@ Every requirement below is verified in code with an `@impl` tag:
 
 ### `[SPEC-APP-01]` Parallel Hardware Initialization
 The application MUST initialize SPI IMU, UART GPS, and I2C Magnetometer concurrently using `coro::when_all(...)`.
+* **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`)
 
 ### `[SPEC-APP-02]` Primary-Paced Rate Execution
 The sensor fusion loop MUST be paced exclusively by awaiting the primary high-rate IMU channel (`co_await g_imu_channel.pop()`).
+* **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`)
 
 ### `[SPEC-APP-03]` Non-Blocking Auxiliary Drains
 Auxiliary medium-rate (Mag) and low-rate (GPS) sensor channels MUST be drained non-blockingly using `try_pop()` without stalling the IMU loop.
+* **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`)
 
 ### `[SPEC-APP-04]` 9-DoF Mahony Quaternion AHRS
 Orientation MUST be maintained via unit quaternion differential kinematics ($\dot{\mathbf{q}} = \frac{1}{2}\mathbf{q}\otimes\boldsymbol{\omega}$) corrected by cross-product gravity and geomagnetic error vectors.
+* **Verified by**: `host-tests` (`tests/test_sitl_fusion.cpp`)
 
 ### `[SPEC-APP-05]` Cascaded Angle and Rate PID
 Flight control MUST implement a cascaded control architecture where attitude angle error drives target angular rate, and rate error drives motor torque demands.
+* **Verified by**: `host-tests` (`tests/test_sitl_fusion.cpp`)
 
 ### `[SPEC-APP-06]` Quad-X Motor Mixer
 Motor output demands MUST resolve four motor throttle values ($M_1..M_4$) clamped between 100 µs and 1000 µs.
+* **Verified by**: `host-tests` (`tests/test_sitl_fusion.cpp`)
 
 ### `[SPEC-APP-07]` Zero Dynamic Heap Allocation
 All sensor channels (`AsyncQueue`), SPSC rings (`SpscTlpRing`), and filter instances MUST allocate exclusively from static memory with 0 heap bytes allocated during flight.
+* **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`), `sanitizer-gate`
 
 ### `[SPEC-APP-08]` Dynamic CTF 1.8 Schema Compliance
 Telemetry packets MUST conform to the barectf-compatible CTF 1.8 specification defined in `trace_schema.json`.
@@ -190,3 +197,4 @@ Application code in `apps/gps_imu_app` MUST compile and execute without modifica
 
 ### `[SPEC-APP-10]` Telemetry Decimation & Egress
 Fused AHRS state packets MUST be emitted into the lock-free telemetry ring at a decimated rate (e.g. 100 Hz) and serviced by a background egress task.
+* **Verified by**: `host-tests` (`tests/test_sitl_fusion.cpp`)

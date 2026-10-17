@@ -1,3 +1,4 @@
+// @verifies [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later

@@ -145,6 +145,7 @@ portable 64-byte `Tlp64` structure defined in `asp_tlp64.h`:
 The application MUST implement serial reception and echo exclusively using
 asynchronous C++20 coroutines (`co_await`), drawing coroutine frames from
 statically sized memory pools with 0 heap bytes allocated.
+* **Verified by**: `host-tests` (`tests/test_sitl_serial_loopback.cpp`), `sanitizer-gate`
 
 ### `[SPEC-LOOP-02]` Threshold-Balanced Serial I/O
 The serial driver MUST balance latency versus bandwidth:
@@ -176,11 +177,13 @@ The application MUST read hardware cycle counters (`mcycle`/`minstret`) every
 Ping requests MUST route directly to the top-level application coroutine,
 which verifies CRC32, stamps execution latency, and emits a `Tlp64` Completion
 packet back over the ingress transport.
+* **Verified by**: `host-tests` (`tests/test_sitl_serial_loopback.cpp`)
 
 ### `[SPEC-LOOP-09]` Multi-Transport Ingress/Egress Abstraction
 The application coroutine MUST interact with transport channels via abstract
 SPSC rings (`SpscTlpRing<64>`), decoupling the app from the physical transport
 (UART serial, Linux RPMSG VirtIO, or UDP socket).
+* **Verified by**: `host-tests` (`tests/test_sitl_serial_loopback.cpp`)
 
 ---
 

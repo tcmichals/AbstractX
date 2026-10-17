@@ -91,6 +91,7 @@ Every script configured as a Buildroot post-build or post-image hook MUST be
 stored as an executable regular file in source control so Buildroot can invoke
 it directly in a fresh checkout. Repository verification MUST reject a
 configured hook that lacks any execute bit.
+* **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ### [SPEC-ZYNQ-PLATFORM-08] Shared fully preemptible realtime kernel
 
@@ -103,6 +104,7 @@ configuration MUST contain `CONFIG_PREEMPT_RT=y`,
 `CONFIG_HIGH_RES_TIMERS=y`. The softirq synchronization option intentionally
 restores per-CPU bottom-half locking semantics while softirq execution is
 preemptible under PREEMPT_RT.
+* **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ### [SPEC-ZYNQ-PLATFORM-09] BRAM-first packet storage and explicit DDR modes
 
@@ -125,6 +127,7 @@ Larger designs MAY select one of two separately identified DDR modes:
 
 Bitstream and device-tree compatibility metadata MUST identify BRAM, HP, or ACP
 mode; software MUST NOT infer or switch the memory model silently.
+* **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ### [SPEC-ZYNQ-PLATFORM-10] CppUTest target library
 
@@ -132,6 +135,7 @@ Every supported Zynq Buildroot defconfig MUST select the external
 `BR2_PACKAGE_CPPUTEST` package pinned to CppUTest v4.0. The package MUST install
 CppUTest and CppUTestExt headers/libraries into staging for target test linking;
 it MUST NOT alias the unrelated cpptest or Google Highway libraries.
+* **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ### [SPEC-ZYNQ-PLATFORM-11] Runtime bitstream loading
 
@@ -139,6 +143,7 @@ Every supported Zynq Buildroot image MUST include `xilinx-fpgautil` so external
 automation can SSH into a PS-only system, load a selected bitstream through
 Linux FPGA Manager, apply its matching device-tree overlay, run tests, and
 collect results without changing the base boot image.
+* **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ## Verification
 

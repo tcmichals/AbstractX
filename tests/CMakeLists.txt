@@ -63,4 +63,10 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_trac.py)
     add_test(NAME py_test_e906_rpmsg_bridge
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_e906_rpmsg_bridge.py)
+    # [SPEC-AUDIT-01..05] Adversarial invariant auditor checks
+    add_test(NAME py_test_adversarial_invariants
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_adversarial_invariants.py)
+    # [SPEC-ZYNQ-PLATFORM-07..11] Zynq Buildroot configuration verification
+    add_test(NAME py_test_zynq_buildroot_config
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_buildroot_config.py)
 endif()

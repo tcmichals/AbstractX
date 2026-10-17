@@ -1,5 +1,6 @@
 // @verifies [SPEC-ARCH-02] docs/DESIGN_SPECIFICATION.md#spec-arch-02
-// @verifies [SPEC-APP-01] apps/gps_imu_app/SPECIFICATION.md#spec-app-01
+// @verifies [SPEC-APP-01] [SPEC-APP-02] [SPEC-APP-03] [SPEC-APP-07] apps/gps_imu_app/SPECIFICATION.md
+// @verifies [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md#spec-hal-05
 // @verifies [SPEC-E906-MEM-01] targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
 /*
  * Copyright (C) 2026 Tim Michals

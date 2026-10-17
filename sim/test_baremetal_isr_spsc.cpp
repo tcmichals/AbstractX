@@ -1,3 +1,4 @@
+// @verifies [SPEC-HAL-01] [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-hal-01
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later

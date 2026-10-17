@@ -1,4 +1,6 @@
-"""Regression checks for source-controlled Zynq Buildroot configuration."""
+"""Regression checks for source-controlled Zynq Buildroot configuration.
+@verifies [SPEC-ZYNQ-PLATFORM-07] [SPEC-ZYNQ-PLATFORM-08] [SPEC-ZYNQ-PLATFORM-09] [SPEC-ZYNQ-PLATFORM-10] [SPEC-ZYNQ-PLATFORM-11] hw/zynq7000/SPECIFICATION.md
+"""
 
 import os
 import re
@@ -135,3 +137,15 @@ def test_all_zynq_configs_include_fpgautil(repo_root: Path) -> None:
     assert configs, "No Zynq Buildroot defconfigs found"
     for config in configs:
         assert "BR2_PACKAGE_XILINX_FPGAUTIL=y" in _config_lines(config)
+
+
+if __name__ == "__main__":
+    repo_root = Path(__file__).resolve().parent.parent
+    test_configured_buildroot_hooks_are_executable(repo_root)
+    test_alinx_ac7020c_linux_gpio_configuration(repo_root)
+    test_alinx_ac7020c_root_filesystem_is_built_in(repo_root)
+    test_all_zynq_configs_use_shared_realtime_fragment(repo_root)
+    test_zynq_default_packet_storage_is_bram(repo_root)
+    test_all_zynq_configs_use_cpputest(repo_root)
+    test_all_zynq_configs_include_fpgautil(repo_root)
+    print("All Zynq Buildroot configuration checks passed.")

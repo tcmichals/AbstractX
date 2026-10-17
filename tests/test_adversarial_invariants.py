@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+# @verifies [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] [SPEC-AUDIT-05] docs/SPECTRACE.md
+# Copyright (C) 2026 Tim Michals
+# SPDX-License-Identifier: GPL-3.0-or-later
 """
 Test Suite: Sashiko Multi-Stage Adversarial Invariants
 ------------------------------------------------------
@@ -9,8 +13,16 @@ Enforces the 5 Sashiko Invariant Gates on all firmware source files:
 - Stage 5: Comprehensive CppUTest SITL coverage
 """
 
-import pytest
+import contextlib
+import io
+import sys
+import tempfile
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(REPO_ROOT / "tools"))
+
 from tools.run_adversarial_audit import (
     InvariantAuditor,
     collect_audit_files,
@@ -63,6 +75,7 @@ def test_auditor_folding_regions_are_balanced(repo_root):
     for stage in range(6):
         assert f"# region Stage {stage}:" in source
 
+
 def get_freestanding_sources(repo_root: Path):
     """Returns freestanding C++ source files subject to zero-heap rules."""
     target_files = []
@@ -86,6 +99,7 @@ def get_freestanding_sources(repo_root: Path):
 
     return target_files
 
+
 def test_stage1_zero_heap_invariant(repo_root):
     """Enforces zero-heap allocation across all freestanding code."""
     sources = get_freestanding_sources(repo_root)
@@ -98,10 +112,11 @@ def test_stage1_zero_heap_invariant(repo_root):
                 lines = f.readlines()
             auditor.audit_stage1_zero_heap(src, lines)
         except Exception as e:
-            pytest.fail(f"Failed to audit {src}: {e}")
+            raise AssertionError(f"Failed to audit {src}: {e}")
 
     stage1_issues = auditor.violations["Stage 1 (Zero-Heap & Freestanding C++20)"]
     assert len(stage1_issues) == 0, f"Stage 1 Zero-Heap violations found: {stage1_issues}"
+
 
 def test_stage2_non_blocking_hal_invariant(repo_root):
     """Enforces non-blocking awaitable HAL calls without thread sleeping."""
@@ -113,10 +128,11 @@ def test_stage2_non_blocking_hal_invariant(repo_root):
                 lines = f.readlines()
             auditor.audit_stage2_non_blocking_hal(src, lines)
         except Exception as e:
-            pytest.fail(f"Failed to audit {src}: {e}")
+            raise AssertionError(f"Failed to audit {src}: {e}")
 
     stage2_issues = auditor.violations["Stage 2 (Non-Blocking HAL & Lifecycle)"]
     assert len(stage2_issues) == 0, f"Stage 2 Non-Blocking HAL violations found: {stage2_issues}"
+
 
 def test_stage3_isr_boundary_safety(repo_root):
     """Enforces that coroutine .resume() is never called inside hardware ISRs."""
@@ -128,10 +144,11 @@ def test_stage3_isr_boundary_safety(repo_root):
                 lines = f.readlines()
             auditor.audit_stage3_isr_boundary(src, lines)
         except Exception as e:
-            pytest.fail(f"Failed to audit {src}: {e}")
+            raise AssertionError(f"Failed to audit {src}: {e}")
 
     stage3_issues = auditor.violations["Stage 3 (ISR Boundary & Dispatch Safety)"]
     assert len(stage3_issues) == 0, f"Stage 3 ISR dispatch violations found: {stage3_issues}"
+
 
 def test_stage4_wire_framing_and_tlp_scaling_invariants(repo_root):
     """Enforces 64B wire alignment and flags unsegmented bulk transfers into fixed 64B TLPs."""
@@ -155,6 +172,7 @@ def test_stage4_wire_framing_and_tlp_scaling_invariants(repo_root):
     assert len(stage4_issues) == 1
     assert "Fixed 64B TLP payload overflow" in stage4_issues[0]["rule"]
 
+
 def test_full_adversarial_audit_suite(repo_root):
     """Executes the full 5-stage adversarial audit pipeline."""
     sources = get_freestanding_sources(repo_root)
@@ -163,3 +181,25 @@ def test_full_adversarial_audit_suite(repo_root):
     total_issues = sum(len(v) for v in auditor.violations.values())
     assert total_issues == 0, f"Adversarial audit failed with {total_issues} violations: {auditor.violations}"
 
+
+if __name__ == "__main__":
+    with tempfile.TemporaryDirectory() as td:
+        test_module_scope_excludes_linux_and_generated_trees(Path(td))
+    with tempfile.TemporaryDirectory() as td:
+        test_linux_scope_requires_explicit_opt_in(Path(td))
+    with tempfile.TemporaryDirectory() as td:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            class CapsysMock:
+                def readouterr(self):
+                    class Res:
+                        out = buf.getvalue()
+                    return Res()
+            test_ai_review_prompt_lists_only_selected_files(Path(td), CapsysMock())
+    test_auditor_folding_regions_are_balanced(REPO_ROOT)
+    test_stage1_zero_heap_invariant(REPO_ROOT)
+    test_stage2_non_blocking_hal_invariant(REPO_ROOT)
+    test_stage3_isr_boundary_safety(REPO_ROOT)
+    test_stage4_wire_framing_and_tlp_scaling_invariants(REPO_ROOT)
+    test_full_adversarial_audit_suite(REPO_ROOT)
+    print("All adversarial invariant tests passed.")
