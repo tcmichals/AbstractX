@@ -45,7 +45,19 @@ struct CrashFrame {
     uint32_t mcause;
     uint32_t mtval;
     uint32_t mstatus;
+
+    // Floating Point Registers f0..f31 (RV32IMAFDC 64-bit double precision, ilp32d)
+    // @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md
+    uint32_t _reserved; // offset 140 (padding to 8-byte boundary for f0)
+    uint64_t f[32];     // offsets 144..399 (256 bytes)
+    uint32_t fcsr;      // offset 400
+    uint32_t _pad[3];   // offsets 404..415 (padding to 16-byte stack frame alignment)
 };
+
+static_assert(sizeof(CrashFrame) == 416, "CrashFrame size must match trap stack frame (416 bytes)");
+static_assert(__builtin_offsetof(CrashFrame, mcause) == 128, "mcause offset must be 128 for e906-disassembly-check");
+static_assert(__builtin_offsetof(CrashFrame, f) == 144, "FP registers must be at offset 144 (8-byte aligned)");
+static_assert(__builtin_offsetof(CrashFrame, fcsr) == 400, "fcsr must be at offset 400");
 
 class CrashHandler {
 public:

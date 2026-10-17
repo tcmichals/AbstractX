@@ -22,8 +22,13 @@ static size_t g_high_water_after_warmup = 0;
 static size_t g_high_water_after_steady = 0;
 
 static Task<void> run_measured_app(int steady_steps) {
-    // 1. Run app_main boot and 1100 warmup steps to allow multi-rate sensors (including 1000ms monitor) to cycle
-    co_await app_main(1100);
+    // 1. Run app_main boot and warmup steps to allow multi-rate sensors to cycle
+    co_await app_main(100);
+    // Allow multi-rate timer (e.g. 20ms magnetometer) to fire and allocate child frames
+    co_await hal::get_timer_driver().sleep_ms_async(50);
+    for (int i = 0; i < 50; ++i) {
+        co_await abstractx::step_async();
+    }
     g_high_water_after_warmup = coro_pool_high_water();
 
     // 2. Run 1000 steady-state steps (AGENTS.md Section 10.5 rule)

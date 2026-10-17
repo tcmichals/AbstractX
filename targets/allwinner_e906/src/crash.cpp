@@ -58,7 +58,19 @@ void CrashHandler::handle(const CrashFrame &frame) noexcept {
     Trace::printf("  s6 (x22)= 0x%08x  s7 (x23)= 0x%08x  s8 (x24)= 0x%08x\n", frame.s6, frame.s7, frame.s8);
     Trace::printf("  s9 (x25)= 0x%08x  s10(x26)= 0x%08x  s11(x27)= 0x%08x\n", frame.s9, frame.s10, frame.s11);
     Trace::printf("  t3 (x28)= 0x%08x  t4 (x29)= 0x%08x  t5 (x30)= 0x%08x\n", frame.t3, frame.t4, frame.t5);
-    Trace::printf("  t6 (x31)= 0x%08x\n", frame.t6);
+    Trace::printf("  t6 (x31)= 0x%08x\n\n", frame.t6);
+
+    // @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md
+    Trace::puts("--- Floating Point Register (FPR) Dump ---\n");
+    Trace::printf("  fcsr       = 0x%08x\n", frame.fcsr);
+    for (int i = 0; i < 32; i += 2) {
+        uint32_t f_lo0 = static_cast<uint32_t>(frame.f[i]);
+        uint32_t f_hi0 = static_cast<uint32_t>(frame.f[i] >> 32);
+        uint32_t f_lo1 = static_cast<uint32_t>(frame.f[i + 1]);
+        uint32_t f_hi1 = static_cast<uint32_t>(frame.f[i + 1] >> 32);
+        Trace::printf("  f%-2d = 0x%08x_%08x  f%-2d = 0x%08x_%08x\n",
+                      i, f_hi0, f_lo0, i + 1, f_hi1, f_lo1);
+    }
 
     Trace::puts("################################################################\n");
     Trace::puts("  Core halted safely. Inspect /sys/.../trace0 or host 0x072BFF00 (core 0x3FFFFF00)\n");

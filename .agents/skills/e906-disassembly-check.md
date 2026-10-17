@@ -11,7 +11,12 @@ verifies: Bare-metal control flow that source review cannot prove: trap classifi
 
 ```bash
 riscv-none-elf-objdump -d build_e906/apps/gps_imu_app/platforms/allwinner_e906/e906_coprocessor | less
-# default_trap_entry: branch must use the reloaded mcause:  lw t0,128(sp); bltz t0
+# default_trap_entry:
+#   stack alloc:   addi sp, sp, -416
+#   fpu save:      fsd f0, 144(sp) ... fsd f31, 392(sp)
+#   branch:        lw t0, 128(sp); bltz t0
+#   fpu restore:   fld f0, 144(sp) ... fld f31, 392(sp)
+#   stack free:    addi sp, sp, 416
 # _start: csrw 0x7c1 with 0x1031
 ```
 

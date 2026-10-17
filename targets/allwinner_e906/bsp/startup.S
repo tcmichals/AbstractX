@@ -13,8 +13,9 @@
  * =====================================================================
  */
 default_trap_entry:
-    /* Allocate 144 bytes on stack for CrashFrame */
-    addi sp, sp, -144
+    /* Allocate 416 bytes on stack for CrashFrame (GPRs + CSRs + FPRs) */
+    /* @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md */
+    addi sp, sp, -416
 
     /* Save caller-saved registers and critical GPRs */
     sw ra,   0(sp)
@@ -27,7 +28,8 @@ default_trap_entry:
     sw t0,  16(sp)
 
     /* Calculate and store the original sp prior to this trap entry */
-    addi t0, sp, 144
+    /* @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md */
+    addi t0, sp, 416
     sw t0,   4(sp)
 
     /* Save remaining GPRs x3..x31 */
@@ -71,12 +73,51 @@ default_trap_entry:
     sw t0,  136(sp)
 
     /* -----------------------------------------------------------------
-     * FIX 2: Check if this trap is an asynchronous interrupt (bit 31).
+     * Save Floating-Point Registers f0..f31 and fcsr before calling C code.
+     * The E906 core is RV32IMAFDC (ilp32d ABI), where C functions can clobber
+     * caller-saved FP registers (ft0-ft11, fa0-fa7).
+     * @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md
+     * ----------------------------------------------------------------- */
+    fsd f0,  144(sp)
+    fsd f1,  152(sp)
+    fsd f2,  160(sp)
+    fsd f3,  168(sp)
+    fsd f4,  176(sp)
+    fsd f5,  184(sp)
+    fsd f6,  192(sp)
+    fsd f7,  200(sp)
+    fsd f8,  208(sp)
+    fsd f9,  216(sp)
+    fsd f10, 224(sp)
+    fsd f11, 232(sp)
+    fsd f12, 240(sp)
+    fsd f13, 248(sp)
+    fsd f14, 256(sp)
+    fsd f15, 264(sp)
+    fsd f16, 272(sp)
+    fsd f17, 280(sp)
+    fsd f18, 288(sp)
+    fsd f19, 296(sp)
+    fsd f20, 304(sp)
+    fsd f21, 312(sp)
+    fsd f22, 320(sp)
+    fsd f23, 328(sp)
+    fsd f24, 336(sp)
+    fsd f25, 344(sp)
+    fsd f26, 352(sp)
+    fsd f27, 360(sp)
+    fsd f28, 368(sp)
+    fsd f29, 376(sp)
+    fsd f30, 384(sp)
+    fsd f31, 392(sp)
+    frcsr t0
+    sw t0,   400(sp)
+
+    /* -----------------------------------------------------------------
+     * Check if this trap is an asynchronous interrupt (bit 31 of mcause).
      * If mcause < 0 (sign bit set), dispatch interrupt and return (mret).
      * Only true synchronous exceptions/faults enter hal_crash_dispatcher.
-     * Reload mcause: t0 last held mstatus, whose bit 31 is the SD (FP
-     * dirty) summary bit and is always set because _start sets FS=Dirty,
-     * which sent every fault down the IRQ path and mret'd back into it.
+     * Reload mcause: t0 last held fcsr/mstatus.
      * @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md
      * ----------------------------------------------------------------- */
     lw t0, 128(sp)
@@ -95,6 +136,42 @@ default_trap_entry:
     lw a0, 128(sp) /* mcause */
     lw a1, 124(sp) /* mepc */
     call riscv_trap_dispatcher
+
+    /* Restore Floating-Point Registers f0..f31 and fcsr */
+    lw t0, 400(sp)
+    fscsr t0
+    fld f0,  144(sp)
+    fld f1,  152(sp)
+    fld f2,  160(sp)
+    fld f3,  168(sp)
+    fld f4,  176(sp)
+    fld f5,  184(sp)
+    fld f6,  192(sp)
+    fld f7,  200(sp)
+    fld f8,  208(sp)
+    fld f9,  216(sp)
+    fld f10, 224(sp)
+    fld f11, 232(sp)
+    fld f12, 240(sp)
+    fld f13, 248(sp)
+    fld f14, 256(sp)
+    fld f15, 264(sp)
+    fld f16, 272(sp)
+    fld f17, 280(sp)
+    fld f18, 288(sp)
+    fld f19, 296(sp)
+    fld f20, 304(sp)
+    fld f21, 312(sp)
+    fld f22, 320(sp)
+    fld f23, 328(sp)
+    fld f24, 336(sp)
+    fld f25, 344(sp)
+    fld f26, 352(sp)
+    fld f27, 360(sp)
+    fld f28, 368(sp)
+    fld f29, 376(sp)
+    fld f30, 384(sp)
+    fld f31, 392(sp)
 
     /* Restore CSRs */
     lw t0, 136(sp)
@@ -135,7 +212,7 @@ default_trap_entry:
     lw t6,  120(sp)
 
     /* Deallocate stack frame and return from trap */
-    addi sp, sp, 144
+    addi sp, sp, 416
     mret
 
     .size default_trap_entry, . - default_trap_entry

@@ -306,11 +306,18 @@ sequenceDiagram
 
 ---
 
-### `[SPEC-E906-CRASH-01]` Trap Classification & Crash Dump
-* **Requirement**: The trap entry (`bsp/startup.S`) MUST classify a trap by bit 31 of **`mcause`** (1 = interrupt, 0 = synchronous exception). Interrupts go to `riscv_trap_dispatcher` and return with `mret`; every synchronous exception MUST go to `hal_crash_dispatcher`, which records the `CrashFrame` and never returns.
-* **Rationale**: `mstatus` bit 31 is the SD summary bit, which is always 1 here because `_start` sets `mstatus.FS = Dirty`. Branching on it sent faults down the interrupt path, where they were ignored and `mret` re-executed the faulting instruction forever, with no crash dump.
-* **Verification**: Disassemble `default_trap_entry` and confirm the branch operand is loaded from the saved `mcause` slot (`128(sp)`).
-* **Verified by**: `e906-disassembly-check` (`lw t0,128(sp); bltz t0`)
+### [SPEC-E906-CRASH-01] Trap Classification, FPU State Preservation & Crash Dump
+* **Requirement**:
+  1. The trap entry (`bsp/startup.S`) MUST allocate a 416-byte stack frame (`CrashFrame`) and save all 31 integer GPRs (`x1`..`x31`), 4 CSRs (`mepc`, `mcause`, `mtval`, `mstatus`), all 32 hardware floating-point registers (`f0`..`f31`, 64-bit double precision for RV32IMAFDC / `ilp32d`), and `fcsr` BEFORE branching to or calling any C/C++ code.
+  2. The trap entry MUST classify the trap by bit 31 of **`mcause`** (1 = interrupt, 0 = synchronous exception).
+  3. Interrupts branch to `.Lhandle_irq`, dispatch to `riscv_trap_dispatcher(mcause, mepc)`, completely restore all FP registers (`f0`..`f31`), `fcsr`, CSRs, and integer GPRs, deallocate the 416-byte stack frame, and return with `mret`.
+  4. Synchronous exceptions MUST pass the `CrashFrame*` (`sp`) in `a0` to `hal_crash_dispatcher`, which records the full GPR, CSR, and FPR crash dump to `Trace` and SRAM and halts.
+* **Rationale**:
+  - In `ilp32d` ABI, C/C++ compilers generate floating-point instructions in any subroutine and can clobber caller-saved FP registers (`ft0`..`ft11`, `fa0`..`fa7`). Without saving FP registers in the trap prologue, an asynchronous interrupt clobbers live floating-point computations in interrupted coroutines (e.g. sensor fusion math), causing silent corruption upon `mret`.
+  - In synchronous exceptions, saving FP registers ensures the crash autopsy dump captures the full FPU state at the moment of the fault, and prevents formatting routines in `hal_crash_dispatcher` from destroying the fault context.
+  - Branching on `mcause` bit 31 is mandatory because `mstatus` bit 31 is the SD summary bit, which is always 1 when `mstatus.FS = Dirty`.
+* **Verified by**: `e906-disassembly-check` (`fsd f0, 144(sp)`, `lw t0, 128(sp); bltz t0`, `fld f0, 144(sp)`), `e906-build-layout`
+* **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`, `targets/allwinner_e906/include/hal/crash.hpp`, `targets/allwinner_e906/src/crash.cpp`
 
 ## 6. Threshold-Balanced Peripheral HAL (`SPEC-E906-HAL`)
 

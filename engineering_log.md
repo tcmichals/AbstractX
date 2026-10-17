@@ -735,4 +735,47 @@ This log chronicles the development, technical decisions, and architecture miles
   - 100% `audit_specs.py` traceability.
   - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
 
+## [2026-10-17] - E906 Trap Entry FPU State Preservation & Full Crash Autopsy Frame [SPEC-E906-CRASH-01]
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/SPECIFICATION.md`, `targets/allwinner_e906/bsp/startup.S`, `targets/allwinner_e906/include/hal/crash.hpp`, `targets/allwinner_e906/src/crash.cpp`
+* **Category**: `product-bug`
+* **Symptoms**:
+  - The E906 trap handler allocated a 144-byte stack frame saving only 31 integer GPRs (`x1`..`x31`) and 4 CSRs (`mepc`, `mcause`, `mtval`, `mstatus`), but zero floating-point registers.
+  - The E906 core is RV32IMAFDC compiled with `-mabi=ilp32d`. When an interrupt fired, C/C++ ISRs and `riscv_trap_dispatcher` could execute floating-point instructions and clobber caller-saved FP registers (`ft0`..`ft11`, `fa0`..`fa7`). Upon `mret`, the interrupted task resumed with corrupted floating-point registers.
+  - During synchronous exceptions, `CrashFrame` contained no FP register fields, depriving autopsy diagnostics of FPU state and risking clobbering the fault state during crash handling.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: RISC-V hardware architecture does not automatically stack FPU registers upon trap entry. In a hardware floating-point ABI (`ilp32d`), software trap handlers must explicitly save and restore all FP registers if C code is called.
+* **Architectural Lesson**: Under `ilp32d`, all 32 64-bit FP registers (`f0`..`f31`) and `fcsr` must be saved in the trap prologue before calling C code, and restored before `mret`. The stack frame must remain naturally 8-byte aligned for `fsd`/`fld` (which enables compressed `c.fsd`/`c.fld` opcodes) and 16-byte aligned overall per RISC-V ABI rules.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/allwinner_e906/SPECIFICATION.md` (`[SPEC-E906-CRASH-01]`)
+* **Requirement Tags Added/Updated**:
+  - `[SPEC-E906-CRASH-01]`: Mandated allocation of 416-byte `CrashFrame`, saving all 31 GPRs, 4 CSRs, all 32 64-bit double-precision FP registers (`f0`..`f31`), and `fcsr` prior to calling C. Mandated full FPR restoration on `.Lhandle_irq` before `mret`, and full FPR autopsy logging in `hal_crash_dispatcher`.
+* **Verification Skill**: Updated `.agents/skills/e906-disassembly-check.md` with verification checks for 416-byte frame allocation, `fsd`/`fld` sequences, and `lw t0, 128(sp); bltz t0`.
+
+### 4. Implementation & Verification
+* Updated `targets/allwinner_e906/bsp/startup.S`:
+  - `addi sp, sp, -416`
+  - Saved `f0`..`f31` at `144(sp)`..`392(sp)` via `fsd` (compressed `c.fsd` opcodes).
+  - Saved `fcsr` at `400(sp)`.
+  - In `.Lhandle_irq`: restored `fcsr` via `fscsr` and `f0`..`f31` via `fld` before restoring CSRs and GPRs.
+  - Deallocated `addi sp, sp, 416` and returned with `mret`.
+* Updated `targets/allwinner_e906/include/hal/crash.hpp`:
+  - Added `uint64_t f[32]` and `uint32_t fcsr` to `CrashFrame`.
+  - Added static assertions validating `sizeof(CrashFrame) == 416`, `offsetof(mcause) == 128`, `offsetof(f) == 144`, and `offsetof(fcsr) == 400`.
+* Updated `targets/allwinner_e906/src/crash.cpp`:
+  - Added FPR dump loop logging 64-bit hex representation of all 32 float registers and `fcsr` to `Trace`.
+* Disassembly verification (`e906-disassembly-check`):
+  - Confirmed `default_trap_entry` generates: `addi sp,sp,-416`, `fsd ft0,144(sp)` .. `fsd ft11,392(sp)`, `frcsr t0; sw t0,400(sp)`, `lw t0,128(sp); bltz t0`, `fscsr; fld ft0,144(sp)` .. `fld ft11,392(sp)`, `addi sp,sp,416`, `mret`.
+* Build & Evidence:
+  - Recorded sizes in `docs/verification/evidence/2026-10/hp.jsonl`: Release text 52,968 B (+368 B), Debug text 39,566 B (+352 B), LTO text 60,132 B (+670 B).
+  - Fixed `test_gps_imu_coro_pool.cpp` warmup logic so 20ms magnetometer timer expires and allocates child frame during warmup, achieving stable 3520 B high-water mark.
+* Verification gates:
+  - 35/35 Host tests passed in Debug, ASan/UBSan, and TSan.
+  - 16/16 Cocotb targets passed.
+  - 100% `audit_specs.py` traceability.
+  - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
+
 
