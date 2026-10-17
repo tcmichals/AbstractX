@@ -277,6 +277,8 @@ sequenceDiagram
   `apps/gps_imu_app/platforms/allwinner_e906/cubie-a5e-abstractx-rpmsg-sram.dtso`
   (pool at host `0x072E0000`, 128 KB) compiles with `dtc`. Nothing verified on
   silicon.
+* **Refines**: `[SPEC-TRACE-07]`
+* **Method**: `Test`
 * **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/spsc_tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt`
 

@@ -159,6 +159,8 @@ When implementing HAL drivers under `targets/esp32p4/src/`, AI agents must use s
     inside the lwIP TCP/IP context (`tcpip_callback` or `LOCK_TCPIP_CORE()`), since
     ESP-IDF runs lwIP in its own task.
   * **No copies, no heap**: no `PBUF_RAM`, no BSD `sendto()` (it copies).
+* **Refines**: `[SPEC-TRACE-07]`
+* **Method**: `Analysis`
 * **Verified by**: `memory-footprint`
 * **Status**: the ESP32-P4 target is currently a stub (no io_processor or
   platform layer); this section defines the transport it must implement.

@@ -126,6 +126,13 @@ where its evidence goes. SpecTrace connects them: requirement → code
   `* **Verified by**: `skill-a`, `skill-b`` naming skills that exist in
   `.agents/skills/`. A requirement with code but no verifying skill is
   *implemented, not verified*.
+* **Requirement**: each `[SPEC-*]` section may declare a formal verification method
+  `* **Method**: `Test` | `Analysis` | `Inspection` | `Demonstration`` adhering
+  to aerospace/automotive standards (DO-178C / ISO 26262). Defaults to `Test`
+  if omitted.
+* **Requirement**: each `[SPEC-*]` section may declare parent derivation via
+  `* **Refines**: `[SPEC-PARENT-TAG]`` (or `* **Parent**:`), creating an explicit
+  hierarchical derivation tree from system invariants down to subsystem contracts.
 * **Requirement**: a skill file states what it verifies, how to run it, the pass
   criteria and where its evidence is stored. Adding a new kind of check means
   adding a skill, not a one-off command in a commit message.
@@ -143,6 +150,11 @@ where its evidence goes. SpecTrace connects them: requirement → code
   (`audit_specs.py`) is never reported as completion.
   `--require-complete` exits non-zero until then; `--write
   docs/verification/TRACEABILITY_MATRIX.md` publishes the table.
+* **Requirement**: `python3 tools/spectrace_matrix.py --graph [SPEC-TAG]` (or
+  `python3 tools/spectrace.py --graph [SPEC-TAG]`) generates an interactive
+  Mermaid traceability DAG connecting parent requirements (`Refines`), child
+  requirements, `@impl` source code locations, `@verifies` test harnesses, and
+  evidence ledger verdicts.
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `tools/spectrace_matrix.py`
 

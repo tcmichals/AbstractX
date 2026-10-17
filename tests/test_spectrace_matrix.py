@@ -213,11 +213,36 @@ def test_device_tree_and_yaml_traceability():
         assert rc == 1 and "[UNTRACED] src/untraced.yaml:1" in out_io.getvalue(), "untraced yaml fails --strict"
 
 
+def test_hierarchy_and_graph_export():
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        spec = root / "docs" / "FIX_SPECIFICATION.md"
+        spec.write_text(SPEC + """
+### `[SPEC-FIX-06]` Child derived requirement
+* **Refines**: `[SPEC-FIX-01]`
+* **Method**: `Analysis`
+* **Verified by**: `host-tests`
+""")
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-06"].refines == ["SPEC-FIX-01"]
+        assert "SPEC-FIX-06" in reqs["SPEC-FIX-01"].children
+        assert reqs["SPEC-FIX-06"].method == "Analysis"
+
+        # Check Mermaid graph export
+        graph = sm.generate_mermaid_graph(reqs, skills, "SPEC-FIX-01")
+        assert "```mermaid" in graph
+        assert "SPEC_FIX_01 --> SPEC_FIX_06" in graph
+        assert "Method: Analysis" in graph
+
+
 if __name__ == "__main__":
     test_matrix_verdicts()
     test_change_review_maps_hunks_and_flags_untraced()
     test_stale_and_failing_verdicts()
     test_device_tree_and_yaml_traceability()
+    test_hierarchy_and_graph_export()
     print("[PASS] spectrace_matrix")
+
 
 

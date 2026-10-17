@@ -253,6 +253,8 @@ between the trace engine and the Wi-Fi driver.
 * **Static Pool Elision**: When `platform_trace_transport()` provides this native
   zero-copy transport, `ABSTRACTX_STATIC_TRACE_PACKETS = 0` elides the fallback
   static trace pool on Pico 2 W (`[SPEC-TRACE-07]`).
+* **Refines**: `[SPEC-TRACE-07]`
+* **Method**: `Test`
 * **Verified by**: `host-tests` (`sim/test_pico_zero_copy_trace.cpp`: pointer identity and single-pbuf invariants), `memory-footprint` (0 `_Unwind_*` symbols in Pico ELF)
 * **Implementation Target**: `targets/pico2w_rp2350/include/hal/pico_trace_transport.hpp`, `targets/pico2w_rp2350/src/hal_platform.cpp`, `cmake/toolchains/arm-none-eabi.cmake`
 

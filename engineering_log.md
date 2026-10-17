@@ -1022,5 +1022,50 @@ This log chronicles the development, technical decisions, and architecture miles
   - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
   - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 55 governed hunks, 0 untraced hunks.
 
+## [2026-10-17] - SpecTrace Architectural Derivation Hierarchy, Formal Verification Methods, and Mermaid Graph DAG
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `docs/SPECTRACE.md`, `tools/spectrace_matrix.py`, `tools/spectrace.py`, `tests/test_spectrace_matrix.py`
+* **Category**: `process-gap`
+* **Symptoms**:
+  - SpecTrace treated all requirements as flat design tags. There was no explicit mechanism to declare that a platform-specific transport (e.g. `[SPEC-PICO-TRACE-01]`, `[SPEC-E906-IPC-04]`, `[SPEC-ESP32P4-TRACE-01]`) derives from or refines a higher-level architectural invariant (`[SPEC-ARCH-08]` / `[SPEC-TRACE-07]`).
+  - Requirements did not distinguish between formal verification methods (`Test`, `Analysis`, `Inspection`, `Demonstration`) as required by aerospace and safety-critical standards (DO-178C / ISO 26262).
+  - Traceability could only be viewed as CLI text or markdown tables, lacking visual graphical dependency representations.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - Traceability originally focused on 1:1 text matching (Spec $\rightarrow$ Code $\rightarrow$ Test). Without parent-child derivation, impact analysis was manual: changing a top-level architecture rule did not automatically identify all derived subsystem contracts that require review.
+* **Architectural Lesson**:
+  - Support hierarchical derivation (`Refines:` / `Parent:`) so that requirements form a directed acyclic graph (DAG).
+  - Classify verification methods (`Method:`) to formally recognize static analysis (ELF sizing, Fmax) and inspection (lint) alongside unit tests.
+  - Provide automated Mermaid DAG generation (`--graph [TAG]`) to visualize the full path from architectural invariants down to code, tests, and evidence verdicts.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**:
+  - `docs/SPECTRACE.md`: Updated `[SPEC-AUDIT-06]` to specify `Refines:` parent derivation and `Method:` classification (`Test | Analysis | Inspection | Demonstration`). Updated `[SPEC-AUDIT-07]` to mandate `--graph` Mermaid export.
+  - `docs/DESIGN_SPECIFICATION.md`: Added `Refines: [SPEC-ARCH-08]` and `Method: Test` to `[SPEC-TRACE-07]`.
+  - `targets/pico2w_rp2350/SPECIFICATION.md`: Added `Refines: [SPEC-TRACE-07]` and `Method: Test` to `[SPEC-PICO-TRACE-01]`.
+  - `targets/esp32p4/SPECIFICATION.md`: Added `Refines: [SPEC-TRACE-07]` and `Method: Analysis` to `[SPEC-ESP32P4-TRACE-01]`.
+  - `targets/allwinner_e906/SPECIFICATION.md`: Added `Refines: [SPEC-TRACE-07]` and `Method: Test` to `[SPEC-E906-IPC-04]`.
+
+### 4. Implementation & Verification
+* **Tool Updates**:
+  - `tools/spectrace_matrix.py`:
+    - Added `REFINES_RE` and `METHOD_RE` regex parsers.
+    - Added `refines`, `children`, `method`, and `tests` fields to `Requirement`.
+    - Implemented `generate_mermaid_graph(reqs, skills, root_tag=None)` rendering interactive styled Mermaid DAGs.
+    - Updated `print_matrix` to include `Method` and parent derivation in published `TRACEABILITY_MATRIX.md`.
+    - Added `--graph [TAG]` CLI option.
+  - `tools/spectrace.py`:
+    - Added `--graph [TAG]` CLI option.
+* **Test Suite Updates**:
+  - `tests/test_spectrace_matrix.py`: Added `test_hierarchy_and_graph_export()` validating `Refines:` parsing, child linking, `Method:` parsing, and Mermaid graph syntax.
+* **Verification Gates**:
+  - 37/37 host ctest passed in Debug (`build_host`), ASan/UBSan (`build_asan`), and TSan (`build_tsan`).
+  - 16/16 Cocotb targets passed (37/37 tests).
+  - `trac.py test --record` appended fresh results to `docs/verification/evidence/2026-10/hp.jsonl`.
+  - `python3 tools/spectrace_matrix.py --changes --staged --strict` verified 0 untraced hunks.
+
+
 
 

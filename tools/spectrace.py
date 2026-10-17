@@ -288,9 +288,17 @@ def main():
     parser.add_argument("--all-modules", action="store_true", help="Explicitly sweep maintained module roots")
     parser.add_argument("--include-linux", action="store_true", help="Opt in to targets/linux")
     parser.add_argument("--no-ai-prompt", action="store_true", help="Run static checks without printing AI context")
+    parser.add_argument("--graph", nargs="?", const="", default=None,
+                        help="Generate a Mermaid traceability DAG for a requirement tag (or all if omitted)")
     args = parser.parse_args()
 
     root_dir = get_root_dir()
+
+    if args.graph is not None:
+        import spectrace_matrix as sm
+        reqs, skills, _ = sm.build_matrix(root_dir)
+        print(sm.generate_mermaid_graph(reqs, skills, args.graph or None))
+        return
 
     if args.dashboard:
         dashboard_tool = root_dir / "tools" / "track_quality_trends.py"
