@@ -125,7 +125,7 @@ int main() {
     trace.attach();
     abstractx::trace::CtfTraceEngine<1024, 0> engine;
     engine.set_transport(&trace);
-    abstractx::SpscTlpRing<64> ingress;
+    abstractx::SpscTlpRing<> ingress;
     tlp.set_ingress_ring(&ingress);
     auto loop = [&] { tlp.service(); trace.service(); (void)rpmsg.poll(); tlp.flush(); };
 
@@ -195,6 +195,21 @@ int main() {
     assert(ingress.pop(got) && got.wire.tag == 8);
     assert(!ingress.pop(got) && tlp.rx_rejected() == 1);
     std::cout << "  -> host batch of 2 TLPs delivered to the ingress ring; 100-byte message rejected\n";
+
+    // 6. Right-sized E906 TLP ring (capacity 8) fits maximum 7-TLP RPMsg batch [SPEC-E906-MEM-01] [SPEC-E906-IPC-04]
+    // @verifies [SPEC-E906-MEM-01] [SPEC-E906-IPC-04]
+    static_assert(sizeof(abstractx::SpscRingBuffer<abstractx::Tlp64, 8>) == 640,
+                  "Right-sized SpscTlpRing<8> must be exactly 640 bytes");
+    abstractx::SpscRingBuffer<abstractx::Tlp64, 8> e906_ring{};
+    for (uint8_t i = 0; i < 7; ++i) {
+        assert(e906_ring.push(make_tlp(static_cast<uint8_t>(i + 10))));
+    }
+    assert(e906_ring.size() == 7);
+    for (uint8_t i = 0; i < 7; ++i) {
+        abstractx::Tlp64 t{};
+        assert(e906_ring.pop(t) && t.wire.tag == (i + 10));
+    }
+    std::cout << "  -> 7-TLP RPMsg max batch verified on right-sized 640-byte ring (capacity 8)\n";
 
     assert(hal::g_fake_msgbox_sends[0] == 0 && hal::g_fake_msgbox_sends[1] > 0 && "all kicks on Channel1");
     std::cout << "[PASS] E906 RPMsg endpoints\n";

@@ -43,8 +43,9 @@ inline coro::Task<void> trace_dispatcher_task(uint16_t flush_period_ms = 10) {
  * Linux Ingestion Coroutine:
  * Drains 64-byte CTF TLPs from the shared coprocessor SRAM ring (e.g. 0x40000000)
  * and streams them directly into the configured host sink (UDP or file).
+ * @impl [SPEC-TRACE-04] [SPEC-TRACE-05] [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-trace-04 docs/DESIGN_SPECIFICATION.md#spec-trace-05 docs/DESIGN_SPECIFICATION.md#spec-tlp-03
  */
-inline coro::Task<void> linux_trace_receiver_task(SpscTlpRing<64>& sram_ring, ITraceSink& sink) {
+inline coro::Task<void> linux_trace_receiver_task(SpscTlpRing<>& sram_ring, ITraceSink& sink) {
     Tlp64 tlp{};
     while (true) {
         bool drained = false;

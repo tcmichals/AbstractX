@@ -73,11 +73,12 @@ struct AutoChannelConfig {
 
 /*
  * Complete I/O Setup passed from Application to Target ioProcessor
+ * @impl [SPEC-ARCH-01] [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-arch-01 docs/DESIGN_SPECIFICATION.md#spec-tlp-03
  */
 struct IoProcessorSetup {
     std::span<const AutoChannelConfig> channels{};
-    SpscTlpRing<64>* egress_tx_ring{nullptr};  // Application -> ioProcessor (Manual requests / IOCTL)
-    SpscTlpRing<64>* ingress_rx_ring{nullptr}; // ioProcessor -> Application (Completions & Auto-Forwarded Stream TLPs)
+    SpscTlpRing<>* egress_tx_ring{nullptr};  // Application -> ioProcessor (Manual requests / IOCTL)
+    SpscTlpRing<>* ingress_rx_ring{nullptr}; // ioProcessor -> Application (Completions & Auto-Forwarded Stream TLPs)
 
     // Optional notification hooks
     etl::delegate<void()> on_tx_pushed{};

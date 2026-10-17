@@ -81,7 +81,7 @@ public:
     void flush() noexcept;
 
     // Host -> E906 TLPs are pushed here (counted as dropped if unset or full).
-    void set_ingress_ring(abstractx::SpscTlpRing<64>* ring) noexcept { ingress_ = ring; }
+    void set_ingress_ring(abstractx::SpscTlpRing<>* ring) noexcept { ingress_ = ring; }
 
     uint32_t tx_dropped() const noexcept { return tx_dropped_; }
     uint32_t rx_dropped() const noexcept { return rx_dropped_; }
@@ -93,7 +93,7 @@ protected:
 private:
     RpmsgTxBuffer                cur_{};
     size_t                       count_{0};
-    abstractx::SpscTlpRing<64>*  ingress_{nullptr};
+    abstractx::SpscTlpRing<>*    ingress_{nullptr};
     uint32_t                     tx_dropped_{0};
     uint32_t                     rx_dropped_{0};
     uint32_t                     rx_rejected_{0};

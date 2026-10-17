@@ -26,10 +26,10 @@ using namespace abstractx::drivers::mag;
 using namespace abstractx::fusion;
 
 // Lock-free static TLP rings for inter-domain communication
-// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-ARCH-02] [SPEC-APP-07] docs/DESIGN_SPECIFICATION.md#spec-tlp-01 apps/gps_imu_app/SPECIFICATION.md#spec-app-07
-inline SpscTlpRing<64> g_tx_ring;        // Flight Controller -> I/O Processor (Requests)
-inline SpscTlpRing<64> g_sensor_ring;    // I/O Processor -> Flight Controller (Completions)
-inline SpscTlpRing<64> g_telemetry_ring; // Flight Controller -> Egress / Network (:9870)
+// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-ARCH-02] [SPEC-APP-07] [SPEC-E906-MEM-01] [SPEC-E906-IPC-04] docs/DESIGN_SPECIFICATION.md#spec-tlp-01 apps/gps_imu_app/SPECIFICATION.md#spec-app-07 targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
+inline SpscTlpRing<> g_tx_ring;        // Flight Controller -> I/O Processor (Requests)
+inline SpscTlpRing<> g_sensor_ring;    // I/O Processor -> Flight Controller (Completions)
+inline SpscTlpRing<> g_telemetry_ring; // Flight Controller -> Egress / Network (:9870)
 
 // Lock-free asynchronous coroutine channels for multi-rate sensor streaming
 // @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-ARCH-02] apps/gps_imu_app/SPECIFICATION.md#spec-app-02

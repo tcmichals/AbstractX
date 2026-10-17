@@ -641,7 +641,7 @@ public:
         Tlp64 response_tlp{};
     };
 
-    CoroutineIoEngine(SpscTlpRing<64>& host_tx_ring, SpscTlpRing<64>& host_rx_ring)
+    CoroutineIoEngine(SpscTlpRing<>& host_tx_ring, SpscTlpRing<>& host_rx_ring)
         : tx_ring_(host_tx_ring), rx_ring_(host_rx_ring) {}
 
     // Allocate a unique Tag for split-transaction matching
@@ -788,8 +788,8 @@ public:
     }
 
 private:
-    SpscTlpRing<64>& tx_ring_;
-    SpscTlpRing<64>& rx_ring_;
+    SpscTlpRing<>& tx_ring_;
+    SpscTlpRing<>& rx_ring_;
     uint8_t next_tag_{1};
     std::array<PendingRequest, MAX_PENDING_TAGS> pending_requests_{};
     std::array<std::coroutine_handle<>, 8> stream_awaiters_{};

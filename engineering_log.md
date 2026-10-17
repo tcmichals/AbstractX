@@ -663,4 +663,38 @@ This log chronicles the development, technical decisions, and architecture miles
   - 100% `audit_specs.py` traceability.
   - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
 
+## [2026-10-17] - Right-sized E906 SPSC TLP rings to match RPMsg batch size (-10.7 KB SRAM)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/SPECIFICATION.md`, `targets/allwinner_e906/CMakeLists.txt`, `include/spsc_tlp_ring.hpp`, `sim/test_e906_rpmsg_endpoints.cpp`
+* **Category**: `product-bug`
+* **Symptoms**:
+  - Ingress and egress TLP rings (`g_tx_ring`, `g_sensor_ring`, `g_telemetry_ring`) defaulted to a capacity of 64 entries.
+  - Sized at 64 entries, each 64-byte aligned ring occupied 4,224 bytes (`64 * 64 + 128`), consuming 12,672 B total in `.bss` inside `SRAM_FAST` on E906.
+  - The E906 RPMsg TLP endpoint batches at most 7 TLPs per 496-byte RPMsg payload message (`7 * 64 = 448` B payload out of 496 B available, `[SPEC-E906-IPC-04]`). Sizing the rings to 64 allocated buffering for 9 full RPMsg messages in SRAM Space 0 where memory is constrained to 192 KB.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The default template parameter `Capacity = 64` was chosen for desktop SITL buffering without taking into account target-specific batch constraints on bare-metal coprocessors.
+* **Architectural Lesson**: Match inter-domain queue capacities directly to physical transport batch limits. Sizing `SpscTlpRing` to 8 entries (the smallest power of 2 accommodating a 7-TLP RPMsg batch) reduces each ring to 640 B (`8 * 64 + 128`), saving 3,584 B per ring and freeing 10,752 B of SRAM Space 0 `.bss` (from 50,752 B down to 40,000 B).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/allwinner_e906/SPECIFICATION.md` (`SPEC-E906-MEM-01`, `SPEC-E906-IPC-04`)
+* **Requirement Tags Added/Updated**:
+  - `[SPEC-E906-MEM-01]`: Added explicit lock-free SPSC TLP ring right-sizing section documenting 8-entry capacity and 10,752 B SRAM Space 0 savings.
+  - `[SPEC-E906-IPC-04]`: Added TLP ring capacity parity requirement matching 7-TLP RPMsg batch payload.
+
+### 4. Implementation & Verification
+* Parameterized `SpscTlpRing` default capacity with `ABSTRACTX_TLP_RING_CAPACITY`, defaulting to 8 on E906 (`CONFIG_RPROC_RPMSG` / `TARGET_ALLWINNER_E906`) and 64 on host/SITL.
+* Added compile definition `-DABSTRACTX_TLP_RING_CAPACITY=8` in `targets/allwinner_e906/CMakeLists.txt`.
+* Added static assertion and unit test in `sim/test_e906_rpmsg_endpoints.cpp` verifying `sizeof(SpscRingBuffer<Tlp64, 8>) == 640` and confirming push/pop of the maximum 7-TLP batch.
+* Sized E906 binaries with `trac.py size --record` into `docs/verification/evidence/2026-10/hp.jsonl`:
+  - Release: text 52,552 B (-48 B), data 332 B, bss 40,000 B (-10,752 B), total RAM 92,884 B (-10,800 B).
+  - Debug: text 39,214 B (-16 B), data 332 B, bss 40,000 B (-10,752 B), total RAM 79,546 B (-10,768 B).
+  - LTO: text 59,462 B (+24 B), data 336 B, bss 41,128 B (-10,752 B), total RAM 100,926 B (-10,728 B).
+* Verification gates:
+  - 34/34 Host tests passed in Debug, ASan/UBSan, and TSan.
+  - 16/16 Cocotb targets passed.
+  - 100% `audit_specs.py` traceability.
+  - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
+
 

@@ -80,6 +80,15 @@ sequenceDiagram
   writing directly into host RPMsg buffers in SRAM Space 1, the fallback static trace buffer
   pool is completely elided (`ABSTRACTX_STATIC_TRACE_PACKETS = 0`), freeing 2,112 B
   of SRAM Space 0 `.bss` (from 52,864 B down to 50,752 B; `g_tracer` dropped from 2,104 B to 32 B).
+* **Lock-Free SPSC TLP Ring Right-Sizing**: The three inter-domain and telemetry
+  TLP rings (`g_tx_ring`, `g_sensor_ring`, `g_telemetry_ring`) reside in `.bss`
+  inside `SRAM_FAST`. Because the E906 RPMsg TLP endpoint batches at most 7 TLPs
+  per 496-byte payload message (`[SPEC-E906-IPC-04]`), the ring capacity is
+  right-sized from the default of 64 entries to the smallest power of 2
+  accommodating a full RPMsg message batch (`ABSTRACTX_TLP_RING_CAPACITY = 8`).
+  Each 64-byte aligned ring shrinks from 4,224 B (`64 * 64 + 128`) to 640 B
+  (`8 * 64 + 128`), saving 3,584 B per ring and freeing an additional 10,752 B
+  of SRAM Space 0 `.bss` (from 50,752 B down to 40,000 B).
 * **Enforcement**: every E906 firmware target runs `tools/check_e906_layout.py`
   after linking; the build fails if a loadable segment is outside Space 0 (below
   the shared tail), the lower half of Space 1, or the DRAM carveout.
@@ -251,6 +260,10 @@ sequenceDiagram
 * **Message encoding**: TLP messages are a whole number of 64-byte TLPs (length
   multiple of 64); a length that is not is rejected by the receiver.
 * **Context**: main cooperative loop only; never from an ISR.
+* **TLP Ring Capacity Parity**: Ingress and egress TLP rings (`g_tx_ring`,
+  `g_sensor_ring`, `g_telemetry_ring`) are sized with `ABSTRACTX_TLP_RING_CAPACITY = 8`,
+  matching the 7-TLP RPMsg batch payload (`7 * 64 = 448` B payload out of 496 B available)
+  and eliminating 10,752 B of unneeded queue buffering in SRAM Space 0.
 * **Linux side**: one reader per endpoint opens `/dev/rpmsg_ctrl0`, creates the
   endpoint (`RPMSG_CREATE_EPT_IOCTL`, `dst` = 1024 or 1025), sends one message so
   the E906 learns its address, then reads. The trace reader forwards each message
@@ -265,7 +278,7 @@ sequenceDiagram
   (pool at host `0x072E0000`, 128 KB) compiles with `dtc`. Nothing verified on
   silicon.
 * **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)
-* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`
+* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/spsc_tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt`
 
 ---
 

@@ -98,8 +98,18 @@ private:
     alignas(64) std::atomic<size_t> tail_{0};
 };
 
+// SPSC TLP ring default capacity: 8 for E906 (matching 7-TLP RPMsg batch payload), 64 for host/desktop
+// @impl [SPEC-TLP-03] [SPEC-E906-MEM-01] [SPEC-E906-IPC-04] docs/DESIGN_SPECIFICATION.md#spec-tlp-03 targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
+#ifndef ABSTRACTX_TLP_RING_CAPACITY
+#if defined(TARGET_ALLWINNER_E906) || defined(CONFIG_RPROC_RPMSG)
+#define ABSTRACTX_TLP_RING_CAPACITY 8
+#else
+#define ABSTRACTX_TLP_RING_CAPACITY 64
+#endif
+#endif
+
 // Backward-compatible alias for 64-byte TLP packets
-template <size_t Capacity = 64>
+template <size_t Capacity = ABSTRACTX_TLP_RING_CAPACITY>
 using SpscTlpRing = SpscRingBuffer<Tlp64, Capacity>;
 
 // Dedicated Per-Device Lock-Free Ring Array

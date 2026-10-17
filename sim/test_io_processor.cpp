@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Test: Target IIoProcessor Sensor HW Fusion API & Bus Lockout Verification
+ * @verifies [SPEC-ARCH-01] [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md
  */
 
 #include "abstractx/hal/io_processor.hpp"
@@ -38,8 +39,8 @@ int main() {
     channels[0].tlp_tag = 1;
 
     // 2. Instantiate SPSC TLP Rings
-    SpscTlpRing<64> app_to_io_tx_ring{};
-    SpscTlpRing<64> io_to_app_rx_ring{};
+    SpscTlpRing<> app_to_io_tx_ring{};
+    SpscTlpRing<> io_to_app_rx_ring{};
 
     IoProcessorSetup setup{};
     setup.channels = std::span<const AutoChannelConfig>(channels, 1);
