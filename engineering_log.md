@@ -778,4 +778,34 @@ This log chronicles the development, technical decisions, and architecture miles
   - 100% `audit_specs.py` traceability.
   - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
 
+## [2026-10-17] - RTL Lint Elimination: 2-Flop Reset Synchronizer & ILA Default Case
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `rtl/asp_top.sv`, `rtl/asp_ila_trace.sv`, `rtl/asp_sys_regs.sv`
+* **Category**: `tool-bug` / `process-gap`
+* **Symptoms**:
+  - `python3 tools/trac.py test --rtl` reported `FAIL rtl:lint {"modules": 14, "critical_warnings": 2}`.
+  - Verilator flagged `%Warning-CASEINCOMPLETE` in `asp_ila_trace.sv` because `case (dma_state)` lacked a `default:` branch.
+  - Verilator flagged `%Warning-SYNCASYNCNET` in `asp_top.sv` because `rst_n` was un-synchronized at the top level and flopped both asynchronously (`negedge rst_n`) in peripheral cores and synchronously in `asp_sys_regs.sv`.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - `asp_ila_trace.sv` state machine enumeration was incomplete in Verilator's analysis without an explicit `default:`.
+  - The top-level integrator `asp_top.sv` fed external asynchronous `rst_n` directly to submodules without an on-chip 2-flop reset synchronizer.
+* **Architectural Lesson**:
+  - Every asynchronous active-low reset from physical pins (`rst_n`) must pass through a 2-flop reset synchronizer (`rst_n_meta` -> `sync_rst_n`) clocked by the local domain clock (`clk`) to assert asynchronously and deassert synchronously.
+  - All FSM case statements in synthesizable SystemVerilog must provide a `default:` clause.
+
+### 3. Implementation & Verification
+* In `rtl/asp_ila_trace.sv`: Added `default: begin dma_state <= DMA_IDLE; end` to `case (dma_state)`.
+* In `rtl/asp_top.sv`: Added 2-flop reset synchronizer (`rst_n_meta`, `sync_rst_n`) and routed `sync_rst_n` to all submodules.
+* In `rtl/asp_sys_regs.sv`: Updated `always_ff @(posedge clk or posedge rst)` so reset sensitivity list is consistent.
+* Verification gates:
+  - `python3 tools/trac.py test --rtl`:
+    `PASS rtl:lint {"modules": 14, "critical_warnings": 0} (critical_warnings -2)`
+    `PASS rtl:synth-check {"modules": 14, "multi_driver_modules": 0}`
+  - 16/16 Cocotb targets passed.
+  - 35/35 Host ctest targets passed.
+  - `python3 tools/spectrace_matrix.py --changes --strict` reported 0 untraced hunks.
+
 

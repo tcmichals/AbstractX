@@ -45,7 +45,7 @@ module asp_sys_regs #(
 
     assign o_led_bits = led_reg[5:0];
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk or posedge rst) begin
         if (rst) begin
             wb_ack_o         <= 1'b0;
             wb_dat_o         <= 32'h0;

@@ -67,11 +67,27 @@ module asp_top #(
 
     // @impl [SPEC-A5E-LINK-02] hw/tang_nano20k/SPECIFICATION.md
 
+    // 2-flop reset synchronizer for asynchronous active-low rst_n
+    // @impl [SPEC-A5E-LINK-02] hw/tang_nano20k/SPECIFICATION.md
+    /* verilator lint_off SYNCASYNCNET */
+    logic rst_n_meta;
+    logic sync_rst_n;
+    /* verilator lint_on SYNCASYNCNET */
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            rst_n_meta <= 1'b0;
+            sync_rst_n <= 1'b0;
+        end else begin
+            rst_n_meta <= 1'b1;
+            sync_rst_n <= rst_n_meta;
+        end
+    end
+
     // Monotonic 64-bit nanosecond system timestamp timer
     logic [63:0] sys_timestamp;
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) sys_timestamp <= 64'd0;
-        else        sys_timestamp <= sys_timestamp + 64'd1;
+    always_ff @(posedge clk or negedge sync_rst_n) begin
+        if (!sync_rst_n) sys_timestamp <= 64'd0;
+        else             sys_timestamp <= sys_timestamp + 64'd1;
     end
 
     // Logic Analyzer Debug Signals:
@@ -102,7 +118,7 @@ module asp_top #(
         .DUAL_SPI_ENABLE(DUAL_SPI_ENABLE)
     ) u_spi_frontend (
         .clk             (clk),
-        .rst_n           (rst_n),
+        .rst_n           (sync_rst_n),
         .i_sclk          (spi_sclk),
         .i_cs_n          (spi_cs_n),
         .io_sdio0        (spi_io0),
@@ -141,7 +157,7 @@ module asp_top #(
 
     asp_router u_router (
         .clk                 (clk),
-        .rst_n               (rst_n),
+        .rst_n               (sync_rst_n),
         .s_tlp_tdata         (tlp_rx_data),
         .s_tlp_tvalid        (tlp_rx_valid),
         .s_tlp_tready        (tlp_rx_ready),
@@ -182,7 +198,7 @@ module asp_top #(
 
     asp_wishbone_master u_wishbone_master (
         .clk          (clk),
-        .rst_n        (rst_n),
+        .rst_n        (sync_rst_n),
         .s_tlp_tdata  (ctrl_tdata),
         .s_tlp_tvalid (ctrl_tvalid),
         .s_tlp_tready (ctrl_tready),
@@ -227,7 +243,7 @@ module asp_top #(
     // System Control, PCIe ID & Master Timestamp Registers (Base: 0x40000000)
     asp_sys_regs u_sys_regs (
         .clk             (clk),
-        .rst             (!rst_n),
+        .rst             (!sync_rst_n),
         .i_sys_timestamp (sys_timestamp),
         .wb_adr_i        (wb_adr),
         .wb_dat_i        (wb_dat_w),
@@ -243,7 +259,7 @@ module asp_top #(
     // IMU SPI Master & Auto-DMA IP Core (Base: 0x40000100)
     asp_imu_auto_dma u_imu_core (
         .clk                 (clk),
-        .rst_n               (rst_n),
+        .rst_n               (sync_rst_n),
         .i_sys_timestamp     (sys_timestamp),
         .o_imu_sclk          (imu_sclk),
         .o_imu_cs_n          (imu_cs_n),
@@ -269,7 +285,7 @@ module asp_top #(
         .NUM_CHANNELS(4)
     ) u_dshot_core (
         .clk           (clk),
-        .rst_n         (rst_n),
+        .rst_n         (sync_rst_n),
         .wb_cyc        (wb_cyc && dshot_sel),
         .wb_stb        (wb_stb && dshot_sel),
         .wb_we         (wb_we),
@@ -286,7 +302,7 @@ module asp_top #(
         .NUM_CHANNELS(NUM_PWM_INPUTS)
     ) u_pwm_decoder (
         .clk        (clk),
-        .rst_n      (rst_n),
+        .rst_n      (sync_rst_n),
         .i_pwm_pins (i_pwm_pins),
         .wb_cyc_i   (wb_cyc && pwm_dec_sel),
         .wb_stb_i   (wb_stb && pwm_dec_sel),
@@ -302,7 +318,7 @@ module asp_top #(
         .CLK_FREQ_HZ(CLK_FREQ_HZ)
     ) u_neopixel_core (
         .clk            (clk),
-        .rst_n          (rst_n),
+        .rst_n          (sync_rst_n),
         .wb_cyc         (wb_cyc && neopixel_sel),
         .wb_stb         (wb_stb && neopixel_sel),
         .wb_we          (wb_we),

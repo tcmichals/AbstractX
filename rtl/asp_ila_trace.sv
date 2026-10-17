@@ -186,6 +186,10 @@ module asp_ila_trace #(
                         dma_state <= DMA_STREAM;
                     end
                 end
+
+                default: begin
+                    dma_state <= DMA_IDLE;
+                end
             endcase
         end
     end
