@@ -1,7 +1,7 @@
 /*
  * rpmsg_console.cpp - VirtIO RPMsg Console Implementation for MicroPython REPL
  *
- * @impl [SPEC-E906-REPL-03] [SPEC-E906-REPL-05] apps/e906_repl_app/SPECIFICATION.md
+ * @impl [SPEC-E906-REPL-03] [SPEC-E906-REPL-05] [SPEC-E906-REPL-08] apps/e906_repl_app/SPECIFICATION.md
  */
 
 #include "rpmsg_console.hpp"

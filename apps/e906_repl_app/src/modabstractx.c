@@ -1,7 +1,7 @@
 /*
  * modabstractx.c - Native MicroPython module for AbstractX hardware inspection
  *
- * @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
+ * @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-09] apps/e906_repl_app/SPECIFICATION.md
  */
 
 #include "py/runtime.h"

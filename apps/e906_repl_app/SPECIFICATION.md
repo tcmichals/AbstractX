@@ -27,34 +27,103 @@ the hard real-time determinism or zero-heap constraints of the AbstractX flight 
 
 ---
 
-## 2. System Architecture & Memory Isolation
+## 2. Three-Plane Communication Architecture: REPL, TLP & barectf
+
+The AbstractX XuanTie E906 runtime implements a strict **Three-Plane Separation of Concerns**. Each plane has a distinct purpose, wire format, transport mechanism, and latency guarantee:
+
+| Dimension | 1. Interactive Control Plane (REPL) | 2. Real-Time Data Plane (TLP) | 3. Observability Plane (barectf) |
+| :--- | :--- | :--- | :--- |
+| **Primary Role** | Human interaction, Python scripting, dynamic configuration | High-rate flight sensor telemetry, actuation, fusion | Execution profiling, coroutine timeline, diagnostics |
+| **Wire Format** | UTF-8 interactive text stream | **Fixed 64-byte `Tlp64` binary packets** | **CTF 1.8 binary event stream** (`barectf`) |
+| **Transport** | VirtIO RPMsg Endpoint 1026 (`/dev/rpmsg0`, `"abstractx-repl"`) | Lock-free SPSC rings (`g_telemetry_ring`) & FPGA X-Fabric | VirtIO RPMsg Endpoint 1025 (`"abstractx-trace"`) |
+| **Memory Isolation** | Quarantined in HiFi4 DSP SRAM (`0x00020000`) | MCU SRAM Space 0 (`0x3FFC0000`) & Shared SRAM | MCU SRAM Space 0 & Shared RPMsg Vrings |
+| **Latency / Rate** | 10 Hz – 100 Hz (human-scale, character-paced) | **10 Hz – 8 kHz (deterministic hard real-time)** | Nanosecond event timestamps ($< 10$ CPU cycles/event) |
+| **Formatting** | Textual (`>>> ` prompts, string rendering) | **Zero-Copy binary integers / floats (No peeking)** | Binary bit-packed payloads decoded by schema |
+| **Host Consumer** | AbstractX Studio Tab 11 / Terminal REPL | Flight Display, Attitude Scope, Autopilot | AbstractX Studio Timeline / Chrome Tracing / Babeltrace |
+
+### Architectural Dataflow & Plane Separation
 
 ```mermaid
 flowchart TD
-    subgraph A5E_CHIP["Allwinner A5E / A7A Silicon"]
-        subgraph MCU_SRAM["MCU Dedicated SRAM Space 0 (0x3FFC0000, 256 KB)"]
-            FIRMWARE["<b>AbstractX Core Engine</b><br/>Zero Heap C++20 Coroutines<br/>Flight Loop & SPSC Rings"]
-            REPL_CORO["<b>ReplTask Coroutine Frame</b><br/>Static Pool Allocation<br/>co_await line_async()"]
+    subgraph SILICON_A5E["Allwinner Radxa Cubie A5E Silicon"]
+        subgraph E906_MCU["XuanTie E906 RISC-V Core @ 800 MHz (SRAM Space 0: 0x3FFC0000)"]
+            DISPATCHER["<b>AbstractX Work Queue (Dispatcher)</b><br/>Lock-Free etl::queue_spsc_isr<br/>Cooperative Coroutine Resumption"]
+            
+            subgraph COROUTINES["Cooperative C++20 Tasks"]
+                CORO_REPL["<b>REPL Task</b><br/>co_await line_async()"]
+                CORO_SENS["<b>Sensor Ingress Task</b><br/>UART3 & TWI1 Driver"]
+                CORO_EGRESS["<b>TLP Egress Task</b><br/>trace_dispatcher_task"]
+            end
+
+            CH_SENS["<b>SPSC Channels (AsyncQueue)</b><br/>AsyncQueue&lt;GpsFix&gt;<br/>AsyncQueue&lt;MagVector&gt;"]
+            TLP_RING["<b>SPSC TLP Ring (g_telemetry_ring)</b><br/>64-Byte Tlp64 Packets"]
         end
 
-        subgraph DSP_SRAM["Dormant HiFi4 DSP SRAM (0x00020000, 128 KB - 448 KB)"]
-            PY_HEAP["<b>MicroPython GC Heap (Quarantined)</b><br/>gc_init(0x00020000, 128KB)<br/>Zero Contamination of MCU Cache"]
+        subgraph DSP_SRAM_APERTURE["Dormant HiFi4 DSP SRAM (0x00020000, 128 KB)"]
+            PY_VM["<b>MicroPython Runtime</b><br/>Bytecode Engine & GC Heap<br/>Quarantined from MCU Cache"]
         end
 
-        subgraph RPMSG_SRAM["SRAM Space 1 RPMsg Pool (0x40020000, 128 KB)"]
-            VRINGS["<b>VirtIO RPMsg Vrings & Buffers</b><br/>Zero-Copy Line Streaming"]
+        subgraph SHARED_SRAM["Shared SRAM Space 1 (0x40000000)"]
+            RPMSG_REPL["<b>RPMsg Vring EP 1026</b><br/>abstractx-repl (Text)"]
+            RPMSG_TRACE["<b>RPMsg Vring EP 1025</b><br/>abstractx-trace (CTF 1.8)"]
+            RPMSG_TLP["<b>Shared TLP Ring</b><br/>64-Byte Bus Packets"]
         end
     end
 
-    subgraph HOST_LINUX["Host Linux / Desktop Studio"]
-        STUDIO["<b>AbstractX Studio Tab 11</b><br/>Interactive REPL (>>> )"]
+    subgraph HOST_LINUX["Host Linux (Cortex-A53 @ 1.4 GHz) / Desktop Studio"]
+        UI_REPL["<b>Studio Tab 11 (REPL)</b><br/>Interactive Python Shell (>>> )"]
+        UI_TELEM["<b>Studio PFD & Instruments</b><br/>64B TLP Decoder & Visualizer"]
+        UI_TRACE["<b>Studio Timeline & Tracing</b><br/>CTF 1.8 / barectf Dynamic Parser"]
     end
 
-    STUDIO <==>|/dev/rpmsg0 Endpoint 1026| VRINGS
-    VRINGS <==>|Zero-Copy Line Frames| REPL_CORO
-    REPL_CORO -->|VM Execution| PY_HEAP
-    REPL_CORO -.->|MICROPY_VM_HOOK_LOOP| FIRMWARE
+    %% Plane 1: REPL (Text)
+    UI_REPL <==>|Plane 1: UTF-8 Text Lines| RPMSG_REPL
+    RPMSG_REPL <==>|Zero-Copy Line Streaming| CORO_REPL
+    CORO_REPL <-->|Execute Script / Bytecode| PY_VM
+
+    %% Plane 2: TLP (64-Byte Binary Packets)
+    CORO_SENS -->|Ingest Raw HW| CH_SENS
+    CH_SENS -->|Native Channel Pop| PY_VM
+    PY_VM -->|Emit Fixed 64B Tlp64| TLP_RING
+    TLP_RING -->|co_await pop()| CORO_EGRESS
+    CORO_EGRESS ==>|Plane 2: 64B Tlp64 Binary Stream| RPMSG_TLP
+    RPMSG_TLP ==>|Zero-Copy DMA / Crossbar| UI_TELEM
+
+    %% Plane 3: barectf (CTF 1.8 Event Stream)
+    CORO_SENS -.->|barectf_trace_event()| RPMSG_TRACE
+    DISPATCHER -.->|barectf_trace_coro_resume()| RPMSG_TRACE
+    RPMSG_TRACE ==>|Plane 3: CTF 1.8 Binary Events| UI_TRACE
+
+    %% Dispatcher Coordination
+    DISPATCHER <--->|Pumps & Resumes| COROUTINES
+    PY_VM -.->|MICROPY_VM_HOOK_LOOP| DISPATCHER
 ```
+
+### Detailed Breakdown of the Three Planes:
+
+#### Plane 1: The REPL Interactive Control Plane
+* **What it is**: The interactive command, control, and debugging interface for developers and ground control.
+* **Protocol & Encodings**: UTF-8 characters and newline-delimited lines. Supports standard VT100 terminal escape sequences, raw REPL mode (`\x01` Ctrl-A), soft reset (`\x04` Ctrl-D), and keyboard interrupt (`\x03` Ctrl-C).
+* **Transport**: VirtIO RPMsg Endpoint 1026 (`"abstractx-repl"`), mapped to `/dev/rpmsg0` in Linux user space.
+* **Safety & Invariants**: Quarantined strictly in dormant HiFi4 DSP SRAM (`0x00020000`). If a user script crashes or runs out of memory, it triggers a non-local jump (`nlr_jump`) and resets the VM without affecting the C++ flight dispatcher or corrupting MCU flight memory.
+
+#### Plane 2: The TLP Real-Time Data Plane (`Tlp64`)
+* **What it is**: The high-throughput, deterministic sensor ingestion, state estimation, and actuation bus.
+* **Protocol & Encodings**: Fixed 64-byte `Tlp64` binary frames (`sizeof(asp_tlp64_t) == 64`, `alignas(64)`):
+  * **24-Byte Header**: `type` (1B), `flags` (1B), `tag` (1B), `channel` (1B), `target_address` (4B), `length_dw` (2B), `sequence` (2B), `timestamp_ns` (8B).
+  * **40-Byte Payload**: Pre-scaled binary integer records (GPS latitude/longitude in $10^{-7}$ deg, altitude in mm, 3-axis gyro in $0.01^\circ/\text{s}$, 3-axis accel in $\text{mg}$).
+  * **4-Byte Trailer**: Hardware CRC32.
+* **Transport**: Lock-free SPSC circular ring buffers (`SpscTlpRing`, `g_telemetry_ring`) and synthesizable FPGA AXI-Stream crossbar switch fabric (`asp_router.sv`).
+* **The No-Peeking Mandate**:
+  - Direct register peeking or field-by-field polling over the bus is strictly prohibited.
+  - Transactions move as atomic, self-describing 64-byte packets.
+  - Producers borrow a slot (`acquire`), populate the known binary struct in place, and commit (`commit`). Consumers pop full packets atomically in $< 50 \text{ ns}$.
+
+#### Plane 3: The barectf CTF 1.8 Observability Plane
+* **What it is**: High-fidelity, nanosecond-resolution code execution tracing and diagnostic instrumentation.
+* **Protocol & Encodings**: Common Trace Format (CTF 1.8) bit-packed binary structures configured in `barectf_config.yaml`.
+* **Transport**: VirtIO RPMsg Endpoint 1025 (`"abstractx-trace"`).
+* **Key Characteristic**: Zero string formatting in firmware. An event call (e.g. `barectf_default_trace_coro_resume(ctx, coro_id, task_state)`) takes only 4 to 12 CPU instructions to write a compact 8-to-16 byte binary record into the trace buffer. Host tools (AbstractX Studio Timeline, Babeltrace) use the CTF metadata schema (`trace_schema.json`) to expand the fields into human-readable traces, timelines, and flame graphs.
 
 ---
 
@@ -145,5 +214,23 @@ flowchart TD
   3. Binary trace packets must be emitted zero-copy into host SRAM buffers without heap allocation or CPU-bound string rendering.
 * **Verified by**: `host-tests`, `e906-build-layout`
 * **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `targets/allwinner_e906/src/trace.cpp`
+
+### `[SPEC-E906-REPL-08]` Three-Plane Communication Isolation & Endpoint Mapping
+* **Requirement**:
+  1. The XuanTie E906 runtime MUST maintain strict wire, memory, and channel isolation between the three communications planes:
+     - **Interactive REPL Plane**: Transported exclusively over VirtIO RPMsg Endpoint 1026 (`"abstractx-repl"`), carrying UTF-8 text lines.
+     - **Real-Time Data Plane**: Transported exclusively as 64-byte `Tlp64` binary packets over lock-free SPSC rings (`SpscTlpRing`, `g_telemetry_ring`) and FPGA crossbar fabrics.
+     - **Observability Plane**: Transported exclusively as CTF 1.8 binary event streams over VirtIO RPMsg Endpoint 1025 (`"abstractx-trace"`).
+  2. REPL text streams, real-time TLP packets, and barectf diagnostic events MUST NOT be multiplexed into the same channel or share wire encodings.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
+
+### `[SPEC-E906-REPL-09]` Packet-Driven Invariant & No-Peeking Mandate for Telemetry/Sensors
+* **Requirement**:
+  1. All real-time telemetry, sensor ingestion records, and navigation solutions MUST be encapsulated into fixed, cache-line aligned 64-byte `Tlp64` packets (`sizeof(asp_tlp64_t) == 64`, `alignas(64)`).
+  2. **Negative Invariant**: High-rate flight loops and telemetry bridges MUST NOT use register peeking, address-based polling, or field-by-field memory reads over IPC.
+  3. Producers MUST acquire and commit entire 64-byte packet frames into wait-free SPSC rings, and consumers MUST pop full packets atomically in $\mathcal{O}(1)$ time.
+* **Verified by**: `host-tests`
+* **Implementation Target**: `apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/src/modabstractx.c`
 
 
