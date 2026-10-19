@@ -44,7 +44,7 @@ flowchart TD
 
 | Header Pin | SoC Net / Function | Target Peripheral | Wire Color | Puck Function & Connection Rule |
 |---|---|---|---|---|
-| **Pin 1** (or 2/4) | `VCC_3V3` (or `5V`) | Power Supply | **Red** | Power input for GPS and Compass |
+| **Pin 1** (or 2/4) | `VCC_3V3` (or `5V`) | Power Supply | **Red** | Power input for GPS and Compass (supports 3.3V or 5V) |
 | **Pin 6** (or 14) | `GND` | Ground Reference | **Black** | Common system ground |
 | **Pin 3** | `PH0 / TWI1-SDA` | **I2C1 Data** | **Blue** | I2C SDA (Compass `0x0D`/`0x1E` & u-blox DDC `0x42`) |
 | **Pin 5** | `PH1 / TWI1-SCL` | **I2C1 Clock** | **Orange** | I2C SCL (Compass & u-blox DDC) |
@@ -61,7 +61,43 @@ flowchart TD
 
 ---
 
-## 2. Architecture & Memory Quarantine
+## 2. The Python-First Bring-Up Philosophy
+
+In AbstractX, bringing up new sensors and flight peripherals follows a **Python-First validation workflow**:
+
+```mermaid
+flowchart LR
+    subgraph S1["1. Python Prototyping (NOW)"]
+        direction TB
+        A1["Interactive I2C / UART probing"]
+        A2["Verify bus ACK & addresses"]
+        A3["Inspect raw NMEA/UBX sentences"]
+    end
+
+    subgraph S2["2. MicroPython-to-C++ (Skill)"]
+        direction TB
+        B1["micropython-to-cpp automated transform"]
+        B2["Freestanding C++20 coroutine tasks"]
+        B3["Zero heap • Zero blocking delays"]
+    end
+
+    subgraph S3["3. Flight Loop & INAV"]
+        direction TB
+        C1["Primary-paced sensor fusion"]
+        C2["INAV navigation state matrix"]
+        C3["AbstractX Studio 3D telemetry"]
+    end
+
+    S1 ==> S2 ==> S3
+```
+
+1. **Fast Interactive Validation**: Prove hardware wiring, power, pinmux, baud rates, and register maps interactively using Python scripts or the MicroPython REPL without constant re-compilation or firmware reflashing.
+2. **Deterministic Translation**: Once register sequences and timing are proven, use the `micropython-to-cpp` skill to transform Python asyncio drivers directly into freestanding C++20 coroutines (`Task<bool>`, `co_await`).
+3. **Hard Real-Time Integration**: The resulting C++ drivers plug directly into the INAV navigation matrix and AbstractX primary-paced sensor channels.
+
+---
+
+## 3. Architecture & Memory Quarantine
 
 The MicroPython REPL runs under strict deterministic execution rules (`[SPEC-E906-REPL-01]` through `[SPEC-E906-REPL-06]`):
 
@@ -72,7 +108,7 @@ The MicroPython REPL runs under strict deterministic execution rules (`[SPEC-E90
 
 ---
 
-## 3. Quick Start & Verification
+## 4. Quick Start & Verification
 
 ### A. Build the E906 Firmware Binary
 ```bash
@@ -112,4 +148,35 @@ microcom -p /dev/rpmsg0
 
 # Soft reset REPL VM
 >>> (Press Ctrl-D)
+```
+
+---
+
+## 5. Live Peripheral Testing Recipes (Python)
+
+### Recipe 1: Scan I2C Compass & u-blox DDC (`test_compass.py`)
+```python
+import smbus2
+
+bus = smbus2.SMBus(1)
+print("Scanning I2C Bus 1...")
+for addr in [0x0D, 0x1E, 0x42]:
+    try:
+        bus.read_byte(addr)
+        name = {0x0D: "QMC5883L Compass", 0x1E: "HMC5883L Compass", 0x42: "u-blox DDC"}.get(addr, "Unknown")
+        print(f"  ✅ [0x{addr:02X}] {name} acknowledged!")
+    except OSError:
+        pass
+```
+
+### Recipe 2: Read Live GPS NMEA Sentence Stream (`test_gps.py`)
+```python
+import serial
+
+ser = serial.Serial('/dev/ttyS2', 9600, timeout=1.0)
+print("Listening for GPS sentences on /dev/ttyS2...")
+while True:
+    line = ser.readline().decode('ascii', errors='ignore').strip()
+    if line.startswith('$GNGGA') or line.startswith('$GNRMC'):
+        print(f"🛰️  {line}")
 ```
