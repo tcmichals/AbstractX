@@ -403,6 +403,42 @@ This log chronicles all architectural decisions, hardware facts, bugs identified
      - Zero busy-spinning or cooperative polling (`step_async()`) when idle.
      - Perfect backpressure and decoupling between Linux VirtIO transport and the MicroPython bytecode engine.
 
+---
+
+### 28. Hardware Fact / Mistake & Lesson: I2C Internal Pull-Ups Failed & Screwed Up the GPS Puck Bus
+* **Category**: `hardware-fact` / `product-bug`
+* **Subsystem**: I2C Hardware Bus (I2C1 / TWI1 on Pins 3 & 5: `PB5`/`PB4`), u-blox NEO-M8N GPS + Compass Puck
+* **Symptoms**:
+  * When configuring I2C1 in the Device Tree overlay with SoC internal pull-ups (`bias-pull-up;`), or when adding extra external pull-ups:
+    1. `i2cdetect -y 1` hung, experienced multi-second bus timeouts, or returned spurious bus busy errors.
+    2. The GPS puck's onboard compass (QMC5883L / HMC5883L at `0x1E` / `0x0D`) failed to acknowledge or dropped off the bus intermittently.
+    3. The u-blox DDC interface (`0x42`) was disrupted, leading to packet loss and bus degradation ("screwing up the GPS").
+* **Root Cause & Technical Analysis**:
+  1. **Dual / Parallel Pull-Up Impedance Distortion**:
+     - Standard commercial drone GPS pucks (such as the u-blox NEO-M8N with integrated magnetic compass) already integrate onboard physical 2.2kΩ–4.7kΩ pull-up resistors connected to the internal 3.3V LDO on both SDA and SCL.
+     - When the SoC internal `bias-pull-up` (or extra board pull-ups) was enabled in parallel, the combined parallel resistance lowered the effective bus pull-up impedance:
+       $$R_{\text{eff}} = \frac{R_{\text{puck}} \cdot R_{\text{soc}}}{R_{\text{puck}} + R_{\text{soc}}}$$
+     - In addition, the Allwinner SoC internal pull-ups are weak, non-linear MOS pull-ups (~50kΩ–100kΩ) which introduce leakage and charge-injection artifacts into open-drain lines.
+     - The resulting parallel network altered the rise-time ($t_r \approx 2.2 \cdot R_{\text{pull}} \cdot C_{\text{bus}}$), caused voltage divider offsets during logic-low drive ($V_{OL}$ exceeded the maximum valid low threshold $V_{IL} \approx 0.3 \cdot V_{DD}$), and prevented slave devices from pulling the bus low enough to generate a valid $I^2C$ ACK bit.
+  2. **Interference with GPS Puck Circuitry**:
+     - Because the puck powers its internal 3.3V LDO from the 5V input rail (Pin 2), having active SoC pull-ups before 5V is fully stabilized injected reverse current through ESD protection diodes, locking the compass/GPS microcontroller state machines in an indeterminate state.
+* **Resolution & Rule Enacted**:
+  1. **Omit `bias-pull-up;` Completely in Device Tree Overlays**:
+     - In both `cubie-a5e-flight-stack-linux.dtso` and `cubie-a5e-flight-stack-e906.dtso`, `bias-pull-up;` is strictly omitted from `i2c1_pb_pins`:
+       ```dts
+       i2c1_pb_pins: i2c1-pb-pins {
+           pins = "PB4", "PB5";
+           function = "i2c1";
+           allwinner,pinmux = <2>;
+           /* NOTE: bias-pull-up intentionally omitted! Puck provides onboard 2.2kΩ-4.7kΩ pull-ups */
+       };
+       ```
+  2. **Hardware Bring-up Invariant**:
+     - Do not add external pull-up resistors or enable SoC internal pull-ups when connecting standard drone GPS/compass pucks. The puck's integrated pull-ups provide the ideal open-drain impedance for 100 kHz (Standard Mode) and 400 kHz (Fast Mode).
+  3. **Hardware Proof**:
+     - Removing the internal pull-up configuration immediately restored bus operation: `i2cdetect -y 1` executed in < 15 ms, detecting the compass at `0x1E` with zero bus timeouts, and GPS NMEA stream on UART3 streamed 10/10 valid 3D fixes.
+
+
 
 
 

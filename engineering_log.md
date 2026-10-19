@@ -1310,9 +1310,10 @@ This log chronicles the development, technical decisions, and architecture miles
   - GPS Yellow Wire is GPS RX $\rightarrow$ connects to A5E TX (Pin 16 / `PI11`).
   - Red Wire is 5V Power $\rightarrow$ connects to Pin 2 (`5V_VCC`).
   - Black Wire is Ground $\rightarrow$ connects to Pin 6 (`GND`).
-* **Hardware Fact 3 (I2C Pull-Up Resistors)**:
-  - Standard GPS + Compass pucks (u-blox NEO-M8N with QMC5883L/HMC5883L) already integrate 2.2kΩ–4.7kΩ pull-up resistors to 3.3V on SDA/SCL.
-  - Enabling SoC internal `bias-pull-up` inside `sun55i-a523-pinctrl` caused parallel pull-up impedance conflicts. Removing `bias-pull-up` from `i2c1_pb_pins` resulted in clean, instantaneous ACK at address `0x1E` on `/dev/i2c-1`.
+* **Hardware Fact 3 (I2C Internal Pull-Ups Failed & Corrupted GPS Puck Bus)**:
+  - Standard GPS + Compass pucks (u-blox NEO-M8N with QMC5883L/HMC5883L) already integrate 2.2kΩ–4.7kΩ hardware pull-up resistors to 3.3V on SDA/SCL.
+  - Enabling SoC internal `bias-pull-up` inside `sun55i-a523-pinctrl` or adding extra pull-ups failed: the parallel pull-up network lowered effective impedance ($R_{\text{eff}} = \frac{R_{\text{puck}} \cdot R_{\text{soc}}}{R_{\text{puck}} + R_{\text{soc}}}$), distorted open-drain rise times, raised $V_{OL}$ above $V_{IL}$, and injected reverse bias before the puck's 5V LDO stabilized.
+  - This corrupted the GPS puck's DDC interface and caused `i2cdetect` to hang or NAK. Removing `bias-pull-up` completely from `i2c1_pb_pins` restored clean, instantaneous ACK at address `0x1E` on `/dev/i2c-1` with zero bus timeouts.
 * **Tool / Driver Fact (Kernel Pinctrl Pinmux Requirement)**:
   - `pinctrl-sunxi-dt.c` strictly requires `allwinner,pinmux = <mux_index>;` in every pin group node (`2` for I2C1, `2` for UART3, `3` for UART4, `4` for SPI1). Without this numeric property, the driver throws `invalid mux value` and leaves pins unmultiplexed.
 
