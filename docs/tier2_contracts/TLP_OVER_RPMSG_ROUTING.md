@@ -201,3 +201,64 @@ if abstractx.tlp_poll_into(cmd_buf):
 | **Execution Latency** | ~480 – 850 $\mu\text{s}$ | **$< 5 \ \mu\text{s}$** | **$> 100\times$ faster** |
 | **Numeric Precision** | String float approximation | **32-bit exact binary integers** | **Deterministic precision** |
 | **Transport** | Interactive text (`/dev/rpmsg0`) | Real-time packet bus (`abstractx-tlp`) | **Clean plane isolation** |
+
+---
+
+## 8. Serial TLP Streaming & Tunneling (`Channel::EscSerial`)
+
+### 8.1 Serial Data Encapsulation in 64-Byte TLPs (`[SPEC-E906-REPL-11]`)
+In the AbstractX hardware switch fabric and processor runtime, streaming serial interfaces (such as UART GPS, bidirectional ESC telemetry, and MAVLink radio links) do not bypass the bus as unmanaged raw byte streams. Instead, serial traffic is tunneled across **`Channel::EscSerial` (`0x05`)**:
+
+```
++-----------------------------------------------------------------------------------------+
+|                              64-Byte Serial TLP Packet                                  |
++--------------------------+------------------------------------+-------------------------+
+|  24-Byte Header          |  40-Byte Serial Stream Chunk       |  4-Byte Footer          |
+|  - type: DmaStream (0x10)|  - 40 Raw Serial Payload Bytes     |  - Hardware CRC32       |
+|  - channel: EscSerial(05)|    (UBX binary, ESC telemtry frame,|                         |
+|  - length_dw: 10 (40 B)  |     or MAVLink stream packet)      |                         |
+|  - sequence: uint16      |                                    |                         |
+|  - timestamp_ns: uint64  |                                    |                         |
++--------------------------+------------------------------------+-------------------------+
+```
+
+### 8.2 End-to-End Serial TLP Dataflow
+```mermaid
+flowchart LR
+    subgraph Serial Hardware Layer
+        UART_DEV["UART3 / ESC Pins"] -->|Hardirq RX FIFO| E906_ISR["C++ UART ISR Engine"]
+    end
+
+    subgraph AbstractX C++ Streaming Pipeline
+        E906_ISR -->|Pack 40B Chunks| TLP_SERIAL_INGRESS["Tlp64::make_stream_tx(Channel::EscSerial)"]
+        TLP_SERIAL_INGRESS -->|Zero-Copy Push| SPSC_SERIAL["AsyncQueue&lt;Tlp64, 16&gt;"]
+    end
+
+    subgraph MicroPython Flight Executive
+        SPSC_SERIAL -->|abstractx.serial_tlp_poll(buf)| MP_CORE["Python Protocol Engine<br/>(UBX/MAVLink Parser)"]
+        MP_CORE -->|abstractx.serial_tlp_send(data)| SPSC_EGRESS["Egress SPSC Ring"]
+    end
+
+    subgraph Hardware Serializer
+        SPSC_EGRESS -->|DMA Transmission| UART_TX["UART3 TX Pin"]
+    end
+```
+
+### 8.3 MicroPython Serial TLP Interface
+```python
+import abstractx
+
+# 1. Zero-Copy Serial Ingress:
+# Drains 40-byte serial TLP payload into a pre-allocated bytearray
+serial_frame = bytearray(64)
+if abstractx.serial_tlp_poll(serial_frame):
+    # Extract packet metadata directly from fixed offsets
+    seq = serial_frame[10] | (serial_frame[11] << 8)
+    # Payload bytes reside at offsets 20..59 (up to 40 bytes)
+    payload_chunk = memoryview(serial_frame)[20:60]
+
+# 2. Stream Egress:
+# Slices larger arbitrary byte payloads into 40-byte streaming TLPs
+ubx_cfg = bytes([0xB5, 0x62, 0x06, 0x08, 0x06, 0x00, 0x64, 0x00, 0x01, 0x00, 0x01, 0x00, 0x7A, 0x12])
+abstractx.serial_tlp_send(ubx_cfg)
+```

@@ -244,4 +244,14 @@ flowchart TD
 * **Verified by**: `host-tests`, `e906-build-layout`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
 
+### `[SPEC-E906-REPL-11]` Serial TLP Tunneling & Streaming Protocol for MicroPython
+* **Requirement**:
+  1. Serial data streams (UART GPS, ESC telemetry, MAVLink) routed to MicroPython MUST be encapsulated in 64-byte `Tlp64` packets using `Channel::EscSerial` (`0x05`):
+     - **Serial Ingress (`abstractx.serial_tlp_poll(buf)`)**: The C++ driver chunks incoming serial bytes into 40-byte payloads with sequence IDs and nanosecond timestamps. MicroPython pops incoming serial packets directly into a 64-byte mutable buffer without string allocation.
+     - **Serial Egress (`abstractx.serial_tlp_send(data)`)**: Outgoing serial byte sequences are chunked by the native C binding into 40-byte streaming TLPs (`Tlp64::make_stream_tx`) and pushed into the egress SPSC ring, where the hardware serializer transmits them via DMA/FIFO.
+  2. **Zero Polling Invariant**: MicroPython MUST NOT busy-poll UART status registers (`LSR`). Ingress serial TLPs are signaled cooperatively via `abstractx::Dispatcher` wakeups.
+  3. **Packet Framing Invariant**: Each serial TLP carries a 2-byte sequence counter and 2-byte valid payload length, ensuring lossless stream reassembly across multi-core boundaries.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
+
 

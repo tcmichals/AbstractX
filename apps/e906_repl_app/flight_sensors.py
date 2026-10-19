@@ -1,4 +1,4 @@
-# @impl [SPEC-E906-REPL-06] [SPEC-GPS-01] [SPEC-E906-REPL-09] [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+# @impl [SPEC-E906-REPL-06] [SPEC-GPS-01] [SPEC-E906-REPL-09] [SPEC-E906-REPL-10] [SPEC-E906-REPL-11] apps/e906_repl_app/SPECIFICATION.md
 # flight_sensors.py - Professional Cooperative Flight Sensor Ingestion for XuanTie E906
 #
 # Production-grade freestanding MicroPython flight sensor module running natively
