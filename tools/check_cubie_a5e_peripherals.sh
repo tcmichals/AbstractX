@@ -10,8 +10,8 @@
 #
 # Tests:
 #   1. Device Tree & Serial Console Lock (UART0 on /dev/ttyS0)
-#   2. I2C1 Bus on Pins 3 & 5 (u-blox DDC 0x42 + Compass 0x0D/0x1E)
-#   3. UART2 GPS Serial Port on Pins 11 & 13 (9600 baud NMEA / UBX)
+#   2. I2C1 Bus on Pins 3 & 5 (PB5/PB4: u-blox DDC 0x42 + Compass 0x0D/0x1E)
+#   3. UART3 GPS Serial Port on Pins 16 & 31 (PI11/PI12: 9600 baud NMEA / UBX)
 #   4. XuanTie E906 RemoteProc & RPMsg Endpoints
 # -------------------------------------------------------------
 
@@ -112,13 +112,16 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# STEP 3: UART2 GPS Serial Port (Pins 11 & 13)
+# STEP 3: UART3 GPS Serial Port (Pins 16 & 31)
 # -----------------------------------------------------------------------------
-echo -e "\n${BLUE}[STEP 3/4] Checking UART2 GPS Serial Port (Pins 11 & 13: PB0/PB1)...${NC}"
-UART_DEV="/dev/ttyS2"
+echo -e "\n${BLUE}[STEP 3/4] Checking UART3 GPS Serial Port (Pins 16 & 31: PI11/PI12)...${NC}"
+UART_DEV="/dev/ttyAS3"
+if [ ! -e "$UART_DEV" ] && [ -e "/dev/ttyS3" ]; then
+    UART_DEV="/dev/ttyS3"
+fi
 
 if [ -e "$UART_DEV" ]; then
-    echo -e "  [${GREEN}PASS${NC}] UART2 serial port device node exists: ${UART_DEV}"
+    echo -e "  [${GREEN}PASS${NC}] UART3 serial port device node exists: ${UART_DEV}"
     ((PASS_COUNT++))
 
     # Test reading raw characters for 3 seconds
@@ -146,13 +149,13 @@ except Exception as e:
             echo -e "  -> Details: ${SERIAL_PROBE}"
             ((PASS_COUNT++))
         else
-            echo -e "  [${YELLOW}WARN${NC}] No bytes received in 3s on ${UART_DEV}. (Check: Pin 11 to GPS RX, Pin 13 to GPS TX, 9600 baud)"
+            echo -e "  [${YELLOW}WARN${NC}] No bytes received in 3s on ${UART_DEV}. (Check: Pin 16 to GPS RX, Pin 31 to GPS TX, 9600 baud)"
             echo -e "  -> Details: ${SERIAL_PROBE}"
             ((WARN_COUNT++))
         fi
     fi
 else
-    echo -e "  [${YELLOW}WARN${NC}] ${UART_DEV} not present in Linux. (If routed to E906 via UIO, E906 firmware accesses UART2 directly at 0x02500800)"
+    echo -e "  [${YELLOW}WARN${NC}] ${UART_DEV} not present in Linux. (If routed to E906 via UIO, E906 firmware accesses UART3 directly at 0x02500c00)"
     ((WARN_COUNT++))
 fi
 

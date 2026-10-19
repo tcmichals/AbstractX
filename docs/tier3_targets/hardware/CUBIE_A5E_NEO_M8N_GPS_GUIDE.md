@@ -14,31 +14,32 @@ A standard drone GPS puck combines:
 
 ```mermaid
 flowchart TD
-    subgraph CUBIE["Radxa Cubie A5E / A7A 40-Pin Header"]
+    subgraph CUBIE["Radxa Cubie A5E 40-Pin Header"]
         P2["Pin 2: 5V Power (5V_VCC)"]
-        P3["Pin 3: I2C1-SDA (PH0 / TWI1)"]
-        P5["Pin 5: I2C1-SCL (PH1 / TWI1)"]
+        P3["Pin 3: I2C1-SDA (PB5 / TWI1)"]
+        P5["Pin 5: I2C1-SCL (PB4 / TWI1)"]
         P6["Pin 6: Ground (GND)"]
-        P8["Pin 8: UART0-TX (PB9 - Linux Console)"]
-        P10["Pin 10: UART0-RX (PB10 - Linux Console)"]
-        P11["Pin 11: UART2-TX (PB0 - Navigation SoC TX)"]
-        P13["Pin 13: UART2-RX (PB1 - Navigation SoC RX)"]
+        P8["Pin 8: UART0-TX (PB9 - Linux Debug Console)"]
+        P10["Pin 10: UART0-RX (PB10 - Linux Debug Console)"]
+        P16["Pin 16: UART3-TX (PI11 - GPS Serial RX)"]
+        P31["Pin 31: UART3-RX (PI12 - GPS Serial TX)"]
     end
 
-    subgraph GPS_PUCK["u-blox NEO-M8N GPS + Compass Puck"]
+    subgraph GPS_PUCK["u-blox NEO-M8N GPS + Compass Puck (Built-in Pull-Ups)"]
         VCC["VCC (5V Power)"]
         GND["GND (Ground)"]
-        SDA["I2C SDA"]
-        SCL["I2C SCL"]
-        TX["GPS TX (Output)"]
-        RX["GPS RX (Input)"]
+        SDA["I2C SDA (Integrated 2.2kΩ-4.7kΩ Pull-Up)"]
+        SCL["I2C SCL (Integrated 2.2kΩ-4.7kΩ Pull-Up)"]
+        TX["GPS TX (Streaming Output)"]
+        RX["GPS RX (Command Input)"]
     end
 
     P2 ===>|5V Power| VCC
     P6 ===>|Ground| GND
     P3 <===>|I2C Data| SDA
     P5 ===>|I2C Clock| SCL
-    P11 ===>|Serial Commands (TX -> RX)| RX
+    P16 ===>|Serial Commands (SoC TX -> GPS RX)| RX
+    P31 <===|NMEA / UBX (GPS TX -> SoC RX)| TX
 ```
 
 ### Physical 40-Pin Header Socket Diagram & Wire Colors
@@ -49,13 +50,21 @@ flowchart TD
   (ODD ROW)                                (EVEN ROW)
   ======================================================
   Pin 1: 3.3V Power         [ 1 ] [ 2 ]    Pin 2: 5V Power      <-- 🔴 RED WIRE (5V Power)
-  Pin 3: I2C1-SDA (Data)    [ 3 ] [ 4 ]    Pin 4: 5V Power
+  Pin 3: I2C1-SDA (PB5)     [ 3 ] [ 4 ]    Pin 4: 5V Power
        ↳ 🔵 BLUE WIRE       [ 5 ] [ 6 ]    Pin 6: Ground (GND)  <-- ⚫ BLACK WIRE (Ground)
-  Pin 5: I2C1-SCL (Clock)   [ 7 ] [ 8 ]    Pin 8: Console TX    (White - Host minicom)
-       ↳ 🟠 ORANGE WIRE     [ 9 ] [ 10]    Pin 10: Console RX   (Gray  - Host minicom)
-  Pin 11: UART2-TX (SoC TX) [ 11] [ 12]    Pin 12: GPIO
-       ↳ 🟡 YELLOW WIRE     [ 13] [ 14]    Pin 14: Ground
-  Pin 13: UART2-RX (SoC RX)   :     :
+  Pin 5: I2C1-SCL (PB4)     [ 7 ] [ 8 ]    Pin 8: Console TX    (White - Host minicom /dev/ttyS0)
+       ↳ 🟠 ORANGE WIRE     [ 9 ] [ 10]    Pin 10: Console RX   (Gray  - Host minicom /dev/ttyS0)
+  Pin 11: GPIO / PWM (PI9)  [ 11] [ 12]    Pin 12: SPI1-CS0 (PI2)
+  Pin 13: GPIO / PWM (PI10) [ 13] [ 14]    Pin 14: Ground
+  Pin 15: S-UART0-TX (PL12) [ 15] [ 16]    Pin 16: UART3-TX (PI11) <-- 🟡 YELLOW WIRE (GPS RX)
+  Pin 17: 3.3V Power        [ 17] [ 18]    Pin 18: GPIO (PI14)
+  Pin 19: SPI1-MOSI (PB13)  [ 19] [ 20]    Pin 20: Ground
+  Pin 21: SPI1-MISO (PB14)  [ 21] [ 22]    Pin 22: FPGA Frame Ready ISR (PL13)
+  Pin 23: SPI1-CLK (PB12)   [ 23] [ 24]    Pin 24: SPI1-CS0 (PB11)
+  Pin 25: Ground            [ 25] [ 26]    Pin 26: UART4-TX (PI0)
+  Pin 27: I2C2-SDA (PI16)   [ 27] [ 28]    Pin 28: I2C2-SCK (PI15)
+  Pin 29: IMU DRDY (PI8)    [ 29] [ 30]    Pin 30: Ground
+  Pin 31: UART3-RX (PI12)   [ 31] [ 32]    Pin 32: UART4-RX (PI1)
        ↳ 🟢 GREEN WIRE
   ======================================================
 ```
@@ -66,62 +75,44 @@ flowchart TD
 |---|---|---|---|---|
 | **Pin 2** (or Pin 4) | `5V_VCC` | System Power | **Red** | **5V Power Input** for GPS & Compass puck |
 | **Pin 6** (or Pin 14) | `GND` | Ground Reference | **Black** | **System Ground** |
-| **Pin 3** | `PH0 / TWI1-SDA` | **I2C1 Data** | **Blue** | **I2C Data** (Compass & u-blox DDC) |
-| **Pin 5** | `PH1 / TWI1-SCL` | **I2C1 Clock** | **Orange** | **I2C Clock** (Compass & u-blox DDC) |
-| *Pin 8* | *PB9 / UART0-TX* | *Linux Console* | *White* | *Reserved for Linux Debug Terminal (115200)* |
-| *Pin 10* | *PB10 / UART0-RX*| *Linux Console* | *Gray* | *Reserved for Linux Debug Terminal (115200)* |
-| **Pin 11** | `PB0 / UART2-TX` | **UART2 Transmit** | **Yellow** | **GPS Serial RX** (SoC TX $\rightarrow$ GPS RX) |
-| **Pin 13** | `PB1 / UART2-RX` | **UART2 Receive** | **Green** | **GPS Serial TX** (GPS TX $\rightarrow$ SoC RX) |
-| **Pin 14** | `GND` | Ground | **Black** | Secondary Ground Reference |
+| **Pin 3** | `PB5 / TWI1-SDA` | **I2C1 Data** | **Blue** | **I2C Data** (Compass & u-blox DDC) |
+| **Pin 5** | `PB4 / TWI1-SCL` | **I2C1 Clock** | **Orange** | **I2C Clock** (Compass & u-blox DDC) |
+| *Pin 8* | *PB9 / UART0-TX* | *Linux Console* | *White* | *Linux Debug Terminal (115200: /dev/ttyS0)* |
+| *Pin 10* | *PB10 / UART0-RX*| *Linux Console* | *Gray* | *Linux Debug Terminal (115200: /dev/ttyS0)* |
+| **Pin 16** | `PI11 / UART3-TX`| **UART3 Transmit**| **Yellow** | **GPS Serial RX** (SoC TX $\rightarrow$ GPS RX) |
+| **Pin 31** | `PI12 / UART3-RX`| **UART3 Receive** | **Green** | **GPS Serial TX** (GPS TX $\rightarrow$ SoC RX) |
+| **Pin 24, 23, 19, 21** | `PB11-PB14 / SPI1`| **Dual-SPI / Single-SPI** | — | Hardware FPGA X-Fabric / High-Speed Sensor bus |
+| **Pin 29** | `PI8 / PI-EINT8` | **IMU DRDY** | — | Dedicated Hardware Edge-Trigger Interrupt Line |
 
 > [!IMPORTANT]
-> **Serial Crossover Rule**: Connect **Pin 11 (UART2-TX)** to GPS **RX**, and **Pin 13 (UART2-RX)** to GPS **TX**.
+> **I2C Pull-Up Resistors Hardware Verification**:
+> * Radxa Cubie A5E Schematic v1.2 Sheet 19 proves that Pins 3 & 5 (`PB5`/`PB4`) have **no on-board pull-up resistors**.
+> * **Standard GPS pucks** (e.g. u-blox NEO-M8N with integrated QMC/HMC compass) already incorporate internal 2.2kΩ–4.7kΩ pull-up resistors on their SDA/SCL lines to 3.3V. When plugged in, the bus is automatically pulled up.
+> * If using raw breakout boards without pull-ups, external 2.2kΩ–4.7kΩ pull-ups to 3.3V (Pin 1 or Pin 17) are mandatory.
+
+> [!IMPORTANT]
+> **Serial Crossover Rule**: Connect **Pin 16 (UART3-TX)** to GPS **RX (Yellow)**, and **Pin 31 (UART3-RX)** to GPS **TX (Green)**.
 > Never connect TX to TX!
+> Note: Radxa Cubie A5E schematic sheet 5 proves `PB0`/`PB1` (UART2) are No-Connect on the PCB; Pins 11 & 13 connect to `PI9`/`PI10` (no UART hardware). UART3 on Pins 16 & 31 is the hardware navigation port.
 
 ---
 
-## 2. Device Tree Architecture & Routing Invariants
+## 2. Device Tree Architecture: Dual Overlay Profiles
 
-The AbstractX flight overlay (`apps/gps_imu_app/platforms/allwinner_e906/cubie_a5e_e906_overlay.dtso`)
-enforces two strict hardware partitioning rules:
+AbstractX provides two purpose-built Device Tree Overlays in `apps/e906_repl_app/`:
 
-### Invariant 1: Preserve Linux Host Console on UART0
-In Allwinner device trees, dynamically enabling `uart2` without locking aliases can cause the Linux kernel
-to dynamically shift `ttyS0` to UART2, breaking your serial debug terminal.
-The overlay explicitly declares:
-```dts
-&{/aliases} {
-    serial0 = "/soc/serial@2500000"; /* UART0 permanently locked as /dev/ttyS0 */
-    serial2 = "/soc/serial@2500800"; /* UART2 on Pins 11 & 13 */
-};
+### Profile A: Linux Host Profile (`cubie-a5e-flight-stack-linux.dtso`)
+For Linux userspace testing, scripting, and peripheral bring-up:
+* `i2c1` (Pins 3 & 5) is bound to Linux I2C controller driver $\rightarrow$ `/dev/i2c-1`.
+* `uart3` (Pins 16 & 31) is bound to Linux 8250 serial driver $\rightarrow$ `/dev/ttyAS3` (`serial3` alias).
+* `spi1` (Pins 24, 23, 19, 21) is bound to Linux SPIDEV $\rightarrow$ `/dev/spidev1.0`.
+* UART0 debug terminal is locked to `/dev/ttyS0` (Pins 8 & 10) via `/aliases`.
 
-&uart0 {
-    status = "okay"; /* Linux Host Debug Terminal */
-};
-```
-
-### Invariant 2: Bind E906 Flight Peripherals to `generic-uio`
-When assigning UART2 (GPS) and I2C1 (Compass/DDC) to the bare-metal XuanTie E906 co-processor,
-we bind them to `compatible = "generic-uio"`. This commands the Linux kernel to:
-1. Configure pinmux (PB0/PB1 to UART2, PH0/PH1 to TWI1) at power-on.
-2. Un-gate APB clock trees in the Clock Control Unit (CCU).
-3. **Refrain from attaching Linux kernel tty or i2c drivers**, eliminating bus contention, register resets, and interrupt fights with the E906.
-
-```dts
-/* UART2: High-Speed Navigation Serial Bus (Pins 11 & 13) */
-&uart2 {
-    compatible = "generic-uio";
-    pinctrl-names = "default";
-    status = "okay";
-};
-
-/* I2C1 (TWI1): General Expansion Bus (Pins 3 & 5) */
-&i2c1 {
-    compatible = "generic-uio";
-    pinctrl-names = "default";
-    status = "okay";
-};
-```
+### Profile B: XuanTie E906 Real-Time Profile (`cubie-a5e-flight-stack-e906.dtso`)
+For hard real-time execution on the XuanTie E906 RISC-V co-processor:
+* Peripherals (`spi1`, `uart3`, `i2c1`) are bound to `compatible = "generic-uio"`.
+* Linux configures pinmux and ungates CCU clocks/resets, but attaches **no kernel drivers**, preventing bus contention and register resets.
+* XuanTie E906 firmware accesses registers directly at `0x02500c00` (UART3), `0x02502400` (TWI1), and `0x04026000` (SPI1).
 
 ---
 
@@ -129,7 +120,7 @@ we bind them to `compatible = "generic-uio"`. This commands the Linux kernel to:
 
 ### Stage 1: Seed & Verify with Python (`tools/seed_cubie_a5e_gps.py`)
 
-AbstractX provides a dedicated Python seeder and diagnostic utility to test both buses immediately:
+AbstractX provides a dedicated Python seeder and diagnostic utility to test both buses immediately under Linux:
 
 ```bash
 # 1. Self-test in Mock mode (simulates NMEA, UBX, and I2C scan without hardware):
@@ -138,11 +129,11 @@ python3 tools/seed_cubie_a5e_gps.py --mock
 # 2. Probe I2C1 (Pins 3 & 5) for u-blox DDC (0x42) and Compass (0x0D / 0x1E):
 python3 tools/seed_cubie_a5e_gps.py --i2c 1
 
-# 3. Ingest GPS NMEA serial stream at factory default 9600 baud:
-python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyS2 --baud 9600
+# 3. Ingest GPS NMEA serial stream on UART3 (Pins 16 & 31) at factory default 9600 baud:
+python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyAS3 --baud 9600
 
 # 4. Seed the u-blox M8N to 5 Hz navigation rate and stream 64B TLPs to Studio:
-python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyS2 --baud 9600 --i2c 1 --configure-5hz --stream-tlp
+python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyAS3 --baud 9600 --i2c 1 --configure-5hz --stream-tlp
 ```
 
 Expected diagnostic output on successful connection:

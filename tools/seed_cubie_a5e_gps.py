@@ -11,10 +11,10 @@ connected to the Radxa Cubie A5E 40-pin header.
 Hardware Pinout (40-Pin Header):
   Pin 2 (or 4)    : 5V Power (Red)  -> GPS VCC (5V)
   Pin 6, 14       : GND (Black)     -> GPS GND
-  Pin 3           : I2C1-SDA (Blue) -> GPS/Compass SDA
-  Pin 5           : I2C1-SCL (Orange)-> GPS/Compass SCL
-  Pin 11          : UART2-TX (PB0)  -> GPS RX (Yellow)
-  Pin 13          : UART2-RX (PB1)  -> GPS TX (Green)
+  Pin 3           : I2C1-SDA (Blue) -> GPS/Compass SDA (PB5)
+  Pin 5           : I2C1-SCL (Orange)-> GPS/Compass SCL (PB4)
+  Pin 16          : UART3-TX (Yellow) -> GPS RX (PI11)
+  Pin 31          : UART3-RX (Green)  -> GPS TX (PI12)
 
 Features:
   1. Serial NMEA/UBX Reader & Parser (9600 baud factory default, or 38400/115200).
@@ -29,13 +29,13 @@ Usage:
   python3 tools/seed_cubie_a5e_gps.py --mock
 
   # Live Hardware Serial Ingestion (on Cubie A5E):
-  python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyS2 --baud 9600
+  python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyAS3 --baud 9600
 
   # Live Hardware I2C Probe:
   python3 tools/seed_cubie_a5e_gps.py --i2c 1
 
   # Full Diagnostic & Seed to 5Hz Navigation Rate:
-  python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyS2 --baud 9600 --i2c 1 --configure-5hz
+  python3 tools/seed_cubie_a5e_gps.py --serial /dev/ttyAS3 --baud 9600 --i2c 1 --configure-5hz
 """
 
 import sys
@@ -341,7 +341,7 @@ def run_seed_and_verify(serial_dev: Optional[str], baud: int, i2c_bus: Optional[
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Radxa Cubie A5E u-blox NEO-M8N GPS Seeder & Bring-Up Tool")
-    parser.add_argument("--serial", default=None, help="Serial device path (e.g. /dev/ttyS2 or /dev/ttyUSB0)")
+    parser.add_argument("--serial", default=None, help="Serial device path (e.g. /dev/ttyAS3, /dev/ttyS3, or /dev/ttyUSB0)")
     parser.add_argument("--baud", type=int, default=9600, help="Baud rate (default: 9600 factory default)")
     parser.add_argument("--i2c", type=int, default=None, help="I2C bus number (e.g. 1 for Pins 3 & 5)")
     parser.add_argument("--configure-5hz", action="store_true", help="Seed M8N to 5Hz navigation rate")
