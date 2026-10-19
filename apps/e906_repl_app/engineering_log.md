@@ -567,3 +567,55 @@ To feed back into the requirements and engineering roadmap (`AGENTS.md` Operatin
 6. **Desktop SITL Simulation Harness (`tooling`)**:
    - *Current State*: Verification requires physical hardware execution on the Radxa Cubie A5E board.
    - *Better*: Create a desktop Python SITL mock module (`tests/sim_abstractx.py`) that feeds synthetic NMEA/UBX streams and simulated I2C registers, allowing `flight_sensors.py` and `FlightExecutive` to run under automated `ctest` in CI.
+
+### 7. Architectural Synthesis: Leveraging the AbstractX Work Queue & TLP Pipeline
+
+In response to architectural review ("remember we have work queue in AbstractX, take advantage of it; we can queue TLP, we can use stuff into channels or other TLP queue; do we need something better?"):
+
+#### 1. Do We Need Something Better?
+**No new queueing abstraction is needed.** AbstractX already provides proven, aerospace-grade primitives:
+- `abstractx::Dispatcher` (`DomainDispatcher<IsrSafeSpscQueue>`): Wait-free, lock-free, zero-allocation coroutine work queue with dropped resume accounting (`[SPEC-ARCH-01]`).
+- `abstractx::coro::AsyncQueue<T, N>`: Cache-line aligned, wait-free SPSC channel with `co_await pop()` / `try_push()` / `try_pop()`.
+- `abstractx::SpscTlpRing<Capacity>`: Dedicated lock-free ring buffer for 64-byte `Tlp64` bus transactions (`[SPEC-TLP-03]`).
+
+The bottleneck was that MicroPython was operating as an isolated interpreter running pure Python emulations (`class AsyncQueue`, ASCII string parsing, and `print()` formatting) rather than taking advantage of the existing AbstractX C++ infrastructure in SRAM.
+
+#### 2. The Three-Tier AbstractX Integration Pattern:
+
+```mermaid
+graph TD
+    subgraph Silicon Hardware Domain
+        UART3_HW[UART3 Hardware FIFO] -->|Hardirq / DMA| ISR_UART[E906 UART ISR]
+        I2C1_HW[TWI1 Hardware] -->|Completion Flag| ISR_I2C[E906 I2C Driver]
+    end
+
+    subgraph AbstractX C++ Real-Time Domain
+        ISR_UART -->|Zero-Copy Push| CH_GPS[AsyncQueue GPS_Fix, 16]
+        ISR_I2C -->|Zero-Copy Push| CH_MAG[AsyncQueue Mag_Sample, 16]
+        ISR_UART -.->|Post Coroutine Handle| DISP[AbstractX Work Queue Dispatcher]
+        ISR_I2C -.->|Post Coroutine Handle| DISP
+    end
+
+    subgraph MicroPython / Scripting Domain
+        CH_MAG -->|abstractx.channel_pop| MP_FUSION[MicroPython Flight Executive]
+        CH_GPS -->|abstractx.channel_pop| MP_FUSION
+        MP_FUSION -->|abstractx.tlp_push| TELEM_RING[SpscTlpRing g_telemetry_ring]
+    end
+
+    subgraph Egress & Observability Domain
+        TELEM_RING -->|co_await g_telemetry_ring.pop| EGRESS_CORO[trace_dispatcher_task]
+        EGRESS_CORO -->|VirtIO RPMsg / FPGA Crossbar| HOST_GUI[AbstractX Studio / Flight Display]
+```
+
+1. **Ingress (Hardware to Channels)**:
+   - UART3 and TWI1 are serviced by C++ hardirq/coroutine drivers that post completions to `IsrDispatcher::post(handle)`.
+   - Raw bytes are decoded in C++ directly into typed structs (`GpsFix`, `MagVector`) and pushed into native `AsyncQueue<T, N>` channels.
+   - Eliminates Python NMEA string parsing and guarantees zero UART FIFO overruns at 115200 baud.
+
+2. **Work Queue Orchestration (`abstractx::Dispatcher`)**:
+   - MicroPython yields cooperatively to the central `abstractx::step()` work queue loop.
+   - No preemptive OS threads or mutexes needed; all tasks execute cooperatively on the XuanTie E906 core.
+
+3. **Egress (Python to TLP Ring)**:
+   - Instead of formatting ASCII strings via `print()` (which churns GC strings and limits bandwidth), MicroPython emits binary navigation records using `abstractx.tlp_push(tlp_bytes)` into `g_telemetry_ring`.
+   - `trace_dispatcher_task` drains `g_telemetry_ring` into 64-byte `Tlp64` packets over VirtIO RPMsg to the Linux host visualizer (`abstractx_studio.py`), complying with `[SPEC-ARCH-08]` zero-copy data plane and `[SPEC-TRACE-06]` dynamic barectf schema.
