@@ -233,4 +233,15 @@ flowchart TD
 * **Verified by**: `host-tests`
 * **Implementation Target**: `apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/src/modabstractx.c`
 
+### `[SPEC-E906-REPL-10]` Native MicroPython TLP Buffer Protocol & Zero-Copy Egress
+* **Requirement**:
+  1. MicroPython's `abstractx` C module MUST provide zero-allocation TLP packet primitives:
+     - `abstractx.tlp_push(buf)`: Accepts any Python object implementing the Python buffer protocol (`bytes`, `bytearray`, `memoryview`). Validates exact 64-byte length (`sizeof(asp_tlp64_t)`). Directly copies into `g_telemetry_ring` or emplaced RPMsg slot.
+     - `abstractx.tlp_poll_into(bytearray_64)`: Non-blocking pop from the ingress SPSC TLP ring directly into a pre-allocated mutable buffer without heap allocation. Returns `True` if a packet was dequeued, `False` if empty.
+     - `abstractx.tlp_send_nav(lat, lon, alt_mm, speed_mms, heading_cdeg, sats, fix)`: Direct C helper that packs pre-scaled navigation integers into an in-place `asp_tlp64_unaligned_t*` slot borrowed via `tlp_channel.emplace()`.
+  2. **Zero GC Pressure Invariant**: Continuous telemetry emissions (10 Hz – 100 Hz) MUST allocate **0 bytes** on the MicroPython garbage-collected heap during steady-state flight loops.
+  3. **Execution Latency Invariant**: Packing and submitting a 64-byte TLP frame from MicroPython MUST complete in $< 5 \ \mu\text{s}$ per frame on the 800 MHz XuanTie E906 core.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
+
 

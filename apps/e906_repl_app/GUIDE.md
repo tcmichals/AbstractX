@@ -4,7 +4,7 @@
 
 ## 1. Architectural Overview
 
-This guide provides operational and implementation details for `AbstractX XuanTie E906 MicroPython REPL Application Specification`. Total governing requirements: **9**.
+This guide provides operational and implementation details for `AbstractX XuanTie E906 MicroPython REPL Application Specification`. Total governing requirements: **10**.
 
 ## 2. System Architecture Diagrams
 
@@ -78,6 +78,7 @@ flowchart TD
 | `SPEC-E906-REPL-07` | **Dual-Tier Observability: Lean RemoteProc trace0 vs. Binary barectf Code Tracing** | ``host-tests`, `e906-build-layout`` | ``apps/e906_repl_app/src/main.cpp`, `targets/allwinner_e906/src/trace.cpp`` |
 | `SPEC-E906-REPL-08` | **Three-Plane Communication Isolation & Endpoint Mapping** | ``host-tests`, `e906-build-layout`` | ``apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`` |
 | `SPEC-E906-REPL-09` | **Packet-Driven Invariant & No-Peeking Mandate for Telemetry/Sensors** | ``host-tests`` | ``apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/src/modabstractx.c`` |
+| `SPEC-E906-REPL-10` | **Native MicroPython TLP Buffer Protocol & Zero-Copy Egress** | ``host-tests`, `e906-build-layout`` | ``apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`` |
 
 ## 4. Requirement Specifications Detail
 
@@ -138,5 +139,11 @@ flowchart TD
 ### `SPEC-E906-REPL-09`: Packet-Driven Invariant & No-Peeking Mandate for Telemetry/Sensors
 - **Verification Skill**: ``host-tests``
 - **Implementation Target**: ``apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/src/modabstractx.c``
+- **Key Contract Invariants**:
+  * **Requirement**:
+
+### `SPEC-E906-REPL-10`: Native MicroPython TLP Buffer Protocol & Zero-Copy Egress
+- **Verification Skill**: ``host-tests`, `e906-build-layout``
+- **Implementation Target**: ``apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py``
 - **Key Contract Invariants**:
   * **Requirement**:
