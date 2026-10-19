@@ -618,6 +618,12 @@ public:
         return item;
     }
 
+    bool try_peek(T& out) const noexcept {
+        if (is_empty()) return false;
+        out = buffer_[tail_];
+        return true;
+    }
+
 private:
     std::array<T, Capacity + 1> buffer_{};
     size_t head_{0};

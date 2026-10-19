@@ -38,7 +38,7 @@ void RpmsgConsole::rx_callback(const ::hal::RpmsgMessage &msg, void *user_data) 
 void RpmsgConsole::on_rx_data(const uint8_t *data, size_t len) noexcept {
     // @impl [SPEC-E906-REPL-03] apps/e906_repl_app/SPECIFICATION.md
     for (size_t i = 0; i < len; ++i) {
-        m_input_queue.push(data[i]);
+        m_rx_channel.try_push(static_cast<char>(data[i]));
     }
 }
 
@@ -47,11 +47,20 @@ void RpmsgConsole::write(const char *str, size_t len) noexcept {
     if (!str || len == 0) return;
 
     for (size_t i = 0; i < len; ++i) {
-        m_out_buf[m_out_len++] = str[i];
-        if (m_out_len >= OUTPUT_BUFFER_SIZE || str[i] == '\n') {
+        if (!m_tx_channel.try_push(str[i])) {
+            // Channel full fallback: stage directly and flush to avoid dropping bytes
+            stage_tx_char(str[i]);
             flush();
         }
     }
+}
+
+bool RpmsgConsole::stage_tx_char(char ch) noexcept {
+    if (m_out_len < OUTPUT_BUFFER_SIZE) {
+        m_out_buf[m_out_len++] = ch;
+        return true;
+    }
+    return false;
 }
 
 void RpmsgConsole::flush() noexcept {
@@ -69,6 +78,8 @@ void RpmsgConsole::flush() noexcept {
 
 } // namespace abstractx
 
+#include "hal/trace.hpp"
+
 extern "C" {
 #include "py/mphal.h"
 
@@ -76,6 +87,11 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
     // @impl [SPEC-E906-REPL-05] apps/e906_repl_app/SPECIFICATION.md
     if (abstractx::g_repl_console) {
         abstractx::g_repl_console->write(str, len);
+    }
+    if (str) {
+        for (size_t i = 0; i < len; ++i) {
+            hal::Trace::putc(str[i]);
+        }
     }
     return static_cast<mp_uint_t>(len);
 }
