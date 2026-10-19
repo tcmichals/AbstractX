@@ -114,16 +114,16 @@ SECTIONS
         _sp = .;
     } > SRAM_FAST
 
-    /* 3. Resource Table & trace0 placed in SRAM_FAST so remoteproc debugfs reliably maps them */
+    /* 3. Resource Table & trace0 placed in SRAM_A3_2 (SRAM Space 1) */
     .resource_table : ALIGN(1024)
     {
         __resource_table_start = .;
         KEEP(*(.resource_table))
         KEEP(*(.resource_table*))
         __resource_table_end = .;
-    } > SRAM_FAST
+    } > SRAM_A3_2
 
-    /* RemoteProc Trace Buffer in SRAM_FAST (Minimal 1KB for Crash / Liveness) */
+    /* RemoteProc Trace Buffer in SRAM_A3_2 (Minimal 1KB for Crash / Liveness) */
     .trace_buffer (NOLOAD) : ALIGN(4)
     {
         __trace_start = .;
@@ -131,7 +131,7 @@ SECTIONS
         KEEP(*(.trace_buffer.*))
         . = ALIGN(4);
         __trace_end = .;
-    } > SRAM_FAST
+    } > SRAM_A3_2
 
     /* Shared Application / IPC Memory in SRAM A3 Pool 1 */
     .sram_c (NOLOAD) : ALIGN(4)

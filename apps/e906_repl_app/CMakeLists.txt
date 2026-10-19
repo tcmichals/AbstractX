@@ -50,6 +50,7 @@ target_compile_definitions(e906_repl_app PRIVATE
 set(MICROPY_GENHDR_DIR "${CMAKE_CURRENT_BINARY_DIR}/genhdr")
 set(MICROPY_SOURCE_QSTR
     ${MICROPY_SOURCE_PY}
+    ${MICROPY_PORT_DIR}/include/qstrdefsport.h
     ${CMAKE_CURRENT_SOURCE_DIR}/src/modabstractx.c
     ${MICROPY_DIR}/shared/runtime/pyexec.c
     ${MICROPY_DIR}/shared/readline/readline.c

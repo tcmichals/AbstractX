@@ -54,8 +54,8 @@ static MP_DEFINE_CONST_FUN_OBJ_2(mod_abstractx_poke_obj, mod_abstractx_poke);
 #define PIO_BASE_ADDR           0x02000000U
 
 #define CCU_UART_BGR            (*(volatile uint32_t *)(CCU_BASE_ADDR + 0x090CU))
-#define PIO_PI_CFG1             (*(volatile uint32_t *)(PIO_BASE_ADDR + 0x0124U))
-#define PIO_PI_PULL1            (*(volatile uint32_t *)(PIO_BASE_ADDR + 0x0144U))
+#define PIO_PI_CFG1             (*(volatile uint32_t *)(PIO_BASE_ADDR + 0x0184U))
+#define PIO_PI_PULL0            (*(volatile uint32_t *)(PIO_BASE_ADDR + 0x01A4U))
 
 #define HW_UART3_RBR            (*(volatile uint32_t *)(UART3_BASE_ADDR + 0x00U))
 #define HW_UART3_THR            (*(volatile uint32_t *)(UART3_BASE_ADDR + 0x00U))
@@ -83,7 +83,7 @@ static mp_obj_t mod_abstractx_uart_init(size_t n_args, const mp_obj_t *args) {
     PIO_PI_CFG1 = (PIO_PI_CFG1 & ~(0xFFU << 12)) | (0x22U << 12);
 
     // 3. Configure Pull-Up on PI12 (RX)
-    PIO_PI_PULL1 = (PIO_PI_PULL1 & ~(0x03U << 8)) | (1U << 8);
+    PIO_PI_PULL0 = (PIO_PI_PULL0 & ~(0x03U << 24)) | (1U << 24);
 
     // 4. Configure DesignWare 8250 UART3
     HW_UART3_IER = 0x00; // Disable interrupts during config
@@ -162,6 +162,161 @@ static mp_obj_t mod_abstractx_cycles(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_cycles_obj, mod_abstractx_cycles);
 
+// abstractx.sleep_ms(ms)
+static mp_obj_t mod_abstractx_sleep_ms(mp_obj_t ms_in) {
+    mp_uint_t ms = (mp_uint_t)mp_obj_get_int_truncated(ms_in);
+    mp_hal_delay_ms(ms);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_sleep_ms_obj, mod_abstractx_sleep_ms);
+
+// abstractx.ticks_ms() -> int
+static mp_obj_t mod_abstractx_ticks_ms(void) {
+    return mp_obj_new_int_from_uint(mp_hal_ticks_ms());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_ticks_ms_obj, mod_abstractx_ticks_ms);
+
+// Hardware Register Definitions for TWI1 (I2C1 on Pins 3 & 5: PB5/PB4)
+#define TWI1_BASE_ADDR          0x02502400U
+#define CCU_TWI_BGR             (*(volatile uint32_t *)(CCU_BASE_ADDR + 0x091CU))
+#define PIO_PB_CFG0             (*(volatile uint32_t *)(PIO_BASE_ADDR + 0x0030U))
+
+#define HW_TWI1_ADDR            (*(volatile uint32_t *)(TWI1_BASE_ADDR + 0x00U))
+#define HW_TWI1_XADDR           (*(volatile uint32_t *)(TWI1_BASE_ADDR + 0x04U))
+#define HW_TWI1_DATA            (*(volatile uint32_t *)(TWI1_BASE_ADDR + 0x08U))
+#define HW_TWI1_CNTR            (*(volatile uint32_t *)(TWI1_BASE_ADDR + 0x0CU))
+#define HW_TWI1_STAT            (*(volatile uint32_t *)(TWI1_BASE_ADDR + 0x10U))
+#define HW_TWI1_CCR             (*(volatile uint32_t *)(TWI1_BASE_ADDR + 0x14U))
+#define HW_TWI1_SRST            (*(volatile uint32_t *)(TWI1_BASE_ADDR + 0x18U))
+
+#define TWI_CNTR_BUSEN          (1U << 6)
+#define TWI_CNTR_M_STA          (1U << 5)
+#define TWI_CNTR_M_STP          (1U << 4)
+#define TWI_CNTR_INT_FLG        (1U << 3)
+#define TWI_CNTR_A_ACK          (1U << 2)
+
+static bool twi1_wait_flag(void) {
+    uint32_t timeout = 50000;
+    while (!(HW_TWI1_CNTR & TWI_CNTR_INT_FLG)) {
+        if (--timeout == 0) return false;
+        abstractx_repl_vm_hook();
+    }
+    return true;
+}
+
+static bool twi1_start(void) {
+    HW_TWI1_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_M_STA | TWI_CNTR_INT_FLG;
+    if (!twi1_wait_flag()) return false;
+    uint32_t stat = HW_TWI1_STAT & 0xFFU;
+    return (stat == 0x08U || stat == 0x10U);
+}
+
+static void twi1_stop(void) {
+    HW_TWI1_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_M_STP | TWI_CNTR_INT_FLG;
+    for (volatile int i = 0; i < 200; ++i);
+}
+
+static bool twi1_send_byte(uint8_t byte, uint32_t expected_stat) {
+    HW_TWI1_DATA = byte;
+    HW_TWI1_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INT_FLG;
+    if (!twi1_wait_flag()) return false;
+    return (HW_TWI1_STAT & 0xFFU) == expected_stat;
+}
+
+static uint8_t twi1_read_byte(bool ack) {
+    uint32_t ctrl = TWI_CNTR_BUSEN | TWI_CNTR_INT_FLG;
+    if (ack) {
+        ctrl |= TWI_CNTR_A_ACK;
+    }
+    HW_TWI1_CNTR = ctrl;
+    if (!twi1_wait_flag()) return 0xFF;
+    return (uint8_t)(HW_TWI1_DATA & 0xFFU);
+}
+
+// abstractx.i2c_init(freq=100000) -> bool
+static mp_obj_t mod_abstractx_i2c_init(size_t n_args, const mp_obj_t *args) {
+    (void)n_args; (void)args;
+    // 1. Deassert reset (bit 17) and enable clock (bit 1) for TWI1
+    CCU_TWI_BGR |= (1U << 17) | (1U << 1);
+
+    // 2. Configure PB4 & PB5 to TWI1 (Mux 2: 0x22 << 16)
+    PIO_PB_CFG0 = (PIO_PB_CFG0 & ~(0xFFU << 16)) | (0x22U << 16);
+
+    // 3. Reset TWI1 controller
+    HW_TWI1_SRST = 1;
+    for (volatile int i = 0; i < 500; ++i);
+
+    // 4. Set clock divisor for 100 kHz on 24 MHz APB clock (CCR = 0x24)
+    HW_TWI1_CCR = 0x24U;
+
+    // 5. Enable TWI bus
+    HW_TWI1_CNTR = TWI_CNTR_BUSEN;
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_i2c_init_obj, 0, 1, mod_abstractx_i2c_init);
+
+// abstractx.i2c_scan() -> list
+static mp_obj_t mod_abstractx_i2c_scan(void) {
+    mp_obj_t list = mp_obj_new_list(0, NULL);
+    for (uint8_t addr = 0x08; addr < 0x78; ++addr) {
+        if (twi1_start()) {
+            if (twi1_send_byte((addr << 1) | 0, 0x18U)) {
+                mp_obj_list_append(list, mp_obj_new_int(addr));
+            }
+            twi1_stop();
+        }
+    }
+    return list;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_i2c_scan_obj, mod_abstractx_i2c_scan);
+
+// abstractx.i2c_read(addr, reg, len) -> bytes
+static mp_obj_t mod_abstractx_i2c_read(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    uint8_t addr = (uint8_t)mp_obj_get_int_truncated(args[0]);
+    uint8_t reg = (uint8_t)mp_obj_get_int_truncated(args[1]);
+    size_t len = (size_t)mp_obj_get_int_truncated(args[2]);
+    if (len > 256) len = 256;
+
+    if (!twi1_start()) { twi1_stop(); return mp_const_empty_bytes; }
+    if (!twi1_send_byte((addr << 1) | 0, 0x18U)) { twi1_stop(); return mp_const_empty_bytes; }
+    if (!twi1_send_byte(reg, 0x28U)) { twi1_stop(); return mp_const_empty_bytes; }
+    if (!twi1_start()) { twi1_stop(); return mp_const_empty_bytes; }
+    if (!twi1_send_byte((addr << 1) | 1, 0x40U)) { twi1_stop(); return mp_const_empty_bytes; }
+
+    uint8_t buf[256];
+    for (size_t i = 0; i < len; ++i) {
+        bool ack = (i + 1 < len);
+        buf[i] = twi1_read_byte(ack);
+    }
+    twi1_stop();
+    return mp_obj_new_bytes(buf, len);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_i2c_read_obj, 3, 3, mod_abstractx_i2c_read);
+
+// abstractx.i2c_write(addr, reg, data) -> int
+static mp_obj_t mod_abstractx_i2c_write(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    uint8_t addr = (uint8_t)mp_obj_get_int_truncated(args[0]);
+    uint8_t reg = (uint8_t)mp_obj_get_int_truncated(args[1]);
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(args[2], &bufinfo, MP_BUFFER_READ);
+
+    if (!twi1_start()) { twi1_stop(); return mp_obj_new_int(0); }
+    if (!twi1_send_byte((addr << 1) | 0, 0x18U)) { twi1_stop(); return mp_obj_new_int(0); }
+    if (!twi1_send_byte(reg, 0x28U)) { twi1_stop(); return mp_obj_new_int(0); }
+
+    const uint8_t *src = (const uint8_t *)bufinfo.buf;
+    size_t written = 0;
+    for (size_t i = 0; i < bufinfo.len; ++i) {
+        if (!twi1_send_byte(src[i], 0x28U)) break;
+        written++;
+    }
+    twi1_stop();
+    return mp_obj_new_int(written);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_i2c_write_obj, 3, 3, mod_abstractx_i2c_write);
+
 // abstractx.version() -> str
 // @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_version(void) {
@@ -189,6 +344,12 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_uart_read), MP_ROM_PTR(&mod_abstractx_uart_read_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_write), MP_ROM_PTR(&mod_abstractx_uart_write_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_status), MP_ROM_PTR(&mod_abstractx_uart_status_obj) },
+    { MP_ROM_QSTR(MP_QSTR_i2c_init), MP_ROM_PTR(&mod_abstractx_i2c_init_obj) },
+    { MP_ROM_QSTR(MP_QSTR_i2c_scan), MP_ROM_PTR(&mod_abstractx_i2c_scan_obj) },
+    { MP_ROM_QSTR(MP_QSTR_i2c_read), MP_ROM_PTR(&mod_abstractx_i2c_read_obj) },
+    { MP_ROM_QSTR(MP_QSTR_i2c_write), MP_ROM_PTR(&mod_abstractx_i2c_write_obj) },
+    { MP_ROM_QSTR(MP_QSTR_sleep_ms), MP_ROM_PTR(&mod_abstractx_sleep_ms_obj) },
+    { MP_ROM_QSTR(MP_QSTR_ticks_ms), MP_ROM_PTR(&mod_abstractx_ticks_ms_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_abstractx_globals, mp_module_abstractx_globals_table);
