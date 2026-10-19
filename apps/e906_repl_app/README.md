@@ -37,7 +37,25 @@ flowchart TD
     P3 <===>|I2C Data| SDA
     P5 ===>|I2C Clock| SCL
     P11 ===>|SoC Commands (TX -> RX)| RX
-    P13 <===|NMEA / UBX Stream (TX -> RX)| TX
+```
+
+### Physical 40-Pin Header Socket Diagram & Wire Colors
+
+```text
+               [ TOP OF 40-PIN HEADER ]
+                      
+  (ODD ROW)                                (EVEN ROW)
+  ======================================================
+  Pin 1: 3.3V Power         [ 1 ] [ 2 ]    Pin 2: 5V Power      <-- 🔴 RED WIRE (5V Power)
+  Pin 3: I2C1-SDA (Data)    [ 3 ] [ 4 ]    Pin 4: 5V Power
+       ↳ 🔵 BLUE WIRE       [ 5 ] [ 6 ]    Pin 6: Ground (GND)  <-- ⚫ BLACK WIRE (Ground)
+  Pin 5: I2C1-SCL (Clock)   [ 7 ] [ 8 ]    Pin 8: Console TX    (White - Host minicom)
+       ↳ 🟠 ORANGE WIRE     [ 9 ] [ 10]    Pin 10: Console RX   (Gray  - Host minicom)
+  Pin 11: UART2-TX (SoC TX) [ 11] [ 12]    Pin 12: GPIO
+       ↳ 🟡 YELLOW WIRE     [ 13] [ 14]    Pin 14: Ground
+  Pin 13: UART2-RX (SoC RX)   :     :
+       ↳ 🟢 GREEN WIRE
+  ======================================================
 ```
 
 ### Complete Pin & Color Reference Table
