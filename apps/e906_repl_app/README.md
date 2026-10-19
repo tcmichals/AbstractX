@@ -61,7 +61,26 @@ flowchart TD
 
 ---
 
-## 2. The Python-First Bring-Up Philosophy
+## 2. Multi-Board Portability: Radxa Cubie A5E & Radxa Cubie A7A
+
+AbstractX is designed for seamless portability across both Allwinner single-board computers. Both boards follow the standard **Radxa 40-Pin GPIO expansion header layout**, allowing the exact same physical sensor wiring and Python test scripts to work transparently:
+
+| Feature | Radxa Cubie A5E | Radxa Cubie A7A |
+|---|---|---|
+| **SoC Silicon** | Allwinner A527 / T527 (`sun55iw3`) | Allwinner A733 (`sun60iw2`) |
+| **Application CPU** | 8× Arm Cortex-A55 @ 1.8 GHz | 2× Cortex-A76 + 6× Cortex-A55 |
+| **Real-Time Co-Processor** | XuanTie E906 RISC-V @ 200 MHz | XuanTie E902 / E906 RISC-V @ 200 MHz |
+| **Header Pinout Standard** | Radxa 40-Pin Expansion Standard | Radxa 40-Pin Expansion Standard |
+| **I2C Bus (Pins 3 & 5)** | `PH0/PH1` (TWI1, `/dev/i2c-1`) | Expansion TWI (`/dev/i2c-1`) |
+| **Host Debug Console** | UART0 on Pins 8 & 10 (`/dev/ttyS0` @ 115200) | UART0 on Pins 8 & 10 (`/dev/ttyS0` @ 115200) |
+| **Navigation Serial Port** | UART2 on Pins 11 & 13 (`/dev/ttyS2`) | Expansion UART on Pins 11 & 13 |
+| **MicroPython GC Heap** | Quarantined in HiFi4 DSP RAM (`0x00020000`) | Quarantined in System SRAM A2 (`0x00040000`, 208 KB) |
+| **MCU Zero-Heap SRAM** | Space 0 (`0x3FFC0000`, 256 KB) | System SRAM A2 / Dedicated Co-Processor SRAM |
+| **Board Auto-Detection** | Scripts read `/proc/device-tree/model` | Scripts read `/proc/device-tree/model` |
+
+---
+
+## 3. The Python-First Bring-Up Philosophy
 
 In AbstractX, bringing up new sensors and flight peripherals follows a **Python-First validation workflow**:
 
@@ -97,18 +116,18 @@ flowchart LR
 
 ---
 
-## 3. Architecture & Memory Quarantine
+## 4. Architecture & Memory Quarantine
 
 The MicroPython REPL runs under strict deterministic execution rules (`[SPEC-E906-REPL-01]` through `[SPEC-E906-REPL-06]`):
 
 1. **Zero MCU SRAM Heap**: The real-time C++ coroutine dispatcher runs 100% zero-heap in MCU SRAM Space 0 (`0x3FFC0000`).
-2. **DSP Memory Quarantine**: MicroPython's 128 KB Garbage Collector heap is quarantined inside the dormant on-chip Cadence HiFi4 Audio DSP memory aperture (`0x00020000`).
+2. **DSP Memory Quarantine**: MicroPython's 128 KB Garbage Collector heap is quarantined inside the dormant on-chip Cadence HiFi4 Audio DSP memory aperture (`0x00020000`) on A5E, or System SRAM A2 on A7A.
 3. **Cooperative Interleaving**: MicroPython bytecode loops call `abstractx::repl_vm_hook()` at every branch/loop boundary, allowing primary-paced sensor rings to process on time.
 4. **Resilient REPL Exceptions**: KeyboardInterrupt (Ctrl-C) and soft reset (`PYEXEC_FORCED_EXIT`, Ctrl-D) are safely handled via setjmp/longjmp NLR blocks without kernel panic or coprocessor crash.
 
 ---
 
-## 4. Quick Start & Verification
+## 5. Quick Start & Verification
 
 ### A. Build the E906 Firmware Binary
 ```bash
@@ -152,7 +171,7 @@ microcom -p /dev/rpmsg0
 
 ---
 
-## 5. Live Peripheral Testing Recipes (Python)
+## 6. Live Peripheral Testing Recipes (Python)
 
 ### Recipe 1: Scan I2C Compass & u-blox DDC (`test_compass.py`)
 ```python
