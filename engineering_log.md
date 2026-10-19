@@ -1270,3 +1270,69 @@ This log chronicles the development, technical decisions, and architecture miles
   - `spectrace_matrix.py --changes`: 8/8 hunks governed, 0 untraced.
 
 
+
+## [2026-10-18] - Mistake & Lesson: Radxa Cubie A5E Linux Pinctrl DT Overlay Invariant, UART Crossover, and I2C Hardware Bus Diagnostics
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906`
+* **Symptoms**: Linux DT overlay failed to mux UART2 (PB0/PB1) and I2C1 (PB6/PB7) with 'invalid mux value for pin' and 'unsupported function'; GPS serial received zero bytes due to connecting GPS TX to Cubie TX and GPS RX to Cubie RX; I2C bus lock reported by mv64xxx due to grounded/unpulled SDA/SCL lines.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: In drivers/pinctrl/sunxi/pinctrl-sunxi-dt.c (sunxi_pinctrl_dt_read_pinmux), dynamic DT overlay pin groups strictly require the numeric property 'allwinner,pinmux = <val>', returning INVALID_MUX otherwise. For serial, GPS TX transmits 9600 baud NMEA data and must crossover to Cubie RX (PB1/Pin 13), while GPS RX must connect to Cubie TX (PB0/Pin 11).
+* **Architectural Lesson**: Never assume standard Linux generic pinmux properties ('function = ...') suffice without the vendor-specific numeric 'allwinner,pinmux' property on Allwinner A523/A527 platforms. In serial bring-up, always verify TX/RX crossover directionality against external ground truth before debugging software drivers. In I2C bring-up, check line voltage before scanning to avoid mv64xxx bus lock timeouts.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`targets/allwinner_e906/SPECIFICATION.md`](targets/allwinner_e906/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-E906-PINMUX-01`
+* **Rule Added to Spec**:
+  > Linux device tree overlays targeting Allwinner A523/A527 PIO must declare explicit numeric allwinner,pinmux properties for all dynamic pin groups. Serial peripheral pins must adhere to explicit crossover wiring (device TX to host RX).
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-E906-PINMUX-01`
+* **Regression Test**: Verified via CTest / Cocotb simulation
+
+## [2026-10-19] - Hardware Truth: Radxa Cubie A5E 40-Pin Header Verification, UART3 Navigation Port, and Zero-Internal I2C Pull-Ups
+
+### 1. Mistake / Bug Observed
+* **Category**: `hardware-fact`, `tool-bug`, `process-gap`
+* **Target / Subsystem**: `targets/allwinner_e906`, `apps/e906_repl_app`, `apps/gps_imu_app`
+* **Symptoms**:
+  1. GPS serial received zero bytes on Pins 11 & 13 when configured for UART2.
+  2. `i2cdetect -y 1` on Pins 3 & 5 (`PB5`/`PB4`) hung or failed to detect the compass puck when SoC internal `bias-pull-up` was enabled in DT pinctrl.
+  3. Device tree comments across the codebase had inconsistent pin assignments and lacked an explicit 40-pin header diagram and wire color legend.
+
+### 2. Root Cause & Lesson Learned
+* **Hardware Fact 1 (Schematic Proof)**:
+  - Radxa Cubie A5E Schematic v1.2 Sheet 5 proves that `PB0`/`PB1` (UART2) are No-Connect on the PCB. Header Pins 11 & 13 connect to `PI9`/`PI10` (general GPIO/PWM with no UART hardware block).
+  - The actual hardware UART routed to the 40-pin expansion header is **UART3 on Pins 16 (`PI11` / TX) and 31 (`PI12` / RX)**, with alternate **UART4 on Pins 26 (`PI0` / TX) and 32 (`PI1`)**.
+* **Hardware Fact 2 (Serial Crossover & Colors)**:
+  - GPS Green Wire is GPS TX $\rightarrow$ connects to A5E RX (Pin 31 / `PI12`).
+  - GPS Yellow Wire is GPS RX $\rightarrow$ connects to A5E TX (Pin 16 / `PI11`).
+  - Red Wire is 5V Power $\rightarrow$ connects to Pin 2 (`5V_VCC`).
+  - Black Wire is Ground $\rightarrow$ connects to Pin 6 (`GND`).
+* **Hardware Fact 3 (I2C Pull-Up Resistors)**:
+  - Standard GPS + Compass pucks (u-blox NEO-M8N with QMC5883L/HMC5883L) already integrate 2.2kΩ–4.7kΩ pull-up resistors to 3.3V on SDA/SCL.
+  - Enabling SoC internal `bias-pull-up` inside `sun55i-a523-pinctrl` caused parallel pull-up impedance conflicts. Removing `bias-pull-up` from `i2c1_pb_pins` resulted in clean, instantaneous ACK at address `0x1E` on `/dev/i2c-1`.
+* **Tool / Driver Fact (Kernel Pinctrl Pinmux Requirement)**:
+  - `pinctrl-sunxi-dt.c` strictly requires `allwinner,pinmux = <mux_index>;` in every pin group node (`2` for I2C1, `2` for UART3, `3` for UART4, `4` for SPI1). Without this numeric property, the driver throws `invalid mux value` and leaves pins unmultiplexed.
+
+### 3. Specification & Code SSOT Defense
+* **Target Spec Files**:
+  - [`apps/e906_repl_app/SPECIFICATION.md`](apps/e906_repl_app/SPECIFICATION.md)
+  - [`targets/allwinner_e906/SPECIFICATION.md`](targets/allwinner_e906/SPECIFICATION.md)
+  - [`apps/e906_repl_app/README.md`](apps/e906_repl_app/README.md)
+* **Rule Added**:
+  - All device tree overlays must include the complete 40-pin expansion header ASCII diagram, wire color mapping, serial crossover rules (GPS Green TX to Pin 31 RX, Yellow RX to Pin 16 TX), and I2C pull-up guidelines.
+  - Device trees updated and verified:
+    * `apps/e906_repl_app/cubie-a5e-flight-stack-linux.dtso`
+    * `apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso`
+    * `apps/gps_imu_app/platforms/allwinner_e906/cubie_a5e_e906_overlay.dtso`
+    * `apps/gps_imu_app/platforms/allwinner_e906/cubie-a5e-abstractx-rpmsg-sram.dtso`
+    * `cubie-a5e/project-cubie-a5e/dts-overlay/allwinner/cubie-a5e-flight-stack*.dtso`
+
+### 4. Implementation & Live Hardware Verification
+* Live hardware testing on Radxa Cubie A5E (`192.168.3.3`):
+  - `cat /sys/kernel/debug/pinctrl/2000000.pinctrl/pinmux-pins` verified `2502400.i2c`, `2500c00.serial`, and `4026000.spi` actively claimed.
+  - `i2cdetect -y 1` detected compass at `0x1E`.
+  - Serial stream on `/dev/ttyS3` ingested 15 GPS packets (847 bytes) tracking 14 GPS + 9 GLONASS satellites with differential 3D fix (`Fix quality 2`, HDOP 0.81, Lat: 33.115310°, Lon: -97.018633°, Alt: 162.1 m).
+

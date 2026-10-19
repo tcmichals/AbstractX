@@ -15,17 +15,23 @@
  * with the firmware; tools/check_e906_layout.py fails the firmware build if
  * anything is linked into this pool.
  *
- * Derived from cubie-a5e's cubie-a5e-rpmsg-sram.dtso (proven with
- * testPingRpmsgSram, which gave Linux all of Space 1). memory-region index 0
- * is the pool, per cubie-a5e decision D10.
+ * Stacking Order in /boot/config.txt:
+ *   dtoverlay=cubie-a5e-flight-stack-e906 cubie-a5e-abstractx-rpmsg-sram
  *
- * /boot/config.txt:
- *   dtoverlay=cubie-a5e-flight-stack cubie-a5e-abstractx-rpmsg-sram
- *
- * NOT YET VERIFIED ON THE BOARD.
+ * NOTE: This is an internal memory-pool overlay and does not touch any 40-pin
+ * header pins. Physical 40-pin I/O is governed by cubie-a5e-flight-stack-e906.dtso:
+ *   - Pins 3 & 5   : I2C1 (PB5 SDA Blue, PB4 SCL Orange - Puck pull-ups)
+ *   - Pins 8 & 10  : UART0 (PB9 TX, PB10 RX - Linux Serial Console)
+ *   - Pins 16 & 31 : UART3 (PI11 TX Yellow -> GPS RX, PI12 RX Green <- GPS TX)
+ *   - Pins 19,21,23,24: SPI1 (PB13 MOSI, PB14 MISO, PB12 CLK, PB11 CS0)
+ *   - Pin 29       : IMU DRDY (PI8 / EINT8)
  */
 
 &{/reserved-memory} {
+    #address-cells = <2>;
+    #size-cells = <2>;
+    ranges;
+
     abx_rpmsg_pool: abx-rpmsg-pool@72e0000 {
         compatible = "shared-dma-pool";
         reg = <0x0 0x072e0000 0x0 0x20000>;
