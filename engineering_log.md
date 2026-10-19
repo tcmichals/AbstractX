@@ -1187,9 +1187,47 @@ This log chronicles the development, technical decisions, and architecture miles
   - `spectrace.py --review --module targets/allwinner_e906`: VERDICT: [PASS FOR COMMIT] (0 Issues).
   - `spectrace_matrix.py --changes`: 92/92 hunks governed, 0 untraced.
 
+## 2026-10-18: XuanTie E906 MicroPython REPL Reference Application (`apps/e906_repl_app`)
 
+### 1. Mistake & Defect Summary
+* **Subsystem**: `apps/e906_repl_app`, `targets/allwinner_e906`
+* **Category**: `hardware-fact` / `process-gap`
+* **Symptoms**:
+  1. Need for interactive Python scripting on the XuanTie E906 co-processor of the Radxa Cubie A5E / A7A while preserving strict 0-heap freestanding invariants in flight SRAM Space 0 (`0x3FFC0000`).
+  2. MicroPython's compiler, parser, and runtime `.bss` combined with the default `ABSTRACTX_CORO_POOL_SIZE = 60 KB` exceeded the 192 KB `SRAM_FAST` linker region by 19,904 bytes.
+  3. MicroPython standard filesystem and POSIX stubs (`open`, `mp_import_stat`, `mp_lexer_new_from_file`) resulted in linker errors in bare-metal freestanding builds.
 
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - The XuanTie E906 hardware execution window in SRAM Space 0 is 256 KB total, with the upper 64 KB reserved for host IPC/buffers, leaving 192 KB for `.text`, `.rodata`, `.data`, `.bss`, and `.stack`.
+  - While flight code cannot dynamic-allocate, the dormant HiFi4 Audio DSP Local RAM aperture (`DSP_LOCAL_RAM_BASE = 0x00020000`, 128 KB) is completely accessible to the E906 bus master and unused when audio DSP firmware is not loaded.
+  - Setting `ABSTRACTX_CORO_POOL_SIZE = 4096` right-sizes the coroutine pool for the E906 task set, saving 57,344 bytes of `.bss` in `SRAM_FAST`.
+  - Setting `MICROPY_CONFIG_ROM_LEVEL = MICROPY_CONFIG_ROM_LEVEL_MINIMUM` prunes unnecessary filesystem abstractions while retaining core compiler, runtime, and event-driven REPL functionality.
 
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`apps/e906_repl_app/SPECIFICATION.md`](apps/e906_repl_app/SPECIFICATION.md)
+* **Requirement Tags Created**:
+  - `[SPEC-E906-REPL-01]`: Target Platform Invariant (Allwinner A5E / A7A XuanTie E906 only).
+  - `[SPEC-E906-REPL-02]`: HiFi4 DSP SRAM Quarantine (`0x00020000`, 128 KB) & Zero MCU SRAM Heap.
+  - `[SPEC-E906-REPL-03]`: Event-Driven MicroPython Coroutine Task (`co_await console.read_char_async()`).
+  - `[SPEC-E906-REPL-04]`: `MICROPY_VM_HOOK_LOOP` Non-Preemptive Interleaving (`abstractx::Dispatcher::process()`).
+  - `[SPEC-E906-REPL-05]`: RPMsg Studio REPL Endpoint Protocol (endpoint 1026 `"abstractx-repl"`).
+  - `[SPEC-E906-REPL-06]`: Native `abstractx` Module Hardware Bindings (`peek`, `poke`, `cycles`, `version`).
 
-
+### 4. Implementation & Verification
+* **Target Updates**:
+  - `apps/e906_repl_app/CMakeLists.txt`: Configured MicroPython submodule build rules, `BUILD_VERSION_HEADER`, `ABSTRACTX_CORO_POOL_SIZE = 4096`, and link options.
+  - `apps/e906_repl_app/include/mpconfigport.h`: Port configuration with `MICROPY_CONFIG_ROM_LEVEL_MINIMUM`, `MICROPY_REPL_EVENT_DRIVEN = 1`, and `MICROPY_VM_HOOK_LOOP`.
+  - `apps/e906_repl_app/include/rpmsg_console.hpp` & `src/rpmsg_console.cpp`: Event-driven console bridging RPMsg endpoint 1026 to lock-free SPSC queue with `read_char_async()` awaiter delegating to `IRpmsg::async_receive()`.
+  - `apps/e906_repl_app/src/mphalport.cpp`: MicroPython HAL stubs (`gc_collect`, `mp_hal_stdin_rx_chr`, `abstractx_repl_vm_hook`).
+  - `apps/e906_repl_app/src/modabstractx.c`: Native hardware introspection module.
+  - `apps/e906_repl_app/src/main.cpp`: Zero-heap initialization, DSP SRAM GC heap setup, and cooperative coroutine dispatch.
+* **Verification Evidence**:
+  - `build_e906`: Cross-compilation succeeded with xPack RISC-V GCC 15.2.0 (`text: 148,549 B, data: 280 B, bss: 32,368 B`).
+  - `check_e906_layout.py`: Confirmed load segments fit in remoteproc SRAM windows (`0x3FFC0000-0x3FFEB36F` in SRAM Space 0, `0x40000000-0x4000108B` in SRAM Space 1).
+  - `build_host`: 38/38 tests passed (100%).
+  - `build_asan`: 38/38 tests passed (100% with AddressSanitizer and UndefinedBehaviorSanitizer).
+  - `build_tsan`: 38/38 tests passed (100% with ThreadSanitizer).
+  - `audit_specs.py`: 100% coverage (6/6 specifications implemented).
+  - `spectrace_matrix.py --changes`: 8/8 hunks governed, 0 untraced.
 

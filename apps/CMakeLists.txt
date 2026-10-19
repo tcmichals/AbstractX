@@ -5,3 +5,4 @@ add_subdirectory(gps_imu_app)
 
 
 add_subdirectory(serial_loopback_app)
+add_subdirectory(e906_repl_app)
