@@ -68,9 +68,14 @@
 
 /* 
  * ----------------------------------------------------------------------------
- * 1. Dedicated Linux Host Peripherals
+ * 1. Dedicated Linux Host Peripherals & Console Lock
  * ----------------------------------------------------------------------------
  */
+
+&{/aliases} {
+    serial0 = "/soc/serial@2500000"; /* UART0 permanently locked as /dev/ttyS0 debug console */
+    serial2 = "/soc/serial@2500800"; /* UART2 on Pins 11 & 13 */
+};
 
 /* UART0: Linux Host Serial Debug Console (Pins 8 & 10) */
 &uart0 {
