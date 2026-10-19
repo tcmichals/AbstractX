@@ -619,3 +619,25 @@ graph TD
 3. **Egress (Python to TLP Ring)**:
    - Instead of formatting ASCII strings via `print()` (which churns GC strings and limits bandwidth), MicroPython emits binary navigation records using `abstractx.tlp_push(tlp_bytes)` into `g_telemetry_ring`.
    - `trace_dispatcher_task` drains `g_telemetry_ring` into 64-byte `Tlp64` packets over VirtIO RPMsg to the Linux host visualizer (`abstractx_studio.py`), complying with `[SPEC-ARCH-08]` zero-copy data plane and `[SPEC-TRACE-06]` dynamic barectf schema.
+
+### 8. Architectural Mandate: No Peeking — Pure Packet-Driven Streams (`Tlp64`)
+
+**Direct Feedback from Design Review**:
+> *"Do not add peeks, that is slow, inefficient, we have packets, and we know the format.."*
+
+#### 1. Why "Peeking" is an Aerospace Anti-Pattern
+* **Pipeline Stalls & Bus Contention**: Peeking (reading memory addresses, registers, or individual fields piecemeal over a bus or IPC channel) creates serialized synchronous round-trip latency. It prevents hardware DMA bursting, stalls cache lines, and degrades APB/AXI fabric throughput.
+* **Non-Atomic Torn Reads**: Peeking multi-word state (e.g. 3-axis gyro or 32-bit GPS latitude/longitude) across coroutine or IPC boundaries without packet encapsulation risks torn reads when state updates concurrently.
+* **Polling Overhead**: Polling/peeking a status register in a software loop burns CPU cycles that should be allocated to flight control and state estimation.
+
+#### 2. The Packet-Driven Invariant (`[SPEC-TLP-01]`, `[SPEC-TLP-03]`)
+In AbstractX, all real-time observability, telemetry, and peripheral communication is strictly **Packet-Driven**:
+* **Fixed, Known Wire Format (`Tlp64`)**:
+  - Exactly 64 bytes cache-line aligned (`sizeof(asp_tlp64_t) == 64`, `alignas(64)`).
+  - 24-byte Header: `type` (1B), `flags` (1B), `tag` (1B), `channel` (1B), `target_address` (4B), `length_dw` (2B), `sequence` (2B), `timestamp_ns` (8B).
+  - 40-byte Payload: Holds complete sensor records (e.g., GPS latitude, longitude, altitude, ground speed, fix, and satellites packed as fixed binary integers) or high-rate IMU vector bursts.
+  - 4-byte Trailer: Hardware CRC32.
+* **Autonomous Ingestion & Transfer**:
+  - The producer (driver / sensor engine) acquires a 64-byte slot directly in the SPSC ring, fills the known packet layout in place, and commits it.
+  - The consumer (flight loop, logging engine, or Linux host bridge) pops the complete 64-byte packet in a single atomic memory operation.
+  - **Zero peeking, zero field-by-field polling, zero bus stalls.**
