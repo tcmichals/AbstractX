@@ -1,48 +1,46 @@
 ================================================================================
  Radxa Cubie A5E Sensor & Peripheral Test Cheat Sheet
+ Detailed Live Test Results: see TEST_RESULTS.md
 ================================================================================
 
-1. 40-PIN HEADER WIRING REFERENCE
+1. 40-PIN HEADER WIRING GROUND TRUTH (Radxa Cubie A5E Schematic v1.2)
 --------------------------------------------------------------------------------
-  [Pin 2 ] 5V DC    -> GPS Red Wire (VCC)
-  [Pin 6 ] GND      -> GPS Black Wire (GND)
-  [Pin 11] Cubie TX -> GPS Green Wire (GPS RX in)
-  [Pin 13] Cubie RX -> GPS Yellow Wire (GPS TX out at 9600 baud)
-  [Pin 3 ] I2C SDA  -> Compass SDA
-  [Pin 5 ] I2C SCL  -> Compass SCL
+  [Pin 2 ] 5V DC    -> GPS/Compass Red Wire (VCC)
+  [Pin 6 ] GND      -> GPS/Compass Black Wire (GND)
+  [Pin 16] UART3-TX -> GPS Yellow Wire (GPS RX in) [PI11]
+  [Pin 31] UART3-RX -> GPS Green Wire (GPS TX out at 115200 baud) [PI12]
+  [Pin 3 ] I2C1-SDA -> Compass SDA (PB5)
+  [Pin 5 ] I2C1-SCL -> Compass SCL (PB4)
 
-  * CRITICAL: GPS Yellow (TX) connects to Pin 13 (Cubie RX)!
-              GPS Green (RX) connects to Pin 11 (Cubie TX)!
-
+  * CRITICAL CROSSOVER: GPS Green (TX) connects to Pin 31 (Cubie RX)!
+                        GPS Yellow (RX) connects to Pin 16 (Cubie TX)!
+  * NOTE: Pins 11 & 13 connect to PI9/PI10 (No UART hardware block).
+          UART3 is routed to Pins 16 and 31!
 
 2. QUICK TEST SCRIPTS (IN /root/)
 --------------------------------------------------------------------------------
-  * Full Python Test (Menu with Pinmux check, Serial & I2C tests):
+  * Automated Host Sensor Test Runner (Records to SpecTrace Evidence Ledger):
+      python3 tools/test_e906_sensors_board.py
+
+  * MicroPython Flight Sensors Ingestion (on E906 Coprocessor):
+      python3 /root/run_e906_script.py /root/flight_sensors.py
+
+  * Linux Host Diagnostic Script:
       python3 /root/test_sensors.py
 
-  * Direct Serial Shell Script (Configures 9600 baud and streams NMEA):
-      /root/test_serial.sh
-
-  * Direct I2C Shell Script (Scans bus 1):
-      /root/test_i2c.sh
-
-
-3. SERIAL / GPS COMMANDS (/dev/ttyS1)
+3. SERIAL / GPS COMMANDS (/dev/ttyS3)
 --------------------------------------------------------------------------------
-  * Stream NMEA sentences directly to console:
-      stty -F /dev/ttyS1 9600 raw -echo && cat /dev/ttyS1
+  * Stream NMEA sentences directly to console at 115200 baud:
+      stty -F /dev/ttyS3 115200 raw -echo && cat /dev/ttyS3
 
   * Interactive serial console (microcom):
-      microcom -s 9600 /dev/ttyS1
+      microcom -s 115200 /dev/ttyS3
       (To exit: press Ctrl-X)
-
-  * View raw hex / ASCII stream:
-      stty -F /dev/ttyS1 9600 raw -echo && cat /dev/ttyS1 | hexdump -C
-
 
 4. I2C COMMANDS (/dev/i2c-1, Pins 3 & 5)
 --------------------------------------------------------------------------------
   * Scan all 7-bit addresses on bus 1:
+
       i2cdetect -y 1
 
   * Read-mode scan (gentler on compasses):
