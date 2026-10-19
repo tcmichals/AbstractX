@@ -226,6 +226,7 @@ default_trap_entry:
     .type _start, @function
 
 _start:
+    /* @impl [SPEC-E906-ARCH-01] targets/allwinner_e906/SPECIFICATION.md */
     /* 1. Disable all interrupts during early bring-up */
     csrw mie, zero
     csrw mip, zero
@@ -257,6 +258,7 @@ _start:
      * 5a. Enable T-Head Vendor ISA Extensions (CSR_MXSTATUS 0x7C0)
      * Bit 22: THEADISAEE (T-Head ISA extension enable - required for dcache opcodes)
      * Bit 15: MM (Hardware unaligned memory access support)
+     * @impl [SPEC-E906-CACHE-01] targets/allwinner_e906/SPECIFICATION.md
      */
     li t0, (1 << 22) | (1 << 15)
     csrs 0x7c0, t0

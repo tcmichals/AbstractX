@@ -1137,11 +1137,56 @@ This log chronicles the development, technical decisions, and architecture miles
     - In `is_driver_ready()`: set `s_tx_vq.used->flags = VRING_USED_F_NO_NOTIFY` and `s_rx_vq.used->flags = 0;` (with release fence).
     - In `tx_free_buffers()`: if `free_bufs == 0`, clears `s_tx_vq.used->flags = 0` (seq_cst); otherwise sets `VRING_USED_F_NO_NOTIFY`.
     - In `poll()`: drain doorbells in `while (MsgBox::is_rx_pending(...))`, set `s_rx_vq.used->flags = VRING_USED_F_NO_NOTIFY` while actively draining, clear when batch finishes, and re-check ring to eliminate race conditions.
-    - Updated `RpmsgLiteMetal::is_driver_ready()` with identical kick suppression.
-* **Verification Gates**:
-  - 37/37 host ctest passed in `build_host` (100% pass).
-  - Cross-compilation in `build_e906` passed (`libabstractx_target_e906.a`, `e906_coprocessor`, `serial_loopback_app`, `gps_imu_app`).
-  - Silicon validation on live hardware (Cubie A5E, XuanTie E906) confirmed 0 queue overflows across 100,000 stress messages.
+## [2026-10-18] - XuanTie E906 VirtIO & Lite-Metal RPMsg Flow Control, Torn Read Prevention & Doorbell Backpressure
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/include/hal/rpmsg.hpp`, `targets/allwinner_e906/SPECIFICATION.md`
+* **Category**: `product-bug` / `hardware-fact`
+* **Symptoms**:
+  - Investigation into `cubie-a5e` firmware git history (`git log -S "torn"`, commits `9a80a50dee73`, `eb598cb`, `8f8c07b`) and `docs/buildroot/DebugLog.md` Case Study 15 revealed four failure modes under heavy bidirectional IPC:
+    1. **Torn `avail->idx` reads**: Packed vring descriptors (`__attribute__((packed))`) caused GCC to emit split 8-bit loads (`lbu`/`lbu`) on 16-bit indices. When Linux concurrently performed a 16-bit atomic store (e.g., rollover `0x01FF` -> `0x0200`), the E906 read the torn value `0x02FF`, computing an apparent pending descriptor count of ~65,280 and replaying garbage/stale descriptors.
+    2. **Unchecked ring pending bounds**: Missing bounds check on `(avail_idx - last_avail_idx) > num`. If torn or corrupted by unsynchronized shared memory writes, `avail_pending()` permitted out-of-bounds ring iterations.
+    3. **Silent reply drops on TX buffer exhaustion**: In `Rpmsg::reply()`, when Linux host buffers in `s_tx_vq` ran dry (`free_bufs == 0`), the coprocessor immediately returned `false`, dropping replies without backpressure.
+    4. **Mailbox doorbell drops on FIFO full**: `MsgBox::send()` dropped doorbells when the hardware 8-slot MSGBOX FIFO was full (`s_mbox_full_waits`), causing Linux to never receive buffer return kicks.
+    5. **Missing kick suppression in coroutine awaiter**: `AsyncRxAwaiter` did not invoke `enable_rx_kick(true)` on `await_suspend` and `enable_rx_kick(false)` on `await_resume`, risking missed interrupts or interrupt storms.
+    6. **Inverted vring assignment in `RpmsgLiteMetal`**: `vring[0]` was erroneously mapped to RX and `vring[1]` to TX instead of standard VirtIO RemoteProc mapping (`vring[0]` = remote TX / host RX; `vring[1]` = host TX / remote RX).
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - `__attribute__((packed))` disables the compiler's natural alignment assumptions, forcing byte-wise memory access even on architectures with unaligned access support. In a lock-free single-producer single-consumer ring across processor boundaries, 16-bit index reads must be naturally aligned half-word loads (`lh`/`lhu`) protected by acquire memory fences.
+  - VirtIO flow control requires cooperative backpressure: when the host has lent all available reply buffers, the coprocessor must unsuppress host kicks (`used->flags = 0`), notify the host, drain incoming doorbells, and spin cooperatively until the host replenishes buffers.
+  - Symmetrical hardware FIFO queues have finite depth (8 words on Allwinner sun6i-msgbox). An IPC kick must never be discarded: `MsgBox::send` must wait for FIFO space with monotonic retry counting.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`targets/allwinner_e906/SPECIFICATION.md`](targets/allwinner_e906/SPECIFICATION.md)
+* **Requirement Tags Updated**:
+  - `[SPEC-E906-IPC-01]`: Pure Virtual `IRpmsg` Contract updated with `enable_rx_kick(bool)` and telemetry counters (`get_ring_errors()`, `get_tx_full_waits()`, `get_mbox_full_waits()`, `get_host_kicks()`).
+  - `[SPEC-E906-IPC-02]`: Standard Linux VirtIO RPMsg updated with natural vring alignment static asserts, `avail_pending()` bounds check, non-dropping reply backpressure, non-dropping mailbox send retry loop, and doorbell queue draining.
+  - `[SPEC-E906-IPC-03]`: Lite-Metal Direct Driver updated with full parity against `[SPEC-E906-IPC-02]`.
+  - `[SPEC-E906-CORO-01]`: Zero-Polling Asynchronous RPMsg Awaiter updated with kick unsuppress on suspend and suppress on resume.
+
+### 4. Implementation & Verification
+* **Target Updates**:
+  - `targets/allwinner_e906/include/hal/rpmsg.hpp`: Added `enable_rx_kick(bool)` and telemetry accessors to `IRpmsg`, `Rpmsg`, and `RpmsgLiteMetal`. Added `enable_rx_kick` calls to `AsyncRxAwaiter`.
+  - `targets/allwinner_e906/src/rpmsg.cpp`:
+    - Replaced `__attribute__((packed))` with natural alignment and static assertions (`alignof(VirtioAvail) >= 2`, `alignof(VirtioUsed) >= 4`, `alignof(VirtioDesc) >= 8`).
+    - Added `mask = num - 1` with power-of-two assertion.
+    - Implemented `avail_pending()` with `pending > num` rejection and `s_linux_ring_errors` increment.
+    - Implemented non-dropping `notify_host()` with FIFO-full retry loop (`s_linux_mbox_full_waits`).
+    - Implemented `drain_host_doorbells()` loop draining Channel 0 and Channel 1 (`s_linux_host_kicks`).
+    - Implemented non-dropping `reply()` backpressure loop clearing `used->flags = 0` and waiting for host replenishment.
+    - Fixed `RpmsgLiteMetal` vring mapping (`vring[0]` TX, `vring[1]` RX), used ring return, and reply backpressure.
+  - `sim/fakes/e906_msgbox_fake.cpp`: Enhanced with FIFO-full simulation hook (`g_fake_msgbox_on_send`, `g_fake_msgbox_full_sends_left`).
+  - `sim/test_e906_rpmsg_flow_control.cpp`: Created comprehensive 10-test suite exercising torn read rejection, full ring boundary, 16-bit wraparound, reply starvation flow control, mailbox FIFO-full wait, doorbell drain, and kick suppression.
+* **Verification Evidence**:
+  - `build_host`: 38/38 tests passed (100%).
+  - `build_asan`: 38/38 tests passed (100% with AddressSanitizer and UndefinedBehaviorSanitizer).
+  - `build_tsan`: 38/38 tests passed (100% with ThreadSanitizer).
+  - `build_e906`: Cross-compilation succeeded with xPack RISC-V GCC 15.2.0; `check_e906_layout.py` confirmed all binaries fit remoteproc SRAM windows.
+  - `audit_specs.py`: 100% coverage (31/31 specifications implemented).
+  - `spectrace.py --review --module targets/allwinner_e906`: VERDICT: [PASS FOR COMMIT] (0 Issues).
+  - `spectrace_matrix.py --changes`: 92/92 hunks governed, 0 untraced.
+
 
 
 

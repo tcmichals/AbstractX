@@ -174,17 +174,41 @@ sequenceDiagram
   * `poll()`
   * `reply(const RpmsgMessage &msg, const void *payload, uint16_t len)`
   * `is_rx_pending()`
+  * `enable_rx_kick(bool enable)`
+  * `get_rx_count()`, `get_tx_count()`
+  * `get_ring_errors()`, `get_tx_full_waits()`, `get_mbox_full_waits()`, `get_host_kicks()`
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/include/hal/rpmsg.hpp`
 
 ### `[SPEC-E906-IPC-02]` Standard Linux VirtIO RPMsg (`class Rpmsg`)
 * **Role**: Driver for Linux `virtio_rpmsg_bus` (`/dev/rpmsg0`).
-* **Target Memory**: DDR DRAM carveouts (`0x48000000`+).
-* **Cache Coherency Policy**:
-  * Invalidate `avail` ring and incoming packet buffers via `dcache.iva` on RX.
-  * Clean (write-back) response buffers and `used` ring via
-    `dcache.cpa` on TX before kicking MSGBOX Channel 0.
-    on TX before kicking MSGBOX Channel 0.
-* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp` runs the real `rpmsg.cpp`), `e906-build-layout`
+* **Target Memory**: DDR DRAM carveouts or shared on-chip SRAM Space 1 (`0x40020000`).
+* **Natural Vring Alignment Invariant**:
+  * VirtIO ring descriptors (`VirtioDesc`, `VirtioAvail`, `VirtioUsedElem`, `VirtioUsed`)
+    MUST NOT use `__attribute__((packed))`. Packing causes the RISC-V compiler to emit
+    split byte loads (`lbu`/`lbu`) for 16-bit indices, which tear when Linux stores
+    `avail->idx` concurrently, producing corrupted indices (e.g. 0x01FF -> 0x0200 read as 0x02FF)
+    and replaying ~65k stale descriptors.
+  * Must be naturally aligned (2-byte for `VirtioAvail`, 4-byte for `VirtioUsed`, 8-byte for `VirtioDesc`)
+    validated by static asserts.
+* **Torn Index Detection & Ring Bounds (`avail_pending`)**:
+  * The pending count is checked via `avail_pending()`: if $(avail\_idx - last\_avail\_idx) > num$,
+    the index is corrupted or torn; the driver increments `s_ring_errors` and rejects processing.
+  * Ring slots must be computed with a power-of-two bitmask (`idx & mask`) instead of division.
+* **Flow Control & Non-Dropping Backpressure**:
+  * **Reply buffer starvation**: In `reply()`, if host free buffers in `s_tx_vq` are exhausted
+    ($free\_bufs == 0$), the driver MUST NOT drop the packet. It must clear `s_tx_vq.used->flags = 0`,
+    increment `s_tx_full_waits`, notify the host, drain incoming host doorbells, and wait until
+    buffers are restored.
+  * **Hardware Mailbox FIFO space**: When kicking the host (`notify_host()`), the driver must poll in a
+    loop until hardware FIFO space is available (`s_mbox_full_waits`), never dropping a doorbell.
+  * **Doorbell FIFO Draining**: In `poll()`, all pending incoming doorbells across both Channel 0
+    and Channel 1 must be drained in a tight loop (`s_host_kicks`) to avoid filling the 8-slot
+    hardware FIFO and overflowing Linux's software mailbox queue (`MBOX_TX_QUEUE_LEN`).
+* **VirtIO Kick Suppression**:
+  * In polling mode, `s_tx_vq.used->flags` and `s_rx_vq.used->flags` default to `VRING_USED_F_NO_NOTIFY`
+    to suppress redundant host kicks. `enable_rx_kick(bool)` toggles `s_rx_vq.used->flags`.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`, `sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ### `[SPEC-E906-IPC-03]` Lite-Metal Direct Driver (`class RpmsgLiteMetal`)
@@ -192,7 +216,10 @@ sequenceDiagram
 * **Target Memory**: On-chip SRAM Space 0 / Space 1.
 * **Cache Policy**: Zero cache operations (NOP). Directly accesses
   memory at bus speed with zero cache maintenance overhead.
-  at bus speed with zero cache maintenance overhead.
+* **Parity Invariant**: Adheres to identical natural vring alignment, `avail_pending()` bounds check,
+  non-dropping mailbox FIFO send, incoming doorbell queue draining, and kick suppression contracts
+  as `[SPEC-E906-IPC-02]`.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ### `[SPEC-E906-IPC-04]` Zero-Copy TLP and Trace Endpoints over RPMsg in SRAM
@@ -297,8 +324,12 @@ sequenceDiagram
   in polling loops.
 * **Mechanism**: Tasks suspend via `co_await rpmsg.async_receive()`:
   * If packet is already pending: `await_ready()` returns true (0 ns latency).
-  * If queue is empty: Stores the coroutine handle, enables MSGBOX Channel 1 RX
-    interrupt, and suspends until the cooperative dispatcher resumes it.
+  * If queue is empty: Stores the coroutine handle, unsuppresses host kicks via
+    `driver->enable_rx_kick(true)` so Linux rings the hardware doorbell on packet arrival,
+    enables MSGBOX Channel 1 RX interrupt, and suspends until the cooperative dispatcher resumes it.
+  * On resume: `await_resume()` suppresses redundant kicks via `driver->enable_rx_kick(false)`
+    during active draining, resets handle, and drains the pending packets.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/include/hal/rpmsg.hpp`
 
 ### `[SPEC-E906-CORO-02]` MSGBOX ISR-to-Dispatcher Wakeup

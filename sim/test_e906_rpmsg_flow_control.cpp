@@ -1,0 +1,397 @@
+// @verifies [SPEC-E906-IPC-01] [SPEC-E906-IPC-02] [SPEC-E906-IPC-03] [SPEC-E906-CORO-01]
+/*
+ * Copyright (C) 2026 Tim Michals
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * Test: E906 RPMsg Flow Control, Torn Index Protection & Kick Suppression
+ * Verifies parity with cubie-a5e firmware fixes:
+ *   - Natural vring alignment (unpacked)
+ *   - Torn avail index detection (avail_pending)
+ *   - Reply buffer exhaustion wait (flow control)
+ *   - Doorbell wait for hardware mailbox FIFO space
+ *   - Doorbell queue draining
+ *   - VirtIO kick suppression (VRING_USED_F_NO_NOTIFY)
+ */
+
+#include "hal/rpmsg.hpp"
+#include "resource_table.h"
+
+#include <sys/mman.h>
+#include <cassert>
+#include <cstring>
+#include <iostream>
+#include <vector>
+#include <functional>
+
+namespace hal {
+extern int g_fake_msgbox_sends[4];
+extern int g_fake_msgbox_full_sends_left;
+extern int g_fake_msgbox_rx_pending;
+extern std::function<void()> g_fake_msgbox_on_send;
+}
+
+namespace {
+
+constexpr uint32_t kN = VRING_NUM_DESCS;
+constexpr uint32_t kAlign = VRING_ALIGN;
+constexpr uint32_t kBufSize = RPMSG_BUFFER_SIZE;
+constexpr size_t kBlock = 1 << 20;
+
+struct Desc {
+    uint64_t addr;
+    uint32_t len;
+    uint16_t flags;
+    uint16_t next;
+};
+struct Avail {
+    uint16_t flags;
+    uint16_t idx;
+    uint16_t ring[VRING_NUM_DESCS];
+};
+struct UsedElem {
+    uint32_t id;
+    uint32_t len;
+};
+struct Used {
+    uint16_t flags;
+    uint16_t idx;
+    UsedElem ring[VRING_NUM_DESCS];
+};
+
+struct Vring {
+    volatile Desc *desc;
+    volatile Avail *avail;
+    volatile Used *used;
+};
+
+class FakeHost {
+public:
+    explicit FakeHost(uint32_t num = kN) : num_(num) {
+        mem_ = static_cast<uint8_t *>(mmap(nullptr, kBlock, PROT_READ | PROT_WRITE,
+                                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0));
+        assert(mem_ != MAP_FAILED);
+        std::memset(mem_, 0, kBlock);
+
+        rsc_ = reinterpret_cast<rpmsg_resource_table *>(mem_);
+        rsc_->vdev.vring[0].da = da(0x1000);
+        rsc_->vdev.vring[0].num = num;
+        rsc_->vdev.vring[0].align = kAlign;
+        rsc_->vdev.vring[1].da = da(0x4000);
+        rsc_->vdev.vring[1].num = num;
+        rsc_->vdev.vring[1].align = kAlign;
+        rsc_->vdev.status = VIRTIO_CONFIG_S_ACKNOWLEDGE | VIRTIO_CONFIG_S_DRIVER | VIRTIO_CONFIG_S_DRIVER_OK;
+
+        rx_ = layout(0x1000); // vring[0]: Linux RX / Remote TX (replies)
+        tx_ = layout(0x4000); // vring[1]: Linux TX / Remote RX (incoming)
+    }
+    ~FakeHost() {
+        munmap(mem_, kBlock);
+    }
+
+    const rpmsg_resource_table *rsc() const { return rsc_; }
+    Vring &rx() { return rx_; }
+    Vring &tx() { return tx_; }
+
+    void post(uint16_t d, const void *payload, uint16_t len, uint16_t hdr_len_override = 0) {
+        uint8_t *buf = mem_ + 0x10000 + d * kBufSize;
+        auto *hdr = reinterpret_cast<rpmsg_hdr *>(buf);
+        hdr->src = 1024;
+        hdr->dst = 1024;
+        hdr->len = hdr_len_override ? hdr_len_override : len;
+        hdr->flags = 0;
+        hdr->reserved = 0;
+        if (payload && len) {
+            std::memcpy(hdr->data, payload, len);
+        }
+        tx_.desc[d].addr = da(0x10000 + d * kBufSize);
+        tx_.desc[d].len = kBufSize;
+        tx_.avail->ring[tx_.avail->idx % num_] = d;
+        tx_.avail->idx = static_cast<uint16_t>(tx_.avail->idx + 1);
+    }
+
+    void lend(uint16_t d) {
+        rx_.desc[d].addr = da(0x10000 + (kN + d) * kBufSize);
+        rx_.desc[d].len = kBufSize;
+        rx_.avail->ring[rx_.avail->idx % num_] = d;
+        rx_.avail->idx = static_cast<uint16_t>(rx_.avail->idx + 1);
+    }
+
+    const rpmsg_hdr *reply_buf(uint32_t d) const {
+        return reinterpret_cast<const rpmsg_hdr *>(mem_ + 0x10000 + (kN + d) * kBufSize);
+    }
+
+private:
+    uint32_t da(size_t off) const {
+        return static_cast<uint32_t>(reinterpret_cast<uintptr_t>(mem_ + off));
+    }
+    Vring layout(size_t off) {
+        uint8_t *base = mem_ + off;
+        size_t avail_off = sizeof(Desc) * num_;
+        size_t used_off = (avail_off + sizeof(Avail) + kAlign - 1) & ~static_cast<size_t>(kAlign - 1);
+        return {reinterpret_cast<volatile Desc *>(base),
+                reinterpret_cast<volatile Avail *>(base + avail_off),
+                reinterpret_cast<volatile Used *>(base + used_off)};
+    }
+
+    uint32_t num_;
+    uint8_t *mem_;
+    rpmsg_resource_table *rsc_;
+    Vring rx_, tx_;
+};
+
+std::vector<std::vector<uint8_t>> g_received;
+bool g_echo = false;
+bool g_reply_ok = true;
+
+void on_test_message(const hal::RpmsgMessage &msg, void *) {
+    g_received.emplace_back(msg.data, msg.data + msg.len);
+    if (g_echo) {
+        g_reply_ok = hal::Rpmsg::reply_active(msg, msg.data, msg.len);
+    }
+}
+
+void reset_fake_env() {
+    hal::g_fake_msgbox_sends[0] = 0;
+    hal::g_fake_msgbox_sends[1] = 0;
+    hal::g_fake_msgbox_full_sends_left = 0;
+    hal::g_fake_msgbox_rx_pending = 0;
+    hal::g_fake_msgbox_on_send = nullptr;
+    g_received.clear();
+    g_echo = false;
+    g_reply_ok = true;
+}
+
+} // namespace
+
+int main() {
+    std::cout << "[TEST] XuanTie E906 RPMsg Flow Control, Alignment & Kick Suppression Verification\n";
+
+    // 1. Delivers posted messages in order and returns buffers
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        const char a[] = "first", b[] = "second";
+        host.post(3, a, sizeof(a));
+        host.post(7, b, sizeof(b));
+
+        assert(rpmsg.poll());
+        assert(g_received.size() == 2);
+        assert(std::memcmp(a, g_received[0].data(), sizeof(a)) == 0);
+        assert(std::memcmp(b, g_received[1].data(), sizeof(b)) == 0);
+
+        assert(host.tx().used->idx == 2);
+        assert(host.tx().used->ring[0].id == 3);
+        assert(host.tx().used->ring[1].id == 7);
+        assert(!rpmsg.poll());
+        assert(rpmsg.get_ring_errors() == 0);
+        std::cout << "  -> DeliversEachPostedMessageOnceAndReturnsItsBuffer: PASS\n";
+    }
+
+    // 2. Torn Index Protection: Index further ahead than ring size is rejected
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        // Simulate torn read (e.g. 0x01FF -> 0x02FF: 255 ahead)
+        host.tx().avail->idx = 255;
+        assert(!rpmsg.poll());
+        assert(g_received.empty());
+        assert(host.tx().used->idx == 0);
+        assert(rpmsg.get_ring_errors() == 1);
+        std::cout << "  -> IndexFurtherAheadThanTheRingIsRejected: PASS\n";
+    }
+
+    // 3. Exactly full ring accepted
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        uint8_t byte = 0x55;
+        for (uint16_t d = 0; d < kN; ++d) {
+            host.post(d, &byte, 1);
+        }
+        assert(rpmsg.poll());
+        assert(g_received.size() == kN);
+        assert(rpmsg.get_ring_errors() == 0);
+        std::cout << "  -> ExactlyAFullRingIsAccepted: PASS\n";
+    }
+
+    // 4. Index wrapping around 65536
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        uint8_t byte = 0xAA;
+        for (uint32_t i = 0; i < 65530; ++i) {
+            host.post(i % kN, &byte, 1);
+            assert(rpmsg.poll());
+        }
+        g_received.clear();
+        for (uint16_t i = 0; i < 12; ++i) {
+            host.post(i, &byte, 1);
+        }
+        assert(rpmsg.poll());
+        assert(g_received.size() == 12);
+        assert(rpmsg.get_ring_errors() == 0);
+        std::cout << "  -> IndexWrapsAt65536: PASS\n";
+    }
+
+    // 5. Malformed payload length or out-of-bounds descriptor
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        uint8_t byte = 0;
+        host.post(0, &byte, 1, RPMSG_BUFFER_SIZE); // header claims more than buffer
+        assert(rpmsg.poll());
+        assert(g_received.empty()); // delivered nothing
+        assert(host.tx().used->idx == 1); // buffer returned
+        assert(rpmsg.get_ring_errors() == 1);
+        std::cout << "  -> LengthLargerThanBufferIsMalformed: PASS\n";
+    }
+
+    // 6. Flow control: Reply waits for host buffer instead of dropping
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        int doorbells = 0;
+        hal::g_fake_msgbox_on_send = [&] {
+            if (++doorbells == 3) {
+                host.lend(0); // lend buffer after 3 doorbells
+            }
+        };
+        g_echo = true;
+        const char ping[] = "wait-for-buffer";
+        host.post(0, ping, sizeof(ping));
+
+        assert(rpmsg.poll());
+        assert(g_reply_ok); // replied successfully, did not drop!
+        assert(host.rx().used->idx == 1);
+        assert(std::memcmp(ping, host.reply_buf(0)->data, sizeof(ping)) == 0);
+        assert(rpmsg.get_tx_full_waits() == 3);
+        std::cout << "  -> ReplyWaitsForHostBufferInsteadOfDropping: PASS\n";
+    }
+
+    // 7. Non-dropping mailbox kicks: Doorbell waits for FIFO space
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        hal::g_fake_msgbox_full_sends_left = 5; // FIFO full 5 times
+        uint8_t byte = 0x11;
+        host.post(0, &byte, 1);
+
+        assert(rpmsg.poll());
+        assert(hal::g_fake_msgbox_sends[1] >= 1);
+        assert(rpmsg.get_mbox_full_waits() == 5);
+        std::cout << "  -> DoorbellWaitsForFifoSpaceInsteadOfDropping: PASS\n";
+    }
+
+    // 8. Queued host doorbells are drained in poll()
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        assert(rpmsg.is_driver_ready());
+
+        hal::g_fake_msgbox_rx_pending = 6;
+        rpmsg.poll();
+        assert(hal::g_fake_msgbox_rx_pending == 0);
+        assert(rpmsg.get_host_kicks() == 6);
+        std::cout << "  -> AllQueuedHostDoorbellsAreDrained: PASS\n";
+    }
+
+    // 9. Kick suppression lifecycle
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        assert(rpmsg.is_driver_ready());
+
+        // Default: suppressed (VRING_USED_F_NO_NOTIFY = 1)
+        assert(host.tx().used->flags == 1);
+        assert(host.rx().used->flags == 1);
+
+        // AsyncRxAwaiter unsuppresses before sleeping
+        rpmsg.enable_rx_kick(true);
+        assert(host.tx().used->flags == 0);
+
+        // AsyncRxAwaiter re-suppresses on resume
+        rpmsg.enable_rx_kick(false);
+        assert(host.tx().used->flags == 1);
+        std::cout << "  -> KickSuppressionLifecycle: PASS\n";
+    }
+
+    // 10. RpmsgLiteMetal Driver Parity
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::RpmsgLiteMetal lite;
+        hal::Rpmsg::set_active_driver(&lite);
+        lite.init(host.rsc());
+        lite.register_endpoint(1024, on_test_message);
+        assert(lite.is_driver_ready());
+
+        // Check defaults
+        assert(host.rx().used->flags == 1);
+        assert(host.tx().used->flags == 1);
+
+        // Lend reply buffer in vring[0] and post a message to LiteMetal in vring[1]
+        host.lend(0);
+        const char ping[] = "LITE-PING";
+        host.post(2, ping, sizeof(ping));
+
+        g_echo = true;
+        hal::g_fake_msgbox_full_sends_left = 2; // Test non-dropping FIFO send
+        assert(lite.poll());
+        assert(g_reply_ok);
+        assert(lite.get_mbox_full_waits() == 2);
+        assert(lite.get_rx_count() == 1);
+        assert(lite.get_tx_count() == 1);
+        std::cout << "  -> RpmsgLiteMetalParity: PASS\n";
+    }
+
+    std::cout << "[ALL PASS] XuanTie E906 RPMsg Flow Control Verification complete!\n";
+    return 0;
+}

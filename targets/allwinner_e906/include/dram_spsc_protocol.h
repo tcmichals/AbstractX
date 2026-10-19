@@ -7,6 +7,7 @@
 #define DRAM_SPSC_MAGIC_DATA   0x44415441UL /* "DATA" */
 
 /*
+ * @impl [SPEC-E906-MEM-02] targets/allwinner_e906/SPECIFICATION.md
  * Physical Memory Mapping
  *  - Control Block in Fast Zero-Wait-State Dedicated MCU SRAM C (0x07130000)
  *  - Payload Buffer Pool in DDR DRAM Carveout (0x48100000)

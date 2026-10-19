@@ -32,6 +32,17 @@ target_compile_definitions(test_e906_rpmsg_trace PRIVATE CONFIG_RPROC_RPMSG=1)
 target_link_libraries(test_e906_rpmsg_trace PRIVATE abstractx_core)
 add_test(NAME sim_test_e906_rpmsg_trace COMMAND test_e906_rpmsg_trace)
 
+# E906 RPMsg flow control, torn index rejection, and kick suppression unit test
+add_executable(test_e906_rpmsg_flow_control
+    test_e906_rpmsg_flow_control.cpp
+    fakes/e906_msgbox_fake.cpp
+    ${E906_DIR}/src/rpmsg.cpp
+)
+target_include_directories(test_e906_rpmsg_flow_control PRIVATE ${E906_DIR}/include)
+target_compile_definitions(test_e906_rpmsg_flow_control PRIVATE CONFIG_RPROC_RPMSG=1)
+target_link_libraries(test_e906_rpmsg_flow_control PRIVATE abstractx_core)
+add_test(NAME sim_test_e906_rpmsg_flow_control COMMAND test_e906_rpmsg_flow_control)
+
 # Pico 2 W zero-copy lwIP PBUF_POOL trace transport, run on host with mock lwIP pbufs ([SPEC-PICO-TRACE-01])
 set(PICO_DIR ${PROJECT_SOURCE_DIR}/targets/pico2w_rp2350)
 add_executable(test_pico_zero_copy_trace

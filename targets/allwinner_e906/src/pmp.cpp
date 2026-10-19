@@ -77,6 +77,7 @@ void Pmp::configure_dram_carveout(uintptr_t dram_base, size_t dram_size) noexcep
 
 void Pmp::dcache_clean_range(uintptr_t addr, size_t len) noexcept {
 #if defined(__riscv)
+    // @impl [SPEC-E906-CACHE-03] targets/allwinner_e906/SPECIFICATION.md
     // Verified Allwinner Tina implementation (32-byte cache line, dcache.cpa a5)
     register uintptr_t i asm("a5") = addr & ~0x1FUL;
     uintptr_t end = addr + len;

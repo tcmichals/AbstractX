@@ -37,6 +37,7 @@ struct RpmsgTxBuffer {
  * Allows upper-layer tasks and coroutines to communicate without knowing
  * whether the underlying transport is standard Linux VirtIO or Lite-Metal.
  */
+// @impl [SPEC-E906-IPC-01] targets/allwinner_e906/SPECIFICATION.md
 class IRpmsg {
 public:
     virtual ~IRpmsg() = default;
@@ -47,9 +48,14 @@ public:
     virtual bool announce_service(const char *name, uint32_t addr) noexcept = 0;
     virtual bool poll() noexcept = 0;
     virtual bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept = 0;
+    virtual void enable_rx_kick(bool enable) noexcept = 0;
     virtual uint32_t get_rx_count() noexcept = 0;
     virtual uint32_t get_tx_count() noexcept = 0;
     virtual bool is_rx_pending() noexcept = 0;
+    virtual uint32_t get_ring_errors() noexcept = 0;
+    virtual uint32_t get_tx_full_waits() noexcept = 0;
+    virtual uint32_t get_mbox_full_waits() noexcept = 0;
+    virtual uint32_t get_host_kicks() noexcept = 0;
 
     /* C++20 Asynchronous Coroutine Awaiter: Suspends until Linux kicks MSGBOX */
     struct AsyncRxAwaiter {
@@ -72,6 +78,7 @@ public:
  * Handles DDR DRAM payload buffers with full XuanTie L1 D-Cache maintenance
  * (dcache.cpa write-back on TX, dcache.iva invalidate on RX).
  */
+// @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
 class Rpmsg : public IRpmsg {
 public:
     static constexpr size_t MAX_ENDPOINTS = 8;
@@ -85,9 +92,14 @@ public:
     bool announce_service(const char *name, uint32_t addr) noexcept override;
     bool poll() noexcept override;
     bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept override;
+    void enable_rx_kick(bool enable) noexcept override;
     uint32_t get_rx_count() noexcept override;
     uint32_t get_tx_count() noexcept override;
     bool is_rx_pending() noexcept override;
+    uint32_t get_ring_errors() noexcept override;
+    uint32_t get_tx_full_waits() noexcept override;
+    uint32_t get_mbox_full_waits() noexcept override;
+    uint32_t get_host_kicks() noexcept override;
 
     // Zero-copy transmit ([SPEC-E906-IPC-04]): borrow the next free host
     // buffer if at least `min_free_after` would remain free (budget), write it
@@ -119,6 +131,7 @@ public:
  * Designed for ultra-low latency direct SRAM buffers or peer-to-peer messaging
  * without Linux kernel VirtIO overhead and ZERO D-Cache maintenance operations.
  */
+// @impl [SPEC-E906-IPC-03] targets/allwinner_e906/SPECIFICATION.md
 class RpmsgLiteMetal : public IRpmsg {
 public:
     static constexpr size_t MAX_ENDPOINTS = 8;
@@ -132,9 +145,14 @@ public:
     bool announce_service(const char *name, uint32_t addr) noexcept override;
     bool poll() noexcept override;
     bool reply(const RpmsgMessage &incoming, const void *payload, uint16_t len) noexcept override;
+    void enable_rx_kick(bool enable) noexcept override;
     uint32_t get_rx_count() noexcept override;
     uint32_t get_tx_count() noexcept override;
     bool is_rx_pending() noexcept override;
+    uint32_t get_ring_errors() noexcept override;
+    uint32_t get_tx_full_waits() noexcept override;
+    uint32_t get_mbox_full_waits() noexcept override;
+    uint32_t get_host_kicks() noexcept override;
 };
 
 } // namespace hal
