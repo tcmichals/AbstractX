@@ -254,4 +254,13 @@ flowchart TD
 * **Verified by**: `host-tests`, `e906-build-layout`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
 
+### `[SPEC-E906-REPL-12]` Resource Lifecycle & Open/Close Semantics across Host and Target
+* **Requirement**:
+  1. **Target Zero-Filesystem Invariant**: The XuanTie E906 firmware MUST operate with `MICROPY_VFS = 0` and zero POSIX filesystem dependencies. Calling `open()` in MicroPython MUST raise `NameError` (name 'open' is not defined). Scripts are transferred and compiled in-memory over VirtIO RPMsg (`/dev/rpmsg0`).
+  2. **Host POSIX Lifecycle Contract**: Linux host utilities (`run_e906_script.py`, `e906_rpmsg_bridge.py`) manage communication endpoints using POSIX `open()` and `close()` (`ioctl(RPMSG_CREATE_EPT_IOCTL)`, `os.open("/dev/rpmsgN")`, `os.close(fd)`). Closing the device node releases host DMA vrings and notifies kernel remoteproc.
+  3. **Target Static RAII & Channel Lifetime**: All hardware peripherals on the E906 are initialized via native `abstractx.*_init()` bindings. SPSC channels (`AsyncQueue`, `SpscTlpRing`) operate with static lifetime in SRAM Space 0 and are never closed with `free()`.
+  4. **Target Soft-Reset Teardown**: Sending Ctrl-D triggers `mp_deinit()`, sweeping and reclaiming all quarantined HiFi4 DSP SRAM in $\mathcal{O}(1)$ without leaking memory or disrupting running C++ flight coroutines.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/run_e906_script.py`, `apps/e906_repl_app/src/main.cpp`
+
 

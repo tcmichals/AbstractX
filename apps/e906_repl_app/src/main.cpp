@@ -1,7 +1,7 @@
 /*
  * main.cpp - XuanTie E906 MicroPython REPL Application
  *
- * @impl [SPEC-E906-REPL-01] [SPEC-E906-REPL-02] [SPEC-E906-REPL-03] [SPEC-E906-REPL-07] [SPEC-E906-REPL-08] apps/e906_repl_app/SPECIFICATION.md
+ * @impl [SPEC-E906-REPL-01] [SPEC-E906-REPL-02] [SPEC-E906-REPL-03] [SPEC-E906-REPL-07] [SPEC-E906-REPL-08] [SPEC-E906-REPL-12] apps/e906_repl_app/SPECIFICATION.md
  */
 
 #include "abstractx/abstractx.hpp"

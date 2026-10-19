@@ -2,7 +2,7 @@
 """
 run_e906_script.py - Host / Target Runner for XuanTie E906 MicroPython REPL
 
-@impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
+@impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-12] apps/e906_repl_app/SPECIFICATION.md
 
 Transfers a Python script over VirtIO RPMsg endpoint (/dev/rpmsg0) in 256-byte chunks,
 executes it in raw REPL mode on the XuanTie E906 RISC-V co-processor, and streams stdout.
