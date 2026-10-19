@@ -104,7 +104,6 @@
     i2c1_pb_pins: i2c1-pb-pins {
         pins = "PB4", "PB5";
         function = "i2c1";
-        bias-pull-up;
     };
 
     uart3_pi_pins: uart3-pi-pins {
