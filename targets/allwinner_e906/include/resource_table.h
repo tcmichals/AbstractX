@@ -19,6 +19,8 @@ extern "C" {
 /*
  * VirtIO RemoteProc Constants
  */
+// @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
+#define FW_RSC_ADDR_ANY                0xFFFFFFFFUL
 #define VIRTIO_ID_RPMSG                7
 #define VIRTIO_RPMSG_F_NS              0   /* Bit 0: Name Service Announcement */
 
@@ -42,7 +44,7 @@ extern "C" {
 #define RPMSG_BUFFER_SIZE              512
 
 #ifndef CONFIG_RPROC_TRACE0_LEN
-#define CONFIG_RPROC_TRACE0_LEN     4096UL       /* 4 KB Trace Buffer */
+#define CONFIG_RPROC_TRACE0_LEN     1024UL       /* 1 KB Minimal Trace Buffer (Liveness & Crash) */
 #endif
 
 #ifndef CONFIG_RPROC_TRACE0_NAME

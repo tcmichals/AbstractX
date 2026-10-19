@@ -99,19 +99,154 @@ flowchart TD
 
 ## 2. Dual Device Tree Overlay Architecture (`apps/e906_repl_app/`)
 
-AbstractX provides two dedicated overlay profiles local to this directory:
+The Radxa Cubie A5E (Allwinner A527 / T527) is an **Asymmetric Multiprocessing (AMP)** SoC combining an octa-core ARM Cortex-A55 application processor running Linux with a XuanTie E906 32-bit RISC-V real-time coprocessor. Both execution domains share the exact same physical silicon pins (the 40-pin header) and internal APB peripheral blocks (UART3, I2C1, SPI1).
 
-1. **Linux Host Profile (`cubie-a5e-flight-stack-linux.dtso`)**:
-   - `i2c1` enabled on Pins 3 & 5 (`/dev/i2c-1`)
-   - `uart3` enabled on Pins 16 & 31 (`/dev/ttyAS3`, `serial3` alias)
-   - `spi1` enabled on Pins 24, 23, 19, 21 (`/dev/spidev1.0`)
-   - Ideal for Python script verification (`test_sensors.py`, `seed_cubie_a5e_gps.py`).
+Peripheral ownership and pin multiplexing are orchestrated through **Device Tree Overlays (`.dtso`)** applied by U-Boot at boot time:
 
-2. **XuanTie E906 Real-Time Profile (`cubie-a5e-flight-stack-e906.dtso`)**:
-   - `spi1`, `uart3`, and `i2c1` bound to `compatible = "generic-uio"`.
-   - Linux pinmux and CCU clocks/resets are fully initialized at boot.
-   - **No Linux kernel drivers attach**, preventing bus contention and register resets.
-   - XuanTie E906 firmware accesses registers directly at `0x02500c00` (UART3), `0x02502400` (TWI1), and `0x04026000` (SPI1).
+```mermaid
+flowchart TD
+    subgraph BOARD_CONFIG["/boot/config.txt (Parsed by U-Boot boot.scr)"]
+        CONF_LINUX["dtoverlay=cubie-a5e-flight-stack-linux"]
+        CONF_E906["dtoverlay=cubie-a5e-flight-stack-e906"]
+    end
+
+    subgraph DT_PROFILES["Device Tree Overlays (.dtbo in /boot/)"]
+        LINUX_DTSO["<b>cubie-a5e-flight-stack-linux.dtso</b><br/>Linux Subsystem Drivers Attached<br/>/dev/i2c-1 • /dev/ttyAS3 • /dev/spidev1.0<br/>cubie-flight-stack-version = '1.6-linux'"]
+        E906_DTSO["<b>cubie-a5e-flight-stack-e906.dtso</b><br/>Peripherals Bound to generic-uio<br/>Clocks Ungated • 0 Linux Drivers Attached<br/>cubie-flight-stack-version = '1.6-e906'"]
+    end
+
+    subgraph DOMAINS["Execution Domains"]
+        HOST["<b>ARM Cortex-A55 Linux Host</b><br/>Python Prototyping & Sensor Test Scripts<br/>(i2cdetect, pyserial, smbus2)"]
+        E906["<b>XuanTie E906 RISC-V Coprocessor</b><br/>Hard Real-Time C++20 Flight Loop & REPL<br/>(Exclusive direct memory-mapped register access)"]
+    end
+
+    CONF_LINUX ==>|U-Boot fdt apply| LINUX_DTSO ==> HOST
+    CONF_E906 ==>|U-Boot fdt apply| E906_DTSO ==> E906
+```
+
+---
+
+### 2.1 Why Device Trees are Crucial on AMP Silicon
+
+On Allwinner SoCs, the **Clock Control Unit (CCU)** and **Power Management IC (PMIC)** are under Linux kernel power management. Without careful Device Tree engineering, two severe failure modes arise when attempting to run bare-metal firmware on the XuanTie E906:
+
+```mermaid
+flowchart LR
+    subgraph TRAP1["Trap 1: status = 'disabled'"]
+        direction TB
+        T1A["Linux leaves peripheral disabled"]
+        T1B["CCU keeps APB clock gated OFF"]
+        T1C["CCU asserts hardware RESET"]
+        T1D["E906 hangs or reads 0x00000000"]
+        T1A --> T1B --> T1C --> T1D
+    end
+
+    subgraph TRAP2["Trap 2: Standard Linux Drivers Attached"]
+        direction TB
+        T2A["Linux attaches 8250_dw / mv64xxx-i2c"]
+        T2B["Linux claims IRQs & clears FIFOs"]
+        T2C["Kernel resets registers on power events"]
+        T2D["Race conditions & bus lockup with E906"]
+        T2A --> T2B --> T2C --> T2D
+    end
+
+    subgraph SOLUTION["AbstractX Solution: compatible = 'generic-uio'"]
+        direction TB
+        S1["Linux pio driver programs Pinmux"]
+        S2["CCU ungates APB clock & deasserts reset"]
+        S3["No Linux kernel driver attaches to bus"]
+        S4["E906 gets 100% exclusive bare-metal access"]
+        S1 --> S2 --> S3 --> S4
+    end
+```
+
+#### The `generic-uio` Architectural Invariant
+In `cubie-a5e-flight-stack-e906.dtso`, the peripheral nodes (`&uart3`, `&i2c1`, `&spi1`) are configured with:
+```dts
+compatible = "generic-uio";
+status = "okay";
+```
+**What this achieves**:
+1. **Clock Ungating & Reset Release**: The Linux CCU recognizes the node as active (`status = "okay"`), automatically powers on the bus, un-gates the APB peripheral clock, and de-asserts the hardware reset signal.
+2. **Pin Multiplexing**: The Linux `pio` pinctrl driver configures the physical ball/pad routing so the header pins connect to the internal peripheral hardware blocks.
+3. **Zero Driver Contention**: Because `compatible = "generic-uio"` does not match any Linux subsystem driver (`8250_dw`, `mv64xxx-i2c`, or `spi-sun6i`), the kernel loads no driver, registers no interrupts, and leaves all hardware FIFOs and registers untouched.
+4. **Exclusive E906 Access**: The XuanTie E906 coprocessor can freely perform high-speed, zero-jitter register reads and writes at:
+   - `0x02500C00`: **UART3** (GPS streaming & configuration)
+   - `0x02502400`: **TWI1 / I2C1** (Compass & Barometer)
+   - `0x04026000`: **SPI1** (High-speed IMU & FPGA crossbar fabric)
+
+---
+
+### 2.2 Profile Comparison Matrix
+
+| Feature / Subsystem | Profile 1: Linux Host (`-linux`) | Profile 2: XuanTie E906 (`-e906`) |
+|---|---|---|
+| **DTS Overlay File** | `cubie-a5e-flight-stack-linux.dtso` | `cubie-a5e-flight-stack-e906.dtso` |
+| **`/boot/config.txt` Setting** | `dtoverlay=cubie-a5e-flight-stack-linux` | `dtoverlay=cubie-a5e-flight-stack-e906` |
+| **Version Node (`/proc/device-tree/`)** | `cubie-flight-stack-version = "1.6-linux"` | `cubie-flight-stack-version = "1.6-e906"` |
+| **I2C1 (Pins 3 & 5: PB5/PB4)** | Attached to `mv64xxx-i2c` (`/dev/i2c-1`) | Bound to `generic-uio` (E906 register `0x02502400`) |
+| **UART3 (Pins 16 & 31: PI11/PI12)** | Attached to `8250_dw` (`/dev/ttyAS3`, `/dev/ttyS3`) | Bound to `generic-uio` (E906 register `0x02500C00`) |
+| **SPI1 (Pins 24, 23, 19, 21: PB11-14)**| Attached to `spi-sun6i` (`/dev/spidev1.0`) | Bound to `generic-uio` (E906 register `0x04026000`) |
+| **UART0 Console (Pins 8 & 10: PB9/PB10)**| Retained for Linux Console (`/dev/ttyS0`) | Retained for Linux Console (`/dev/ttyS0`) |
+| **RemoteProc Subsystem** | Disabled (`status = "disabled"`) | Enabled (`allwinner,sun55i-a523-rproc`) |
+| **XuanTie E906 Execution** | Core in reset / offline | Boots `/lib/firmware/riscv-firmware.elf` |
+| **Host Communication Endpoint** | N/A | `/dev/rpmsg0` (MicroPython REPL & Telemetry) |
+| **Primary Use Case** | Python prototyping, sensor bring-up, wiring validation | Hard real-time C++20 flight loop & MicroPython REPL |
+
+---
+
+### 2.3 Kernel Pinctrl Rules & Hardware Invariants
+
+#### 1. Mandatory `allwinner,pinmux = <mux_index>`
+In Allwinner A523/A527 platforms, the kernel pinctrl driver (`drivers/pinctrl/sunxi/pinctrl-sunxi-dt.c`) enforces a strict rule: every pin group defined inside a dynamic DT overlay **must contain an explicit numeric property `allwinner,pinmux = <val>;`**. Standard upstream generic properties like `function = "..."` without the numeric index are rejected with `invalid mux value`, leaving the pins `UNCLAIMED`:
+```dts
+i2c1_pb_pins: i2c1-pb-pins {
+    pins = "PB4", "PB5";
+    function = "i2c1";
+    allwinner,pinmux = <2>;   /* Required by pinctrl-sunxi-dt.c */
+};
+
+uart3_pi_pins: uart3-pi-pins {
+    pins = "PI11", "PI12";
+    function = "uart3";
+    allwinner,pinmux = <2>;   /* Required by pinctrl-sunxi-dt.c */
+};
+```
+
+#### 2. Disabling Internal I2C Pull-Up Resistors (`bias-pull-up` Omission)
+Radxa Cubie A5E Schematic v1.2 Sheet 19 proves that Pins 3 & 5 (`PB5`/`PB4`) have no onboard pull-ups. Standard drone GPS/compass pucks (such as the u-blox NEO-M8N) already include physical 2.2kΩ–4.7kΩ pull-up resistors to 3.3V on their SDA/SCL lines. Consequently:
+- `bias-pull-up;` is **intentionally omitted** from `i2c1_pb_pins` in both overlays.
+- Enabling internal SoC weak pull-ups alongside the puck's physical pull-ups creates parallel resistance distortion that degrades signal edges and can cause I2C bus lockup.
+
+---
+
+### 2.4 RemoteProc & Memory Carveout Architecture
+
+In `cubie-a5e-flight-stack-e906.dtso`, the `&rproc` node attaches to the Linux kernel remoteproc subsystem with reserved physical memory carveouts:
+
+```text
++-----------------------+ 0x48200000
+| Firmware DRAM Pool    | (1 MB @ 0x48100000 - rproc_dram)
++-----------------------+ 0x48100000
+| VirtIO VRings & DMA   | (1 MB @ 0x48000000 - rproc_vdev shared-dma-pool)
++-----------------------+ 0x48000000
+           ...
++-----------------------+ 0x072C0000 (E906 view: 0x3FFFFFFF)
+| MCU SRAM Space 0      | (256 KB @ 0x07280000 - riscvsram0)
+| Text + Data + BSS     | (E906 view: 0x3FFC0000 - Zero-Heap Executable)
++-----------------------+ 0x07280000 (E906 view: 0x3FFC0000)
+```
+
+1. **Dedicated MCU SRAM Space 0 (`0x07280000`, 256 KB)**:
+   - Linux physical address: `0x07280000`–`0x072BFFFF`.
+   - XuanTie E906 local memory bus: `0x3FFC0000`–`0x3FFFFFFF`.
+   - Marked `no-map;` so Linux kernel memory management never touches it.
+   - Houses the entire freestanding C++20 flight loop binary (`e906_repl_app.elf`).
+2. **VirtIO VRing DMA Pool (`0x48000000`, 1 MB)**:
+   - Houses the VirtIO ring descriptors and message buffers for inter-core communication.
+3. **Hardware Mailbox (`&msgbox`)**:
+   - Enables the Allwinner hardware message box channels (`allwinner,sun55i-msgbox`) for bi-directional IRQ doorbells between the ARM Cortex-A55 host and XuanTie E906 coprocessor.
+
 
 ---
 
@@ -131,8 +266,6 @@ AbstractX is designed for seamless portability across both Allwinner single-boar
 | **MicroPython GC Heap** | Quarantined in HiFi4 DSP RAM (`0x00020000`) | Quarantined in System SRAM A2 (`0x00040000`, 208 KB) |
 | **MCU Zero-Heap SRAM** | Space 0 (`0x3FFC0000`, 256 KB) | System SRAM A2 / Dedicated Co-Processor SRAM |
 | **Board Auto-Detection** | Scripts read `/proc/device-tree/model` | Scripts read `/proc/device-tree/model` |
-
----
 
 ---
 
@@ -172,34 +305,200 @@ flowchart LR
 
 ---
 
-## 5. Architecture & Memory Quarantine
+## 5. Coroutine Architecture: Bidirectional Channels & Zero Polling
 
-The MicroPython REPL runs under strict deterministic execution rules (`[SPEC-E906-REPL-01]` through `[SPEC-E906-REPL-06]`):
+The MicroPython REPL embeds inside the AbstractX cooperative coroutine dispatcher using **bidirectional AbstractX channels (`AsyncQueue`)**:
 
-1. **Zero MCU SRAM Heap**: The real-time C++ coroutine dispatcher runs 100% zero-heap in MCU SRAM Space 0 (`0x3FFC0000`).
-2. **DSP Memory Quarantine**: MicroPython's 128 KB Garbage Collector heap is quarantined inside the dormant on-chip Cadence HiFi4 Audio DSP memory aperture (`0x00020000`) on A5E, or System SRAM A2 on A7A.
-3. **Cooperative Interleaving**: MicroPython bytecode loops call `abstractx::repl_vm_hook()` at every branch/loop boundary, allowing primary-paced sensor rings to process on time.
-4. **Resilient REPL Exceptions**: KeyboardInterrupt (Ctrl-C) and soft reset (`PYEXEC_FORCED_EXIT`, Ctrl-D) are safely handled via setjmp/longjmp NLR blocks without kernel panic or coprocessor crash.
+```mermaid
+flowchart LR
+    subgraph LINUX_HOST["Linux Host (/dev/rpmsg0)"]
+        HOST_TX["Commands Input"]
+        HOST_RX["Stdout Response"]
+    end
+
+    subgraph E906_ENGINE["XuanTie E906 C++20 Runtime"]
+        RPMSG_CORO["<b>rpmsg_rx_coroutine</b><br/>co_await async_receive()"]
+        RX_Q["<b>m_rx_channel</b><br/><code>AsyncQueue&lt;char, 512&gt;</code>"]
+        REPL_RX["<b>repl_rx_coroutine</b><br/>co_await read_char_async()<br/>pyexec_event_repl_process_char()"]
+        TX_Q["<b>m_tx_channel</b><br/><code>AsyncQueue&lt;char, 256&gt;</code>"]
+        REPL_TX["<b>repl_tx_coroutine</b><br/>co_await tx_channel.pop()<br/>console.flush()"]
+    end
+
+    HOST_TX ==>|MSGBOX IRQ -> Virtqueue| RPMSG_CORO
+    RPMSG_CORO ==>|push| RX_Q
+    RX_Q ==>|pop| REPL_RX
+    REPL_RX ==>|mp_hal_stdout_tx_strn| TX_Q
+    TX_Q ==>|pop| REPL_TX
+    REPL_TX ==>|Virtqueue Reply| HOST_RX
+```
+
+1. **Zero-Overhead Idle Sleep**: When no commands are being typed, `repl_rx_coroutine` is suspended on `co_await console.read_char_async()`, consuming **0% CPU cycles**.
+2. **Asynchronous Batched Output**: MicroPython `print()` emissions write into `m_tx_channel`. A dedicated `repl_tx_coroutine` gathers characters and batches them into 256-byte RPMsg frames, preventing bus thrashing.
+3. **NLR Keyboard Interrupts**: Long-running Python loops non-preemptively check `m_rx_channel.try_peek(ch)` in `abstractx_repl_vm_hook()` for `CHAR_CTRL_C` (`0x03`) to schedule `mp_sched_keyboard_interrupt()` without stalling primary-paced sensor loops.
 
 ---
 
-## 6. Overlay Loading & Mode Switching on the Target Board
+## 6. How Device Trees and `/boot/config.txt` Work (Compile, Deploy, Load)
 
-The SD card boot partition contains `/boot/config.txt`. You can switch between Linux testing and XuanTie E906 real-time control by editing this single line:
+### 6.1 The U-Boot Device Tree Overlay Architecture
 
-### For Linux Host Testing (Python / `/dev/i2c-1` / `/dev/ttyAS3`):
+On the Radxa Cubie A5E, device tree overlays are dynamically loaded and merged by the **U-Boot bootloader** before the Linux kernel is ever started. This eliminates the need to recompile the kernel DTB or alter low-level U-Boot flash environment variables:
+
+```mermaid
+flowchart TD
+    subgraph STAGE1["1. Power-On & Bootloader"]
+        UB["U-Boot Execution (boot.scr)"]
+        FDT_BASE["Load Base DTB: sun55i-a527-cubie-a5e.dtb<br/>into RAM @ 0x4fa00000"]
+        UB --> FDT_BASE
+    end
+
+    subgraph STAGE2["2. Parse /boot/config.txt"]
+        CFG["Read /boot/config.txt from MMC 0:1"]
+        PARSE["Extract 'dtoverlay=' parameter list"]
+        RESIZE["fdt resize 0x10000 (Expand Device Tree Buffer)"]
+        FDT_BASE --> CFG --> PARSE --> RESIZE
+    end
+
+    subgraph STAGE3["3. Dynamic Overlay Injection"]
+        LOOP["Iterate over each overlay in dtoverlay"]
+        LOAD_DTBO["Load &lt;overlay&gt;.dtbo into RAM @ 0x4fe00000"]
+        APPLY["<b>fdt apply</b>: Merge fragments, pinmux, and compatible nodes"]
+        RESIZE --> LOOP --> LOAD_DTBO --> APPLY
+    end
+
+    subgraph STAGE4["4. Kernel Handoff"]
+        BOOTI["<b>booti</b>: Pass patched device tree to Linux kernel"]
+        APPLY --> BOOTI
+        LINUX["Linux Kernel Boots with Active Pinmux & Drivers"]
+        BOOTI --> LINUX
+    end
+```
+
+#### Under the Hood of `boot.scr`:
+1. **Locate Configuration**: U-Boot searches the root FAT partition for Raspberry Pi-style `/boot/config.txt`.
+2. **Base FDT Loading**: The base board device tree (`sun55i-a527-cubie-a5e.dtb`) is loaded into memory at `${fdt_addr_r}` (`0x4fa00000`).
+3. **Buffer Expansion**: U-Boot executes `fdt addr ${fdt_addr_r}` and `fdt resize 0x10000` to allocate extra buffer space in RAM for overlay nodes and properties.
+4. **Dynamic Merging (`fdt apply`)**: For every overlay listed in `dtoverlay=`, U-Boot loads `<overlay>.dtbo` to `${fdtoverlay_addr_r}` (`0x4fe00000`) and calls `fdt apply ${fdtoverlay_addr_r}`.
+5. **Fail-Safe Fallback**: If an overlay file is missing or fails to merge, U-Boot sets `fdt_apply_error=1`, logs `[ERROR] fdt apply failed for <overlay>!`, and reloads the clean base DTB so the board still boots reliably into Linux without bricking.
+
+---
+
+### 6.2 Step-by-Step Compilation & Deployment
+
+#### Step 1: Compile the Device Tree Source Overlays (`.dtso` $\rightarrow$ `.dtbo`)
+Compile both `.dtso` source files into binary `.dtbo` overlays using the Device Tree Compiler (`dtc`) with symbols enabled (`-@`):
+
+```bash
+# Compile Linux Host profile (attached kernel drivers)
+dtc -@ -I dts -O dtb -o cubie-a5e-flight-stack-linux.dtbo cubie-a5e-flight-stack-linux.dtso
+
+# Compile XuanTie E906 Real-Time profile (generic-uio & remoteproc)
+dtc -@ -I dts -O dtb -o cubie-a5e-flight-stack-e906.dtbo cubie-a5e-flight-stack-e906.dtso
+```
+
+#### Step 2: Deploy Binary Overlays to `/boot/` on the Target Board
+Transfer the compiled `.dtbo` files to the board's `/boot/` directory using legacy SCP mode (`-O`):
+
+```bash
+scp -O cubie-a5e-flight-stack-linux.dtbo cubie-a5e-flight-stack-e906.dtbo root@192.168.3.3:/boot/
+```
+
+---
+
+### 6.3 Loading and Switching Profiles via `/boot/config.txt`
+
+The active profile is selected purely by editing `/boot/config.txt`. The `.dtbo` extension is optional and can be omitted.
+
+#### Profile 1: Linux Host / Python Prototyping Mode
+Use this profile when writing Python test scripts, scanning I2C with `i2cdetect -y 1`, verifying GPS streaming on `/dev/ttyS3` (`/dev/ttyAS3`), or testing SPI devices via `/dev/spidev1.0`.
+
+To activate from the host via SSH:
+```bash
+ssh root@192.168.3.3 "echo 'dtoverlay=cubie-a5e-flight-stack-linux' > /boot/config.txt"
+ssh root@192.168.3.3 "sync && reboot"
+```
+
+Or edit `/boot/config.txt` directly:
 ```ini
-# /boot/config.txt
+# /boot/config.txt - Linux Host Testing Profile
 dtoverlay=cubie-a5e-flight-stack-linux
 ```
 
-### For XuanTie E906 Real-Time Coprocessor Control (UIO Mode):
+#### Profile 2: XuanTie E906 Real-Time Flight Stack & MicroPython REPL Mode
+Use this profile when running the XuanTie E906 bare-metal C++20 flight loop or interactive MicroPython hardware diagnostics. Linux will configure pinmux and ungate bus clocks, but attach no drivers (`generic-uio`), and boot the E906 firmware automatically via remoteproc.
+
+To activate from the host via SSH:
+```bash
+ssh root@192.168.3.3 "echo 'dtoverlay=cubie-a5e-flight-stack-e906' > /boot/config.txt"
+ssh root@192.168.3.3 "sync && reboot"
+```
+
+Or edit `/boot/config.txt` directly:
 ```ini
-# /boot/config.txt
+# /boot/config.txt - XuanTie E906 Real-Time Flight Stack Profile
 dtoverlay=cubie-a5e-flight-stack-e906
 ```
 
-Reboot the board (`reboot`) after editing `/boot/config.txt` for the Device Tree changes to take effect.
+#### Profile 3: XuanTie E906 with Multi-Overlay Chaining (e.g. Zero-Copy SRAM RPMsg)
+U-Boot supports chaining multiple overlays by listing them separated by spaces on the `dtoverlay=` line:
+```ini
+# /boot/config.txt - E906 Flight Stack + Zero-Copy SRAM RPMsg Pool
+dtoverlay=cubie-a5e-flight-stack-e906 cubie-a5e-abstractx-rpmsg-sram
+```
+
+---
+
+### 6.4 Post-Boot Verification Checklist
+
+After the board reboots, perform these quick checks from the Linux terminal to confirm that U-Boot loaded the intended overlay and configured the hardware:
+
+#### 1. Instant Overlay Version Check
+Read the version string injected by the overlay into the live device tree:
+```bash
+cat /proc/device-tree/cubie-flight-stack-version
+```
+- **Returns `1.6-linux`**: Confirms `cubie-a5e-flight-stack-linux.dtbo` was merged.
+- **Returns `1.6-e906`**: Confirms `cubie-a5e-flight-stack-e906.dtbo` was merged.
+
+#### 2. Verify Physical Pinmux Routing in DebugFS
+Mount debugfs and verify which subsystem has claimed the 40-pin header pins:
+```bash
+mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
+grep -E 'PB4|PB5|PB11|PB12|PB13|PB14|PI0|PI1|PI11|PI12' /sys/kernel/debug/pinctrl/2000000.pinctrl/pinmux-pins
+```
+- **Under Linux Profile (`-linux`)**:
+  - `PB4`, `PB5`: claimed by `device 2502400.i2c function i2c1`
+  - `PI11`, `PI12`: claimed by `device 2500c00.serial function uart3`
+  - `PB11`–`PB14`: claimed by `device 4026000.spi function spi1`
+- **Under E906 Profile (`-e906`)**:
+  - Pins are claimed and function muxes are set, but device drivers are `generic-uio` (no Linux serial or I2C drivers).
+
+#### 3. Verify RemoteProc and MicroPython REPL (E906 Profile)
+```bash
+# Check coprocessor execution state:
+cat /sys/class/remoteproc/remoteproc0/state
+# Output: running
+
+# Check early boot trace log:
+cat /sys/kernel/debug/remoteproc/remoteproc0/trace0
+# Output: [E906] Online
+
+# Connect to the interactive MicroPython REPL:
+microcom -p /dev/rpmsg0
+```
+
+---
+
+### 6.5 Troubleshooting & Common Pitfalls
+
+| Symptom | Root Cause | Solution |
+|---|---|---|
+| **Pins show `UNCLAIMED` in debugfs** | Missing numeric `allwinner,pinmux = <mux>` in the DT overlay pin group. | Ensure every pin group node in `.dtso` includes `allwinner,pinmux = <val>;` (e.g. `2` for UART3/I2C1, `4` for SPI1). |
+| **E906 hangs or reads `0x00000000` on UART3/I2C1** | Peripheral was left `status = "disabled"` or not bound to `generic-uio`. The Linux CCU gated off the APB clock. | Use `cubie-a5e-flight-stack-e906.dtso` where peripherals have `compatible = "generic-uio"` and `status = "okay"`. |
+| **I2C bus hangs or NAKs continuously** | `bias-pull-up;` was enabled in pinctrl while GPS puck also has pull-ups, or puck 5V power (Pin 2) is disconnected. | Omit `bias-pull-up` from overlay and verify Pin 2 has 5V power and Pin 6 is connected to ground. |
+| **GPS serial stream produces no characters** | Serial TX/RX crossover reversed. | Connect GPS Green wire (GPS TX) to **Pin 31 (A5E RX)** and Yellow wire (GPS RX) to **Pin 16 (A5E TX)**. |
+| **U-Boot prints `[ERROR] fdt apply failed`** | Syntax error in `.dtso`, missing label reference in base DTB, or overlay buffer overflow. | Verify `.dtso` compiles cleanly with `dtc -@`, check label names against `sun55i-a527-cubie-a5e.dtb`, and ensure U-Boot `fdt resize 0x10000` is run. |
+| **RemoteProc stays `offline` or fails to start** | Firmware file missing or misnamed in `/lib/firmware/`. | Ensure `riscv-firmware.elf` symlinks to `e906_repl_app.elf` (`ln -s /lib/firmware/e906_repl_app.elf /lib/firmware/riscv-firmware.elf`). |
 
 ---
 

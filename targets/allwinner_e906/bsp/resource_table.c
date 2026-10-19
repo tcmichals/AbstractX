@@ -14,6 +14,7 @@ char g_rproc_trace_buffer[CONFIG_RPROC_TRACE0_LEN];
 
 #ifdef CONFIG_RPROC_RPMSG
 
+// @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
 __attribute__((used, section(".resource_table"), aligned(4)))
 const struct rpmsg_resource_table global_resource_table = {
     .ver        = 1,
@@ -42,14 +43,14 @@ const struct rpmsg_resource_table global_resource_table = {
         .reserved      = {0, 0},
         .vring = {
             {
-                .da       = 0, /* Host allocates dynamic buffer/da */
+                .da       = FW_RSC_ADDR_ANY,
                 .align    = VRING_ALIGN,
                 .num      = VRING_NUM_DESCS,
                 .notifyid = 0,
                 .reserved = 0,
             },
             {
-                .da       = 0, /* Host allocates dynamic buffer/da */
+                .da       = FW_RSC_ADDR_ANY,
                 .align    = VRING_ALIGN,
                 .num      = VRING_NUM_DESCS,
                 .notifyid = 1,

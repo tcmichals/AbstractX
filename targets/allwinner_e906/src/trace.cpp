@@ -5,8 +5,9 @@
 
 namespace hal {
 
-// RemoteProc trace buffer in on-chip SRAM A3 (matches resource_table trace carving)
-static constexpr size_t    TRACE_BUFFER_SIZE = 0x4000; // 16 KB trace ring/linear buffer
+// RemoteProc trace buffer in on-chip SRAM A3 (Liveness & Crash only)
+// @impl [SPEC-E906-REPL-07] apps/e906_repl_app/SPECIFICATION.md
+static constexpr size_t    TRACE_BUFFER_SIZE = 1024; // 1 KB minimal trace buffer
 
 // S_UART0 base on Allwinner T527 for optional mirror
 static constexpr uintptr_t S_UART0_THR = 0x07080000;

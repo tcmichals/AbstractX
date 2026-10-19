@@ -127,5 +127,23 @@ flowchart TD
   * `abstractx.poke(addr, val)`: Writes 32-bit MMIO or SRAM word at address `addr`.
   * `abstractx.version()`: Returns AbstractX firmware release string.
   * `abstractx.cycles()`: Returns current RISC-V 64-bit `mcycle` timestamp.
+  * `abstractx.alive()`: Returns `True` (liveness probe).
+  * `abstractx.uart_read()`: Reads pending bytes from UART3 FIFO (u-blox NEO-M8N GPS on Pins 16 & 31, `0x02500C00`).
+  * `abstractx.uart_write(data)`: Transmits bytes or string over UART3 to GPS.
+  * `abstractx.i2c_scan()`: Probes I2C1 (TWI1, Pins 3 & 5, `0x02502400`) and returns list of responding 7-bit addresses.
+  * `abstractx.i2c_read(addr, reg, len)`: Reads `len` bytes from register `reg` on I2C device `addr`.
 * **Verified by**: `host-tests`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`
+
+### `[SPEC-E906-REPL-07]` Dual-Tier Observability: Lean RemoteProc trace0 vs. Binary barectf Code Tracing
+* **Requirement**:
+  1. **RemoteProc `trace0` Buffer**: The memory-mapped debugfs trace buffer (`g_rproc_trace_buffer`, 1 KB in `SRAM_FAST`) is STRICTLY reserved for:
+     - Firmware liveness confirmation upon boot (`[E906] Online\n`).
+     - Fatal crash autopsies (`hal_crash_dispatcher` register dump and stack unwinding).
+     - **Negative Invariant**: It MUST NOT be used for general diagnostic logging, function call tracing, or arbitrary printf string emissions. Firmware rodata string literals are prohibited from consuming on-chip SRAM for trace formatting.
+  2. **barectf CTF 1.8 Binary Code Tracing**: All code tracing, driver event telemetry, and coroutine execution instrumentation MUST use structured binary CTF 1.8 frames emitted via `barectf` over VirtIO RPMsg endpoint 1025 (`"abstractx-trace"`).
+  3. Binary trace packets must be emitted zero-copy into host SRAM buffers without heap allocation or CPU-bound string rendering.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `targets/allwinner_e906/src/trace.cpp`
+
+
