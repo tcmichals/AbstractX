@@ -106,7 +106,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_uart_init_obj, 0, 1, mo
 // abstractx.uart_read(max_bytes=128) -> bytes
 // @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_uart_read(size_t n_args, const mp_obj_t *args) {
-    size_t max_bytes = 128;
+    size_t max_bytes = 256;
     if (n_args > 0) {
         max_bytes = (size_t)mp_obj_get_int_truncated(args[0]);
     }
@@ -213,7 +213,10 @@ static bool twi1_start(void) {
 
 static void twi1_stop(void) {
     HW_TWI1_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_M_STP | TWI_CNTR_INT_FLG;
-    for (volatile int i = 0; i < 200; ++i);
+    uint32_t timeout = 5000;
+    while ((HW_TWI1_CNTR & TWI_CNTR_M_STP) && --timeout) {
+        abstractx_repl_vm_hook();
+    }
 }
 
 static bool twi1_send_byte(uint8_t byte, uint32_t expected_stat) {
@@ -235,7 +238,11 @@ static uint8_t twi1_read_byte(bool ack) {
 
 // abstractx.i2c_init(freq=100000) -> bool
 static mp_obj_t mod_abstractx_i2c_init(size_t n_args, const mp_obj_t *args) {
-    (void)n_args; (void)args;
+    uint32_t freq = 100000;
+    if (n_args > 0) {
+        freq = (uint32_t)mp_obj_get_int_truncated(args[0]);
+    }
+
     // 1. Deassert reset (bit 17) and enable clock (bit 1) for TWI1
     CCU_TWI_BGR |= (1U << 17) | (1U << 1);
 
@@ -246,8 +253,15 @@ static mp_obj_t mod_abstractx_i2c_init(size_t n_args, const mp_obj_t *args) {
     HW_TWI1_SRST = 1;
     for (volatile int i = 0; i < 500; ++i);
 
-    // 4. Set clock divisor for 100 kHz on 24 MHz APB clock (CCR = 0x24)
-    HW_TWI1_CCR = 0x24U;
+    // 4. Set accurate clock divisor on 24 MHz APB clock:
+    // F0 = Fin / (2^N * (M + 1) * 10)
+    // 400 kHz: Fin/60 => N=1 (2^1=2), M=2 => 2 * 3 * 10 = 60 => CCR = 0x12
+    // 100 kHz: Fin/240 => N=2 (2^2=4), M=5 => 4 * 6 * 10 = 240 => CCR = 0x25
+    if (freq >= 400000) {
+        HW_TWI1_CCR = 0x12U; // 400 kHz Fast Mode
+    } else {
+        HW_TWI1_CCR = 0x25U; // 100 kHz Standard Mode
+    }
 
     // 5. Enable TWI bus
     HW_TWI1_CNTR = TWI_CNTR_BUSEN;

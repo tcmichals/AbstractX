@@ -19,18 +19,6 @@ import abstractx
 # 1. Freestanding String & Mathematical Primitives (Zero Heap / Minimal ROM)
 # ==============================================================================
 
-def substr(s, start, end):
-    """Zero-allocation slice emulator for minimal MicroPython ROM level."""
-    L = len(s)
-    if end > L:
-        end = L
-    if start < 0:
-        start = 0
-    chars = []
-    for i in range(start, end):
-        chars.append(s[i])
-    return "".join(chars)
-
 def calc_heading_deg(x, y):
     """
     Computes compass heading in integer degrees [0..359] using octant approximation.
@@ -262,14 +250,15 @@ class UbloxM8nDriver:
         return True
 
     def parse_coordinate(self, raw, dir_char):
-        """Formats raw NMEA ddmm.mmmmm into human-readable degrees and minutes."""
-        if not raw or len(raw) < 4:
+        """Formats raw NMEA ddmm.mmmmm into degrees and minutes via integer arithmetic."""
+        if not raw or "." not in raw:
             return "N/A"
-        dot = raw.find(".")
-        if dot > 2:
-            deg = substr(raw, 0, dot - 2)
-            mins = substr(raw, dot - 2, len(raw))
-            return deg + " deg " + mins + " min " + dir_char
+        parts = raw.split(".")
+        if len(parts) == 2:
+            whole = int(parts[0])
+            deg = whole // 100
+            mins = whole % 100
+            return str(deg) + " deg " + str(mins) + "." + parts[1] + " min " + dir_char
         return raw + " " + dir_char
 
     def poll_stream(self):
@@ -277,11 +266,15 @@ class UbloxM8nDriver:
         Drains UART3 FIFO non-blockingly and parses arriving NMEA sentences.
         Returns a dictionary fix record if a valid sentence was completed.
         """
-        chunk = abstractx.uart_read(128)
+        chunk = abstractx.uart_read(256)
         if not chunk:
             return None
 
         self.rx_buffer += str(chunk, "utf-8")
+        if len(self.rx_buffer) > 512:
+            self.rx_buffer = ""
+            return None
+
         parsed_record = None
 
         while "\r\n" in self.rx_buffer:
