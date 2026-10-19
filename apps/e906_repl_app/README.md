@@ -12,8 +12,8 @@ When wiring a standard drone GPS & Electronic Compass puck (such as the u-blox N
 
 ```mermaid
 flowchart TD
-    subgraph CUBIE["Radxa Cubie A5E 40-Pin Header"]
-        P1["Pin 1: 3.3V Power (VCC_3V3)"]
+    subgraph CUBIE["Radxa Cubie A5E / A7A 40-Pin Header"]
+        P2["Pin 2: 5V Power (5V_VCC)"]
         P3["Pin 3: I2C1-SDA (PH0 / TWI1)"]
         P5["Pin 5: I2C1-SCL (PH1 / TWI1)"]
         P6["Pin 6: Ground (GND)"]
@@ -24,15 +24,15 @@ flowchart TD
     end
 
     subgraph GPS_PUCK["u-blox NEO-M8N GPS + Compass Puck"]
-        VCC["VCC (3.3V / 5V)"]
-        GND["GND"]
+        VCC["VCC (5V Power)"]
+        GND["GND (Ground)"]
         SDA["I2C SDA"]
         SCL["I2C SCL"]
         TX["GPS TX (Serial Stream Output)"]
         RX["GPS RX (Configuration Input)"]
     end
 
-    P1 ===>|3.3V Power| VCC
+    P2 ===>|5V Power| VCC
     P6 ===>|Ground| GND
     P3 <===>|I2C Data| SDA
     P5 ===>|I2C Clock| SCL
@@ -44,10 +44,10 @@ flowchart TD
 
 | Header Pin | SoC Net / Function | Target Peripheral | Wire Color | Puck Function & Connection Rule |
 |---|---|---|---|---|
-| **Pin 1** (or 2/4) | `VCC_3V3` (or `5V`) | Power Supply | **Red** | Power input for GPS and Compass (supports 3.3V or 5V) |
-| **Pin 6** (or 14) | `GND` | Ground Reference | **Black** | Common system ground |
-| **Pin 3** | `PH0 / TWI1-SDA` | **I2C1 Data** | **Blue** | I2C SDA (Compass `0x0D`/`0x1E` & u-blox DDC `0x42`) |
-| **Pin 5** | `PH1 / TWI1-SCL` | **I2C1 Clock** | **Orange** | I2C SCL (Compass & u-blox DDC) |
+| **Pin 2** (or Pin 4) | `5V_VCC` | Power Supply | **Red** | **5V Power Input** for GPS and Compass |
+| **Pin 6** (or Pin 14) | `GND` | Ground Reference | **Black** | **System Ground** |
+| **Pin 3** | `PH0 / TWI1-SDA` | **I2C1 Data** | **Blue** | **I2C SDA** (Compass `0x0D`/`0x1E` & u-blox DDC `0x42`) |
+| **Pin 5** | `PH1 / TWI1-SCL` | **I2C1 Clock** | **Orange** | **I2C SCL** (Compass & u-blox DDC) |
 | *Pin 8* | *PB9 / UART0-TX* | *Debug Terminal* | *White* | *Reserved: Linux Host Serial Debug Console (115200)* |
 | *Pin 10* | *PB10 / UART0-RX* | *Debug Terminal* | *Gray* | *Reserved: Linux Host Serial Debug Console (115200)* |
 | **Pin 11** | `PB0 / UART2-TX` | **UART2 Transmit** | **Yellow** | **GPS RX** (SoC Transmit $\rightarrow$ GPS Puck Receive) |

@@ -14,47 +14,47 @@ A standard drone GPS puck combines:
 
 ```mermaid
 flowchart TD
-    subgraph CUBIE["Radxa Cubie A5E 40-Pin Header"]
-        P1["Pin 1: 3.3V Power"]
-        P3["Pin 3: I2C1-SDA (TWI1)"]
-        P5["Pin 5: I2C1-SCL (TWI1)"]
-        P6["Pin 6: Ground"]
-        P8["Pin 8: UART0-TX (Host Console)"]
-        P10["Pin 10: UART0-RX (Host Console)"]
-        P11["Pin 11: UART2-TX (PB0)"]
-        P13["Pin 13: UART2-RX (PB1)"]
+    subgraph CUBIE["Radxa Cubie A5E / A7A 40-Pin Header"]
+        P2["Pin 2: 5V Power (5V_VCC)"]
+        P3["Pin 3: I2C1-SDA (PH0 / TWI1)"]
+        P5["Pin 5: I2C1-SCL (PH1 / TWI1)"]
+        P6["Pin 6: Ground (GND)"]
+        P8["Pin 8: UART0-TX (PB9 - Linux Console)"]
+        P10["Pin 10: UART0-RX (PB10 - Linux Console)"]
+        P11["Pin 11: UART2-TX (PB0 - Navigation SoC TX)"]
+        P13["Pin 13: UART2-RX (PB1 - Navigation SoC RX)"]
     end
 
     subgraph GPS_PUCK["u-blox NEO-M8N GPS + Compass Puck"]
-        VCC["VCC (3.3V / 5V)"]
-        GND["GND"]
+        VCC["VCC (5V Power)"]
+        GND["GND (Ground)"]
         SDA["I2C SDA"]
         SCL["I2C SCL"]
         TX["GPS TX (Output)"]
         RX["GPS RX (Input)"]
     end
 
-    P1 ===>|3.3V Power| VCC
+    P2 ===>|5V Power| VCC
     P6 ===>|Ground| GND
     P3 <===>|I2C Data| SDA
     P5 ===>|I2C Clock| SCL
-    P11 ===>|Serial Commands| RX
-    P13 <===|NMEA / UBX Stream| TX
+    P11 ===>|Serial Commands (TX -> RX)| RX
+    P13 <===|NMEA / UBX Stream (TX -> RX)| TX
 ```
 
 ### Complete 40-Pin Header Connection Table
 
 | Header Pin | SOC Pin / Net | Target Peripheral | Puck Wire | Function |
 |---|---|---|---|---|
-| **Pin 1** (or 2/4) | `VCC_3V3` (or `5V`) | System Power | **Red** | VCC Power Input |
-| **Pin 6** | `GND` | Ground | **Black** | Ground Reference |
-| **Pin 3** | `PH0 / TWI1-SDA` | **I2C1 Data** | **Green** | I2C Data (Compass & u-blox DDC) |
-| **Pin 5** | `PH1 / TWI1-SCL` | **I2C1 Clock** | **Yellow** | I2C Clock (Compass & u-blox DDC) |
-| *Pin 8* | *PB9 / UART0-TX* | *Linux Console* | *—* | *Reserved for Linux Debug Terminal* |
-| *Pin 10* | *PB10 / UART0-RX*| *Linux Console* | *—* | *Reserved for Linux Debug Terminal* |
-| **Pin 11** | `PB0 / UART2-TX` | **UART2 Transmit** | **White / Orange** | GPS Serial RX (Commands from SoC) |
-| **Pin 13** | `PB1 / UART2-RX` | **UART2 Receive** | **Blue / Green** | GPS Serial TX (Stream from GPS) |
-| **Pin 14** | `GND` | Ground | **Black** | Ground Shield |
+| **Pin 2** (or Pin 4) | `5V_VCC` | System Power | **Red** | **5V Power Input** for GPS & Compass puck |
+| **Pin 6** (or Pin 14) | `GND` | Ground Reference | **Black** | **System Ground** |
+| **Pin 3** | `PH0 / TWI1-SDA` | **I2C1 Data** | **Blue** | **I2C Data** (Compass & u-blox DDC) |
+| **Pin 5** | `PH1 / TWI1-SCL` | **I2C1 Clock** | **Orange** | **I2C Clock** (Compass & u-blox DDC) |
+| *Pin 8* | *PB9 / UART0-TX* | *Linux Console* | *White* | *Reserved for Linux Debug Terminal (115200)* |
+| *Pin 10* | *PB10 / UART0-RX*| *Linux Console* | *Gray* | *Reserved for Linux Debug Terminal (115200)* |
+| **Pin 11** | `PB0 / UART2-TX` | **UART2 Transmit** | **Yellow** | **GPS Serial RX** (SoC TX $\rightarrow$ GPS RX) |
+| **Pin 13** | `PB1 / UART2-RX` | **UART2 Receive** | **Green** | **GPS Serial TX** (GPS TX $\rightarrow$ SoC RX) |
+| **Pin 14** | `GND` | Ground | **Black** | Secondary Ground Reference |
 
 > [!IMPORTANT]
 > **Serial Crossover Rule**: Connect **Pin 11 (UART2-TX)** to GPS **RX**, and **Pin 13 (UART2-RX)** to GPS **TX**.
