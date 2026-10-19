@@ -509,5 +509,11 @@ Completed: 40 Compass Samples, 4 GPS Fix Sentences ingested.
 ```
 Results:
 - Compass: 40 samples ingested over I2C TWI1 without bus lockups, heading $359^\circ$ (N).
-- GPS: 4 valid 3D DGPS fixes parsed over UART3 ($33^\circ 06.91864\' \text{ N}, 097^\circ 01.11830\' \text{ W}$, 12 satellites tracked, altitude 160.8m).
+- GPS: 4 valid 3D DGPS fixes parsed over UART3 ($33^\circ 06.91864' \text{ N}, 097^\circ 01.11830' \text{ W}$, 12 satellites tracked, altitude 160.8m).
 - Concurrency: Zero heap allocations during execution, stackless cooperative coroutines yielding cleanly to `abstractx::step()`.
+
+### 4. High-Speed 115200 Baud & 10 Hz Navigation Upgrade
+- **Baudrate Elevation**: Initialized at 9600 baud, transmitted `UBX-CFG-PRT` to switch the u-blox receiver's UART1 to **115200 baud**, then re-initialized XuanTie E906 UART3 to 115200 baud (divisor 13 on 24 MHz APB clock, 0.16% error).
+- **Noise Suppression**: Filtered out multi-page constellation text (`UBX-CFG-MSG` disabling GSV, GSA, GLL, VTG), reducing epoch payload from 500+ bytes to ~150 bytes ($GNRMC and $GNGGA only).
+- **10 Hz Solution Rate**: Configured `UBX-CFG-RATE` for 100 ms measurement period, streaming updates at steady-state 10.0 Hz.
+- **Architectural Channels**: Refactored into `Qmc5883lDriver`, `UbloxM8nDriver`, and `AsyncQueue` SPSC ring buffers matching AbstractX C++20 `AsyncQueue<T, N>` with a primary-paced `FlightExecutive`.

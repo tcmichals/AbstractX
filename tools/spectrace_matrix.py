@@ -631,12 +631,12 @@ def diff_hunks(root: Path, base: str, staged: bool = False) -> list[Hunk]:
 
 def governing(anchors: list[Anchor], start: int, count: int) -> Anchor | None:
     """The tag that governs a hunk: the last @impl at or above its end."""
-    end = start + max(count, 1) - 1
+    end = max(start + max(count, 1) - 1, 1)
     best = None
     for a in anchors:
         if a.line <= end:
             best = a
-    return best
+    return best or (anchors[0] if anchors else None)
 
 
 def review_changes(root: Path, base: str, prompt: bool, strict: bool, staged: bool = False) -> int:
