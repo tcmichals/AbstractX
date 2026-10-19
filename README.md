@@ -913,6 +913,21 @@ AbstractX/
 
 ## 8. Quickstart: Building & Running
 
+### 0. Clone with Submodules & Recursive Pull
+AbstractX depends on Git submodules for embedded template libraries and runtime engines (`third_party/etl` and `third_party/micropython`). Ensure submodules are fetched recursively:
+
+```bash
+# Clone repository recursively:
+git clone --recursive https://github.com/tcmichals/AbstractX.git
+cd AbstractX
+
+# Or initialize submodules in an existing clone:
+git submodule update --init --recursive
+
+# When pulling updates to sync all submodules recursively:
+git pull --recurse-submodules
+```
+
 ### 1. Set Up Python Virtual Environment (`.venv`)
 Modern Linux distributions (Ubuntu 24.04/Debian 12, PEP 668) require virtual environments for Python packages (`imgui-bundle`, `numpy`). You can set up the environment automatically:
 
