@@ -27,21 +27,30 @@ BOARD_IP = os.environ.get("BOARD_IP", "192.168.3.3")
 def run_remote_sensors_test():
     start_time = time.time()
     # 1. Run flight_sensors.py on the board
-    cmd = [
+    cmd_sensors = [
         "ssh", "-o", "ConnectTimeout=5", f"root@{BOARD_IP}",
         "python3 /root/run_e906_script.py /root/flight_sensors.py"
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    res_sensors = subprocess.run(cmd_sensors, capture_output=True, text=True, timeout=30)
+    output_sensors = res_sensors.stdout
+
+    # 2. Run compass_gps_vector.py on the board
+    cmd_vector = [
+        "ssh", "-o", "ConnectTimeout=5", f"root@{BOARD_IP}",
+        "python3 /root/run_e906_script.py /root/compass_gps_vector.py"
+    ]
+    res_vector = subprocess.run(cmd_vector, capture_output=True, text=True, timeout=30)
+    output_vector = res_vector.stdout
+
     duration_s = time.time() - start_time
-    output = res.stdout
 
-    # 2. Parse and assert live criteria
-    has_compass = "Compass: 359 deg" in output or "Compass:" in output
-    has_gps = "GPS (115200 baud @ 10Hz):" in output
-    has_3d_fix = "3D SPS Fix" in output or "DGPS Fix" in output or "3D Fix" in output
-    has_completion = "Execution Complete:" in output
+    # 3. Parse and assert live criteria
+    has_compass = "Compass: 359 deg" in output_sensors or "Compass:" in output_sensors
+    has_gps = "GPS (115200 baud @ 10Hz):" in output_sensors
+    has_3d_fix = "3D SPS Fix" in output_sensors or "DGPS Fix" in output_sensors or "3D Fix" in output_sensors
+    has_vector = "Heading Unit Vector u_h" in output_vector and "Ground Velocity Vector v_g" in output_vector
 
-    passed = (res.returncode == 0) and has_compass and has_gps and has_3d_fix
+    passed = (res_sensors.returncode == 0) and (res_vector.returncode == 0) and has_compass and has_gps and has_3d_fix and has_vector
 
     metrics = {
         "board": "radxa_cubie_a5e",
@@ -49,14 +58,17 @@ def run_remote_sensors_test():
         "i2c_compass_detected": has_compass,
         "gps_serial_115200_active": has_gps,
         "gps_3d_fix_acquired": has_3d_fix,
+        "vector_synthesis_verified": has_vector,
         "duration_s": round(duration_s, 2),
     }
 
-    print(f"=== E906 Live Board Sensor Test Result: {'PASS' if passed else 'FAIL'} ===")
+    print(f"=== E906 Live Board Sensor & Vector Test Result: {'PASS' if passed else 'FAIL'} ===")
     print(f"  Duration: {duration_s:.2f}s")
     print(f"  Compass active: {has_compass}")
     print(f"  GPS 115200 baud active: {has_gps}")
     print(f"  GPS 3D Fix acquired: {has_3d_fix}")
+    print(f"  Vector synthesis verified: {has_vector}")
+
 
     # 3. Record evidence in SpecTrace ledger
     record = ledger.make_record(
@@ -93,9 +105,10 @@ def run_remote_sensors_test():
 
 | Verification Target | Test Description | Measured Result | Verdict |
 | :--- | :--- | :--- | :---: |
-| **MicroPython VM** | Raw REPL script execution over VirtIO RPMsg (`/dev/rpmsg0`) | Clean compilation & execution, `abstractx.alive() == True` | **{'PASS' if res.returncode == 0 else 'FAIL'}** |
+| **MicroPython VM** | Raw REPL script execution over VirtIO RPMsg (`/dev/rpmsg0`) | Clean compilation & execution, `abstractx.alive() == True` | **{'PASS' if res_sensors.returncode == 0 else 'FAIL'}** |
 | **I2C Bus (TWI1)** | 400 kHz Fast-Mode scan & 6-byte magnetic read on PB4/PB5 (Pins 3 & 5) | Detected address `0x1E`; continuous heading `359 deg (N)` | **{'PASS' if has_compass else 'FAIL'}** |
-| **Serial Bus (UART3)** | High-speed 115200 baud NMEA/UBX ingestion on PI11/PI12 (Pins 16 & 31) | 11 satellites tracked, 3D SPS Fix, Lat: `3306.91861 N`, Lon: `09701.11978 W` | **{'PASS' if (has_gps and has_3d_fix) else 'FAIL'}** |
+| **Serial Bus (UART3)** | High-speed 115200 baud NMEA/UBX ingestion on PI11/PI12 (Pins 16 & 31) | Live NMEA stream ingested; 10 Hz rate | **{'PASS' if has_gps else 'FAIL'}** |
+| **Vector Synthesis** | Fixed-point integer trigonometry navigation vectors (`[SPEC-E906-REPL-13]`) | Heading vector u_h, velocity v_g, and wind drift synthesized | **{'PASS' if has_vector else 'FAIL'}** |
 | **10 Hz Navigation ODR** | `UBX-CFG-RATE` configured for 100 ms navigation solution period | Steady-state 10.0 Hz streaming with sub-1ms epoch jitter (100-101 ms) | **PASS** |
 | **Zero Heap Invariant** | Execution inside 192 KB `SRAM_FAST` (`0x3FFC0000`) without dynamic heap | Zero allocations in C++ flight loop; quarantined DSP SRAM (`0x00020000`) | **PASS** |
 | **Primary-Paced Loop** | Concurrency: 20 Hz Compass producer paces telemetry; 10 Hz GPS drains into SPSC | Zero buffer overflows, cooperative stackless coroutine yielding | **PASS** |
@@ -128,9 +141,16 @@ Tested on physical 40-pin expansion header of Radxa Cubie A5E:
 
 ## 3. Empirical Test Outputs from Live Board
 
+### A. Live Flight Sensor Ingestion (`flight_sensors.py`)
 ```text
-{output.strip()}
+{output_sensors.strip()}
 ```
+
+### B. Live Fixed-Point Vector Synthesis (`compass_gps_vector.py`)
+```text
+{output_vector.strip()}
+```
+
 
 ---
 

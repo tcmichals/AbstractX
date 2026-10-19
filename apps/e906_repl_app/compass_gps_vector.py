@@ -127,17 +127,19 @@ class NavVectorEngine:
             self.set_home(lat_deg_1e7, lon_deg_1e7)
             return (0, 0)
 
-        # Latitude delta in meters
+        # Latitude delta in meters (scaled down first to prevent 31-bit int overflow)
         d_lat = lat_deg_1e7 - self.home_lat_1e7
-        dn_m = (d_lat * 111132) // 10000000
+        dn_m = ((d_lat // 100) * 1111) // 10000
 
         # Longitude delta in meters scaled by cos(lat)
         d_lon = lon_deg_1e7 - self.home_lon_1e7
         lat_deg = abs(lat_deg_1e7) // 10000000
         cos_lat_10k = icos_10k(lat_deg)
-        de_m = ((d_lon * 111132) // 10000000 * cos_lat_10k) // 10000
+        d_east_unscaled = ((d_lon // 100) * 1111) // 10000
+        de_m = (d_east_unscaled * cos_lat_10k) // 10000
 
         return (dn_m, de_m)
+
 
 # ==============================================================================
 # 3. Demonstration & Sensor Integration

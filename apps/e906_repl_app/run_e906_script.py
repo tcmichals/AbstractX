@@ -68,9 +68,10 @@ def run_script(script_path, timeout=15.0):
             os.write(fd, chunk)
             time.sleep(0.02)
 
-        # 4. Stream response from MicroPython VM
+        # 4. Stream response from MicroPython VM (stdout and stderr)
         start_t = time.time()
         in_raw = True
+        eot_count = 0
         while time.time() - start_t < timeout:
             r, _, _ = select.select([fd], [], [], 0.3)
             if r:
@@ -79,13 +80,16 @@ def run_script(script_path, timeout=15.0):
                     data = data.split(b'OK', 1)[1]
                     in_raw = False
                 if b'\x04' in data:
-                    # End of execution marker
+                    eot_count += data.count(b'\x04')
                     data = data.replace(b'\x04', b'')
                     sys.stdout.buffer.write(data)
                     sys.stdout.flush()
-                    break
-                sys.stdout.buffer.write(data)
-                sys.stdout.flush()
+                    if eot_count >= 2:
+                        break
+                else:
+                    sys.stdout.buffer.write(data)
+                    sys.stdout.flush()
+
 
         # 5. Exit raw REPL: Ctrl-B
         os.write(fd, b'\x02')
