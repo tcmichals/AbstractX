@@ -1231,3 +1231,42 @@ This log chronicles the development, technical decisions, and architecture miles
   - `audit_specs.py`: 100% coverage (6/6 specifications implemented).
   - `spectrace_matrix.py --changes`: 8/8 hunks governed, 0 untraced.
 
+## 2026-10-18: MicroPython REPL Long Jump (NLR), Ctrl-C Keyboard Interrupt & Soft Reset Handling
+
+### 1. Mistake & Defect Summary
+* **Subsystem**: `apps/e906_repl_app`
+* **Category**: `product-bug` / `process-gap`
+* **Symptoms**:
+  1. Long-running or infinite Python loops (`while True: pass`) could not be interrupted by Ctrl-C (`0x03`), causing the XuanTie E906 co-processor REPL to become unresponsive to further user commands.
+  2. Typing Ctrl-D (soft reset) caused `pyexec_event_repl_process_char(ch)` to return `PYEXEC_FORCED_EXIT`, but the return code was ignored in `repl_coroutine` (`main.cpp`), permanently halting the REPL session without soft-restarting the VM.
+  3. If an uncaught exception escaped outside an NLR buffer (`nlr_jump_fail`), the handler silently spun in an infinite `wfi` loop without printing an autopsy or exception traceback to the console.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - Setting `MICROPY_CONFIG_ROM_LEVEL = MICROPY_CONFIG_ROM_LEVEL_MINIMUM` in `mpconfigport.h` automatically defaulted `MICROPY_KBD_EXCEPTION` to `0` (disabled), preventing `mp_sched_keyboard_interrupt()` from raising a Python `KeyboardInterrupt`.
+  - In `mphalport.h`, `mp_hal_set_interrupt_char` was implemented as a dummy empty stub `(void)c;`, so `pyexec.c` could never arm the interrupt character during bytecode execution.
+  - In `mphalport.cpp`, `abstractx_repl_vm_hook()` pumped `abstractx::Dispatcher::process()`, but never peeked into `g_repl_console` to intercept `CHAR_CTRL_C` (`0x03`).
+  - In `main.cpp`, `repl_coroutine` did not inspect the return value of `pyexec_event_repl_process_char(ch)` for `PYEXEC_FORCED_EXIT` (value `4`), which signals that the REPL session has terminated for a soft reset and requires `mp_deinit()`, `mp_init()`, and `pyexec_event_repl_init()`.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`apps/e906_repl_app/SPECIFICATION.md`](apps/e906_repl_app/SPECIFICATION.md)
+* **Requirement Tags Updated**:
+  - `[SPEC-E906-REPL-03]`: Explicitly mandates soft reset (`PYEXEC_FORCED_EXIT`, Ctrl-D) lifecycle handling via `mp_deinit()`, `mp_init()`, and `pyexec_event_repl_init()`.
+  - `[SPEC-E906-REPL-04]`: Explicitly mandates Ctrl-C (`CHAR_CTRL_C`, `0x03`) intercept during bytecode execution to trigger `mp_sched_keyboard_interrupt()` and NLR unwinding, as well as diagnostic autopsy dumping on `nlr_jump_fail`.
+
+### 4. Implementation & Verification
+* **Target Updates**:
+  - `apps/e906_repl_app/include/rpmsg_console.hpp`: Added non-destructive `try_peek_char(char &out_ch)` leveraging `etl::queue_spsc_isr::front()` under `InterruptLock`.
+  - `apps/e906_repl_app/include/mpconfigport.h`: Enabled `#define MICROPY_KBD_EXCEPTION (1)`.
+  - `apps/e906_repl_app/include/mphalport.h` & `CMakeLists.txt`: Linked `shared/runtime/interrupt_char.c` providing `mp_hal_set_interrupt_char(int c)` and `mp_interrupt_char`.
+  - `apps/e906_repl_app/src/mphalport.cpp`: Updated `abstractx_repl_vm_hook()` to peek for `mp_interrupt_char` and trigger `mp_sched_keyboard_interrupt()`. Updated `nlr_jump_fail()` to print autopsy via `mp_print_str` and `mp_obj_print_exception` before halting.
+  - `apps/e906_repl_app/src/main.cpp`: Added `PYEXEC_FORCED_EXIT` check in `repl_coroutine` to reinitialize MicroPython on Ctrl-D soft reset.
+* **Verification Evidence**:
+  - `build_e906`: Cross-compilation succeeded (`text: 148,825 B, data: 284 B, bss: 32,384 B`); load segments confirmed within remoteproc SRAM windows.
+  - `build_host`: 38/38 tests passed (100%).
+  - `build_asan`: 38/38 tests passed (100% with AddressSanitizer and UndefinedBehaviorSanitizer).
+  - `build_tsan`: 38/38 tests passed (100% with ThreadSanitizer).
+  - `audit_specs.py`: 100% coverage (6/6 specifications implemented).
+  - `spectrace_matrix.py --changes`: 8/8 hunks governed, 0 untraced.
+
+

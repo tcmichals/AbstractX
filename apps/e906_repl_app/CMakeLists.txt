@@ -25,6 +25,7 @@ set(REPL_APP_SOURCES
     ${MICROPY_DIR}/shared/runtime/pyexec.c
     ${MICROPY_DIR}/shared/readline/readline.c
     ${MICROPY_DIR}/shared/runtime/stdout_helpers.c
+    ${MICROPY_DIR}/shared/runtime/interrupt_char.c
 )
 
 add_executable(e906_repl_app

@@ -27,7 +27,15 @@ static abstractx::coro::Task<void> repl_coroutine(abstractx::RpmsgConsole &conso
     for (;;) {
         char ch = co_await console.read_char_async();
         if (ch != 0) {
-            pyexec_event_repl_process_char(ch);
+            int ret = pyexec_event_repl_process_char(ch);
+            if (ret & PYEXEC_FORCED_EXIT) {
+                mp_deinit();
+                char stack_dummy;
+                mp_stack_set_top(&stack_dummy);
+                mp_stack_set_limit(8192);
+                mp_init();
+                pyexec_event_repl_init();
+            }
             console.flush();
         }
     }

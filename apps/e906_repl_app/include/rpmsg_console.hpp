@@ -42,6 +42,16 @@ public:
         return !m_input_queue.empty();
     }
 
+    // Try to peek at the next character without removing it from the queue
+    // @impl [SPEC-E906-REPL-04] apps/e906_repl_app/SPECIFICATION.md
+    bool try_peek_char(char &out_ch) const noexcept {
+        if (!m_input_queue.empty()) {
+            out_ch = static_cast<char>(m_input_queue.front());
+            return true;
+        }
+        return false;
+    }
+
     // Try to pop a single character without suspending
     bool try_read_char(char &out_ch) noexcept {
         uint8_t byte = 0;

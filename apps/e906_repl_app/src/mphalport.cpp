@@ -71,6 +71,15 @@ mp_uint_t mp_hal_ticks_cpu(void) {
 void abstractx_repl_vm_hook(void) {
     // Cooperatively pump the dispatcher
     abstractx::Dispatcher::process();
+
+    // Check for keyboard interrupt (Ctrl-C) during bytecode execution
+    if (abstractx::g_repl_console && mp_interrupt_char != -1) {
+        char ch = 0;
+        if (abstractx::g_repl_console->try_peek_char(ch) && ch == mp_interrupt_char) {
+            abstractx::g_repl_console->try_read_char(ch);
+            mp_sched_keyboard_interrupt();
+        }
+    }
 }
 
 // Garbage collection root scan
@@ -83,8 +92,15 @@ void gc_collect(void) {
 }
 
 // Trap handler on uncaught longjmp failure
+// @impl [SPEC-E906-REPL-04] apps/e906_repl_app/SPECIFICATION.md
 void nlr_jump_fail(void *val) {
-    (void)val;
+    mp_print_str(&mp_plat_print, "\r\nFATAL: uncaught MicroPython exception (nlr_jump_fail)!\r\n");
+    if (val != nullptr) {
+        mp_obj_print_exception(&mp_plat_print, MP_OBJ_FROM_PTR(val));
+    }
+    if (abstractx::g_repl_console) {
+        abstractx::g_repl_console->flush();
+    }
     for (;;) {
 #if defined(__riscv)
         asm volatile("wfi");

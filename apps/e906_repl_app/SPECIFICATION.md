@@ -89,10 +89,12 @@ flowchart TD
      consuming 0 CPU cycles.
   3. Incoming characters and lines are dispatched into `pyexec_event_repl_process_char()`
      without blocking the dispatcher.
+  4. On soft reset (`PYEXEC_FORCED_EXIT`, Ctrl-D), the task MUST reinitialize the MicroPython VM
+     and REPL context via `mp_deinit()`, `mp_init()`, and `pyexec_event_repl_init()`.
 * **Verified by**: `host-tests`, `sanitizer-gate`
-* **Implementation Target**: `apps/e906_repl_app/src/repl_task.cpp`
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`
 
-### `[SPEC-E906-REPL-04]` `MICROPY_VM_HOOK_LOOP` Non-Preemptive Interleaving
+### `[SPEC-E906-REPL-04]` `MICROPY_VM_HOOK_LOOP` Non-Preemptive Interleaving & Ctrl-C Interrupts
 * **Requirement**:
   1. The MicroPython bytecode dispatch loop MUST define `MICROPY_VM_HOOK_LOOP` to call
      `abstractx::repl_vm_hook()`.
@@ -100,8 +102,13 @@ flowchart TD
      pump pending ISR dispatcher queues and service high-rate primary-paced sensor rings.
   3. Long-running or infinite Python loops (`while True: pass`) MUST NOT starve
      the 8 kHz IMU fusion pipeline or watchdog timers.
+  4. The VM hook MUST inspect the console input ring for interrupt character `CHAR_CTRL_C`
+     (`0x03`) and schedule `mp_sched_keyboard_interrupt()` to trigger a non-local return (`nlr_jump`)
+     back to the REPL prompt.
+  5. Uncaught NLR failures (`nlr_jump_fail`) MUST dump an exception diagnostic autopsy to
+     the console rather than silently stalling.
 * **Verified by**: `host-tests`
-* **Implementation Target**: `apps/e906_repl_app/include/mpconfigport.h`, `apps/e906_repl_app/src/main.cpp`
+* **Implementation Target**: `apps/e906_repl_app/include/mpconfigport.h`, `apps/e906_repl_app/src/mphalport.cpp`
 
 ### `[SPEC-E906-REPL-05]` RPMsg Studio REPL Endpoint Protocol
 * **Requirement**:

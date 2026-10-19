@@ -167,22 +167,39 @@ static abstractx::coro::Task<void> repl_coroutine(abstractx::RpmsgConsole &conso
         // Suspends until Linux kicks MSGBOX; consumes 0 CPU cycles when idle!
         char ch = co_await console.read_char_async();
         if (ch != 0) {
-            pyexec_event_repl_process_char(ch);
+            int ret = pyexec_event_repl_process_char(ch);
+            if (ret & PYEXEC_FORCED_EXIT) { // Soft reset (Ctrl-D)
+                mp_deinit();
+                char stack_dummy;
+                mp_stack_set_top(&stack_dummy);
+                mp_stack_set_limit(8192);
+                mp_init();
+                pyexec_event_repl_init();
+            }
             console.flush();
         }
     }
 }
 ```
 
-### Non-Preemptive Interleaving Hook (`MICROPY_VM_HOOK_LOOP`)
-To ensure long Python loops or infinite scripts (`while True: pass`) cannot starve the 8 kHz IMU fusion loop, MicroPython is configured with `MICROPY_VM_HOOK_LOOP`:
+### Non-Preemptive Interleaving Hook (`MICROPY_VM_HOOK_LOOP`) & NLR Break
+To ensure long Python loops or infinite scripts (`while True: pass`) cannot starve the 8 kHz IMU fusion loop, MicroPython is configured with `MICROPY_VM_HOOK_LOOP`. The hook also peeks for `CHAR_CTRL_C` (`0x03`) to schedule a keyboard interrupt, allowing non-local return (`nlr_jump`) unwinding back to the REPL:
 
 ```cpp
 // apps/e906_repl_app/src/mphalport.cpp
 // @impl [SPEC-E906-REPL-04] apps/e906_repl_app/SPECIFICATION.md
 void abstractx_repl_vm_hook(void) {
-    // Cooperatively pump the coroutine dispatcher during Python execution
+    // 1. Cooperatively pump the coroutine dispatcher during Python execution
     abstractx::Dispatcher::process();
+
+    // 2. Intercept Ctrl-C and schedule immediate NLR exception unwind
+    if (abstractx::g_repl_console && mp_interrupt_char != -1) {
+        char ch = 0;
+        if (abstractx::g_repl_console->try_peek_char(ch) && ch == mp_interrupt_char) {
+            abstractx::g_repl_console->try_read_char(ch);
+            mp_sched_keyboard_interrupt();
+        }
+    }
 }
 ```
 
