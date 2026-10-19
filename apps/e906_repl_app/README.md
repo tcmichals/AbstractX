@@ -134,7 +134,9 @@ AbstractX is designed for seamless portability across both Allwinner single-boar
 
 ---
 
-## 3. The Python-First Bring-Up Philosophy
+---
+
+## 4. The Python-First Bring-Up Philosophy
 
 In AbstractX, bringing up new sensors and flight peripherals follows a **Python-First validation workflow**:
 
@@ -170,7 +172,7 @@ flowchart LR
 
 ---
 
-## 4. Architecture & Memory Quarantine
+## 5. Architecture & Memory Quarantine
 
 The MicroPython REPL runs under strict deterministic execution rules (`[SPEC-E906-REPL-01]` through `[SPEC-E906-REPL-06]`):
 
@@ -181,7 +183,27 @@ The MicroPython REPL runs under strict deterministic execution rules (`[SPEC-E90
 
 ---
 
-## 5. Quick Start & Verification
+## 6. Overlay Loading & Mode Switching on the Target Board
+
+The SD card boot partition contains `/boot/config.txt`. You can switch between Linux testing and XuanTie E906 real-time control by editing this single line:
+
+### For Linux Host Testing (Python / `/dev/i2c-1` / `/dev/ttyAS3`):
+```ini
+# /boot/config.txt
+dtoverlay=cubie-a5e-flight-stack-linux
+```
+
+### For XuanTie E906 Real-Time Coprocessor Control (UIO Mode):
+```ini
+# /boot/config.txt
+dtoverlay=cubie-a5e-flight-stack-e906
+```
+
+Reboot the board (`reboot`) after editing `/boot/config.txt` for the Device Tree changes to take effect.
+
+---
+
+## 7. Quick Start & Verification
 
 ### A. Build the E906 Firmware Binary
 ```bash
@@ -215,8 +237,8 @@ microcom -p /dev/rpmsg0
 >>> abstractx.cycles()
 145829104
 
-# Peek UART2 status register (Base 0x02500800)
->>> hex(abstractx.peek(0x0250087C))
+# Peek UART3 status register (Base 0x02500C00)
+>>> hex(abstractx.peek(0x02500C7C))
 '0x00000006'
 
 # Soft reset REPL VM
@@ -225,14 +247,16 @@ microcom -p /dev/rpmsg0
 
 ---
 
-## 6. Live Peripheral Testing Recipes (Python)
+## 8. Live Peripheral Testing Recipes (Python)
+
+Run these recipes under Linux with `dtoverlay=cubie-a5e-flight-stack-linux`:
 
 ### Recipe 1: Scan I2C Compass & u-blox DDC (`test_compass.py`)
 ```python
 import smbus2
 
 bus = smbus2.SMBus(1)
-print("Scanning I2C Bus 1...")
+print("Scanning I2C Bus 1 (Pins 3 & 5: PB5/PB4)...")
 for addr in [0x0D, 0x1E, 0x42]:
     try:
         bus.read_byte(addr)
@@ -246,8 +270,8 @@ for addr in [0x0D, 0x1E, 0x42]:
 ```python
 import serial
 
-ser = serial.Serial('/dev/ttyS2', 9600, timeout=1.0)
-print("Listening for GPS sentences on /dev/ttyS2...")
+ser = serial.Serial('/dev/ttyAS3', 9600, timeout=1.0)
+print("Listening for GPS sentences on /dev/ttyAS3 (Pins 16 & 31)...")
 while True:
     line = ser.readline().decode('ascii', errors='ignore').strip()
     if line.startswith('$GNGGA') or line.startswith('$GNRMC'):
