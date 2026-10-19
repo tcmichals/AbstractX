@@ -641,3 +641,53 @@ In AbstractX, all real-time observability, telemetry, and peripheral communicati
   - The producer (driver / sensor engine) acquires a 64-byte slot directly in the SPSC ring, fills the known packet layout in place, and commits it.
   - The consumer (flight loop, logging engine, or Linux host bridge) pops the complete 64-byte packet in a single atomic memory operation.
   - **Zero peeking, zero field-by-field polling, zero bus stalls.**
+
+---
+
+### 9. Process / Architecture: VirtIO RPMsg 64B TLP Packet Routing & SRAM Space 1 Geometry
+* **Category**: `process-gap`, `hardware-fact`
+* **Subsystem**: Inter-Core IPC, VirtIO vrings, Shared SRAM Space 1 (`0x40020000`), TLP Bridge
+* **Governing Requirements**: `[SPEC-E906-REPL-08]`, `[SPEC-E906-REPL-09]`, `[SPEC-ARCH-08]`
+* **Contract Reference**: [`docs/tier2_contracts/TLP_OVER_RPMSG_ROUTING.md`](../../docs/tier2_contracts/TLP_OVER_RPMSG_ROUTING.md)
+* **Key Invariants Codified**:
+  1. **VirtIO Buffer Geometry & 7-TLP Batching**:
+     - Standard VirtIO RPMsg buffer payload is 496 bytes (512-byte buffer minus 16-byte `rpmsg_hdr`).
+     - Exactly $7 \times 64 = 448$ bytes fit within one 496-byte payload without fragmentation.
+     - E906 buffers up to 7 TLPs or flushes on a 1 ms timeout, avoiding packet fragmentation and reducing message box doorbell interrupts by 85%.
+  2. **Dynamic Endpoint Address Discovery**:
+     - RemoteProc host address is learned dynamically from incoming packets (`learned_host_addr = msg.src`), eliminating hardcoded endpoint numbers across kernel rebuilds.
+  3. **Zero-Copy Data Plane**:
+     - Direct in-place commit into VirtIO buffers allocated in SRAM Space 1 (`0x40020000`). Zero kernel buffer copying on the coprocessor.
+
+---
+
+### 10. Process / Architecture: Serial TLP Tunneling (`Channel::EscSerial` / `0x05`) for MicroPython
+* **Category**: `process-gap`
+* **Subsystem**: MicroPython Native Bindings, `modabstractx.c`, Serial GPS / ESC Telemetry
+* **Governing Requirements**: `[SPEC-E906-REPL-11]`
+* **Key Invariants Codified**:
+  1. **40-Byte Chunk Wire Geometry**:
+     - Uses standard `Tlp64::make_stream_tx` layout: 24-byte header, 40-byte raw payload chunk, 4-byte CRC32.
+     - Transports raw NMEA/UBX serial byte streams over channel `0x05` without string parsing or busy polling.
+  2. **Zero-Heap MicroPython Streaming**:
+     - `abstractx.serial_tlp_poll(buf)` and `abstractx.serial_tlp_send(data)` accept pre-allocated `bytearray` / `memoryview` objects.
+     - Operates with zero dynamic heap allocations on the MicroPython VM heap.
+
+---
+
+### 11. Process / Architecture: Dual-Domain Resource Lifecycle — Open & Close Semantics
+* **Category**: `process-gap`
+* **Subsystem**: Resource Management, POSIX vs Freestanding C++20 / MicroPython, VM Teardown
+* **Governing Requirements**: `[SPEC-E906-REPL-12]`, `[SPEC-ARCH-01]`, `[SPEC-ARCH-08]`
+* **Contract Reference**: [`docs/tier2_contracts/LIFECYCLE_OPEN_CLOSE_CONTRACT.md`](../../docs/tier2_contracts/LIFECYCLE_OPEN_CLOSE_CONTRACT.md)
+* **Key Invariants Codified**:
+  1. **Target Zero-Filesystem Invariant (`MICROPY_VFS = 0`)**:
+     - POSIX file descriptors and `open()` do not exist on the target. Calling `open()` raises `NameError: name 'open' is not defined`.
+     - Code is streamed over VirtIO RPMsg in-memory into RAM and compiled on the fly.
+  2. **Explicit Peripheral Acquisition ("Open")**:
+     - Peripherals are configured via native `abstractx.*_init()` bindings which directly program hardware MMIO registers.
+  3. **Soft-Reset Teardown ("Close All")**:
+     - Sending Ctrl-D triggers `mp_deinit()` and `gc_init()`, sweeping and resetting quarantined DSP SRAM (`0x00020000`) in $\mathcal{O}(1)$ without disrupting running C++ flight coroutines in SRAM Space 0 (`0x3FFC0000`).
+  4. **C++ Freestanding Lifecycle**:
+     - Drivers are statically pooled; scoped critical sections use RAII `InterruptLock` for automatic restore on scope exit.
+

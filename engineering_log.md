@@ -1337,3 +1337,41 @@ This log chronicles the development, technical decisions, and architecture miles
   - `i2cdetect -y 1` detected compass at `0x1E`.
   - Serial stream on `/dev/ttyS3` ingested 15 GPS packets (847 bytes) tracking 14 GPS + 9 GLONASS satellites with differential 3D fix (`Fix quality 2`, HDOP 0.81, Lat: 33.115310°, Lon: -97.018633°, Alt: 162.1 m).
 
+## [2026-10-19] - Architecture Codification: Three-Plane REPL/TLP Breakdown, VirtIO RPMsg Routing, Serial Tunneling & Open/Close Lifecycle
+
+### 1. Mistake / Gap Observed
+* **Category**: `process-gap`, `hardware-fact`
+* **Target / Subsystem**: `apps/e906_repl_app`, `targets/allwinner_e906`, `include/asp_tlp64.hpp`, `tools/spec_to_doc.py`
+* **Symptoms**:
+  1. MicroPython on the XuanTie E906 co-processor was operating as an isolated interpreter using pure-Python emulations, ASCII string formatting, and NMEA parsing rather than utilizing existing AbstractX C++20 wait-free SPSC channels and TLP rings.
+  2. Telemetry and debug protocols drifted toward synchronous "peeking" (register/memory field reads), introducing bus pipeline stalls, APB/AXI contention, and non-atomic torn reads.
+  3. No clear documented wire contract existed for transporting 64-byte `Tlp64` packets across VirtIO RPMsg buffers in SRAM Space 1 (`0x40020000`).
+  4. Undefined semantics for resource `open()` and `close()` between Linux host Python and bare-metal target C++20 / MicroPython.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**:
+  - The architectural division between ASCII REPL bring-up, binary CTF 1.8 telemetry, and hardware TLP transactions was not explicitly delineated into three independent planes.
+  - VirtIO RPMsg buffers default to 512 bytes (16B header + 496B payload). Batching without understanding packet geometry risked buffer fragmentation and excessive mailbox doorbell interrupts.
+* **Architectural Lesson**:
+  - **No-Peeking Mandate**: All telemetry and bus transactions must be 100% packet-driven (`Tlp64`) on fixed, known wire formats. Zero field-by-field polling.
+  - **7-TLP Batching Rule**: $7 \times 64 = 448$ bytes cleanly fits within the 496-byte VirtIO payload, reducing mailbox interrupts by ~85%.
+  - **Dual-Domain Lifecycle**: Host Linux uses POSIX file descriptors (`open`/`close`), while target firmware operates with zero filesystem (`MICROPY_VFS = 0`, `open()` raises `NameError`), static C++ driver lifetime (`co_await dev.init_async()`), and VM soft-reset (`mp_deinit()` sweeps quarantined DSP SRAM in $\mathcal{O}(1)$ without interrupting running C++ flight coroutines).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**:
+  - [`apps/e906_repl_app/SPECIFICATION.md`](apps/e906_repl_app/SPECIFICATION.md) (`[SPEC-E906-REPL-08]` through `[SPEC-E906-REPL-12]`)
+  - [`docs/tier2_contracts/TLP_OVER_RPMSG_ROUTING.md`](docs/tier2_contracts/TLP_OVER_RPMSG_ROUTING.md)
+  - [`docs/tier2_contracts/LIFECYCLE_OPEN_CLOSE_CONTRACT.md`](docs/tier2_contracts/LIFECYCLE_OPEN_CLOSE_CONTRACT.md)
+* **Rules Added to Specs**:
+  - `[SPEC-E906-REPL-08]`: Three-Plane REPL/TLP/barectf architectural separation.
+  - `[SPEC-E906-REPL-09]`: 64B TLP packet routing over VirtIO RPMsg (SRAM Space 1, 7-TLP batching).
+  - `[SPEC-E906-REPL-10]`: MicroPython zero-heap TLP buffer protocol (`abstractx.tlp_send_nav`, `abstractx.tlp_poll_into`).
+  - `[SPEC-E906-REPL-11]`: Serial TLP tunneling on channel `0x05` (`Channel::EscSerial`) using 40-byte streaming geometry (`Tlp64::make_stream_tx`).
+  - `[SPEC-E906-REPL-12]`: Dual-domain open/close lifecycle semantics and zero-filesystem invariant.
+  - Created automated doc generator `tools/spec_to_doc.py` to maintain SSOT parity with `--check` CI drift gating.
+
+### 4. Implementation & Verification
+* **Traceability Audit**: `python3 tools/audit_specs.py` reports 100.0% coverage across all 31 specifications.
+* **Test Suite**: `ctest --test-dir build_host` passes 38/38 tests cleanly.
+
+
