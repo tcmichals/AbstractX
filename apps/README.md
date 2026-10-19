@@ -62,4 +62,5 @@ graph TD
 | Application | Description | Authoritative Spec | Status |
 | :--- | :--- | :--- | :--- |
 | **`gps_imu_app/platforms/allwinner_e906/`** | Companion XuanTie E906 RemoteProc coprocessor firmware for Allwinner A5E. | [`apps/gps_imu_app/platforms/allwinner_e906/CMakeLists.txt`](gps_imu_app/platforms/allwinner_e906/CMakeLists.txt) | 🚀 Active |
+| **`e906_repl_app/`** | MicroPython REPL & hardware diagnostics on XuanTie E906 with DSP SRAM quarantine. | [`apps/e906_repl_app/SPECIFICATION.md`](e906_repl_app/SPECIFICATION.md) | 🚀 Active |
 
