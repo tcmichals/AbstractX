@@ -534,3 +534,36 @@ A rigorous architectural audit of the XuanTie E906 sensor ingestion stack was co
    - Strictly conforms to AbstractX Invariant 5: Compass producer (@ 20 Hz) paces fusion telemetry, while GPS producer (@ 10 Hz) streams into pre-allocated `AsyncQueue` circular ring buffers. Auxiliary GPS fixes are drained non-blockingly via `try_pop()`.
 5. **Live Verification at 10.0 Hz & 115200 Baud**:
    - Steady-state telemetry verified on live Cubie A5E board with sub-1ms epoch precision (delta: 100-101 ms) and 10+ satellites tracked under a 3D DGPS fix.
+
+### 6. Architectural Feedback & Future Improvements: What Can Be Better?
+
+To feed back into the requirements and engineering roadmap (`AGENTS.md` Operating Loop), the following areas have been identified for future architectural upgrades:
+
+1. **ISR-Driven UART SPSC Ring Buffer (`hardware-fact` / Overrun Prevention)**:
+   - *Current State*: `abstractx.uart_read()` polls `HW_UART3_LSR & 0x01` on demand when MicroPython calls the binding.
+   - *Limitation*: The 16550 UART hardware FIFO is 16/32 bytes deep. At 115200 baud, 1 byte arrives every $86.8 \ \mu\text{s}$; a 16-byte FIFO fills completely in $1.38 \text{ ms}$. If MicroPython executes a garbage collection sweep or a longer calculation, an RX FIFO overrun error (`OE` bit 1 in LSR) can occur.
+   - *Better*: Hook UART3 interrupt (`IRQ_UART3`) into XuanTie E906 CLIC/PLIC to drain incoming bytes directly in hardirq into an `etl::queue_spsc_isr<uint8_t, 512>` or `SpscRingBuffer`. `abstractx.uart_read()` will then pop from SRAM without risking hardware FIFO overflows.
+
+2. **Native C Binary UBX-NAV-PVT Parser (`process-gap` / Performance)**:
+   - *Current State*: MicroPython parses filtered ASCII NMEA strings (`$GNRMC`, `$GNGGA`).
+   - *Limitation*: String splitting (`split(",")`) creates temporary string objects on the MicroPython heap. In addition, `MICROPY_LONGINT_IMPL_NONE` limits integers to 31 bits ($2^{30}-1$), preventing raw 32-bit integer longitude representation in $10^{-7}$ degrees in Python without decomposition.
+   - *Better*: Implement a native C decoder `abstractx.ubx_poll()` in `modabstractx.c`. It decodes the 92-byte binary payload directly from the SPSC ring, validates Fletcher-8 checksums in $\approx 100$ CPU cycles, and outputs a pre-scaled tuple `(fix, lat_deg_1e7, lon_deg_1e7, alt_mm, sats, speed_mm_s)`. 100% zero-heap, zero string manipulation, $< 10 \ \mu\text{s}$ execution.
+
+3. **Asynchronous Interrupt/DMA-Driven I2C (TWI1) Transactions (`performance`)**:
+   - *Current State*: `modabstractx_i2c_read()` polls `HW_TWI1_CNTR & TWI_CNTR_INT_FLG` with a timeout counter.
+   - *Limitation*: While `abstractx_repl_vm_hook()` is pumped during wait loops, the CPU still busy-polls the TWI bus controller flags during transfers (a 6-byte compass read takes $\approx 200 \ \mu\text{s}$ at 400 kHz).
+   - *Better*: Implement an interrupt-driven or DMA-driven TWI driver that yields cooperatively via an awaitable event/future, freeing CPU execution for sensor fusion while the bus shifts bytes.
+
+4. **Cooperative Deterministic Garbage Collection Pacing (`process-gap`)**:
+   - *Current State*: MicroPython GC runs implicitly when heap allocation thresholds are reached.
+   - *Limitation*: Mid-packet GC sweeps introduce latency jitter in high-rate control loops.
+   - *Better*: Explicit GC pacing: invoke `gc.collect()` deterministically at the end of each telemetry epoch during the idle slice of the 100 ms period, eliminating non-deterministic GC pauses.
+
+5. **Zero-Copy CTF 1.8 / TLP Binary Telemetry Plane (`[SPEC-ARCH-08]` / `[SPEC-TRACE-06]`)**:
+   - *Current State*: Telemetry is formatted as ASCII text into VirtIO RPMsg stdout.
+   - *Limitation*: String formatting over RPMsg is human-readable for bring-up, but sub-optimal for high-bandwidth flight telemetry.
+   - *Better*: Implement `abstractx.tlp_emit(stream_id, payload)` in `modabstractx.c` to emit packed 64-byte `Tlp64` binary frames directly into shared SRAM rings (`g_telemetry_ring`), matching the dynamic CTF 1.8 barectf schema and FPGA crossbar router (`asp_router.sv`).
+
+6. **Desktop SITL Simulation Harness (`tooling`)**:
+   - *Current State*: Verification requires physical hardware execution on the Radxa Cubie A5E board.
+   - *Better*: Create a desktop Python SITL mock module (`tests/sim_abstractx.py`) that feeds synthetic NMEA/UBX streams and simulated I2C registers, allowing `flight_sensors.py` and `FlightExecutive` to run under automated `ctest` in CI.
