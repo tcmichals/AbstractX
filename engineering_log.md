@@ -1374,4 +1374,46 @@ This log chronicles the development, technical decisions, and architecture miles
 * **Traceability Audit**: `python3 tools/audit_specs.py` reports 100.0% coverage across all 31 specifications.
 * **Test Suite**: `ctest --test-dir build_host` passes 38/38 tests cleanly.
 
+## [2026-10-19] - Architectural Design Review: XuanTie E906 Flight Sensor Ingestion (Fast, Efficient & Clean Invariant Audit)
+
+### 1. Mistake / Gap Observed
+* **Category**: `product-bug`, `process-gap`, `hardware-fact`
+* **Target / Subsystem**: `apps/e906_repl_app`, `targets/allwinner_e906`, `flight_sensors.py`, `modabstractx.c`, `mphalport.cpp`
+* **Governing Requirements**: `[SPEC-E906-REPL-06]`, `[SPEC-GPS-01]`, `[SPEC-E906-REPL-09]`, `[SPEC-E906-REPL-10]`, `[SPEC-E906-REPL-11]`
+* **Symptoms**:
+  1. *Hardware Routing Gap*: `modabstractx.c` calculated PIO Port I offset as `0x0124` instead of `0x0184` (`PIO_BASE + 0x184`), writing to Port G and leaving `PI11`/`PI12` (UART3 GPS) unconfigured.
+  2. *GC Heap Churn in Flight Loop*: `flight_sensors.py` ingested NMEA via string accumulation (`self.rx_buffer += str(chunk, "utf-8")`), `.split("\r\n")`, and `.split(",")`. This allocated hundreds of temporary strings, lists, and dicts per second, triggering non-deterministic mark-and-sweep GC pauses in the control loop.
+  3. *VM Hook Queue Peeking*: `abstractx_repl_vm_hook()` in `mphalport.cpp` called `try_peek_char()` on every single bytecode instruction, burning millions of CPU cycles on redundant queue head/tail queries.
+  4. *Pure-Python Queue Emulation*: Writing `class AsyncQueue` in Python bytecode with `[None] * 16` rather than binding to AbstractX C++20 wait-free `AsyncQueue<T, N>` in SRAM Space 0.
+  5. *Synchronous Register Peeking*: Exposing `abstractx.peek()` led to 31-bit small-int overflow errors (`0x40020000` throwing `OverflowError`), APB bus pipeline stalls, and non-atomic torn reads.
+
+### 2. Root Cause & Lesson Learned (Fast, Efficient & Clean Invariant Audit)
+* **Invariant 1: Zero-Slice Integer Mathematics**:
+  - Eliminated temporary string slice emulators in Python. Coordinate formatting decomposed via fast integer division (`whole // 100` degrees, `whole % 100` minutes).
+* **Invariant 2: Deterministic Hardware STOP Polling**:
+  - TWI1 I2C STOP sequence replaced spin delays with hardware flag polling (`HW_TWI1_CNTR & TWI_CNTR_M_STP`) and a safe timeout counter, pumping the VM hook to keep RPMsg IPC alive.
+* **Invariant 3: Primary-Paced Channel Concurrency**:
+  - Strictly follows AbstractX Invariant 5: Magnetometer producer (20 Hz) paces fusion telemetry, while GPS producer (10 Hz @ 115200 baud) streams into pre-allocated circular ring buffers and is drained non-blockingly via `try_pop()`.
+* **Invariant 4: The No-Peeking Mandate & Packet Streaming**:
+  - Peeking registers is strictly banned from real-time paths. All flight telemetry and sensor data must be streamed in 64-byte `Tlp64` binary packets directly into `g_telemetry_ring`.
+* **Invariant 5: Packet-Driven Interrupt Signaling**:
+  - VM hook must not peek into input queues on every opcode. `on_rx_data` inspects incoming packet buffers and sets an atomic scalar flag (`m_interrupt_pending`) when `0x03` arrives.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`apps/e906_repl_app/SPECIFICATION.md`](apps/e906_repl_app/SPECIFICATION.md)
+* **Requirements Added & Verified**:
+  - `[SPEC-E906-REPL-06]`: MicroPython cooperative async flight sensor ingestion for I2C and UART.
+  - `[SPEC-E906-REPL-09]`: Packet-driven invariant & no-peeking mandate.
+  - `[SPEC-E906-REPL-10]`: Native zero-heap TLP buffer protocol (`abstractx.tlp_send_nav`, `abstractx.tlp_poll_into`).
+  - `[SPEC-E906-REPL-11]`: Serial TLP tunneling on channel `0x05` (`Channel::EscSerial`) with 40-byte streaming geometry (`Tlp64::make_stream_tx`).
+
+### 4. Implementation & Live Hardware Evidence
+* **Live Silicon Verification**: Deployed to XuanTie E906 co-processor on Radxa Cubie A5E (`192.168.3.3`) via `run_e906_script.py`:
+  - Port I offset fixed: `PI_CFG1 = 0x02000184`, `PI_PULL0 = 0x020001A4`.
+  - u-blox NEO-M8N baudrate elevated from 9600 to 115200 baud via `UBX-CFG-PRT`.
+  - Constellation noise filtered via `UBX-CFG-MSG` (GSV, GSA, GLL, VTG disabled).
+  - Measurement rate configured for 10.0 Hz via `UBX-CFG-RATE` (100 ms period).
+  - Ingested 40 consecutive compass samples @ 359° (N) and 4 valid 3D DGPS fixes ($33^\circ 06.91864' \text{ N}, 097^\circ 01.11830' \text{ W}$, 12 sats, alt 160.8m) with zero bus timeouts, sub-1ms epoch precision, and clean cooperative yielding.
+
+
 

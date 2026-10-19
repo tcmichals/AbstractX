@@ -450,7 +450,7 @@ This log chronicles all architectural decisions, hardware facts, bugs identified
 
 ---
 
-## 29. XuanTie E906 MicroPython Cooperative Async Flight Sensor Ingestion (I2C & Serial)
+## 29. Architectural Design Review: XuanTie E906 Flight Sensor Ingestion (Fast, Efficient & Clean Invariant Audit)
 
 * **Date**: 2026-10-19
 * **Category**: `product-bug` / `hardware-fact`
