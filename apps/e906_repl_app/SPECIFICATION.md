@@ -263,4 +263,17 @@ flowchart TD
 * **Verified by**: `host-tests`, `e906-build-layout`
 * **Implementation Target**: `apps/e906_repl_app/run_e906_script.py`, `apps/e906_repl_app/src/main.cpp`
 
+### `[SPEC-E906-REPL-13]` Fixed-Point Sensor Fusion & Navigation Vector Synthesis
+* **Requirement**:
+  1. **Integer Fixed-Point Trigonometry**: In Minimal ROM MicroPython environments lacking `<math.h>` floating-point modules, directional projections MUST use precomputed integer trigonometric tables (scaling factor $10000$) with quadrant symmetry, completing in $\mathcal{O}(1)$ time with zero heap allocation.
+  2. **Navigation Vector Synthesis**:
+     - **3D Unit Heading Vector**: Decomposed from magnetometer azimuth $\psi$ as $\vec{u}_h = (\cos \psi, \sin \psi, 0)$ scaled to $\pm 10000$.
+     - **Ground Velocity Vector**: Decomposed from GPS ground speed $v_g$ (mm/s) and Course Over Ground $\chi$ as $\vec{v}_g = (v_g \cos \chi, v_g \sin \chi, v_D)$ in Earth NED frame.
+     - **Aerodynamic Drift & Wind Crab Angle**: Calculated as $\beta = (\chi - \psi) \pmod{360^\circ}$, yielding cross-track velocity $v_{\text{cross}} = v_g \sin \beta$ and along-track velocity $v_{\text{along}} = v_g \cos \beta$.
+     - **Local Displacement Vector**: Integer equirectangular projection yielding $(\Delta N, \Delta E, \Delta D)$ in millimeters relative to initial Home fix.
+  3. **Zero Dynamic Allocation**: Vector calculation and formatting MUST NOT allocate intermediate heap objects or lists during steady-state sensor fusion loops.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/compass_gps_vector.py`
+
+
 

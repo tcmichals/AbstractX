@@ -4,7 +4,7 @@
 
 ## 1. Architectural Overview
 
-This guide provides operational and implementation details for `AbstractX XuanTie E906 MicroPython REPL Application Specification`. Total governing requirements: **12**.
+This guide provides operational and implementation details for `AbstractX XuanTie E906 MicroPython REPL Application Specification`. Total governing requirements: **13**.
 
 ## 2. System Architecture Diagrams
 
@@ -81,6 +81,7 @@ flowchart TD
 | `SPEC-E906-REPL-10` | **Native MicroPython TLP Buffer Protocol & Zero-Copy Egress** | ``host-tests`, `e906-build-layout`` | ``apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`` |
 | `SPEC-E906-REPL-11` | **Serial TLP Tunneling & Streaming Protocol for MicroPython** | ``host-tests`, `e906-build-layout`` | ``apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`` |
 | `SPEC-E906-REPL-12` | **Resource Lifecycle & Open/Close Semantics across Host and Target** | ``host-tests`, `e906-build-layout`` | ``apps/e906_repl_app/run_e906_script.py`, `apps/e906_repl_app/src/main.cpp`` |
+| `SPEC-E906-REPL-13` | **Fixed-Point Sensor Fusion & Navigation Vector Synthesis** | ``host-tests`, `e906-build-layout`` | ``apps/e906_repl_app/compass_gps_vector.py`` |
 
 ## 4. Requirement Specifications Detail
 
@@ -159,5 +160,11 @@ flowchart TD
 ### `SPEC-E906-REPL-12`: Resource Lifecycle & Open/Close Semantics across Host and Target
 - **Verification Skill**: ``host-tests`, `e906-build-layout``
 - **Implementation Target**: ``apps/e906_repl_app/run_e906_script.py`, `apps/e906_repl_app/src/main.cpp``
+- **Key Contract Invariants**:
+  * **Requirement**:
+
+### `SPEC-E906-REPL-13`: Fixed-Point Sensor Fusion & Navigation Vector Synthesis
+- **Verification Skill**: ``host-tests`, `e906-build-layout``
+- **Implementation Target**: ``apps/e906_repl_app/compass_gps_vector.py``
 - **Key Contract Invariants**:
   * **Requirement**:
