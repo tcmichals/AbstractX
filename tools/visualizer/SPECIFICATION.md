@@ -175,6 +175,8 @@ A high-framerate (120 FPS) canvas hosting domain-specific user instruments, deco
 2. **3D Quadcopter Perspective Wireframe**: Full 3D perspective via Tait-Bryan rotation ($\mathbf{R} = \mathbf{R}_z(\psi) \mathbf{R}_y(\theta) \mathbf{R}_x(\phi)$), color-coded airframe and motor disc indicators.
 3. **Quad-X Motor Mixer Demands**: Four real-time bar indicators ($M_1$..$M_4$), centered around 500 µs hover baseline.
 4. **8 kHz IMU Oscilloscope (`ImPlot`)**: High-throughput scrolling gyroscope ($\Omega_x, \Omega_y, \Omega_z$ in °/s) and accelerometer ($A_x, A_y, A_z$ in $g$) waveforms.
+5. **Vector Compass Rose & HSI Navigation Dial**: Rotating 360° heading dial, cardinal markers, top-referenced lubber line, GPS Ground Track (COG) bug, and wind drift angle overlay. Fully specified in [`USER_PLUGIN_SPECIFICATION.md`](USER_PLUGIN_SPECIFICATION.md).
+
 
 ### 3.3 Dynamic Multi-Window Management & Focus Layout Presets
 1. **Dynamic Layout Presets** (status bar chips):

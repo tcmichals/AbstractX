@@ -691,3 +691,27 @@ In AbstractX, all real-time observability, telemetry, and peripheral communicati
   4. **C++ Freestanding Lifecycle**:
      - Drivers are statically pooled; scoped critical sections use RAII `InterruptLock` for automatic restore on scope exit.
 
+---
+
+### 12. Architecture & Observability: Offloading Sensor Fusion to Studio & iNav High-Speed Ingestion
+* **Category**: `architectural-decision`
+* **Subsystem**: Host Studio Observability, iNav Auto-Baud & UBX Engine, QMC5883L 200 Hz ODR, Vector Compass Rose & HSI
+* **Governing Requirements**: `[SPEC-USER-PLUGIN-01]` through `[SPEC-USER-PLUGIN-07]`, `[SPEC-STUDIO-03]`, `[SPEC-E906-REPL-06]`
+* **Contract Reference**: [`tools/visualizer/USER_PLUGIN_SPECIFICATION.md`](../../tools/visualizer/USER_PLUGIN_SPECIFICATION.md)
+* **Key Invariants Codified**:
+  1. **Strict Compute Partitioning**:
+     - XuanTie E906 co-processor acts strictly as a lean, hard real-time I/O pipe (zero string tokenization, zero NMEA regex, zero floating-point trig). It ingests raw 6-byte magnetometer readings from I²C1 and raw serial chunks from UART3, delivering them into zero-copy RPMsg/TLP ring buffers.
+     - AbstractX Studio plugin running on the host handles floating-point sensor fusion, tilt compensation, hard-iron magnetic calibration, coordinate projections, and 60 FPS vector graphics.
+  2. **iNav-Standard GPS Auto-Baudrate & UBX Binary FSM (`tcmichals/inav`)**:
+     - Sweeps `[9600, 19200, 38400, 57600, 115200]` baud to lock onto the receiver.
+     - Emits `UBX-CFG-PRT` to elevate serial speed to 115,200 baud (or 460,800 baud) and `UBX-CFG-RATE` for 10 Hz navigation fixes (100 ms period), while suppressing unneeded almanac sentences (`GSV`, `GSA`).
+     - Decodes binary `UBX-NAV-PVT` with Fletcher-16 CRC.
+  3. **Simultaneous Compass Maximization**:
+     - Configures QMC5883L to its maximum 200 Hz continuous Output Data Rate (`REG_CONTROL_1 = 0x1D`) over 400 kHz Fast-Mode I²C (~180 µs per 6-byte read, 3.6% bus utilization).
+  4. **Vector-Rendered Compass Rose & HSI Display (`imgui-bundle`)**:
+     - 360° rotating dial face rendered via Dear ImGui `ImDrawList` primitives.
+     - Fixed amber top-dead-center lubber line and aircraft reticle.
+     - Magenta diamond GPS Ground Track (COG) bug overlay.
+     - Fused wind drift crab angle arc ($\delta = \text{COG} - \psi$) revealing aerodynamic crosswind displacement in real time.
+
+

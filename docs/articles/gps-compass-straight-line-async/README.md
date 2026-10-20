@@ -232,6 +232,70 @@ interesting story is how the host, coprocessor, and optional fabric cooperate.
 This article introduces that direction; target bring-up and measured
 performance belong in a dedicated A5E demonstration.
 
+## Observability in AbstractX Studio: The User Domain Navigation & Compass Plugin
+
+A robust sensor node needs more than silent raw registers; developers and
+operators need live, deterministic observability. AbstractX separates this
+cleanly across the silicon boundary:
+
+### 1. Heterogeneous Division of Labor
+* **Silicon Co-Processor / MCU (E906 / Pico 2 W)**: Acts strictly as a lean,
+  hard real-time I/O pipe. It ingests raw 6-byte magnetometer readings from I²C
+  and raw serial byte chunks from UART into lock-free zero-copy ring buffers
+  (`g_telemetry_ring` or VirtIO RPMsg). It performs **0 dynamic heap allocations,
+  no string formatting, no NMEA regex parsing, and no floating-point math**.
+* **AbstractX Studio User Plugin (`flight_plugin.py`)**: Runs on the Linux host
+  or development workstation. It ingests the raw telemetry stream, executes
+  the protocol parsers, computes magnetic calibration and coordinate projections,
+  and renders a 60 FPS vector flight instrument canvas.
+
+### 2. The iNav Auto-Baudrate & UBX Pipeline
+Borrowing from the flight-proven architecture in `tcmichals/inav` (`src/drivers/gps/`):
+* **Auto-Baudrate FSM**: The plugin sweeps `[9600, 19200, 38400, 57600, 115200]`
+  baud to lock onto the receiver regardless of previous state.
+* **Simultaneous Maximization**:
+  1. Emits `UBX-CFG-PRT` to elevate the GPS port to **115,200 baud** (or 460,800
+     baud) and `UBX-CFG-RATE` for **10 Hz navigation fixes** (100 ms period),
+     while suppressing unneeded `$GxGSV` and `$GxGSA` sentences.
+  2. Simultaneously commands the QMC5883L compass to **200 Hz continuous ODR**
+     (`REG_CONTROL_1 = 0x1D`) over 400 kHz Fast-Mode I²C.
+* **Binary UBX-NAV-PVT State Machine**: Decodes 84/92-byte navigation packets
+  with Fletcher-16 CRC, extracting millimetric geodetic position, NED velocities,
+  and Course Over Ground (COG).
+
+### 3. Vector-Rendered Compass Rose & HSI Instrument
+
+```text
+                     [ 042° NE ]  <-- Digital Heading Placard
+                         ▲ Fixed Lubber Line
+                   /     |     \
+                 /  NW   |   NE  \
+                |        |        |
+        [270° W]---------+---------[090° E]  <-- Rotating 360° Compass Rose
+                |        |        |
+                 \  SW   |   SE  /
+                   \     |     /
+                         ▼
+                     [ 180° S ]
+              ◆ Magenta Bug: GPS Ground Track (COG)
+              --- Wind Drift Crab Angle: delta = COG - psi
+```
+
+The user domain canvas renders a vector **Horizontal Situation Indicator (HSI)**:
+* **Rotating 360° Compass Rose**: Anti-aliased dial face rotating smoothly with
+  magnetic heading $\psi$, with 10° ticks, 30° major labels, and cardinal points.
+* **Fixed Reticle & Top Lubber Line**: Aircraft nose reference marker.
+* **Magenta GPS Track Bug (COG)**: Displays true course over ground. Under crosswinds,
+  the separation between the top lubber line and the track bug immediately reveals
+  the aerodynamic crab angle ($\delta = \text{COG} - \psi$).
+* **Live Sensor Placards**: Digital heading, cardinal direction, ground speed
+  (knots & m/s), MSL altitude (m & ft), raw magnetic field components ($X, Y, Z$)
+  in $\mu\text{T}$, and GPS fix status.
+
+The contract is formally codified in [`USER_PLUGIN_SPECIFICATION.md`](../../../tools/visualizer/USER_PLUGIN_SPECIFICATION.md)
+(`[SPEC-USER-PLUGIN-01]` through `[SPEC-USER-PLUGIN-07]`).
+
+
 ## A balanced comparison
 
 | Approach | What it contributes | What the example should make visible |
