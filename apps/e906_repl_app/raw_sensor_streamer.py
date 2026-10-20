@@ -80,8 +80,8 @@ def to_hex(raw_b):
         out += hex_chars[(b >> 4) & 0x0F] + hex_chars[b & 0x0F]
     return out
 
-# Streaming execution loop (emits 30 samples)
-for tick in range(30):
+# Streaming execution loop (emits up to 2000 samples @ 10 Hz)
+for tick in range(2000):
     raw_mag = abstractx.i2c_read(0x1E, 0x00, 6)
     raw_gps = abstractx.uart_read(128)
 

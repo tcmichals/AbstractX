@@ -931,12 +931,16 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                     int(np.clip(500 - u_r - u_p, 100, 1000))
                                 ]
 
-                        # 2. Software C++20 SITL Telemetry (Little-Endian Wire Layout from gps_imu_app)
-                        elif le_type == 0x10 and le_tag == 4:
+                        # 2. Software C++20 SITL / Live Hardware Telemetry
+                        elif le_type == 0x10 and (le_tag == 4 or le_tag == 5):
                             roll_cdeg, pitch_cdeg, yaw_cdeg, alt_mm, spd_cm_s, m1, m2, m3, m4 = struct.unpack("<2hHiH4H", frame[20:40])
                             with g_state.lock:
-                                g_state.source_mode = "SOFTWARE C++20 SITL (gps_imu_app)"
-                                g_state.fpga_trace = "Runtime: DomainDispatcher::step() | Zero Heap | SPSC Rings Active"
+                                if le_tag == 5:
+                                    g_state.source_mode = "LIVE HARDWARE (Radxa Cubie A5E + XuanTie E906)"
+                                    g_state.fpga_trace = "RPMsg /dev/rpmsg0 | QMC5883L 200Hz + u-blox 115200 Baud"
+                                else:
+                                    g_state.source_mode = "SOFTWARE C++20 SITL (gps_imu_app)"
+                                    g_state.fpga_trace = "Runtime: DomainDispatcher::step() | Zero Heap | SPSC Rings Active"
                                 g_state.roll_deg = roll_cdeg * 0.01
                                 g_state.pitch_deg = pitch_cdeg * 0.01
                                 g_state.yaw_deg = yaw_cdeg * 0.01

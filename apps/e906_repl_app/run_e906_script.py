@@ -48,14 +48,27 @@ def run_script(script_path, timeout=15.0):
     fd = os.open(target_dev, os.O_RDWR | os.O_NONBLOCK)
 
     try:
+        def write_all(buf):
+            tot = 0
+            while tot < len(buf):
+                try:
+                    n = os.write(fd, buf[tot:])
+                    tot += n
+                except (BlockingIOError, OSError):
+                    time.sleep(0.01)
+
+        # 0. Drain any stale RX buffers
+        while select.select([fd], [], [], 0.05)[0]:
+            os.read(fd, 2048)
+
         # 1. Reset any running script and exit to normal REPL
-        os.write(fd, b'\x03\x03\x02')
+        write_all(b'\x03\x03\x02')
         time.sleep(0.05)
         while select.select([fd], [], [], 0.05)[0]:
             os.read(fd, 2048)
 
         # 2. Enter raw REPL: Ctrl-A
-        os.write(fd, b'\x01')
+        write_all(b'\x01')
         time.sleep(0.05)
         while select.select([fd], [], [], 0.05)[0]:
             os.read(fd, 2048)
@@ -65,7 +78,7 @@ def run_script(script_path, timeout=15.0):
         chunk_size = 256
         for i in range(0, len(payload), chunk_size):
             chunk = payload[i:i + chunk_size]
-            os.write(fd, chunk)
+            write_all(chunk)
             time.sleep(0.02)
 
         # 4. Stream response from MicroPython VM (stdout and stderr)
