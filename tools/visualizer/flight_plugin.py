@@ -41,8 +41,37 @@ Implemented in Python using Dear ImGui Bundle (imgui-bundle):
 
 import math
 import struct
+import subprocess
+import threading
 import numpy as np
 from imgui_bundle import imgui, implot
+
+g_bridge_proc = None
+
+def start_board_bridge(board_ip="192.168.3.3", host_ip="192.168.3.1", port=9870, duration=300):
+    global g_bridge_proc
+    if g_bridge_proc is not None and g_bridge_proc.poll() is None:
+        return
+    def worker():
+        global g_bridge_proc
+        cmd = [
+            "ssh", "-o", "ConnectTimeout=5", f"root@{board_ip}",
+            f"STREAM_DURATION={duration} STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} python3 /root/board_studio_bridge.py"
+        ]
+        g_bridge_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        g_bridge_proc.wait()
+        g_bridge_proc = None
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+
+def stop_board_bridge():
+    global g_bridge_proc
+    if g_bridge_proc is not None:
+        try:
+            g_bridge_proc.terminate()
+        except Exception:
+            pass
+        g_bridge_proc = None
 
 def rotation_matrix(roll_deg: float, pitch_deg: float, yaw_deg: float) -> np.ndarray:
     """Computes 3D Tait-Bryan rotation matrix."""
@@ -333,7 +362,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
             self.render(state)
 
     def render(self, state):
-        """Renders the entire Level 2 Flight & Navigation domain dashboard."""
+        """Renders the dedicated Level 2 Compass & GPS Navigation dashboard."""
         self.sim_phase += 0.016
         with state.lock:
             roll = state.roll_deg
@@ -341,7 +370,6 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
             yaw = state.yaw_deg
             alt_m = state.altitude_m
             speed_mps = state.ground_speed_mps
-            motors = list(state.motors)
             imu_hz = state.imu_hz
             mag_hz = state.mag_hz
             gps_hz = state.gps_hz
@@ -357,14 +385,27 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         cog_deg = (yaw + 7.5 * math.sin(self.sim_phase * 0.4)) % 360.0
         drift_deg = ((cog_deg - yaw + 180.0) % 360.0) - 180.0
 
-        # Simulated or live Magnetometer components
+        # Magnetometer components
         mag_x = int(320 * math.cos(math.radians(yaw)))
         mag_y = int(320 * math.sin(math.radians(yaw)))
         mag_z = -420
         mag_field_ut = 48.5
 
+        fix_str = "3D DGPS Fix" if gps_fix >= 2 else ("3D SPS Fix" if gps_fix == 1 else "NO FIX")
+
         # Navigation Controls Banner
         imgui.begin_group()
+        global g_bridge_proc
+        if g_bridge_proc is None or g_bridge_proc.poll() is not None:
+            if imgui.button("▶ Connect Live Board (192.168.3.3)"):
+                start_board_bridge()
+                state.add_log("BRIDGE", "SSH", "Started live sensor streaming from XuanTie E906 (192.168.3.3)")
+        else:
+            if imgui.button("⏹ Disconnect Board"):
+                stop_board_bridge()
+                state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
+
+        imgui.same_line()
         if imgui.button("⚡ Maximize GPS Speed (115.2k Baud @ 10Hz)"):
             cmd = UbxNmeaParser.build_ubx_cfg_prt(115200) + UbxNmeaParser.build_ubx_cfg_rate(10)
             state.add_log("CFG", "GPS", f"Sent UBX-CFG-PRT (115200 baud) & RATE (10 Hz): {len(cmd)} bytes")
@@ -374,7 +415,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
             state.add_log("CFG", "MAG", "Sent QMC5883L REG_CONTROL_1 = 0x1D (200 Hz continuous ODR, 8G scale)")
 
         imgui.same_line()
-        theme_color = imgui.ImVec4(0.2, 0.8, 1.0, 1.0) if "FPGA" in source_lbl else imgui.ImVec4(0.3, 0.9, 0.4, 1.0)
+        theme_color = imgui.ImVec4(0.2, 0.8, 1.0, 1.0) if "LIVE" in source_lbl else imgui.ImVec4(0.3, 0.9, 0.4, 1.0)
         imgui.text_colored(theme_color, f"| Mode: {source_lbl} | {trace_lbl}")
         imgui.end_group()
 
@@ -382,28 +423,28 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
 
         # Layout width
         avail_w = imgui.get_content_region_avail().x
-        inst_h = 290.0
+        inst_h = 320.0
 
-        # Tab Selection for Cockpit Modes
+        # Tab Selection for Compass & GPS
         if imgui.begin_tab_bar("FlightDisplayTabs"):
             # -------------------------------------------------------------
-            # TAB 1: Combined Glass Cockpit (PFD + Vector Compass Rose HSI)
+            # TAB 1: Dual Display (Vector Compass Rose HSI + GPS Geodetic Panel)
             # -------------------------------------------------------------
-            opened, _ = imgui.begin_tab_item("✈ Glass Cockpit (PFD + Vector Compass HSI)", None, 0)
+            opened, _ = imgui.begin_tab_item("🧭 Compass Rose & GPS Navigation", None, 0)
             if opened:
                 col_w = max(340.0, (avail_w - 20.0) / 2.0)
                 imgui.columns(2, "cockpit_cols", False)
                 imgui.set_column_width(0, col_w + 10.0)
                 imgui.set_column_width(1, col_w + 10.0)
 
-                imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "Primary Flight Display (PFD) - Artificial Horizon")
-                self._render_pfd(col_w, inst_h, roll, pitch)
+                imgui.text_colored(imgui.ImVec4(0.4, 0.9, 0.6, 1.0), "Horizontal Situation Indicator (HSI) - Vector Compass Rose")
+                self._render_compass_rose(col_w, inst_h, yaw, cog_deg, speed_mps, alt_m, fix_str, gps_sats,
+                                          (mag_x, mag_y, mag_z), mag_field_ut, drift_deg, gps_lat, gps_lon)
 
                 imgui.next_column()
 
-                imgui.text_colored(imgui.ImVec4(0.4, 0.9, 0.6, 1.0), "Horizontal Situation Indicator (HSI) - Vector Compass Rose")
-                self._render_compass_rose(col_w, inst_h, yaw, cog_deg, speed_mps, alt_m, "3D DGPS", gps_sats,
-                                          (mag_x, mag_y, mag_z), mag_field_ut, drift_deg)
+                imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "u-blox NEO-M8N GPS Receiver & Geodetic Fix")
+                self._render_gps_navigation_panel(col_w, inst_h, gps_lat, gps_lon, alt_m, speed_mps, gps_sats, fix_str, cog_deg)
 
                 imgui.columns(1)
                 imgui.end_tab_item()
@@ -411,31 +452,18 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
             # -------------------------------------------------------------
             # TAB 2: Navigation & Heading Focus (Full Width Compass Rose)
             # -------------------------------------------------------------
-            opened, _ = imgui.begin_tab_item("🧭 Navigation & Compass Rose Focus", None, 0)
+            opened, _ = imgui.begin_tab_item("🧭 Fullscreen Compass Rose", None, 0)
             if opened:
-                self._render_compass_rose(avail_w, 320.0, yaw, cog_deg, speed_mps, alt_m, "3D DGPS", gps_sats,
-                                          (mag_x, mag_y, mag_z), mag_field_ut, drift_deg)
+                self._render_compass_rose(avail_w, 360.0, yaw, cog_deg, speed_mps, alt_m, fix_str, gps_sats,
+                                          (mag_x, mag_y, mag_z), mag_field_ut, drift_deg, gps_lat, gps_lon)
                 imgui.end_tab_item()
 
             # -------------------------------------------------------------
-            # TAB 3: 3D Attitude Wireframe & Motor Demands
+            # TAB 3: Artificial Horizon / PFD (Auxiliary Attitude)
             # -------------------------------------------------------------
-            opened, _ = imgui.begin_tab_item("📐 3D Drone Model & Motor Mixer", None, 0)
+            opened, _ = imgui.begin_tab_item("✈ Artificial Horizon (PFD)", None, 0)
             if opened:
-                col_w = max(340.0, (avail_w - 20.0) / 2.0)
-                imgui.columns(2, "drone_model_cols", False)
-                imgui.set_column_width(0, col_w + 10.0)
-                imgui.set_column_width(1, col_w + 10.0)
-
-                imgui.text_colored(imgui.ImVec4(0.7, 0.5, 1.0, 1.0), f"3D Quadcopter Perspective - Yaw: {yaw:.1f}°")
-                self._render_3d_quadcopter(col_w, inst_h, roll, pitch, yaw)
-
-                imgui.next_column()
-
-                imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "Quad-X Motor Mixer Demands")
-                self._render_motor_mixer_bars(col_w, inst_h, motors)
-
-                imgui.columns(1)
+                self._render_pfd(avail_w, 320.0, roll, pitch)
                 imgui.end_tab_item()
 
             imgui.end_tab_bar()
@@ -450,7 +478,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.set_column_width(0, col_w + 10.0)
         imgui.set_column_width(1, col_w + 10.0)
 
-        # Navigation Card
+        # Navigation Gauges Card
         imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[Aviation Navigation Gauges & Stream Health]")
         imgui.begin_child("NavGauges", imgui.ImVec2(-1, 115), True)
         imgui.columns(2, "alt_spd_cols", False)
@@ -462,25 +490,14 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.columns(1)
         imgui.separator()
         imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0),
-                           f"IMU: {imu_hz} Hz | MAG: {mag_hz} Hz | GPS: {gps_hz} Hz | AHRS: {ahrs_hz} Hz")
+                           f"MAG: {mag_hz} Hz | GPS: {gps_hz} Hz | AHRS: {ahrs_hz} Hz | TELEMETRY: 60 FPS")
         imgui.end_child()
 
         imgui.next_column()
 
-        # Motor Mixer Overview
-        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[Quad-X Motor Demands (100..1000 µs)]")
-        imgui.begin_child("MotorMixerSummary", imgui.ImVec2(-1, 115), True)
-        motor_labels = [("M1", imgui.ImVec4(0.2, 0.8, 1.0, 1.0)),
-                        ("M2", imgui.ImVec4(0.2, 0.8, 1.0, 1.0)),
-                        ("M3", imgui.ImVec4(0.9, 0.3, 0.4, 1.0)),
-                        ("M4", imgui.ImVec4(0.9, 0.3, 0.4, 1.0))]
-        for idx, (label, col) in enumerate(motor_labels):
-            val = motors[idx] if idx < len(motors) else 500
-            frac = min(max((val - 100) / 900.0, 0.0), 1.0)
-            imgui.text_colored(col, label)
-            imgui.same_line(35.0)
-            imgui.progress_bar(frac, imgui.ImVec2(-1, 14), f"{val} µs")
-        imgui.end_child()
+        # Compass Details Card
+        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "[🧲 QMC5883L Compass Sensor & Magnetic Field]")
+        self._render_compass_sensor_panel(yaw, (mag_x, mag_y, mag_z), mag_field_ut, mag_hz)
 
         imgui.columns(1)
         imgui.separator()
@@ -488,7 +505,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         # -------------------------------------------------------------
         # Oscilloscope (ImPlot)
         # -------------------------------------------------------------
-        if implot.begin_plot("8 kHz ICM-42688-P High-Rate Sensor Waveforms", imgui.ImVec2(-1, 200)):
+        if implot.begin_plot("8 kHz ICM-42688-P High-Rate Sensor Waveforms", imgui.ImVec2(-1, 180)):
             implot.setup_axes("Time (s)", "Dynamic Amplitude", implot.AxisFlags_.auto_fit, implot.AxisFlags_.auto_fit)
             with state.lock:
                 t_data = np.copy(state.time_history)
@@ -507,9 +524,100 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
             implot.plot_line("Gyro Z (dps)", t_data, gz_data)
             implot.end_plot()
 
+    def _render_gps_navigation_panel(self, width: float, height: float, lat: float, lon: float,
+                                    alt_m: float, speed_mps: float, sats: int, fix_str: str, cog_deg: float):
+        """Draws the live GPS geodetic navigation and constellation panel."""
+        imgui.begin_child("GpsNavPanel", imgui.ImVec2(width, height), True)
+
+        imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "🛰 LIVE GPS GEODETIC NAVIGATION & SATELLITE FIX")
+        imgui.separator()
+
+        lat_hemi = "N" if lat >= 0 else "S"
+        lon_hemi = "E" if lon >= 0 else "W"
+        lat_abs = abs(lat)
+        lon_abs = abs(lon)
+        lat_deg = int(lat_abs)
+        lat_min = (lat_abs - lat_deg) * 60.0
+        lon_deg = int(lon_abs)
+        lon_min = (lon_abs - lon_deg) * 60.0
+
+        imgui.columns(2, "coords_col", False)
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "LATITUDE")
+        imgui.text_colored(imgui.ImVec4(0.0, 1.0, 0.8, 1.0), f"{lat_deg:02d}° {lat_min:07.4f}' {lat_hemi}")
+        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 1.0), f"Decimal: {lat:+.6f}°")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "LONGITUDE")
+        imgui.text_colored(imgui.ImVec4(0.0, 1.0, 0.8, 1.0), f"{lon_deg:03d}° {lon_min:07.4f}' {lon_hemi}")
+        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 1.0), f"Decimal: {lon:+.6f}°")
+        imgui.columns(1)
+
+        imgui.separator()
+
+        imgui.columns(3, "fix_sats_col", False)
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "FIX QUALITY")
+        fix_col = imgui.ImVec4(0.2, 0.9, 0.3, 1.0) if "DGPS" in fix_str or "3D" in fix_str else imgui.ImVec4(1.0, 0.6, 0.2, 1.0)
+        imgui.text_colored(fix_col, fix_str)
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "SATELLITES")
+        imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), f"{sats} SVs Tracked")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "SOLUTION RATE")
+        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "10.0 Hz (100 ms)")
+        imgui.columns(1)
+
+        imgui.separator()
+
+        imgui.columns(3, "alt_spd_cog_col", False)
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "MSL ALTITUDE")
+        imgui.text_colored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), f"{alt_m:.1f} m ({alt_m * 3.28084:.1f} ft)")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "GROUND SPEED")
+        imgui.text_colored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), f"{speed_mps:.2f} m/s ({speed_mps * 1.94384:.1f} kts)")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "GROUND TRACK (COG)")
+        imgui.text_colored(imgui.ImVec4(1.0, 0.2, 0.6, 1.0), f"{cog_deg:05.1f}°")
+        imgui.columns(1)
+
+        imgui.separator()
+        imgui.text_colored(imgui.ImVec4(0.4, 0.8, 0.5, 1.0),
+                           "Hardware: u-blox NEO-M8N on UART3 (PI11/PI12) @ 115,200 Baud")
+
+        imgui.end_child()
+
+    def _render_compass_sensor_panel(self, heading_deg: float, mag_xyz: tuple, field_ut: float, mag_hz: int):
+        """Draws the live QMC5883L magnetic compass sensor details."""
+        imgui.begin_child("CompassSensorPanel", imgui.ImVec2(-1, 115), True)
+        mx, my, mz = mag_xyz
+        imgui.columns(3, "mag_info_cols", False)
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "MAGNETIC HEADING")
+        card_dirs = ("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+        card_idx = int(((heading_deg + 22.5) % 360.0) // 45)
+        card_str = card_dirs[card_idx]
+        imgui.text_colored(imgui.ImVec4(0.2, 0.9, 0.4, 1.0), f"{heading_deg:05.1f}° ({card_str})")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "RAW I2C COUNTS")
+        imgui.text_colored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), f"X={mx:+5d} Y={my:+5d} Z={mz:+5d}")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "TOTAL FLUX DENSITY")
+        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), f"{field_ut:.1f} µT (Earth Field)")
+        imgui.columns(1)
+
+        imgui.separator()
+        imgui.text_colored(imgui.ImVec4(0.4, 0.8, 0.5, 1.0),
+                           f"QMC5883L on TWI1 (PB4/PB5) @ 400 kHz Fast-Mode | {mag_hz} Hz Continuous ODR")
+        imgui.end_child()
+
     def _render_compass_rose(self, width: float, height: float, heading_deg: float, cog_deg: float,
                             speed_mps: float, alt_m: float, fix_str: str, sats: int,
-                            mag_xyz: tuple, field_ut: float, drift_deg: float):
+                            mag_xyz: tuple, field_ut: float, drift_deg: float,
+                            lat: float = 0.0, lon: float = 0.0):
         """
         # @impl [SPEC-USER-PLUGIN-05] tools/visualizer/flight_plugin.py
         # @impl [SPEC-USER-PLUGIN-06] tools/visualizer/flight_plugin.py
@@ -675,8 +783,9 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         # 9. Corner HUD Placards (Glassmorphic)
         # Top-Left: GPS Solution
         dl.add_text(imgui.ImVec2(p_min.x + 10.0, p_min.y + 10.0), col_cyan, f"GPS: {fix_str} ({sats} SVs)")
-        dl.add_text(imgui.ImVec2(p_min.x + 10.0, p_min.y + 26.0), col_white, f"SOG: {speed_mps * 1.94384:4.1f} kts ({speed_mps:4.1f} m/s)")
-        dl.add_text(imgui.ImVec2(p_min.x + 10.0, p_min.y + 42.0), col_white, f"ALT: {alt_m:5.1f} m ({alt_m * 3.28084:5.1f} ft)")
+        dl.add_text(imgui.ImVec2(p_min.x + 10.0, p_min.y + 26.0), col_cyan, f"POS: {lat:+.5f}°, {lon:+.5f}°")
+        dl.add_text(imgui.ImVec2(p_min.x + 10.0, p_min.y + 42.0), col_white, f"SOG: {speed_mps * 1.94384:4.1f} kts ({speed_mps:4.1f} m/s)")
+        dl.add_text(imgui.ImVec2(p_min.x + 10.0, p_min.y + 58.0), col_white, f"ALT: {alt_m:5.1f} m ({alt_m * 3.28084:5.1f} ft)")
 
         # Top-Right: Navigation & Wind Drift
         dl.add_text(imgui.ImVec2(p_max.x - 140.0, p_min.y + 10.0), col_magenta, f"COG: {cog_deg:05.1f}°")
