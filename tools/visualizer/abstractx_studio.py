@@ -1229,8 +1229,28 @@ def _render_status_bar():
         imgui.text_colored(imgui.ImVec4(0.1, 0.9, 0.2, 1.0), " [ONLINE] ")
     else:
         imgui.text_colored(imgui.ImVec4(0.9, 0.2, 0.1, 1.0), " [OFFLINE / WAITING :9870] ")
+
     imgui.same_line()
-    imgui.text(f"| Platform: {g_state.platform_name} ({g_state.platform_arch}) | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s | Dynamic Heap: 0 B")
+    try:
+        from flight_plugin import g_bridge_proc, start_board_bridge, stop_board_bridge
+    except ImportError:
+        from tools.visualizer.flight_plugin import g_bridge_proc, start_board_bridge, stop_board_bridge
+
+    if g_bridge_proc is None or g_bridge_proc.poll() is not None:
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.1, 0.65, 0.3, 1.0))
+        if imgui.button("▶ Connect Board (192.168.3.3)##status"):
+            start_board_bridge()
+            g_state.add_log("BRIDGE", "SSH", "Started live sensor streaming from XuanTie E906 (192.168.3.3)")
+        imgui.pop_style_color()
+    else:
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.2, 0.2, 1.0))
+        if imgui.button("⏹ Disconnect Board##status"):
+            stop_board_bridge()
+            g_state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
+        imgui.pop_style_color()
+
+    imgui.same_line()
+    imgui.text(f"| Platform: {g_state.platform_name} | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s | Dynamic Heap: 0 B")
     imgui.same_line()
     if imgui.small_button("MemBrowse CI: 0 B Heap (Pass)"):
         g_state.requested_studio_tab = "memory"
@@ -2705,11 +2725,19 @@ def _render_core_studio_window():
     flag_fpga    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "fpga"     else 0
     flag_memory  = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "memory"   else 0
     flag_cli     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "cli"      else 0
+    flag_nav     = imgui.TabItemFlags_.set_selected if (g_state.requested_studio_tab == "flight" or (g_initial_tab == "flight" and not getattr(g_state, "_nav_tab_initialized", False))) else 0
+    if flag_nav:
+        g_state._nav_tab_initialized = True
 
     # Reset requested tab after consumption
     g_state.requested_studio_tab = None
 
     if imgui.begin_tab_bar("CoreStudioTabBar"):
+        # Tab 0: 🧭 Compass & GPS Navigation (Default Hero Surface)
+        if imgui.begin_tab_item("🧭 Compass & GPS Navigation", None, flag_nav)[0]:
+            g_flight_plugin.render_ui(0.016, g_state)
+            imgui.end_tab_item()
+
         # Tab 1: Coroutine Inspector (C++20 first - the primary diagnostic surface)
         if imgui.begin_tab_item("Coroutine Inspector", None, flag_coro)[0]:
             if g_state.canvas_windows.get("coro", False):

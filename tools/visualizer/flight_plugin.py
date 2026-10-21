@@ -397,13 +397,17 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.begin_group()
         global g_bridge_proc
         if g_bridge_proc is None or g_bridge_proc.poll() is not None:
-            if imgui.button("▶ Connect Live Board (192.168.3.3)"):
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.1, 0.65, 0.25, 1.0))
+            if imgui.button("▶ Connect Live Board (192.168.3.3)", imgui.ImVec2(240, 26)):
                 start_board_bridge()
                 state.add_log("BRIDGE", "SSH", "Started live sensor streaming from XuanTie E906 (192.168.3.3)")
+            imgui.pop_style_color()
         else:
-            if imgui.button("⏹ Disconnect Board"):
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.2, 0.2, 1.0))
+            if imgui.button("⏹ Disconnect Board (Streaming Active)", imgui.ImVec2(260, 26)):
                 stop_board_bridge()
                 state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
+            imgui.pop_style_color()
 
         imgui.same_line()
         if imgui.button("⚡ Maximize GPS Speed (115.2k Baud @ 10Hz)"):
