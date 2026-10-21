@@ -15,6 +15,7 @@ import select
 import glob
 import struct
 import fcntl
+import signal
 
 def ensure_rpmsg_device():
     devs = glob.glob('/dev/rpmsg[0-9]*')
@@ -64,6 +65,21 @@ def run_script(script_path, timeout=15.0):
                     tot += n
                 except (BlockingIOError, OSError):
                     time.sleep(0.01)
+
+        def sig_handler(sig, frame):
+            try:
+                write_all(b'\x03\x03\x02')
+                time.sleep(0.05)
+            except Exception:
+                pass
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+            sys.exit(0)
+
+        signal.signal(signal.SIGINT, sig_handler)
+        signal.signal(signal.SIGTERM, sig_handler)
 
         def drain_rx(max_chunks=30, timeout_s=0.05):
             for _ in range(max_chunks):

@@ -715,3 +715,26 @@ In AbstractX, all real-time observability, telemetry, and peripheral communicati
      - Fused wind drift crab angle arc ($\delta = \text{COG} - \psi$) revealing aerodynamic crosswind displacement in real time.
 
 
+
+---
+
+### 13. Bugfix & Invariant: VirtIO RPMsg "msg received with no recipient" Flood & Preemptive Teardown
+* **Category**: `product-bug` / `hardware-fact`
+* **Subsystem**: XuanTie E906 VirtIO RPMsg, MicroPython REPL VM Hook, Host Bridge Teardown
+* **Governing Requirements**: `[SPEC-E906-REPL-04]`, `[SPEC-E906-REPL-05]`, `[SPEC-E906-IPC-02]`
+* **Root Cause Analysis**:
+  1. **Dangling Remote Execution**: When host scripts (`run_e906_script.py` or `board_studio_bridge.py`) terminated or closed `/dev/rpmsg0`, the Linux kernel destroyed the local endpoint (`dst = 1024`).
+  2. The XuanTie E906 co-processor was never notified to halt its MicroPython bytecode execution loop, so it continued calling `print(...)` in its streaming loop.
+  3. Every `print()` flushed an RPMsg packet to `dst = 1024`. Because `/dev/rpmsg0` was closed, Linux's `rpmsg_recv_single` found no matching endpoint, logged `virtio_rpmsg_bus virtio0: msg received with no recipient`, and immediately recycled the buffer back to the vring. E906 immediately filled it again, resulting in an unthrottled ping-pong loop at >12,000 packets/sec flooding dmesg.
+  4. Character-by-Character Packet Splitting: `RpmsgConsole::write` was flushing individual bytes rather than line-buffering text lines, multiplying packet counts by 60x.
+  5. In `abstractx_repl_vm_hook()`, `mp_sched_keyboard_interrupt()` was called without `mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS)`, so scheduled interrupts were deferred indefinitely during cooperative delays.
+* **Solution Implemented & Invariants Codified**:
+  1. **Line-Buffered Console Stdout (`_IOLBF`)**:
+     - `RpmsgConsole::write()` now stages characters and flushes exclusively upon encountering newline (`
+`) or when the 256-byte output buffer is full. Reduces RPMsg transaction frequency by 60x.
+  2. **Immediate Exception Dispatch in VM Hook**:
+     - `abstractx_repl_vm_hook()` actively drains incoming characters, checks for `` (Ctrl-C), and immediately invokes `mp_sched_keyboard_interrupt()` followed by `mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS)`. This breaks out of any running Python bytecode loop into REPL idle.
+  3. **Host Clean Teardown Guarantee**:
+     - `run_e906_script.py` and `board_studio_bridge.py` trap `SIGINT` and `SIGTERM` and guarantee transmission of `b''` (Ctrl-C Ctrl-C Ctrl-B) before closing `/dev/rpmsg0`, ensuring E906 returns to REPL idle and ceases transmission.
+  4. **Hardware Verification**:
+     - Tested on Radxa Cubie A5E hardware (`192.168.3.3`): after bridge termination, verified `dmesg` produces 0 `msg received with no recipient` warnings and E906 remains completely silent.

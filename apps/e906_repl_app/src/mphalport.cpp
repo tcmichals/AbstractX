@@ -77,11 +77,12 @@ void abstractx_repl_vm_hook(void) {
         abstractx::g_repl_console->poll();
 
         // Check for keyboard interrupt (Ctrl-C) during bytecode execution
-        if (mp_interrupt_char != -1) {
-            char ch = 0;
-            if (abstractx::g_repl_console->try_peek_char(ch) && ch == mp_interrupt_char) {
-                abstractx::g_repl_console->try_read_char(ch);
+        char ch = 0;
+        while (abstractx::g_repl_console->try_read_char(ch)) {
+            if (ch == 3 || (mp_interrupt_char != -1 && ch == mp_interrupt_char)) {
                 mp_sched_keyboard_interrupt();
+                mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS);
+                break;
             }
         }
     }
@@ -127,6 +128,7 @@ mp_import_stat_t mp_import_stat(const char *path) {
 // Polling character read for raw/event REPL helpers
 int mp_hal_stdin_rx_chr(void) {
     if (abstractx::g_repl_console) {
+        abstractx::g_repl_console->flush();
         char ch = 0;
         while (!abstractx::g_repl_console->try_read_char(ch)) {
             abstractx_repl_vm_hook();

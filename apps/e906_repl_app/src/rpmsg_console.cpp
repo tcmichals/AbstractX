@@ -47,9 +47,8 @@ void RpmsgConsole::write(const char *str, size_t len) noexcept {
     if (!str || len == 0) return;
 
     for (size_t i = 0; i < len; ++i) {
-        if (!m_tx_channel.try_push(str[i])) {
-            // Channel full fallback: stage directly and flush to avoid dropping bytes
-            stage_tx_char(str[i]);
+        stage_tx_char(str[i]);
+        if (str[i] == '\n' || is_tx_buffer_full()) {
             flush();
         }
     }

@@ -54,12 +54,27 @@ def main():
         bufsize=1
     )
 
-    def handle_sig(sig, frame):
+    def interrupt_e906():
         try:
             proc.terminate()
-            proc.wait(timeout=1.0)
+            proc.wait(timeout=1.5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        # Guarantee E906 script loop is interrupted so RPMsg messages cease
+        try:
+            import glob
+            devs = glob.glob('/dev/rpmsg[0-9]*')
+            if devs:
+                with open(devs[0], "wb", buffering=0) as f:
+                    f.write(b'\x03\x03\x02')
         except Exception:
             pass
+
+    def handle_sig(sig, frame):
+        interrupt_e906()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_sig)
@@ -187,14 +202,7 @@ def main():
                     print(f"[PROC] {line}")
 
     finally:
-        try:
-            proc.terminate()
-            proc.wait(timeout=1.0)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+        interrupt_e906()
         sock.close()
         print("[BRIDGE] Streaming complete.")
 
