@@ -63,6 +63,16 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_trac.py)
     add_test(NAME py_test_e906_rpmsg_bridge
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_e906_rpmsg_bridge.py)
+    # [SPEC-STUDIO-*] Studio state, panels and live-vs---sim behaviour; needs pytest + imgui_bundle
+    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import pytest, imgui_bundle"
+                    RESULT_VARIABLE _studio_deps OUTPUT_QUIET ERROR_QUIET)
+    if(_studio_deps EQUAL 0)
+        add_test(NAME py_test_visualizer_sdk
+                 COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_sdk.py
+                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+    else()
+        message(STATUS "py_test_visualizer_sdk skipped: pytest or imgui_bundle not installed")
+    endif()
     # [SPEC-AUDIT-01..05] Adversarial invariant auditor checks
     add_test(NAME py_test_adversarial_invariants
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_adversarial_invariants.py)

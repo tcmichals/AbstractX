@@ -240,7 +240,8 @@ def test_studio_coroutine_and_simple_trace_render():
 def test_studio_simple_trace_event_lifecycle():
     """Validates the Simple Trace and AbstractX Studio buffer APIs in TelemetryState."""
     state = studio.TelemetryState()
-    assert len(state.simple_trace_events) > 0, "Expected initial seeded trace events"
+    state.enable_sim()
+    assert len(state.simple_trace_events) > 0, "Expected seeded trace events in --sim mode"
     first = state.simple_trace_events[0]
     assert "time_us" in first
     assert "core" in first
@@ -265,7 +266,8 @@ def test_studio_simple_trace_event_lifecycle():
 def test_studio_coroutine_inspector_and_watchdog_model():
     """Validates C++20 Coroutine Inspector state, frame memory pool, watchdog budget limits, and topology."""
     state = studio.TelemetryState()
-    assert len(state.coro_frames) >= 5, "Expected active coroutine frames in TelemetryState"
+    state.enable_sim()
+    assert len(state.coro_frames) >= 5, "Expected seeded coroutine frames in --sim mode"
 
     # Verify frame structure matches C++20 coroutine inspection contract
     for f in state.coro_frames:
@@ -292,6 +294,7 @@ def test_studio_coroutine_inspector_and_watchdog_model():
 def test_studio_membrowse_ci_integration():
     """Validates that MemBrowse CI metrics are ingested, loaded, and audited for zero dynamic heap."""
     state = studio.TelemetryState()
+    state.enable_sim()
     assert hasattr(state, "load_membrowse_metrics")
     assert hasattr(state, "run_membrowse_analysis")
     assert state.membrowse_status_msg != ""
@@ -332,8 +335,9 @@ def test_studio_floating_canvas_windows_and_user_canvas():
 
 
 def test_studio_cli_console_and_repl():
-    """Validates [SPEC-STUDIO-13] Interactive CLI Console & MicroPython Hardware REPL."""
+    """Validates [SPEC-STUDIO-13] Interactive CLI Console & MicroPython Hardware REPL (--sim)."""
     state = studio.TelemetryState()
+    state.enable_sim()
     assert hasattr(state, "cli_history")
     assert hasattr(state, "cli_mode")
     assert state.cli_mode == "AbstractX"
@@ -407,3 +411,86 @@ def test_studio_hardware_profile_and_fpga_filtering():
 
 
 
+
+
+LIVE_PANELS = (
+    "_render_core_cpu_and_topology", "_render_core_timeline", "_render_flow_integrity_and_eye_diagram",
+    "_render_fpga_peripherals_window", "_render_source_inspector_window", "_render_coroutine_inspector",
+    "_render_simple_trace_view", "_render_level1_memory", "_render_cli_console",
+    "_render_tlp_debugger_window", "_render_event_log_window", "_render_user_domain_window",
+)
+
+
+def _render_panels(state, frames=2):
+    saved = studio.g_state
+    studio.g_state = state
+    count = 0
+
+    def step_gui():
+        nonlocal count
+        count += 1
+        for name in LIVE_PANELS:
+            getattr(studio, name)()
+        if count >= frames:
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    runner = hello_imgui.RunnerParams()
+    runner.app_window_params.window_geometry.size = (1200, 800)
+    runner.callbacks.show_gui = step_gui
+    implot.create_context()
+    try:
+        immapp.run(runner)
+    finally:
+        implot.destroy_context()
+        studio.g_state = saved
+    return count
+
+
+def test_studio_starts_live_without_demo_data():
+    """[SPEC-STUDIO-14] Without --sim, Studio state holds no invented data."""
+    state = studio.TelemetryState()
+    assert state.sim_mode is False
+    assert state.coro_frames == [] and state.coro_topology == []
+    assert state.coro_names == [] and state.io_driver_events == []
+    assert state.simple_trace_events == []
+    assert state.coro_pool_used_bytes == 0
+    assert (state.gps_lat, state.gps_lon, state.gps_sats, state.gps_fix_type) == (0.0, 0.0, 0, 0)
+    assert state.linux_total_cpu == 0.0 and state.e906_active_duty_pct == 0.0
+    assert not state.chart_cpu_c0.any() and not state.chart_transit_delay_us.any()
+    assert state.cli_simulated_regs == {}
+    assert not any(e["level"] in ("TLP", "CORO", "MEM", "ISR") for e in state.logs), state.logs
+    metrics = studio.Path(studio.__file__).resolve().parent / "memory_metrics.json"
+    if not metrics.exists():
+        assert state.mem_targets == {}
+
+
+def test_studio_cli_without_target_link_does_not_invent_answers():
+    """[SPEC-STUDIO-14] Target commands say there is no REPL link instead of answering from fake state."""
+    state = studio.TelemetryState()
+    for cmd in ("peek 0x07090000", "poke 0x07130000 0x1", "ping", "tasks"):
+        state.execute_cli_command(cmd)
+    text = "\n".join(line[1] for line in state.cli_history)
+    assert "bench_a" not in text and "0x18FA" not in text
+    errs = [line for line in state.cli_history if line[0] == "ERR" and "no REPL link" in line[1]]
+    assert len(errs) == 4, text
+    state.execute_cli_command("mode micropython")
+    state.execute_cli_command("2 + 2")
+    assert not any(line[1] == "4" for line in state.cli_history), "local eval() is not the E906 REPL"
+    assert "no REPL link" in state.cli_history[-1][1]
+
+
+def test_studio_enable_sim_seeds_demo_data():
+    """[SPEC-STUDIO-09] [SPEC-STUDIO-14] Demo data appears only after enable_sim()."""
+    state = studio.TelemetryState()
+    state.enable_sim()
+    assert state.sim_mode is True
+    assert len(state.coro_frames) >= 5 and len(state.simple_trace_events) > 0
+    assert state.gps_sats > 0 and state.cli_simulated_regs
+
+
+def test_studio_panels_render_live_and_sim():
+    """[SPEC-STUDIO-14] Every panel renders with empty live state (placeholders) and with --sim data."""
+    assert _render_panels(studio.TelemetryState()) >= 2
+    sim = studio.TelemetryState()
+    sim.enable_sim()
+    assert _render_panels(sim) >= 2

@@ -54,6 +54,11 @@ try:
 except ImportError:
     from tools.visualizer.flight_plugin import FlightVisualizerPlugin
 
+# Live mode ([SPEC-STUDIO-14]): commands that would need a REPL link to the target.
+TARGET_CLI_COMMANDS = ("peek", "poke", "ping", "tasks", "tlp")
+NO_TARGET_LINK_MSG = ("no REPL link to the target: Studio cannot run this on hardware yet "
+                      "(use run_e906_script.py / e906_workbench.py, or --sim for demo data)")
+
 # CTF Constants & Defaults
 CTF_MAGIC = 0xC1FC1FC1
 DEFAULT_UDP_PORT = 9870
@@ -62,6 +67,8 @@ HISTORY_SIZE = 1000
 class TelemetryState:
     def __init__(self):
         self.lock = threading.Lock()
+        # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+        self.sim_mode = False
         self.connected = False
         self.packet_count = 0
         self.bytes_received = 0
@@ -75,7 +82,7 @@ class TelemetryState:
         self.host_ip = "192.168.3.1"
         self.udp_port = 9870
         self.source_mode = "STANDBY (Waiting on UDP :9870)"
-        self.fpga_trace = "Pipeline: Idle | Zero-Copy SPSC Rings Ready"
+        self.fpga_trace = "Pipeline: idle (no packets yet)"
 
         # Platform Topology Table & Hardware Interconnect (Level 1)
         # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
@@ -102,6 +109,210 @@ class TelemetryState:
 
         # Dual-Plane Execution Data (Level 1)
         # Plane 1: I/O Processor & Drivers (Interrupt & DMA Context)
+        self.io_driver_events = []
+        # Plane 2: Main Coroutine Loop (Cooperative C++20 Tasks)
+        self.coro_names = []
+        self.coro_states = []
+        self.coro_latencies_us = []
+        self.coro_source_info = []
+
+        # Selected Source Code View
+        self.selected_event_name = ""
+        self.selected_source_file = ""
+        self.selected_source_line = 0
+        self.selected_token = ""
+
+        # Per-Processor Utilization
+        self.linux_total_cpu = 0.0
+        self.linux_abstractx_cpu = 0.0
+        self.linux_external_cpu = 0.0
+        self.e906_active_duty_pct = 0.0
+        self.e906_wfi_sleep_pct = 0.0
+        self.fpga_lut_utilization_pct = 0.0
+        self.fpga_dma_bw_mbps = 0.0
+
+        # SPSC Queue Saturation
+        self.sensor_ring_fill = 0
+        self.telemetry_ring_fill = 0
+        self.rtt_latency_us = 0.0
+
+        # Memory Observability & Static Section Budgets (MemBrowse Integration)
+        # Only memory_metrics.json fills this ([SPEC-STUDIO-14]); --sim adds demo targets.
+        self.selected_mem_target = ""
+        self.mem_targets = {}
+
+        # MemBrowse CI Memory Observability & Static Budget State
+        self.membrowse_last_run = "Never"
+        self.membrowse_status_msg = "Awaiting CI static audit metrics..."
+        self.load_membrowse_metrics()
+
+        # Level 2 Domain Telemetry (Flight & Sensors)
+        self.roll_deg = 0.0
+        self.pitch_deg = 0.0
+        self.yaw_deg = 0.0
+        self.altitude_m = 0.0
+        self.ground_speed_mps = 0.0
+        self.motors = [500, 500, 500, 500]
+
+        # Multi-rate stream rates (Hz)
+        self.imu_hz = 0
+        self.mag_hz = 0
+        self.gps_hz = 0
+        self.ahrs_hz = 0
+        self._imu_count = 0
+        self._mag_count = 0
+        self._gps_count = 0
+        self._ahrs_count = 0
+
+        # Ring buffers for Sensor Data (Time vs Value)
+        self.time_history = np.zeros(HISTORY_SIZE, dtype=np.float64)
+        self.accel_x = np.zeros(HISTORY_SIZE, dtype=np.float64)
+        self.accel_y = np.zeros(HISTORY_SIZE, dtype=np.float64)
+        self.accel_z = np.zeros(HISTORY_SIZE, dtype=np.float64)
+        self.gyro_x = np.zeros(HISTORY_SIZE, dtype=np.float64)
+        self.gyro_y = np.zeros(HISTORY_SIZE, dtype=np.float64)
+        self.gyro_z = np.zeros(HISTORY_SIZE, dtype=np.float64)
+        self.head_idx = 0
+
+        # GPS Navigation Status
+        self.gps_lat = 0.0
+        self.gps_lon = 0.0
+        self.gps_alt_m = 0.0
+        self.gps_speed_mps = 0.0
+        self.gps_sats = 0
+        self.gps_fix_type = 0
+
+        # Logging & TLP Debugger State
+        self.logs = []
+        self.recent_tlp_packets = []
+        self.selected_tlp_idx = 0
+        self.tlp_stream_paused = False
+        self.log_filter_level = "ALL"
+        self.log_search_text = ""
+        self.log_auto_scroll = True
+
+        # AbstractX Studio & CPU Line Chart History (Last 30 seconds, 60 samples at 2 Hz)
+        self.chart_hist_len = 60
+        self.chart_time = np.linspace(-30.0, 0.0, self.chart_hist_len, dtype=np.float64)
+        self.chart_cpu_c0 = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.chart_cpu_c1 = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.chart_cpu_spu = np.zeros(self.chart_hist_len, dtype=np.float64)
+        
+        # Coroutine & Task Latencies (microseconds)
+        self.chart_lat_imu = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.chart_lat_ekf = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.chart_lat_ctl = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.chart_lat_dma = np.zeros(self.chart_hist_len, dtype=np.float64)
+
+        # SPSC Ring Occupancies
+        self.chart_ring_sensor = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.chart_ring_telem = np.zeros(self.chart_hist_len, dtype=np.float64)
+
+        # CPU Gauges & Topology View, Zoom & Sizing State
+        self.cpu_chart_height = 320.0
+        self.cpu_chart_zoom_sec = 30.0
+        self.cpu_chart_trigger_zoom_reset = True
+        self.cpu_chart_autofit_y = False
+        self.cpu_chart_show_rings = True
+        self.cpu_view_mode = "standard"  # "standard" or "chart_focus"
+
+        # Floating canvas window states (so user can pop any tab out onto canvas as a movable window)
+        self.canvas_windows = {
+            "coro": False,
+            "cpu": False,
+            "tlp": False,
+            "log": False,
+            "timeline": False,
+            "trace": False,
+            "source": False,
+            "fpga": False,
+            "memory": False,
+            "cli": False,
+        }
+        self.user_canvas_floated_on_startup = False
+
+        # CLI Console & MicroPython Hardware REPL State
+        # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
+        self.cli_history = [
+            ("INFO", "AbstractX Interactive CLI."),
+            ("WARN", "Live mode: Studio has no REPL link to the target yet; target commands are unavailable."),
+            ("INFO", "Type 'help' for command list or switch modes above."),
+        ]
+        self.cli_command_history = []
+        self.cli_history_idx = -1
+        self.cli_input_text = ""
+        self.cli_mode = "AbstractX"  # "AbstractX" or "MicroPython"
+        self.cli_auto_scroll = True
+        self.cli_simulated_regs = {}
+
+        # Simple Trace Viewer State
+        self.simple_trace_events = []
+        self.simple_trace_paused = False
+        self.simple_trace_filter_core = "ALL"
+        self.simple_trace_search = ""
+        self.simple_trace_auto_scroll = True
+        self.selected_trace_idx = 0
+
+        # Dual-Plane Execution Swimlanes & Flow-Integrity Drill-Down State
+        self.active_layout_preset = "balanced"
+        self.source_code_files = [
+            "apps/gps_imu_app/src/main.cpp",
+            "include/abstractx/drivers/imu/icm42688p.hpp",
+            "include/abstractx/fusion/attitude_filter.hpp",
+            "targets/allwinner_e906/src/io_processor.cpp"
+        ]
+        self.selected_code_file_idx = 0
+        self.timing_zoom = 1.0
+        self.timing_pan_us = 0.0
+        self.timing_paused = False
+        self.timing_show_overruns_only = False
+        self.selected_span_id = ""
+
+        # Real-Time Flow-Integrity & Congestion Metrics
+        self.chart_transit_delay_us = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.chart_interarrival_us = np.zeros(self.chart_hist_len, dtype=np.float64)
+        self.pacing_eye_jitter_us = np.zeros(48, dtype=np.float64)
+        self.hol_contention_ratio = 0.0
+        self.tlp_seq_drops = 0
+        self.tlp_last_seq = 0
+        self.requested_studio_tab = None
+
+        # Cross-Language Source & RTL Mapping Engine State
+        self.source_view_mode = "CPP"  # "CPP" or "RTL"
+        self.rtl_code_files = [
+            "rtl/asp_router.sv",
+            "rtl/imu/asp_imu_auto_dma.sv",
+            "rtl/dshot/asp_dshot_core.sv"
+        ]
+        self.selected_rtl_file_idx = 0
+        self.selected_rtl_file = "rtl/asp_router.sv"
+        self.selected_rtl_line = 64
+        self.active_anomaly_modal = False
+        self.selected_anomaly_info = {}
+
+        # ── Coroutine Inspector State (C++20 Coroutine-First Observability) ──
+        # Live table of active coroutine frames, updated from incoming CoroEventPayload TLPs.
+        # Each entry mirrors CoroInspectorEntry from include/abstractx/trace/coro_trace.hpp.
+        self.coro_frames = []
+        # Static frame pool metrics (from coro::coro_pool_used() / coro_pool_capacity())
+        self.coro_pool_used_bytes = 0
+        self.coro_pool_capacity_bytes = 0
+        # Spawn topology: list of (parent_name, child_name) edges for topology tree
+        self.coro_topology = []
+
+        self.add_log("INFO", "Studio", "Live mode: showing only received data (start with --sim for demo data).")
+
+    def enable_sim(self):
+        """Fill the workbench with demo data; only for --sim ([SPEC-STUDIO-09], [SPEC-STUDIO-14])."""
+        # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+        self.sim_mode = True
+        self.logs.clear()
+        self.cli_history = [h for h in self.cli_history if "no REPL link" not in h[1]]
+        self.cli_history.insert(1, ("WARN", "SIMULATED DATA (--sim): nothing here comes from a target."))
+        self._seed_sim_data()
+        self.load_membrowse_metrics()
+
+    def _seed_sim_data(self):
         self.io_driver_events = [
             {"name": "SPI0 DMA Burst", "driver": "hal_spi", "subsystem": "ICM-42688-P DMA", "latency_us": 0.8, "file": "targets/linux/src/hal_spi.cpp", "line": 78},
             {"name": "TWI0 I2C ISR", "driver": "hal_i2c", "subsystem": "Compass / Baro", "latency_us": 1.2, "file": "targets/allwinner_e906/src/hal_i2c.cpp", "line": 45},
@@ -118,14 +329,6 @@ class TelemetryState:
             {"file": "apps/gps_imu_app/src/main.cpp", "line": 115, "token": "co_await timer.sleep_ms_async(1)"},
             {"file": "apps/gps_imu_app/src/main.cpp", "line": 140, "token": "co_await attitude_ready"},
         ]
-
-        # Selected Source Code View
-        self.selected_event_name = "imu_pipeline"
-        self.selected_source_file = "apps/gps_imu_app/src/main.cpp"
-        self.selected_source_line = 42
-        self.selected_token = "co_await g_sensor_ring.pop_async()"
-
-        # Per-Processor Utilization
         self.linux_total_cpu = 8.4
         self.linux_abstractx_cpu = 5.2
         self.linux_external_cpu = 3.2
@@ -138,8 +341,6 @@ class TelemetryState:
         self.sensor_ring_fill = 18
         self.telemetry_ring_fill = 8
         self.rtt_latency_us = 12.4
-
-        # Memory Observability & Static Section Budgets (MemBrowse Integration)
         self.selected_mem_target = "RP2350 Pico 2 W"
         self.mem_targets = {
             "RP2350 Pico 2 W": {
@@ -205,109 +406,23 @@ class TelemetryState:
                 "membrowse_budget_ok": True,
             }
         }
-
-        # MemBrowse CI Memory Observability & Static Budget State
-        self.membrowse_last_run = "Never"
-        self.membrowse_status_msg = "Awaiting CI static audit metrics..."
-        self.load_membrowse_metrics()
-
-        # Level 2 Domain Telemetry (Flight & Sensors)
-        self.roll_deg = 0.0
-        self.pitch_deg = 0.0
-        self.yaw_deg = 0.0
-        self.altitude_m = 10.0
-        self.ground_speed_mps = 2.5
-        self.motors = [500, 500, 500, 500]
-
-        # Multi-rate stream rates (Hz)
-        self.imu_hz = 0
-        self.mag_hz = 0
-        self.gps_hz = 0
-        self.ahrs_hz = 0
-        self._imu_count = 0
-        self._mag_count = 0
-        self._gps_count = 0
-        self._ahrs_count = 0
-
-        # Ring buffers for Sensor Data (Time vs Value)
-        self.time_history = np.zeros(HISTORY_SIZE, dtype=np.float64)
-        self.accel_x = np.zeros(HISTORY_SIZE, dtype=np.float64)
-        self.accel_y = np.zeros(HISTORY_SIZE, dtype=np.float64)
-        self.accel_z = np.zeros(HISTORY_SIZE, dtype=np.float64)
-        self.gyro_x = np.zeros(HISTORY_SIZE, dtype=np.float64)
-        self.gyro_y = np.zeros(HISTORY_SIZE, dtype=np.float64)
-        self.gyro_z = np.zeros(HISTORY_SIZE, dtype=np.float64)
-        self.head_idx = 0
-
-        # GPS Navigation Status
         self.gps_lat = 37.7749
         self.gps_lon = -122.4194
         self.gps_alt_m = 142.5
         self.gps_speed_mps = 12.4
         self.gps_sats = 18
         self.gps_fix_type = 3
-
-        # Logging & TLP Debugger State
-        self.logs = []
-        self.recent_tlp_packets = []
-        self.selected_tlp_idx = 0
-        self.tlp_stream_paused = False
-        self.log_filter_level = "ALL"
-        self.log_search_text = ""
-        self.log_auto_scroll = True
-
-        # AbstractX Studio & CPU Line Chart History (Last 30 seconds, 60 samples at 2 Hz)
-        self.chart_hist_len = 60
-        self.chart_time = np.linspace(-30.0, 0.0, self.chart_hist_len, dtype=np.float64)
-        self.chart_cpu_c0 = np.full(self.chart_hist_len, 22.4, dtype=np.float64)
-        self.chart_cpu_c1 = np.full(self.chart_hist_len, 34.1, dtype=np.float64)
-        self.chart_cpu_spu = np.full(self.chart_hist_len, 11.2, dtype=np.float64)
-        
-        # Coroutine & Task Latencies (microseconds)
-        self.chart_lat_imu = np.full(self.chart_hist_len, 1.2, dtype=np.float64)
-        self.chart_lat_ekf = np.full(self.chart_hist_len, 4.5, dtype=np.float64)
-        self.chart_lat_ctl = np.full(self.chart_hist_len, 2.8, dtype=np.float64)
-        self.chart_lat_dma = np.full(self.chart_hist_len, 0.8, dtype=np.float64)
-
-        # SPSC Ring Occupancies
-        self.chart_ring_sensor = np.full(self.chart_hist_len, 22.0, dtype=np.float64)
-        self.chart_ring_telem = np.full(self.chart_hist_len, 12.0, dtype=np.float64)
-
-        # CPU Gauges & Topology View, Zoom & Sizing State
-        self.cpu_chart_height = 320.0
-        self.cpu_chart_zoom_sec = 30.0
-        self.cpu_chart_trigger_zoom_reset = True
-        self.cpu_chart_autofit_y = False
-        self.cpu_chart_show_rings = True
-        self.cpu_view_mode = "standard"  # "standard" or "chart_focus"
-
-        # Floating canvas window states (so user can pop any tab out onto canvas as a movable window)
-        self.canvas_windows = {
-            "coro": False,
-            "cpu": False,
-            "tlp": False,
-            "log": False,
-            "timeline": False,
-            "trace": False,
-            "source": False,
-            "fpga": False,
-            "memory": False,
-            "cli": False,
-        }
-        self.user_canvas_floated_on_startup = False
-
-        # CLI Console & MicroPython Hardware REPL State
-        # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
-        self.cli_history = [
-            ("INFO", "AbstractX Interactive CLI & MicroPython REPL online."),
-            ("INFO", "Target: Allwinner T527 XuanTie E906 (200 MHz) | Port: UDP:9870 / SITL"),
-            ("INFO", "Type 'help' for command list or switch modes above."),
-        ]
-        self.cli_command_history = []
-        self.cli_history_idx = -1
-        self.cli_input_text = ""
-        self.cli_mode = "AbstractX"  # "AbstractX" or "MicroPython"
-        self.cli_auto_scroll = True
+        self.chart_cpu_c0[:] = 22.4
+        self.chart_cpu_c1[:] = 34.1
+        self.chart_cpu_spu[:] = 11.2
+        self.chart_lat_imu[:] = 1.2
+        self.chart_lat_ekf[:] = 4.5
+        self.chart_lat_ctl[:] = 2.8
+        self.chart_lat_dma[:] = 0.8
+        self.chart_ring_sensor[:] = 22.0
+        self.chart_ring_telem[:] = 12.0
+        self.chart_transit_delay_us[:] = 2.4
+        self.chart_interarrival_us[:] = 125.0
         self.cli_simulated_regs = {
             0x07090000: 0x18FA2040,  # MTIME
             0x07090008: 0x18FA2428,  # MTIMECMP
@@ -316,60 +431,14 @@ class TelemetryState:
             0x03003000: 0x00000002,  # MSGBOX Ch1 Status
             0x40000100: 0x00000001,  # FPGA Interconnect Status
         }
-
-        # Simple Trace Viewer State
-        self.simple_trace_events = []
-        self.simple_trace_paused = False
-        self.simple_trace_filter_core = "ALL"
-        self.simple_trace_search = ""
-        self.simple_trace_auto_scroll = True
-        self.selected_trace_idx = 0
         self._seed_initial_trace_events()
-
-        # Dual-Plane Execution Swimlanes & Flow-Integrity Drill-Down State
-        self.active_layout_preset = "balanced"
-        self.source_code_files = [
-            "apps/gps_imu_app/src/main.cpp",
-            "include/abstractx/drivers/imu/icm42688p.hpp",
-            "include/abstractx/fusion/attitude_filter.hpp",
-            "targets/allwinner_e906/src/io_processor.cpp"
-        ]
-        self.selected_code_file_idx = 0
-        self.timing_zoom = 1.0
-        self.timing_pan_us = 0.0
-        self.timing_paused = False
-        self.timing_show_overruns_only = False
+        self.pacing_eye_jitter_us = np.linspace(-4.2, 4.8, 48, dtype=np.float64)
+        self.hol_contention_ratio = 0.035
         self.selected_span_id = "imu_overrun"
         self.selected_event_name = "imu_pipeline [OVERRUN]"
         self.selected_source_file = "apps/gps_imu_app/src/main.cpp"
         self.selected_source_line = 42
         self.selected_token = "co_await g_sensor_ring.pop() [OVERRUN: 23.4 µs vs 15.0 µs budget]"
-
-        # Real-Time Flow-Integrity & Congestion Metrics
-        self.chart_transit_delay_us = np.full(self.chart_hist_len, 2.4, dtype=np.float64)  # Δt_transit = t_pop - t_latch
-        self.chart_interarrival_us = np.full(self.chart_hist_len, 125.0, dtype=np.float64) # Δt_arrival pacing delta (nominal: 125 µs @ 8 kHz)
-        self.pacing_eye_jitter_us = np.linspace(-4.2, 4.8, 48, dtype=np.float64)
-        self.hol_contention_ratio = 0.035
-        self.tlp_seq_drops = 0
-        self.tlp_last_seq = 1000
-        self.requested_studio_tab = None
-
-        # Cross-Language Source & RTL Mapping Engine State
-        self.source_view_mode = "CPP"  # "CPP" or "RTL"
-        self.rtl_code_files = [
-            "rtl/asp_router.sv",
-            "rtl/imu/asp_imu_auto_dma.sv",
-            "rtl/dshot/asp_dshot_core.sv"
-        ]
-        self.selected_rtl_file_idx = 0
-        self.selected_rtl_file = "rtl/asp_router.sv"
-        self.selected_rtl_line = 64
-        self.active_anomaly_modal = False
-        self.selected_anomaly_info = {}
-
-        # ── Coroutine Inspector State (C++20 Coroutine-First Observability) ──
-        # Live table of active coroutine frames, updated from incoming CoroEventPayload TLPs.
-        # Each entry mirrors CoroInspectorEntry from include/abstractx/trace/coro_trace.hpp.
         self.coro_frames = [
             {"task_id": 1, "name": "app_main",          "state": "RUNNING",
              "awaiter": "—",                  "duration_us": 1200.0,
@@ -415,6 +484,7 @@ class TelemetryState:
         self.add_log("CORO", "Dispatcher", "DomainDispatcher::step() cooperative event loop active.")
         self.add_log("TLP", "asp_router", "FPGA crossbar switch fabric online (64B AXI-Stream TLPs).")
         self.add_log("MEM", "MemBrowse", "Zero-heap verification: 0 bytes dynamic allocation.")
+
 
     def _seed_initial_trace_events(self):
         seeds = [
@@ -534,6 +604,10 @@ class TelemetryState:
         # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
         parts = cmd.split()
         op = parts[0].lower()
+        # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+        if op in TARGET_CLI_COMMANDS and not self.sim_mode:
+            self.add_cli_line("ERR", NO_TARGET_LINK_MSG)
+            return
         if op in ("help", "?"):
             self.add_cli_line("OUT", "Available AbstractX CLI Commands:")
             self.add_cli_line("OUT", "  help, ?              - Show this command reference")
@@ -597,7 +671,8 @@ class TelemetryState:
             self.add_cli_line("OK", "[TLP] Injected 64-byte frame Tag=0x00 Channel=3 (asp_router.sv accepted)")
         elif op in ("stats", "flow"):
             self.add_cli_line("OUT", f"Bus Flow Stats: Packets={self.packet_count:,} Rate={self.packet_rate_smoothed:.1f} pkts/s")
-            self.add_cli_line("OUT", "HoL Max Stall: 1.4 us | Ring Fill: 42% | Dynamic Heap: 0 B")
+            if self.sim_mode:
+                self.add_cli_line("OUT", "HoL Max Stall: 1.4 us | Ring Fill: 42% | Dynamic Heap: 0 B")
         elif op in ("clear", "cls"):
             with self.lock:
                 self.cli_history.clear()
@@ -616,6 +691,10 @@ class TelemetryState:
         if cmd.lower() in ("exit", "quit", "mode abstractx"):
             self.cli_mode = "AbstractX"
             self.add_cli_line("INFO", "Switched to AbstractX Native CLI mode.")
+            return
+        # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+        if not self.sim_mode:
+            self.add_cli_line("ERR", NO_TARGET_LINK_MSG)
             return
 
         state_ref = self
@@ -1033,7 +1112,7 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                             g_state.push_sensor_sample(t, ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps)
                             with g_state.lock:
                                 g_state.source_mode = "FPGA HARDWARE RTL (asp_top.sv Verilator)"
-                                g_state.fpga_trace = f"Doorbell: 9.57 µs | Auto-DMA: 14B SPI @ 10MHz | Seq: #{be_seq}"
+                                g_state.fpga_trace = f"UDP: FPGA IMU TLP (big-endian, ch 2) | Seq: #{be_seq}"
                                 g_state.roll_deg = roll
                                 g_state.pitch_deg = pitch
                                 g_state.yaw_deg = float((g_state.yaw_deg + gz_dps * 0.02) % 360.0)
@@ -1054,10 +1133,10 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                             with g_state.lock:
                                 if le_tag == 5:
                                     g_state.source_mode = "LIVE HARDWARE (Radxa Cubie A5E + XuanTie E906)"
-                                    g_state.fpga_trace = "RPMsg /dev/rpmsg0 | QMC5883L 200Hz + u-blox 115200 Baud"
+                                    g_state.fpga_trace = f"UDP: board TLP tag 5 (heading/GPS) | Seq: #{le_seq}"
                                 else:
                                     g_state.source_mode = "SOFTWARE C++20 SITL (gps_imu_app)"
-                                    g_state.fpga_trace = "Runtime: DomainDispatcher::step() | Zero Heap | SPSC Rings Active"
+                                    g_state.fpga_trace = f"UDP: SITL TLP tag 4 | Seq: #{le_seq}"
                                 g_state.roll_deg = roll_cdeg * 0.01
                                 g_state.pitch_deg = pitch_cdeg * 0.01
                                 g_state.yaw_deg = yaw_cdeg * 0.01
@@ -1073,8 +1152,9 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                     g_state.gps_sats = sats_b
                                     g_state.gps_fix_type = fix_b
                         elif le_type == 0x10 and le_tag == 3:
+                            # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
                             with g_state.lock:
-                                g_state.mag_hz = 200
+                                g_state._mag_count += 1
                         elif le_tag == 0:
                             # Stream 0: Coroutine / FreeRTOS Task Lifecycle Event (CoroEventPayload, 38B)
                             # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
@@ -1363,6 +1443,16 @@ def _setup_studio_style():
     style.set_color_(imgui.Col_.title_bg, imgui.ImVec4(0.12, 0.16, 0.22, 1.0))
     style.set_color_(imgui.Col_.title_bg_active, imgui.ImVec4(0.18, 0.28, 0.42, 1.0))
 
+def _no_live_data(panel: str, needs: str) -> bool:
+    """True (after drawing a placeholder) when a panel has no live source ([SPEC-STUDIO-14])."""
+    # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+    if g_state.sim_mode:
+        return False
+    imgui.text_colored(imgui.ImVec4(0.9, 0.75, 0.3, 1.0), f"{panel}: no live data")
+    imgui.text_wrapped(f"Needs: {needs}. Start Studio with --sim to see demo data.")
+    return True
+
+
 def _render_connection_bar(prefix: str = "core"):
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
@@ -1443,9 +1533,14 @@ def _render_status_bar():
     """Renders bottom status bar with quick dynamic window layout presets, reset, and canvas pop-out."""
     _render_connection_bar("status")
     imgui.same_line(0, 15)
-    imgui.text(f"| Platform: {g_state.platform_name} | {'FPGA: Tang20K' if g_state.has_fpga else 'Pure Silicon (No FPGA)'} | Heap: 0 B")
+    # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+    if g_state.sim_mode:
+        imgui.text_colored(imgui.ImVec4(1.0, 0.35, 0.35, 1.0), "SIMULATED DATA (--sim)")
+        imgui.same_line()
+    imgui.text(f"| Platform: {g_state.platform_name} | {'FPGA: Tang20K' if g_state.has_fpga else 'Pure Silicon (No FPGA)'}")
     imgui.same_line()
-    if imgui.small_button("MemBrowse CI: 0 B Heap (Pass)"):
+    membrowse_lbl = "MemBrowse CI: 0 B Heap (Pass)" if g_state.mem_targets else "MemBrowse CI: no metrics"
+    if imgui.small_button(membrowse_lbl):
         g_state.requested_studio_tab = "memory"
         w_core = g_dockable_windows.get("core")
         if w_core:
@@ -1549,6 +1644,8 @@ def _render_core_cpu_and_topology():
     Renders Silicon Cores, Radial CPU & SPSC Gauges, Interactive Zoomable Load Plots,
     Dynamic Window Sizing Controls, and Platform Architecture Topology.
     """
+    if _no_live_data("CPU Gauges & Topology", "CPU load and ring fill telemetry from the target (not decoded yet)"):
+        return
     # ── Top Toolbar: Dynamic Window Sizing & Plot Zoom Controls ──
     imgui.begin_group()
     imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), "Window Size:")
@@ -1760,6 +1857,9 @@ def _render_core_cpu_and_topology():
 
 def _render_simple_trace_view():
     """Renders execution trace table with click-to-inspect."""
+    if not g_state.simple_trace_events and _no_live_data(
+            "Simple Trace", "CTF trace packets on UDP (Studio has no CTF packet decoder yet)"):
+        return
     imgui.begin_group()
     cores = ["ALL", "Core 0", "Core 1", "SPU", "ISR"]
     for c in cores:
@@ -1871,6 +1971,8 @@ def _render_simple_trace_view():
 
 def _render_core_timeline():
     """Renders Dual-Plane Execution Timeline & Source Scanner."""
+    if _no_live_data("Dual-Plane Timeline", "driver and coroutine timing events from the target (not decoded yet)"):
+        return
     imgui.begin_group()
     imgui.text_colored(imgui.ImVec4(0.9, 0.5, 0.2, 1.0), "Plane 1: Hardware I/O Processor & Peripheral Drivers (Interrupt & DMA Context)")
     imgui.same_line(0, 20)
@@ -1944,6 +2046,12 @@ def _render_level1_memory():
     imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), f"Status: {g_state.membrowse_status_msg}")
     imgui.end_group()
     imgui.separator()
+    # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+    if not g_state.mem_targets:
+        imgui.text_colored(imgui.ImVec4(0.9, 0.75, 0.3, 1.0), "No memory metrics loaded.")
+        imgui.text_wrapped("tools/visualizer/memory_metrics.json does not exist yet: "
+                           "click 'Run Local Memory Audit' to build it from the target ELFs.")
+        return
 
     # Multi-Target CI Overview Matrix
     imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "Continuous Integration Silicon Target Matrix:")
@@ -2173,6 +2281,8 @@ def _render_coroutine_inspector():
         pool_used = g_state.coro_pool_used_bytes
         pool_cap  = g_state.coro_pool_capacity_bytes
         topology  = list(g_state.coro_topology)
+    if not frames and _no_live_data("Coroutine Inspector", "coroutine lifecycle TLPs (tag 0) from the target"):
+        return
 
     active_count  = len(frames)
     stalled_count = sum(1 for f in frames
@@ -2373,6 +2483,8 @@ def _render_flow_integrity_and_eye_diagram():
     2. Packet Transit Delay (Δt_transit = t_pop - t_latch) & Monotonic Sequence Drift.
     3. Pacing 'Eye Diagram' folded modulo 125.0 µs epoch (8 kHz clock).
     """
+    if _no_live_data("Flow Integrity", "per-channel stall and latch timestamps from the TLP router (not decoded yet)"):
+        return
     imgui.text_colored(imgui.ImVec4(0.3, 0.85, 1.0, 1.0), "Real-Time Bus Flow-Integrity, Pacing Eye & Congestion Matrix")
     imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0),
                        "Exposes bus physics: transit delays, AXI-Stream backpressure stalls, SPSC fullness, and inter-arrival pacing.")
@@ -3265,6 +3377,8 @@ def _render_source_inspector_window():
     # @impl [SPEC-STUDIO-11] tools/visualizer/abstractx_studio.py
     Renders Window 5: Cross-Language Source Code & SystemVerilog RTL Hotspot Inspector.
     """
+    if _no_live_data("Source & RTL Profiling", "trace events with source locations and timings (not decoded yet)"):
+        return
     g_state.update_rates()
     imgui.begin_group()
 
@@ -3501,6 +3615,8 @@ def _render_fpga_peripherals_window():
     # @impl [SPEC-STUDIO-12] tools/visualizer/abstractx_studio.py
     Renders Window 6: FPGA Hardware Accelerators & Peripheral Subsystems Inspector.
     """
+    if _no_live_data("FPGA Peripherals", "FPGA register / status telemetry (not decoded yet)"):
+        return
     g_state.update_rates()
     imgui.begin_group()
     imgui.text_colored(imgui.ImVec4(0.8, 0.4, 1.0, 1.0), "FPGA SPU Accelerator Engine & High-Speed Peripherals")
@@ -3622,6 +3738,8 @@ def main():
     args = parser.parse_args()
 
     g_initial_tab = args.tab
+    if args.sim:
+        g_state.enable_sim()
     g_state.board_ip = args.board_ip
     g_state.host_ip = args.host_ip
     g_state.udp_port = args.port

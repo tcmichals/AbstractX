@@ -1471,3 +1471,23 @@ This log chronicles the development, technical decisions, and architecture miles
 * `--matrix`: 15 skills and 0 BROKEN before and after.
 * `ctest --test-dir build_host`: 38/38 passed.
 * Not verified: a fresh Claude Code session listing the skills (needs a new session); Antigravity loading the folder layout; ASan/TSan builds (no C++ changed).
+
+---
+
+## [2026-10-20] - Studio Showed Demo Data in Live Mode
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug`, `process-gap`
+* **Target / Subsystem**: `tools/visualizer/abstractx_studio.py`, `tests/test_visualizer_sdk.py`, `tests/CMakeLists.txt`
+* **Governing Requirements**: `[SPEC-STUDIO-09]`, `[SPEC-STUDIO-14]` (new)
+* **Symptoms**: Without `--sim`, Studio showed San Francisco GPS with 18 satellites and a 3D fix, CPU loads, six coroutines, ten trace events, canned TLP/CORO/MEM log lines, made-up FPGA, flow-integrity and source-profiling numbers, and a "MicroPython REPL" that ran `eval()` locally against fake registers. Board problems (no trace, compass and GPS not updating) were hidden behind data that looked live. The UDP path also hardcoded `mag_hz = 200` and status text such as "Doorbell: 9.57 µs". `g_state.sim_mode` was read but never assigned.
+
+### 2. Root Cause & Lesson Learned
+* **Root Cause**: demo values were the `TelemetryState` constructor defaults, and several panels drew constants. The tests asserted that fake data (e.g. `tasks` prints `bench_a`), and `test_visualizer_sdk.py` was not registered in ctest, so it never ran in the gate.
+* **Lesson**: a workbench must never invent values outside an explicit demo mode. Empty with a "no live data" placeholder is correct; a plausible number is a false pass for the operator.
+
+### 3. Fix & Verification
+* `[SPEC-STUDIO-14]` added first. Demo data moved into `TelemetryState.enable_sim()`, which only `--sim` calls; live defaults are empty or zero. Panels without a live source show a placeholder. Target CLI commands and MicroPython mode report "no REPL link". `SIMULATED DATA (--sim)` badge in the status bar. Live labels and the mag rate now come from received packets.
+* New tests: live state holds no demo data; the CLI doesn't make up answers; `enable_sim()` seeds; all 12 panels render with empty live state and with sim data. They failed on the old code (`AttributeError: enable_sim`, 8 failed) and pass now (18 passed).
+* `py_test_visualizer_sdk` registered in ctest (when pytest and imgui_bundle are present): `ctest --test-dir build_host` 39/39 passed.
+* Not verified: Studio against live board traffic (board in use for v3); the CTF trace decoder and real REPL link are still missing (review of 2026-10-20).
