@@ -524,6 +524,13 @@ echo start > /sys/class/remoteproc/remoteproc0/state
 microcom -p /dev/rpmsg0
 ```
 
+> [!NOTE]
+> The REPL node is not always `/dev/rpmsg0`: the TLP (1024) and trace (1025) endpoints
+> also get `/dev/rpmsgN` nodes. The host scripts pick the node whose
+> `/sys/class/rpmsg/rpmsgN/name` is `abstractx-repl` and create it via
+> `/dev/rpmsg_ctrl0` if it is missing ([SPEC-E906-REPL-12]). Find it by hand with
+> `grep -l abstractx-repl /sys/class/rpmsg/rpmsg*/name`.
+
 ### C. Inspect Hardware from the MicroPython Prompt
 ```python
 >>> import abstractx
@@ -546,7 +553,169 @@ microcom -p /dev/rpmsg0
 
 ---
 
-## 8. Live Peripheral Testing Recipes (Python)
+## 8. Connecting AbstractX Studio to the Board
+
+AbstractX Studio (`tools/visualizer/abstractx_studio.py`) runs on the PC. It never talks
+to RPMsg directly: it SSHes to the board and starts a Linux-side Python bridge, which
+runs a MicroPython script on the E906 and forwards the results to Studio over UDP.
+
+```mermaid
+flowchart LR
+    subgraph PC["PC (192.168.3.1)"]
+        STUDIO["abstractx_studio.py<br/>UDP listener :9870"]
+    end
+    subgraph A5E["Cubie A5E Linux (192.168.3.3) - /root"]
+        BRIDGE["board_studio_bridge.py"]
+        RUNNER["run_e906_script.py"]
+    end
+    subgraph E906["XuanTie E906"]
+        SCRIPT["raw_sensor_streamer.py<br/>(MicroPython)"]
+    end
+    STUDIO -- "ssh root@board: start bridge" --> BRIDGE
+    BRIDGE -- "subprocess" --> RUNNER
+    RUNNER <-- "abstractx-repl (1026)<br/>raw REPL text, PING" --> SCRIPT
+    BRIDGE -- "64B TLPs, tags 2/3/5<br/>UDP :9870" --> STUDIO
+```
+
+### 8.1 One-Time Setup
+
+1. **Board profile**: `/boot/config.txt` must load `cubie-a5e-flight-stack-e906` (§6.3),
+   and `cat /sys/class/remoteproc/remoteproc0/state` must print `running`.
+2. **Network**: PC on `192.168.3.1`, board on `192.168.3.3` (the defaults). Other
+   addresses work through `--board-ip` / `--host-ip`.
+3. **Passwordless SSH** (Studio uses `ssh root@<board>` with no prompt;
+   auto-detect uses `BatchMode=yes`):
+   ```bash
+   ssh-copy-id root@192.168.3.3
+   ssh -o BatchMode=yes root@192.168.3.3 true && echo ssh-ok
+   ```
+4. **Copy the Linux-side scripts to `/root` on the board** (Studio and the board tests
+   expect exactly these paths). From the repository root:
+   ```bash
+   scp -O apps/e906_repl_app/run_e906_script.py \
+          apps/e906_repl_app/raw_sensor_streamer.py \
+          apps/e906_repl_app/flight_sensors.py \
+          tools/board_studio_bridge.py \
+          tools/e906_rpmsg_bridge.py \
+          root@192.168.3.3:/root/
+   ```
+   Re-copy after changing any of them; the board does not run them from the repo.
+5. **PC Python dependencies** for Studio:
+   ```bash
+   pip install -r tools/visualizer/requirements.txt
+   ```
+
+### 8.2 Start Studio and Connect
+
+From the repository root on the PC:
+
+```bash
+# Start Studio and the board bridge in one step
+python3 tools/visualizer/abstractx_studio.py --auto-connect
+
+# Or start Studio, then use the menu bar: "▶ Connect (192.168.3.3)"
+python3 tools/visualizer/abstractx_studio.py
+
+# Different addresses or port
+python3 tools/visualizer/abstractx_studio.py --board-ip 10.0.0.42 --host-ip 10.0.0.1 --port 9870
+```
+
+In the menu bar:
+- **▶ Connect / ⏹ Disconnect** start and stop the board bridge. The label changes to
+  `● Streaming` once TLPs arrive, or `◌ Bridge Up` while the bridge runs with no data yet.
+- **Connection → 🔍 Auto-Detect Target Silicon & FPGA** picks the `cubie_a5e_pure` or
+  `cubie_a5e_fpga` profile over SSH. **Hardware Profile** sets it by hand.
+
+Disconnect sends Ctrl-C to the E906 script so the RPMsg traffic stops. If Studio is killed
+without disconnecting, the E906 heartbeat watchdog ([SPEC-E906-REPL-14]) stops the script
+once the bridge's 1 s `PING` stops.
+
+### 8.3 Start the Linux Bridge by Hand (No Studio GUI)
+
+Use this to debug the board side or to point an existing Studio at the board. On the
+board, or through SSH from the PC:
+
+```bash
+# What Studio's Connect runs (STREAM_DURATION=0 streams until Ctrl-C)
+ssh root@192.168.3.3 \
+  "STUDIO_HOST_IP=192.168.3.1 STUDIO_PORT=9870 STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
+```
+
+Expected output: `[BRIDGE] Forwarded #N: Heading=…° Sats=… Lat=… Lon=…` every 5 frames.
+Lines prefixed `[PROC]` are E906 stdout that was not a `!RAW:` sensor record.
+
+Other Linux-side tools:
+
+| Command (on the board, in `/root`) | Purpose |
+|---|---|
+| `python3 run_e906_script.py <script.py> [timeout_s]` | Run one MicroPython script on the E906 through raw REPL and print its stdout |
+| `python3 e906_rpmsg_bridge.py trace --udp-host 192.168.3.1` | CTF trace endpoint (1025) to UDP :9870 |
+| `python3 e906_rpmsg_bridge.py tlp --udp-host 192.168.3.1` | TLP endpoint (1024) to UDP :9871; UDP :9872 back to the E906 |
+
+`apps/e906_repl_app/linux/e906_workbench.py` runs on the **PC** and reaches the board over
+SSH (`--target root@192.168.3.3` is the default; `--target local` if run on the board):
+
+```bash
+python3 apps/e906_repl_app/linux/e906_workbench.py                    # terminal workbench: REPL, trace, HW monitor
+python3 apps/e906_repl_app/linux/e906_workbench.py -c "import abstractx; print(abstractx.alive())"
+python3 apps/e906_repl_app/linux/e906_workbench.py --peek 0x02502400  # one 32-bit MMIO read
+```
+
+> [!NOTE]
+> Studio currently listens only on UDP :9870. TLPs sent from MicroPython with
+> `abstractx.tlp_send()` go out on endpoint 1024 → UDP :9871 and are not shown in
+> Studio yet; `tools/test_e906_repl_system.py` is the consumer for that plane.
+
+### 8.4 Board Checks Run From the PC
+
+```bash
+python3 tools/test_board_system_checkout.py     # REPL alive + bridge → Studio UDP path
+python3 tools/test_e906_repl_system.py          # REPL / TLP / trace planes and isolation
+python3 tools/test_e906_sensors_board.py        # flight_sensors.py on the E906
+```
+
+### 8.5 Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| Connect does nothing, no `◌ Bridge Up` | `ssh -o BatchMode=yes root@192.168.3.3 true` fails: set up SSH keys (§8.1 step 3) |
+| `python3: can't open file '/root/board_studio_bridge.py'` | Scripts not copied (§8.1 step 4) |
+| `Error: /dev/rpmsg_ctrl0 not found. Is remoteproc running?` | Wrong overlay or firmware not started (§6.4 step 3) |
+| Bridge prints `[BRIDGE] Forwarded …` but Studio shows nothing | `STUDIO_HOST_IP` is not the PC's address on the board network, or a PC firewall blocks UDP 9870 |
+| Heading moves but GPS stays 0 | No GPS fix yet (`Sats=0`), or UART3 TX/RX swapped (§1) |
+| REPL node busy (`EBUSY`) | Another process holds the `abstractx-repl` node; the runner kills it with `fuser -k`, or run `fuser -k /dev/rpmsgN` |
+
+---
+
+## 9. Agent Quick Reference (Claude Code and other AI agents)
+
+Agents cannot drive `microcom` or the Studio GUI. Use these non-interactive commands,
+which exit on their own and print plain text:
+
+```bash
+# Is the E906 up?
+ssh root@192.168.3.3 cat /sys/class/remoteproc/remoteproc0/state            # expect: running
+
+# Run MicroPython on the E906 (script must be on the board)
+python3 apps/e906_repl_app/linux/e906_workbench.py -c "import abstractx; print(abstractx.alive())"
+ssh root@192.168.3.3 "python3 /root/run_e906_script.py /root/flight_sensors.py 10"
+
+# Bounded bridge run (10 s) instead of the endless Studio stream
+ssh root@192.168.3.3 "STUDIO_HOST_IP=192.168.3.1 STREAM_DURATION=10 python3 -u /root/board_studio_bridge.py"
+```
+
+Rules for agents working on this app:
+- Read `SPECIFICATION.md` here before changing code; the rules are in the repository
+  `AGENTS.md`.
+- After editing any Linux-side script, re-copy it to `/root` (§8.1 step 4) before
+  running a board test, or the test exercises the old copy.
+- Always pass a timeout or `STREAM_DURATION`; without one the bridge runs forever.
+- Put board results in the commit message and the evidence ledger, and say which
+  checks did not run (no board, no GUI).
+
+---
+
+## 10. Live Peripheral Testing Recipes (Python)
 
 Run these recipes under Linux with `dtoverlay=cubie-a5e-flight-stack-linux`:
 
