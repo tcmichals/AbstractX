@@ -113,7 +113,7 @@ SpecTrace keeps two kinds of documents apart:
 | Kind | Answers | Where | Example |
 | :--- | :--- | :--- | :--- |
 | **Requirement** | *What* must be true and *why* | `*SPECIFICATION.md`, one `### [SPEC-*]` section each | `[SPEC-E906-MEM-01]` the E906 loads only into the SRAM windows remoteproc accepts |
-| **Skill** | *How* something is checked, measured or recorded | `.agents/skills/<name>.md` (tool-neutral: Claude, Gemini, humans) | `e906-build-layout`, `sanitizer-gate`, `memory-footprint`, `quality-trends` |
+| **Skill** | *How* something is checked, measured or recorded | `.agents/skills/<name>/SKILL.md` (tool-neutral: Claude Code, Antigravity / Gemini, humans; see `[SPEC-AUDIT-11]`) | `e906-build-layout`, `sanitizer-gate`, `memory-footprint`, `quality-trends` |
 | **Evidence** | *That* it was checked, and the result | test output, `tools/visualizer/*.json`, `docs/verification/evidence/` | ctest summary, nextpnr utilisation, board log |
 
 How a requirement is verified is itself a skill. Each requirement names its
@@ -217,6 +217,28 @@ where its evidence goes. SpecTrace connects them: requirement → code
   automotive and aerospace ALM tooling (DOORS, Polarion, Capra, StrictDoc).
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `tools/spectrace_matrix.py`, `tools/spectrace.py`
+
+### `[SPEC-AUDIT-11]` One Skill Set for Every Agent Tool
+* **Requirement**: each skill lives once, at `.agents/skills/<name>/SKILL.md`, in the
+  open Agent Skills format: YAML front matter with `name` (equal to the folder name)
+  and `description` (what it does and when to use it; agents pick skills by this
+  line). Check skills also keep `verifies:`. Optional helper files (`run`, scripts)
+  sit in the same folder.
+* **Requirement**: every supported agent tool reads that one copy, never a fork of it:
+  Antigravity / Gemini read `.agents/skills/` directly; Claude Code reads
+  `.claude/skills`, a symlink to `../.agents/skills`; Copilot is pointed there by
+  `.github/copilot-instructions.md`. The workflow rules in `.agents/rules/` reach
+  Claude Code through `@` imports in `CLAUDE.md`.
+* **Requirement**: `python3 tools/spectrace_matrix.py --check-skills` exits 1 when a
+  skill is a loose `.md` file, lacks `name`/`description`, has a `name` that differs
+  from its folder, when `.claude/skills` does not resolve to `.agents/skills`, or when
+  a rule file in `.agents/rules/` is not imported by `CLAUDE.md`.
+* **Rationale**: on 2026-10-20 the skills were flat `.agents/skills/<name>.md` files
+  with no `description`. Claude Code only discovers `<name>/SKILL.md` under
+  `.claude/skills/`, so Claude agents never saw the skills the requirements name
+  in `Verified by`, and never saw the `.agents/rules/` detail either.
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
+* **Implementation Target**: `tools/spectrace_matrix.py`, `.agents/skills/`, `.claude/skills`, `CLAUDE.md`
 
 ### Stage 3: Adversarial Invariant Auditing
 An independent Critic persona evaluates code and specifications across 6 strict stages:

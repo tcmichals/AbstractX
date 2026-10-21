@@ -1,6 +1,7 @@
 ---
 name: rtl-synth-check
-verifies: Synthesis-level structural problems simulation cannot see, e.g. two always blocks driving one register.
+verifies: "Synthesis-level structural problems simulation cannot see, e.g. two always blocks driving one register."
+description: "Check skill. Synthesis-level structural problems simulation cannot see, e.g. two always blocks driving one register. Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---
 
 # Skill: rtl-synth-check

@@ -1,6 +1,7 @@
 ---
 name: fpga-fit
-verifies: The design fits the FPGA with headroom and meets timing ([SPEC-TN20K-03]).
+verifies: "The design fits the FPGA with headroom and meets timing ([SPEC-TN20K-03])."
+description: "Check skill. The design fits the FPGA with headroom and meets timing ([SPEC-TN20K-03]). Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---
 
 # Skill: fpga-fit

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# @verifies [SPEC-AUDIT-06] [SPEC-AUDIT-07] [SPEC-AUDIT-08] [SPEC-AUDIT-10] docs/SPECTRACE.md
+# @verifies [SPEC-AUDIT-06] [SPEC-AUDIT-07] [SPEC-AUDIT-08] [SPEC-AUDIT-10] [SPEC-AUDIT-11] docs/SPECTRACE.md
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
@@ -64,9 +64,10 @@ def run(cmd, cwd):
 def make_repo(root: Path) -> None:
     (root / "docs").mkdir()
     (root / "src").mkdir()
-    (root / ".agents" / "skills").mkdir(parents=True)
+    (root / ".agents" / "skills" / "host-tests").mkdir(parents=True)
     (root / "docs" / "FIX_SPECIFICATION.md").write_text(SPEC)
-    (root / ".agents" / "skills" / "host-tests.md").write_text("---\nname: host-tests\n---\n")
+    (root / ".agents" / "skills" / "host-tests" / "SKILL.md").write_text(
+        "---\nname: host-tests\ndescription: Run the host tests.\n---\n")
     (root / "src" / "a.cpp").write_text(A_CPP)
     (root / "src" / "b.cpp").write_text(B_CPP)
     (root / "src" / "t_test.cpp").write_text("// @" + "verifies [SPEC-FIX-04]\nint t() { return 0; }\n")
@@ -282,6 +283,43 @@ def test_reqif_export():
         assert len(docs) >= 1
 
 
+def test_skill_layout_shared_by_all_agents():
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        skills = root / ".agents" / "skills"
+        (skills / "good").mkdir(parents=True)
+        (skills / "good" / "SKILL.md").write_text("---\nname: good\ndescription: Does a thing.\n---\n")
+        (skills / "flat.md").write_text("---\nname: flat\nverifies: x\n---\n")
+        (skills / "nodesc").mkdir()
+        (skills / "nodesc" / "SKILL.md").write_text("---\nname: other\n---\n")
+        (root / ".agents" / "rules").mkdir()
+        (root / ".agents" / "rules" / "r.md").write_text("# rule\n")
+        problems = "\n".join(sm.check_skills(root))
+        assert "flat.md" in problems, "loose .md skill is flagged"
+        assert "nodesc" in problems and "description" in problems, "missing description is flagged"
+        assert "name 'other'" in problems, "name must match folder"
+        assert ".claude/skills" in problems, "missing Claude Code link is flagged"
+        assert "r.md" in problems, "rule not imported by CLAUDE.md is flagged"
+        assert set(sm.load_skills(root)) == {"good", "flat", "nodesc"}, "both layouts still load"
+        try:
+            import yaml  # noqa: F401
+            (skills / "good" / "SKILL.md").write_text("---\nname: good\ndescription: a: b\n---\n")
+            assert "not valid YAML" in "\n".join(sm.check_skills(root)), "unquoted ': ' is flagged"
+            (skills / "good" / "SKILL.md").write_text("---\nname: good\ndescription: Does a thing.\n---\n")
+        except ImportError:
+            pass
+
+        (skills / "flat.md").unlink()
+        (skills / "nodesc" / "SKILL.md").write_text("---\nname: nodesc\ndescription: d\n---\n")
+        (root / ".claude").mkdir()
+        (root / ".claude" / "skills").symlink_to("../.agents/skills")
+        (root / "CLAUDE.md").write_text("@AGENTS.md\n@.agents/rules/r.md\n")
+        assert sm.check_skills(root) == [], sm.check_skills(root)
+
+    repo = Path(__file__).resolve().parent.parent
+    assert sm.check_skills(repo) == [], sm.check_skills(repo)
+
+
 if __name__ == "__main__":
     test_matrix_verdicts()
     test_change_review_maps_hunks_and_flags_untraced()
@@ -289,6 +327,7 @@ if __name__ == "__main__":
     test_device_tree_and_yaml_traceability()
     test_hierarchy_and_graph_export()
     test_reqif_export()
+    test_skill_layout_shared_by_all_agents()
     print("[PASS] spectrace_matrix")
 
 

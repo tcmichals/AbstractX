@@ -1448,3 +1448,26 @@ This log chronicles the development, technical decisions, and architecture miles
 * Pytest Suite: `python3 -m pytest tests/test_visualizer_sdk.py` -> 13 passed in 1.06s.
 * ImGui GUI Test: Run under `DISPLAY=:0` for 120+ frames -> 0 asserts, 0 crashes.
 * Live Telemetry Bridge: `get_bridge_status()`, `start_board_bridge()`, `stop_board_bridge()` verified against `root@192.168.3.3`.
+
+---
+
+## [2026-10-20] - Claude Code Could Not See the Shared Skills or Rules
+
+### 1. Mistake / Bug Identification
+* **Category**: `process-gap`
+* **Target / Subsystem**: `.agents/skills/`, `.agents/rules/`, `CLAUDE.md`, `tools/spectrace_matrix.py`
+* **Governing Requirements**: `[SPEC-AUDIT-06]`, `[SPEC-AUDIT-11]` (new)
+* **Symptoms**: Requirements name skills in `Verified by` (`host-tests`, `e906-build-layout`, ...), and AGENTS.md says to run them, but Claude Code listed none of them, and never loaded `.agents/rules/*.md` (silicon atlas, E906 memory tracking, toolchain rules). Antigravity / Gemini saw both.
+
+### 2. Root Cause & Lesson Learned
+* **Root Cause**: 14 of 15 skills were flat `.agents/skills/<name>.md` files with only `name`/`verifies` front matter. Claude Code only discovers `<name>/SKILL.md` folders under `.claude/skills/` and picks skills by `description`. `CLAUDE.md` imported only `AGENTS.md`. `micropython-to-cpp` existed twice (flat and folder). Six `verifies:` lines contained an unquoted `: `, so their front matter was not valid YAML for any tool.
+* **Which check should have caught it**: none existed. `spectrace_matrix.py` only checked that a skill name resolved to a file, which says nothing about whether an agent tool can load it.
+* **Lesson**: "tool-neutral" has to be checked per tool. One copy of each skill in the open Agent Skills layout, each tool pointed at it (`.claude/skills` symlink, `@` imports), and a check that fails when that wiring drifts.
+
+### 3. Fix & Verification
+* `[SPEC-AUDIT-11]` added to `docs/SPECTRACE.md` first; skills moved with `git mv` to `<name>/SKILL.md`, quoted `description` added; duplicate removed; `.claude/skills -> ../.agents/skills`; rules imported in `CLAUDE.md`.
+* New `python3 tools/spectrace_matrix.py --check-skills`. Before: `Skills: 15 problems: 22`, exit 1. After: `Skills: 15 problems: 0`.
+* `tests/test_spectrace_matrix.py::test_skill_layout_shared_by_all_agents` failed on the old loader (folder skills invisible: fixture verdicts `BROKEN`), passes now, and also runs the check on the real repo.
+* `--matrix`: 15 skills and 0 BROKEN before and after.
+* `ctest --test-dir build_host`: 38/38 passed.
+* Not verified: a fresh Claude Code session listing the skills (needs a new session); Antigravity loading the folder layout; ASan/TSan builds (no C++ changed).

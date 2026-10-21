@@ -1,6 +1,7 @@
 ---
 name: quality-trends
-verifies: Commit-over-commit history of tests, coverage and memory so regressions are visible.
+verifies: "Commit-over-commit history of tests, coverage and memory so regressions are visible."
+description: "Check skill. Commit-over-commit history of tests, coverage and memory so regressions are visible. Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---
 
 # Skill: quality-trends

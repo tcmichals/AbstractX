@@ -1,6 +1,7 @@
 ---
 name: e906-disassembly-check
-verifies: Bare-metal control flow that source review cannot prove: trap classification ([SPEC-E906-CRASH-01]), `mhcr` cache setting ([SPEC-E906-CACHE-02]), idle-wait masking.
+verifies: "Bare-metal control flow that source review cannot prove: trap classification ([SPEC-E906-CRASH-01]), `mhcr` cache setting ([SPEC-E906-CACHE-02]), idle-wait masking."
+description: "Check skill. Bare-metal control flow that source review cannot prove: trap classification ([SPEC-E906-CRASH-01]), `mhcr` cache setting ([SPEC-E906-CACHE-02]), idle-wait masking. Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---
 
 # Skill: e906-disassembly-check

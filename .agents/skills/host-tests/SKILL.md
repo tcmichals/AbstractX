@@ -1,6 +1,7 @@
 ---
 name: host-tests
-verifies: Host unit and simulation tests (CppUTest + sim + examples) for the C++ core, HAL logic and host-runnable target code.
+verifies: "Host unit and simulation tests (CppUTest + sim + examples) for the C++ core, HAL logic and host-runnable target code."
+description: "Check skill. Host unit and simulation tests (CppUTest + sim + examples) for the C++ core, HAL logic and host-runnable target code. Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---
 
 # Skill: host-tests

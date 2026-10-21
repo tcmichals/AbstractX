@@ -13,7 +13,7 @@ Usage:
   source ~/.tools/oss-cad-suite/environment
   python3 tools/run_cocotb.py [--only NAME_SUBSTRING] [--trace]
 
-Skill: .agents/skills/cocotb-regression.md
+Skill: .agents/skills/cocotb-regression/SKILL.md
 """
 # @impl [SPEC-AUDIT-06] docs/SPECTRACE.md (executable form of the cocotb-regression skill)
 

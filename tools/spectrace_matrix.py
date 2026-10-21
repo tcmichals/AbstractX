@@ -8,7 +8,7 @@ Ties three things together for every requirement:
   * what / why    : the requirement text in a *SPECIFICATION.md file
   * implemented by: `@impl [SPEC-*]` tags in code (with optional `@status`)
   * verified by   : skills named in the requirement's `**Verified by**:` line,
-                    each a procedure in .agents/skills/<name>.md
+                    each a procedure in .agents/skills/<name>/SKILL.md
 
 Modes
   --matrix            requirement -> code -> skills, with a verdict per row
@@ -129,7 +129,61 @@ def is_code(path: str) -> bool:
 
 
 def load_skills(root: Path) -> dict[str, Path]:
-    return {p.stem: p for p in sorted((root / ".agents" / "skills").glob("*.md"))}
+    # @impl [SPEC-AUDIT-11] docs/SPECTRACE.md
+    base = root / ".agents" / "skills"
+    skills = {p.stem: p for p in sorted(base.glob("*.md"))}
+    skills.update({p.parent.name: p for p in sorted(base.glob("*/SKILL.md"))})
+    return skills
+
+
+def front_matter(path: Path) -> dict[str, str]:
+    """Skill front matter. Agent tools parse it as YAML, so a YAML error is reported."""
+    text = path.read_text(encoding="utf-8", errors="ignore")
+    if not text.startswith("---"):
+        return {}
+    block = text.split("---", 2)[1]
+    try:
+        import yaml
+    except ImportError:
+        yaml = None
+    if yaml is not None:
+        try:
+            data = yaml.safe_load(block)
+        except yaml.YAMLError as err:
+            return {"yaml-error": str(err).splitlines()[0]}
+        return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    fields: dict[str, str] = {}
+    for line in block.splitlines():
+        key, sep, val = line.partition(":")
+        if sep and not line.startswith((" ", "\t")):
+            fields[key.strip()] = val.strip().strip('"')
+    return fields
+
+
+def check_skills(root: Path) -> list[str]:
+    """Problems that stop an agent tool from seeing the shared skills and rules."""
+    # @impl [SPEC-AUDIT-11] docs/SPECTRACE.md
+    base = root / ".agents" / "skills"
+    problems = [f"{p.relative_to(root)}: loose skill file, move it to {p.stem}/SKILL.md"
+                for p in sorted(base.glob("*.md"))]
+    for p in sorted(base.glob("*/SKILL.md")):
+        fm, rel = front_matter(p), p.relative_to(root)
+        if "yaml-error" in fm:
+            problems.append(f"{rel}: front matter is not valid YAML ({fm['yaml-error']})")
+            continue
+        if not fm.get("description"):
+            problems.append(f"{rel}: no 'description' in front matter")
+        if fm.get("name") != p.parent.name:
+            problems.append(f"{rel}: name '{fm.get('name')}' differs from folder '{p.parent.name}'")
+    link = root / ".claude" / "skills"
+    if not (link.is_symlink() and link.resolve() == base.resolve()):
+        problems.append(".claude/skills: must be a symlink to ../.agents/skills (Claude Code)")
+    claude_md = root / "CLAUDE.md"
+    imports = claude_md.read_text(encoding="utf-8").split() if claude_md.exists() else []
+    for rule in sorted((root / ".agents" / "rules").glob("*.md")):
+        if f"@{rule.relative_to(root)}" not in imports:
+            problems.append(f"{rule.relative_to(root)}: not imported by CLAUDE.md")
+    return problems
 
 
 def parse_requirements(root: Path) -> dict[str, Requirement]:
@@ -718,11 +772,19 @@ def main() -> int:
     parser.add_argument("--staged", action="store_true", help="with --changes: review only staged changes (pre-commit)")
     parser.add_argument("--graph", nargs="?", const="", default=None,
                         help="generate a Mermaid traceability DAG for a requirement tag (or all if omitted)")
+    parser.add_argument("--check-skills", action="store_true",
+                        help="check the shared skill layout seen by every agent tool")
     parser.add_argument("--export-reqif", type=Path,
                         help="export specifications and hierarchy as OMG ReqIF XML to this file")
     args = parser.parse_args()
     root = args.root.resolve()
 
+    if args.check_skills:
+        problems = check_skills(root)
+        for p in problems:
+            print(f"[SKILLS] {p}")
+        print(f"Skills: {len(load_skills(root))}   problems: {len(problems)}")
+        return 1 if problems else 0
     if args.changes:
         return review_changes(root, args.base, args.prompt, args.strict, args.staged)
     reqs, skills, _ = build_matrix(root)

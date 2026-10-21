@@ -1,6 +1,7 @@
 ---
 name: cocotb-regression
-verifies: RTL behaviour per module and end to end (TLP over Dual-SPI into `asp_top`).
+verifies: "RTL behaviour per module and end to end (TLP over Dual-SPI into `asp_top`)."
+description: "Check skill. RTL behaviour per module and end to end (TLP over Dual-SPI into `asp_top`). Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---
 
 # Skill: cocotb-regression

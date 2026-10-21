@@ -1,6 +1,7 @@
 ---
 name: sanitizer-gate
-verifies: Memory and undefined-behaviour safety of the same tests: use-after-return, overflow, misalignment, leaks.
+verifies: "Memory and undefined-behaviour safety of the same tests: use-after-return, overflow, misalignment, leaks."
+description: "Check skill. Memory and undefined-behaviour safety of the same tests: use-after-return, overflow, misalignment, leaks. Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---
 
 # Skill: sanitizer-gate

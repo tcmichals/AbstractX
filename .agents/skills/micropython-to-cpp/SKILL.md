@@ -1,6 +1,6 @@
 ---
 name: micropython-to-cpp
-description: Transforms MicroPython or Python asyncio peripheral drivers and multi-rate tasks into freestanding AbstractX C++20 coroutines with zero dynamic heap allocation.
+description: "Transforms MicroPython or Python asyncio peripheral drivers and multi-rate tasks into freestanding AbstractX C++20 coroutines with zero dynamic heap allocation."
 ---
 
 # Skill: micropython-to-cpp
