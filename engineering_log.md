@@ -1601,3 +1601,25 @@ This log chronicles the development, technical decisions, and architecture miles
 * **New finding**: `MsgBox::send_blocking` / `send_dsp_blocking` spin with an empty body until the ARM-side FIFO has space.
 * **Still wrong, now visible**: other E906 files cite PLIC IRQ numbers in comments (i2c IRQ 26, dma IRQ 64, DRDY IRQ 82, spi IRQ 15, uart IRQ 10). So does `[SPEC-E906-CORO-02]`, which says "PLIC IRQ 48". These need rewriting with the CLIC requirement (step 1).
 * **Not caught by rule**: `mp_hal_stdin_rx_chr` spins on a software ring (`try_read_char`) with a VM hook. It has no register in its condition, so it is outside `MMIO-SPIN`.
+
+## [2026-10-21] - FreeRTOS + AbstractX App and a Shared Runtime Benchmark; newlib free Linked into Every E906 ELF
+
+* **Category**: `process-gap` (no way to compare runtimes), `product-bug` (heap symbols linked)
+
+### 1. What Was Missing / Observed
+* **Target / Subsystem**: `apps/e906_freertos_app`, `apps/e906_bench`, `apps/e906_bench_app`, `libabstractx_core`
+* There was no FreeRTOS + AbstractX firmware in this repo and no like-for-like benchmark, so "bare metal or FreeRTOS?" could only be argued, not measured.
+* While checking the new ELFs for heap symbols: `nm` shows `free`, `_free_r` and `_malloc_r` defined in `e906_bench_app`, `e906_freertos_app` **and the existing `e906_repl_app`**. The map shows `libabstractx_core.a(runtime.cpp.obj)` references `operator delete(void*, unsigned int)`, which pulls `libstdc++_nano del_ops.o` → `del_op.o` → newlib `free` → `_malloc_r`. Nothing calls them at run time, but AGENTS §2 says no `free()`, and `check_e906_layout.py` / `nm -u` never reported it because the symbols are *defined*, not undefined.
+
+### 2. Root Cause & Lesson Learned
+* The zero-heap check looks at `nm -u` (undefined symbols). A libc `free` linked in as a definition passes that check. The check must also look for defined `malloc`/`_malloc_r`/`free`.
+* The sized-delete reference most likely comes from destroying `coro::Task` frames in `runtime.cpp` (`g_tasks.erase`) where the promise has no matching sized `operator delete`. Not fixed here: it is core code shared by every target.
+
+### 3. Specification Update (SSOT Defense)
+* `apps/e906_freertos_app/SPECIFICATION.md` `[SPEC-E906-RTOS-01..06]`: kernel, static allocation, CLIC/timer facts from silicon (`testFreeRTOS`), message box ISR contract, single AbstractX task, FP context limits. `[SPEC-E906-RTOS-02]` records the `free` gap honestly.
+* `apps/e906_bench/SPECIFICATION.md` `[SPEC-E906-BENCH-01..04]`: one benchmark source in both firmwares, metrics and units, soft-interrupt wake path with a no-hang probe, RPMsg protocol.
+
+### 4. Implementation & Regression Test
+* FreeRTOS-Kernel V11.1.0 added as submodule `third_party/FreeRTOS-Kernel` (MIT). Port asm copied from cubie-a5e `testFreeRTOS`.
+* Host: `tests/test_e906_bench_local.py` (collector parsing, units, protocol constants vs firmware source), in ctest. Board: `tests/board/test_e906_bench.py` (skips unless the bench firmware is loaded), collector `tests/board/bench_e906_runtime.py`.
+* **Not verified**: nothing has run on the board. The bare-metal bench cannot wake until the CLIC interrupt path lands (`mtvec` CLIC mode, line 17 dispatch, line 3 → `abx_bench_soft_isr()`). The `free` link-in is not fixed.

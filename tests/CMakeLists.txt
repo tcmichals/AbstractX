@@ -85,6 +85,10 @@ if(Python3_Interpreter_FOUND)
     endif()
     # not-in-ctest: tests/test_board_checkout.py needs a board; opt-in with ABSTRACTX_BOARD_IP ([SPEC-AUDIT-13])
     # not-in-ctest: tests/board/test_e906_planes.py runs on the board via run_board_tests.py ([SPEC-E906-REPL-15])
+    # not-in-ctest: tests/board/test_e906_bench.py runs on the board via run_board_tests.py ([SPEC-E906-BENCH-*])
+    # [SPEC-E906-BENCH-02/04] benchmark collector parsing and units (off-board)
+    add_test(NAME py_test_e906_bench_local
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_e906_bench_local.py)
     if(_studio_deps EQUAL 0)
         add_test(NAME py_test_visualizer_sdk
                  COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_sdk.py
