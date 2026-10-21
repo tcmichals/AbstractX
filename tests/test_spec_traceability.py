@@ -1,9 +1,10 @@
 """
 Test Suite: Specification-to-Code Traceability (SSOT Standard)
 --------------------------------------------------------------
-Verifies that all architectural requirements defined in Markdown specifications
-are 100% implemented in C++20 / SystemVerilog with valid `@impl` tags.
+Checks that every requirement in the Markdown specifications has an `@impl` tag.
+Tag presence only: whether the code works is the spectrace_matrix verdict.
 """
+# @verifies [SPEC-AUDIT-07] [SPEC-AUDIT-12] docs/SPECTRACE.md
 
 from pathlib import Path
 from tools.audit_specs import run_traceability_audit
@@ -53,8 +54,8 @@ def test_studio_specification_traceability(repo_root, studio_spec_path):
     coverage = results["coverage"]
     specs = results["specs"]
 
-    assert total == 13, f"Expected 13 studio specs, found {total}"
-    assert implemented == 13, f"Expected 13 implemented studio specs, found {implemented}"
+    assert total >= 14, f"Expected at least 14 studio specs, found {total}"
+    assert implemented == total, f"{total - implemented} studio specs have no @impl tag"
     assert coverage == 100.0, f"Studio spec coverage is {coverage}%, expected 100.0%"
 
     # Validate that every implementation file path actually exists

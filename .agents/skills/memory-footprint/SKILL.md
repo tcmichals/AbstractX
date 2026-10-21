@@ -1,5 +1,6 @@
 ---
 name: memory-footprint
+runs_on: host
 verifies: "ELF section sizes per target stay inside their memory budget and do not grow unexpectedly."
 description: "Check skill. ELF section sizes per target stay inside their memory budget and do not grow unexpectedly. Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---

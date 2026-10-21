@@ -69,6 +69,22 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-STUDIO-*] Studio state, panels and live-vs---sim behaviour; needs pytest + imgui_bundle
     execute_process(COMMAND ${Python3_EXECUTABLE} -c "import pytest, imgui_bundle"
                     RESULT_VARIABLE _studio_deps OUTPUT_QUIET ERROR_QUIET)
+    # [SPEC-AUDIT-12] pytest-based Python tests that used to run nowhere
+    execute_process(COMMAND ${Python3_EXECUTABLE} -c "import pytest"
+                    RESULT_VARIABLE _pytest_dep OUTPUT_QUIET ERROR_QUIET)
+    if(_pytest_dep EQUAL 0)
+        foreach(_t test_e906_sensor_protocol.py test_membrowse_tracking.py
+                   test_spec_traceability.py test_tlp_and_ctf_schema.py)
+            get_filename_component(_n ${_t} NAME_WE)
+            add_test(NAME py_${_n}
+                     COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/${_t}
+                     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        endforeach()
+    else()
+        message(STATUS "pytest-based Python tests skipped: pytest not installed")
+    endif()
+    # not-in-ctest: tests/test_board_checkout.py needs a board; opt-in with ABSTRACTX_BOARD_IP ([SPEC-AUDIT-13])
+    # not-in-ctest: tests/board/test_e906_planes.py runs on the board via run_board_tests.py ([SPEC-E906-REPL-15])
     if(_studio_deps EQUAL 0)
         add_test(NAME py_test_visualizer_sdk
                  COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_sdk.py

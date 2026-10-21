@@ -1,5 +1,6 @@
 ---
 name: e906-build-layout
+runs_on: host
 verifies: "The E906 firmware cross-builds and every load segment fits a window remoteproc accepts ([SPEC-E906-MEM-01])."
 description: "Check skill. The E906 firmware cross-builds and every load segment fits a window remoteproc accepts ([SPEC-E906-MEM-01]). Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---

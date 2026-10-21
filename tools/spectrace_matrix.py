@@ -91,13 +91,15 @@ class Requirement:
     children: list[str] = field(default_factory=list)                # child requirement tags
     method: str = "Test"                                             # Test, Analysis, Inspection, Demonstration
     evidence: dict = field(default_factory=dict)
+    targets: list[str] = field(default_factory=list)                 # Implementation Target paths
+    not_implemented: list[str] = field(default_factory=list)         # names on "Not implemented yet"
 
     def verdict(self, known_skills: set[str]) -> str:
         if any(s not in known_skills for s in self.skills):
             return "BROKEN"
         if not self.impls:
             return "SPEC-ONLY"
-        if any(st.lower() == "partial" for _, _, st in self.impls):
+        if self.not_implemented or any(st.lower() == "partial" for _, _, st in self.impls):
             return "PARTIAL"
         if not self.skills:
             return "IMPLEMENTED"
@@ -108,7 +110,7 @@ class Requirement:
                 return "STALE"
             if self.evidence.get("verified"):
                 return "VERIFIED"
-        return "VERIFIED"
+        return "STALE"  # no evidence that counts is never VERIFIED ([SPEC-AUDIT-13])
 
 
 @dataclass
@@ -126,6 +128,79 @@ def git(root: Path, *args: str) -> str:
 def is_code(path: str) -> bool:
     p = Path(path)
     return p.suffix in CODE_EXTS and not (set(p.parts) & EXCLUDED_PARTS)
+
+
+TARGET_LINE_RE = re.compile(r"^\s*\*\s*\*\*Implementation Target\*\*:\s*(.*)$")
+NOT_IMPL_RE = re.compile(r"^\s*\*\s*\*\*Not implemented yet\*\*:\s*(.*)$")
+BACKTICK_RE = re.compile(r"`([^`]+)`")
+# Lines that forbid a call name it without promising it; language operators are not functions.
+PROHIBITION_RE = re.compile(r"\b(MUST NOT|SHALL NOT|never|no|not|forbidden|prohibited|banned|instead of)\b", re.I)
+NOT_FUNCTIONS = {"sizeof", "alignas", "alignof", "static_assert", "decltype", "offsetof", "noexcept"}
+CALL_RE = re.compile(r"`(?:[A-Za-z_][\w]*(?:\.|::))*([A-Za-z_]\w{2,})\(")
+RUNS_ON = ("host", "rtl-sim", "board", "fpga-build")
+TARGET_CODE_PREFIXES = ("targets/", "apps/e906_repl_app/src/", "rtl/", "hw/")
+
+
+def _is_test_path(rel: str) -> bool:
+    parts = Path(rel).parts
+    return "tests" in parts or Path(rel).name.startswith("test_") or "cocotb" in parts
+
+
+def check_drift(root: Path, reqs: dict) -> dict:
+    """Requirement -> functions it names that exist in no code file of the repo ([SPEC-AUDIT-12])."""
+    # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
+    code = [f for f in tracked_files(root) if is_code(f) and not _is_test_path(f)]
+    corpus = "\n".join((root / f).read_text(encoding="utf-8", errors="ignore")
+                       for f in code if (root / f).is_file())
+    drift = {}
+    for tag, r in reqs.items():
+        if not r.impls and not any((root / t).exists() for t in r.targets):
+            continue  # SPEC-ONLY: nothing to compare against yet
+        prose = "\n".join(b for b in r.body if not (NOT_IMPL_RE.match(b) or TARGET_LINE_RE.match(b)
+                                                       or VERIFIED_RE.match(b) or PROHIBITION_RE.search(b)))
+        # a binding prefix (MP_QSTR_x, abstractx_x) still counts as the function existing
+        missing = sorted({n for n in CALL_RE.findall(prose)
+                          if n not in r.not_implemented and n not in NOT_FUNCTIONS
+                          and not re.search(rf"(?<![A-Za-z0-9]){re.escape(n)}\b", corpus)})
+        if missing:
+            drift[tag] = missing
+    return drift
+
+
+def check_tests(root: Path) -> list[str]:
+    """Test files that ctest never runs ([SPEC-AUDIT-12])."""
+    # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
+    problems = []
+    for cmake, patterns in ((root / "tests" / "CMakeLists.txt", ("tests/**/test_*.py", "tests/test_*.cpp")),
+                            (root / "sim" / "CMakeLists.txt", ("sim/cocotb/test_*_cocotb.py",))):
+        text = cmake.read_text(encoding="utf-8") if cmake.exists() else ""
+        excluded = set(re.findall(r"#\s*not-in-ctest:\s*(\S+)", text))
+        for pattern in patterns:
+            for f in sorted(root.glob(pattern)):
+                rel = str(f.relative_to(root))
+                if rel in excluded:
+                    continue
+                key = f.stem if f.suffix == ".py" and "cocotb" in f.parts else f.name
+                if not re.search(rf"\b{re.escape(key)}\b", text):
+                    problems.append(f"{rel}: not run by ctest (register it in {cmake.relative_to(root)} "
+                                    f"or add '# not-in-ctest: {rel} <reason>')")
+    return problems
+
+
+def skill_runs_on(root: Path) -> dict[str, str]:
+    return {name: front_matter(p).get("runs_on", "") for name, p in load_skills(root).items()}
+
+
+def check_placement(root: Path, reqs: dict) -> dict:
+    """Requirements on target code whose skills all run on the host ([SPEC-AUDIT-13])."""
+    # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+    runs_on = skill_runs_on(root)
+    out = {}
+    for tag, r in reqs.items():
+        target_files = [f for f, _, _ in r.impls if f.startswith(TARGET_CODE_PREFIXES)]
+        if target_files and r.skills and all(runs_on.get(s) == "host" for s in r.skills):
+            out[tag] = sorted(set(target_files))[:3]
+    return out
 
 
 def load_skills(root: Path) -> dict[str, Path]:
@@ -173,6 +248,9 @@ def check_skills(root: Path) -> list[str]:
             continue
         if not fm.get("description"):
             problems.append(f"{rel}: no 'description' in front matter")
+        # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+        if fm.get("runs_on") not in RUNS_ON:
+            problems.append(f"{rel}: runs_on '{fm.get('runs_on')}' is not one of {', '.join(RUNS_ON)}")
         if fm.get("name") != p.parent.name:
             problems.append(f"{rel}: name '{fm.get('name')}' differs from folder '{p.parent.name}'")
     link = root / ".claude" / "skills"
@@ -214,6 +292,13 @@ def parse_requirements(root: Path) -> dict[str, Requirement]:
                 if ref:
                     parents = [p for p in TAG_RE.findall(ref.group(1)) if p not in IGNORED_TAGS]
                     current.refines += [p for p in parents if p not in current.refines]
+                # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
+                tgt = TARGET_LINE_RE.match(raw)
+                if tgt:
+                    current.targets += BACKTICK_RE.findall(tgt.group(1))
+                ni = NOT_IMPL_RE.match(raw)
+                if ni:
+                    current.not_implemented += [n.rstrip("()") for n in BACKTICK_RE.findall(ni.group(1))]
                 meth = METHOD_RE.match(raw)
                 if meth:
                     m_val = meth.group(1).strip().strip("`* ")
@@ -272,6 +357,7 @@ def tracked_files(root: Path) -> list[str]:
 def evaluate_evidence(root: Path, reqs: dict[str, Requirement], records: list[dict]) -> None:
     if not records:
         return
+    runs_on = skill_runs_on(root)
 
     latest_by_check: dict[str, dict] = {}
     for r in records:
@@ -324,6 +410,9 @@ def evaluate_evidence(root: Path, reqs: dict[str, Requirement], records: list[di
                 if matching:
                     candidate = max(matching, key=lambda x: x.get("time", ""))
 
+            # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+            if candidate is not None and runs_on.get(sk) == "board" and candidate.get("source") != "board":
+                candidate = None  # board behaviour is not shown by a host run
             if candidate is None:
                 stale = True
             else:
@@ -337,9 +426,6 @@ def evaluate_evidence(root: Path, reqs: dict[str, Requirement], records: list[di
                         stale = True
                 else:
                     stale = True
-
-        if skills_tested == 0:
-            continue
 
         if failing:
             r.evidence = {"failing": True}
@@ -772,6 +858,11 @@ def main() -> int:
     parser.add_argument("--staged", action="store_true", help="with --changes: review only staged changes (pre-commit)")
     parser.add_argument("--graph", nargs="?", const="", default=None,
                         help="generate a Mermaid traceability DAG for a requirement tag (or all if omitted)")
+    parser.add_argument("--check-drift", action="store_true",
+                        help="requirements naming functions their implementation files lack")
+    parser.add_argument("--check-tests", action="store_true", help="test files ctest never runs")
+    parser.add_argument("--check-placement", action="store_true",
+                        help="report target-code requirements checked only on the host")
     parser.add_argument("--check-skills", action="store_true",
                         help="check the shared skill layout seen by every agent tool")
     parser.add_argument("--export-reqif", type=Path,
@@ -779,6 +870,29 @@ def main() -> int:
     args = parser.parse_args()
     root = args.root.resolve()
 
+    if args.check_drift or args.check_tests or args.check_placement:
+        reqs, _, _ = build_matrix(root)
+        rc = 0
+        if args.check_drift:
+            drift = check_drift(root, reqs)
+            for tag, names in sorted(drift.items()):
+                print(f"[DRIFT] {tag} ({reqs[tag].spec}:{reqs[tag].line}) names {', '.join(names)}: "
+                      f"in no code file of the repo; implement it or list it under 'Not implemented yet'")
+            print(f"Drift: {len(drift)} requirements")
+            rc |= bool(drift)
+        if args.check_tests:
+            orphans = check_tests(root)
+            for p in orphans:
+                print(f"[ORPHAN] {p}")
+            print(f"Orphan tests: {len(orphans)}")
+            rc |= bool(orphans)
+        if args.check_placement:
+            placed = check_placement(root, reqs)
+            for tag, files in sorted(placed.items()):
+                print(f"[PLACEMENT] {tag}: target code {', '.join(files)} checked only by host skills "
+                      f"({', '.join(reqs[tag].skills)})")
+            print(f"Host-only checks of target code: {len(placed)} (report only)")
+        return int(rc)
     if args.check_skills:
         problems = check_skills(root)
         for p in problems:

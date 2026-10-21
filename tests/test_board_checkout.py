@@ -5,8 +5,9 @@ test_board_checkout.py - Pytest Integration for Physical Board System Checkout
 # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
 
 Validates that when the physical Radxa Cubie A5E flight controller board
-is connected to the test network (default 192.168.3.3), the target subsystems,
-RPMsg endpoint, and E906 coprocessor are healthy and responsive.
+is connected to the test network, the target subsystems, RPMsg endpoint, and
+E906 coprocessor are healthy and responsive. Runs only when ABSTRACTX_BOARD_IP is
+set ([SPEC-AUDIT-13]); a reachable board is never touched unless asked.
 """
 
 import os
@@ -15,10 +16,12 @@ import pytest
 from pathlib import Path
 from tools.test_board_system_checkout import run_board_ssh
 
-BOARD_IP = os.environ.get("BOARD_IP", "192.168.3.3")
+BOARD_IP = os.environ.get("ABSTRACTX_BOARD_IP")  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
 
 
-def is_board_reachable(ip: str) -> bool:
+def is_board_reachable(ip) -> bool:
+    if not ip:
+        pytest.skip("ABSTRACTX_BOARD_IP not set; board tests are opt-in")
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(0.8)

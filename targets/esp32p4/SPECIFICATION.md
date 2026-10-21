@@ -161,6 +161,7 @@ When implementing HAL drivers under `targets/esp32p4/src/`, AI agents must use s
   * **No copies, no heap**: no `PBUF_RAM`, no BSD `sendto()` (it copies).
 * **Refines**: `[SPEC-TRACE-07]`
 * **Method**: `Analysis`
+* **Not implemented yet**: `pbuf_alloc`, `pbuf_realloc`, `udp_sendto`, `pbuf_free`, `tcpip_callback`, `LOCK_TCPIP_CORE`
 * **Verified by**: `memory-footprint`
 * **Status**: the ESP32-P4 target is currently a stub (no io_processor or
   platform layer); this section defines the transport it must implement.

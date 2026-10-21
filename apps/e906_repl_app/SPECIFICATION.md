@@ -245,6 +245,7 @@ flowchart TD
      - `abstractx.tlp_send_nav(lat, lon, alt_mm, speed_mms, heading_cdeg, sats, fix)`: Direct C helper that packs pre-scaled navigation integers into an in-place `asp_tlp64_unaligned_t*` slot borrowed via `tlp_channel.emplace()`.
   2. **Zero GC Pressure Invariant**: Continuous telemetry emissions (10 Hz – 100 Hz) MUST allocate **0 bytes** on the MicroPython garbage-collected heap during steady-state flight loops.
   3. **Execution Latency Invariant**: Packing and submitting a 64-byte TLP frame from MicroPython MUST complete in $< 5 \ \mu\text{s}$ per frame on the 800 MHz XuanTie E906 core.
+* **Not implemented yet**: `tlp_poll_into`, `tlp_send_nav`
 * **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
 
@@ -255,6 +256,7 @@ flowchart TD
      - **Serial Egress (`abstractx.serial_tlp_send(data)`)**: Outgoing serial byte sequences are chunked by the native C binding into 40-byte streaming TLPs (`Tlp64::make_stream_tx`) and pushed into the egress SPSC ring, where the hardware serializer transmits them via DMA/FIFO.
   2. **Zero Polling Invariant**: MicroPython MUST NOT busy-poll UART status registers (`LSR`). Ingress serial TLPs are signaled cooperatively via `abstractx::Dispatcher` wakeups.
   3. **Packet Framing Invariant**: Each serial TLP carries a 2-byte sequence counter and 2-byte valid payload length, ensuring lossless stream reassembly across multi-core boundaries.
+* **Not implemented yet**: `serial_tlp_poll`, `serial_tlp_send`
 * **Verified by**: `host-tests`, `e906-build-layout`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
 

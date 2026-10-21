@@ -1,5 +1,6 @@
 ---
 name: micropython-to-cpp
+runs_on: host
 description: "Transforms MicroPython or Python asyncio peripheral drivers and multi-rate tasks into freestanding AbstractX C++20 coroutines with zero dynamic heap allocation."
 ---
 

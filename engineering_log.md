@@ -1547,3 +1547,50 @@ This log chronicles the development, technical decisions, and architecture miles
 6. **Coordinate** with the cubie-a5e session on the shared `firmware/common/arch_riscv/irq_dispatcher.cpp` and on board time (message before any flash or reboot).
 
 * **Not verified**: none of this has been measured on the board yet. The C++ HAL drivers (`targets/allwinner_e906/src/i2c.cpp`, `uart.cpp`, `dma.cpp`) were not reviewed for how they wait. The DMA path is unchecked.
+
+## [2026-10-21] - SpecTrace Called Requirements Verified With No Evidence; Seven Test Files Never Ran
+
+* **Category**: `tool-bug` (matrix verdict), `process-gap` (orphan tests, check placement)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/spectrace_matrix.py`, `tools/audit_specs.py`, `tests/CMakeLists.txt`, `sim/CMakeLists.txt`
+* **Symptoms**:
+  - A requirement whose skills had **no** evidence record fell through to `VERIFIED`. `SPEC-E906-CACHE-02` showed `VERIFIED`, but no `e906-disassembly-check` run has ever been recorded.
+  - `audit_specs.py` printed "100% verified and implemented" while 38 of 159 requirements were verified.
+  - Seven test files ran nowhere. Four were Python tests that pass. `tests/test_board_checkout.py` SSHed to any board that answered at 192.168.3.3. `sim/cocotb/test_asp_top_cocotb.py` **fails**: it drives `spi_mosi`, a port `asp_top` lost with Dual-SPI.
+  - The specs promised functions that no code has: `tlp_poll_into`, `tlp_send_nav`, `serial_tlp_poll`, `serial_tlp_send`, and the whole ESP32-P4 lwIP transport.
+  - 84 requirements were checked only by `host-tests`, including E906 silicon behaviour.
+
+### 2. Root Cause & Lesson Learned
+* **Why did it happen?**: `Requirement.verdict()` ended in `return "VERIFIED"`, so "no evidence" and "passed" looked the same. Nothing compared the list of test files with what ctest runs. Nothing compared the functions a spec names with the code. Skills did not say where they run, so a host test could stand in for a board check.
+* **Lesson**: check the absence case. Every verdict needs a test where the evidence is missing, not only where it passes or fails.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/SPECTRACE.md`
+* **Requirement Tag Added / Updated**: `[SPEC-AUDIT-12]`, `[SPEC-AUDIT-13]`
+* **Contract Added**:
+  - No evidence that counts means `STALE`.
+  - `--check-drift`: a function a spec names must exist somewhere in the repo's code; names on a `Not implemented yet` line are exempt and make the requirement `PARTIAL`.
+  - `--check-tests`: every test file runs in ctest, or is excluded with a written reason.
+  - Every skill declares `runs_on`, and a board skill's evidence must come from a board.
+  - `--check-placement` reports target code checked only on the host.
+  - Board tests are opt-in via `ABSTRACTX_BOARD_IP`.
+
+### 4. Implementation & Regression Test
+* **Code Changes**:
+  - `tools/spectrace_matrix.py`: the new checks and the verdict fix.
+  - `tools/audit_specs.py`: now prints "TAGGED" and "traceability only".
+  - `runs_on` added to all 16 skills.
+  - Four tests registered in ctest; two board-only files and the failing cocotb test excluded, each with its reason.
+* **Regression Test**: `tests/test_spectrace_matrix.py`:
+  - `test_drift_check_and_not_implemented_line`
+  - `test_orphan_test_check`
+  - `test_placement_and_board_evidence_source` (host-made evidence for a board skill stays `STALE`)
+  - `test_repo_is_honest` (the real tree has no drift and no orphan tests)
+
+  On the old code: drift found 11 requirements, orphan tests found 7, and the board-evidence test returned `VERIFIED`. Now all three checks are clean.
+* **Verification**: `ctest --test-dir build_host` passes 44/44. Matrix: 37/161 VERIFIED, 59 STALE, 5 PARTIAL.
+* **Not fixed**:
+  - `test_asp_top_cocotb.py` still needs porting to Dual-SPI or deleting.
+  - 27 placement warnings remain; that is the board-test worklist.
+  - Cocotb builds on this PC fail with FST tracing (`lz4.h` missing). They run with `TRACE=`.

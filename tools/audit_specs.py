@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-# @impl [SPEC-AUDIT-07] [SPEC-AUDIT-08] docs/SPECTRACE.md
+# @impl [SPEC-AUDIT-07] [SPEC-AUDIT-08] [SPEC-AUDIT-12] docs/SPECTRACE.md
 """
 AbstractX Design Specification & Implementation Traceability Auditor
 ---------------------------------------------------------------------
 Scans docs/DESIGN_SPECIFICATION.md for [SPEC-*] tags and validates
-that every requirement is implemented in code with an @impl tag.
+that every requirement has an @impl tag in code. This is traceability only:
+a tag says nothing about whether the code works. Completion is the
+`python3 tools/spectrace_matrix.py --matrix` verdict ([SPEC-AUDIT-12]).
 """
 
 import os
@@ -114,7 +116,7 @@ def main():
     for spec_id, data in sorted(specs.items()):
         impls = data["implementations"]
         if impls:
-            status = "COMPLETE"
+            status = "TAGGED"
             impl_str = ", ".join(impls)
         else:
             status = "MISSING"
@@ -124,7 +126,7 @@ def main():
 
     print("=" * 80)
     print(f"Total Specifications: {total_count}")
-    print(f"Implemented:          {implemented_count}")
+    print(f"Tagged in code:       {implemented_count}")
     print(f"Traceability Coverage:{coverage:.1f}%")
     print("=" * 80)
 
@@ -132,7 +134,8 @@ def main():
         print("[WARN] Some specifications are not yet tagged in code.")
         sys.exit(1)
     else:
-        print("[SUCCESS] All specifications are 100% verified and implemented in code!")
+        print("[OK] Every specification has an @impl tag (traceability only, not verification; "
+              "see tools/spectrace_matrix.py --matrix).")
         sys.exit(0)
 
 if __name__ == "__main__":

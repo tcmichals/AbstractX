@@ -1,5 +1,6 @@
 ---
 name: e906-board-selftest
+runs_on: board
 verifies: "E906 behaviour on the Cubie A5E itself: REPL, TLP and CTF trace planes decoded from the real endpoints, abstractx API, compass, GPS, watchdog, quiet kernel log ([SPEC-E906-REPL-15])."
 description: "Check skill. Runs tests/board/run_board_tests.py on the Cubie A5E with plain python3 (no pytest needed). Use after changing E906 firmware, modabstractx, the RPMsg tools or wire formats, and before claiming any E906 plane works."
 ---

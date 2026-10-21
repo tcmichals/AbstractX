@@ -1,5 +1,6 @@
 ---
 name: rtl-lint
+runs_on: rtl-sim
 verifies: "RTL is free of multi-driven signals, width errors and incomplete cases that simulation hides."
 description: "Check skill. RTL is free of multi-driven signals, width errors and incomplete cases that simulation hides. Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---

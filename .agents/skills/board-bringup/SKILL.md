@@ -1,5 +1,6 @@
 ---
 name: board-bringup
+runs_on: board
 verifies: "Behaviour on real hardware that no simulation can show (link timing, interrupts, silicon errata)."
 description: "Check skill. Behaviour on real hardware that no simulation can show (link timing, interrupts, silicon errata). Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---

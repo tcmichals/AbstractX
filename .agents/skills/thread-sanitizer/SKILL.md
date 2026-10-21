@@ -1,5 +1,6 @@
 ---
 name: thread-sanitizer
+runs_on: host
 verifies: "Data races between threads on host builds (Linux target workers, SITL)."
 description: "Check skill. Data races between threads on host builds (Linux target workers, SITL). Run when a requirement names this skill in its Verified by line or a change touches what it checks."
 ---

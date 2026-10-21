@@ -240,6 +240,46 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `tools/spectrace_matrix.py`, `.agents/skills/`, `.claude/skills`, `CLAUDE.md`
 
+### `[SPEC-AUDIT-12]` Honest Completion: Tag Presence, Spec Drift and Orphan Tests
+* **Requirement**: `tools/audit_specs.py` reports tag coverage as *traceability only*. It never
+  prints "verified" or "100% implemented"; completion is the `--matrix` verdict.
+* **Requirement**: `python3 tools/spectrace_matrix.py --check-drift` exits 1 when an implemented
+  requirement names a function (`` `name(` `` in its text) that occurs in no code file of the
+  repository (tests excluded; a binding prefix such as `MP_QSTR_name` or `abstractx_name`
+  counts). Lines that forbid a call (MUST NOT, never, no, instead of) and language operators
+  (`sizeof`, `alignas`) are not promises and are skipped. Names listed on the requirement's
+  `* **Not implemented yet**:` line are exempt, and such a requirement's verdict is `PARTIAL`,
+  never `VERIFIED`.
+* **Requirement**: a requirement that names skills but has no evidence that counts is `STALE`,
+  never `VERIFIED` (`SPEC-E906-CACHE-02` showed `VERIFIED` with no `e906-disassembly-check` run).
+* **Requirement**: `python3 tools/spectrace_matrix.py --check-tests` exits 1 when a test file is
+  not run by ctest: `tests/**/test_*.py` and `tests/test_*.cpp` must appear in
+  `tests/CMakeLists.txt`, `sim/cocotb/test_*_cocotb.py` in `sim/CMakeLists.txt`, unless the
+  CMakeLists has a line `# not-in-ctest: <path> <reason>`.
+* **Rationale**: on 2026-10-20 `audit_specs.py` printed "100% verified" while 38 of 159
+  requirements were verified; the spec promised `tlp_poll_into`, `tlp_send_nav`,
+  `serial_tlp_*` that never existed; and six test files never ran, one of them already failing.
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
+* **Implementation Target**: `tools/spectrace_matrix.py`, `tools/audit_specs.py`
+
+### `[SPEC-AUDIT-13]` Checks Run Where the Failure Can Happen
+* **Requirement**: every skill declares `runs_on:` in its front matter: `host` (PC, no
+  hardware), `rtl-sim` (simulator), `board` (on or against real hardware) or `fpga-build`
+  (synthesis / place and route). `--check-skills` fails when it is missing or unknown.
+* **Requirement**: a requirement whose implementation files include target firmware or RTL
+  (`targets/<mcu>/`, `apps/e906_repl_app/src/`, `rtl/`, `hw/`) and whose skills all run on
+  `host` is reported by `--check-placement` as *host-only check of target code*; the
+  change review prints the same warning for every touched requirement.
+* **Requirement**: a host test never touches hardware unless asked: tests that reach a board
+  run only when `ABSTRACTX_BOARD_IP` is set, and skip otherwise.
+* **Requirement**: evidence records carry `source` (`host`, `sim`, `board`); a `board` skill's
+  evidence without `source: board` does not count.
+* **Rationale**: 84 requirements named `host-tests`, including E906 silicon behaviour; a board
+  checkout passed on PC-made TLPs; and `tests/test_board_checkout.py` SSHed to a board that
+  another session was flashing because it happened to be reachable.
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
+* **Implementation Target**: `tools/spectrace_matrix.py`, `.agents/skills/`, `tests/test_board_checkout.py`, `tests/CMakeLists.txt`
+
 ### Stage 3: Adversarial Invariant Auditing
 An independent Critic persona evaluates code and specifications across 6 strict stages:
 * **Stage 0: Specification SSOT Anti-Drift** (Validates markdown structure, Mermaid diagrams, formal requirement tags).
