@@ -418,7 +418,23 @@ class FlightExecutive:
         ]
 
         start_time = abstractx.ticks_ms()
+        last_heartbeat_ms = abstractx.ticks_ms()
         while self.running and (abstractx.ticks_ms() - start_time < timeout_ms):
+            # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
+            cmd = abstractx.console_read(64)
+            if cmd:
+                if b"PING" in cmd or b"HEARTBEAT" in cmd:
+                    last_heartbeat_ms = abstractx.ticks_ms()
+                elif b"STOP" in cmd or b"CLOSE" in cmd or b"\x03" in cmd:
+                    print("[E906_STOP_REQUESTED]")
+                    self.running = False
+                    break
+
+            if abstractx.ticks_ms() - last_heartbeat_ms > 3000:
+                print("[E906_WATCHDOG_TIMEOUT_SHUTDOWN]")
+                self.running = False
+                break
+
             now = abstractx.ticks_ms()
             for idx in range(len(tasks)):
                 item = tasks[idx]

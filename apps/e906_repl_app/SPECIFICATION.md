@@ -275,5 +275,15 @@ flowchart TD
 * **Verified by**: `host-tests`, `e906-build-layout`
 * **Implementation Target**: `apps/e906_repl_app/compass_gps_vector.py`
 
+### `[SPEC-E906-REPL-14]` Host-Target Heartbeat Watchdog & Clean Teardown Protocol
+* **Requirement**:
+  1. **Bidirectional Liveness Heartbeat**: The host bridge (`board_studio_bridge.py`, `run_e906_script.py`) MUST transmit periodic `PING\n` heartbeats at $\le 1.0 \text{ s}$ intervals to the target flight controller over RPMsg stdin.
+  2. **Autonomous Target Watchdog Shutdown**: The target streaming loops (`raw_sensor_streamer.py`, `flight_sensors.py`) MUST poll incoming console characters via `abstractx.console_read(64)`. If no valid heartbeat (`PING`, `HEARTBEAT`) is received within $3000 \text{ ms}$, the flight loop MUST autonomously break, output `[E906_WATCHDOG_TIMEOUT_SHUTDOWN]`, and return cleanly to the REPL prompt `>>> `.
+  3. **Zero Dangling Remote Loop & Recipient Flooding**: Halting the loop on timeout ensures that if the Linux host crashes, disconnects, or closes `/dev/rpmsg0`, the coprocessor stops transmitting RPMsg text frames, preventing kernel `virtio_rpmsg_bus: msg received with no recipient` syslog floods.
+  4. **Orderly Graceful Teardown**: On host shutdown, the bridge MUST issue `STOP\n\x03\x03\x02` and allow $\ge 100 \text{ ms}$ for the target to process teardown before terminating the process or closing the device node.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/raw_sensor_streamer.py`, `tools/board_studio_bridge.py`, `apps/e906_repl_app/run_e906_script.py`
+
+
 
 

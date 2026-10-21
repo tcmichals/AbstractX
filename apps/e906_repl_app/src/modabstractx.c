@@ -346,6 +346,24 @@ static mp_obj_t mod_abstractx_alive(void) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_alive_obj, mod_abstractx_alive);
 
+extern size_t abstractx_console_rx_bytes(uint8_t *dest, size_t max_len);
+extern bool abstractx_console_has_rx(void);
+
+// abstractx.console_read(max_len) -> bytes
+// @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
+// @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_console_read(size_t n_args, const mp_obj_t *args) {
+    size_t max_len = 64;
+    if (n_args > 0) {
+        max_len = (size_t)mp_obj_get_int(args[0]);
+    }
+    if (max_len > 256) max_len = 256;
+    uint8_t buf[256];
+    size_t n = abstractx_console_rx_bytes(buf, max_len);
+    return mp_obj_new_bytes(buf, n);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_console_read_obj, 0, 1, mod_abstractx_console_read);
+
 static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_abstractx) },
     { MP_ROM_QSTR(MP_QSTR_peek), MP_ROM_PTR(&mod_abstractx_peek_obj) },
@@ -364,6 +382,7 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_i2c_write), MP_ROM_PTR(&mod_abstractx_i2c_write_obj) },
     { MP_ROM_QSTR(MP_QSTR_sleep_ms), MP_ROM_PTR(&mod_abstractx_sleep_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_ticks_ms), MP_ROM_PTR(&mod_abstractx_ticks_ms_obj) },
+    { MP_ROM_QSTR(MP_QSTR_console_read), MP_ROM_PTR(&mod_abstractx_console_read_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_abstractx_globals, mp_module_abstractx_globals_table);

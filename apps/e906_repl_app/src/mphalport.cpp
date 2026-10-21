@@ -138,5 +138,19 @@ int mp_hal_stdin_rx_chr(void) {
     return 0;
 }
 
+size_t abstractx_console_rx_bytes(uint8_t *dest, size_t max_len) {
+    if (!abstractx::g_repl_console || !dest || max_len == 0) return 0;
+    size_t count = 0;
+    char ch = 0;
+    while (count < max_len && abstractx::g_repl_console->try_read_char(ch)) {
+        dest[count++] = static_cast<uint8_t>(ch);
+    }
+    return count;
+}
+
+bool abstractx_console_has_rx(void) {
+    return abstractx::g_repl_console ? abstractx::g_repl_console->has_char() : false;
+}
+
 } // extern "C"
 

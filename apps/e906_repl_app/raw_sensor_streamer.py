@@ -80,8 +80,26 @@ def to_hex(raw_b):
         out += hex_chars[(b >> 4) & 0x0F] + hex_chars[b & 0x0F]
     return out
 
-# Streaming execution loop (emits up to 2000 samples @ 10 Hz)
+# Streaming execution loop with Heartbeat Watchdog & Clean Teardown
+# @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
+last_heartbeat_ms = abstractx.ticks_ms()
+WATCHDOG_TIMEOUT_MS = 3000
+
 for tick in range(2000):
+    # Check for host ping or stop commands over RPMsg
+    cmd = abstractx.console_read(64)
+    if cmd:
+        if b"PING" in cmd or b"HEARTBEAT" in cmd:
+            last_heartbeat_ms = abstractx.ticks_ms()
+        elif b"STOP" in cmd or b"CLOSE" in cmd or b"\x03" in cmd:
+            print("[E906_STOP_REQUESTED]")
+            break
+
+    # Watchdog protection: shutdown if host disconnects or stops pinging
+    if abstractx.ticks_ms() - last_heartbeat_ms > WATCHDOG_TIMEOUT_MS:
+        print("[E906_WATCHDOG_TIMEOUT_SHUTDOWN]")
+        break
+
     raw_mag = abstractx.i2c_read(0x1E, 0x00, 6)
     raw_gps = abstractx.uart_read(128)
 

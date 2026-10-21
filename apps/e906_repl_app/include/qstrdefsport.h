@@ -22,4 +22,5 @@ Q(i2c_read)
 Q(i2c_write)
 Q(sleep_ms)
 Q(ticks_ms)
+Q(console_read)
 

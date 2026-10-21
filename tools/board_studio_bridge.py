@@ -48,13 +48,22 @@ def main():
     cmd = ["python3", "-u", "/root/run_e906_script.py", "/root/raw_sensor_streamer.py"]
     proc = subprocess.Popen(
         cmd,
+        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1
     )
 
+    # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
     def interrupt_e906():
+        try:
+            if proc.stdin:
+                proc.stdin.write("STOP\n\x03\x03\x02")
+                proc.stdin.flush()
+                time.sleep(0.15)
+        except Exception:
+            pass
         try:
             proc.terminate()
             proc.wait(timeout=1.5)
@@ -85,6 +94,7 @@ def main():
     seq = 0
     gps_nmea_acc = ""
     start_time = time.time()
+    last_ping_time = time.time()
 
     gps_lat = 0.0
     gps_lon = 0.0
@@ -95,6 +105,16 @@ def main():
 
     try:
         while DURATION_S <= 0 or (time.time() - start_time < DURATION_S):
+            # Heartbeat Ping: keep E906 flight controller watchdog alive every 1.0s
+            if time.time() - last_ping_time >= 1.0:
+                last_ping_time = time.time()
+                try:
+                    if proc.stdin:
+                        proc.stdin.write("PING\n")
+                        proc.stdin.flush()
+                except Exception:
+                    pass
+
             line = proc.stdout.readline()
             if not line:
                 if proc.poll() is not None:

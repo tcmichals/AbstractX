@@ -738,3 +738,29 @@ In AbstractX, all real-time observability, telemetry, and peripheral communicati
      - `run_e906_script.py` and `board_studio_bridge.py` trap `SIGINT` and `SIGTERM` and guarantee transmission of `b''` (Ctrl-C Ctrl-C Ctrl-B) before closing `/dev/rpmsg0`, ensuring E906 returns to REPL idle and ceases transmission.
   4. **Hardware Verification**:
      - Tested on Radxa Cubie A5E hardware (`192.168.3.3`): after bridge termination, verified `dmesg` produces 0 `msg received with no recipient` warnings and E906 remains completely silent.
+
+---
+
+### 14. Architecture & Robustness: Host-Target Heartbeat Watchdog Ping & Autonomous Close Protocol
+* **Category**: `process-gap` / `architectural-decision`
+* **Subsystem**: XuanTie E906 Flight Controller, MicroPython REPL Native Console Ingress, Host Bridge
+* **Governing Requirements**: `[SPEC-E906-REPL-14]`, `[SPEC-E906-REPL-06]`, `[SPEC-E906-REPL-12]`
+* **Context & Motivation**:
+  - Even with graceful SIGINT/SIGTERM handlers on the host, unexpected termination (host app crash, unhandled Python exception, network disconnection, power pull, or killed process) leaves the co-processor unaware that the consumer has disappeared.
+  - Without an active liveness watchdog, the target co-processor would execute its sensor loop indefinitely, flooding the Linux kernel VirtIO vring with `virtio_rpmsg_bus: msg received with no recipient`.
+* **Solution Implemented**:
+  1. **Non-Blocking Console Read Native Binding (`abstractx.console_read(max_len)`)**:
+     - Added native binding in `modabstractx.c` and `mphalport.cpp` (`abstractx_console_rx_bytes()`) that non-blockingly drains pending characters from `g_repl_console` without yielding or allocating memory.
+  2. **Autonomous Target Watchdog (`flight_sensors.py` & `raw_sensor_streamer.py`)**:
+     - Main execution loop checks `abstractx.console_read(64)`.
+     - Feeds watchdog upon receiving `PING` or `HEARTBEAT`.
+     - On explicit `STOP` / `CLOSE` / `\x03`, prints `[E906_STOP_REQUESTED]` and breaks cleanly.
+     - If elapsed time since last heartbeat exceeds 3000 ms (`WATCHDOG_TIMEOUT_MS`), prints `[E906_WATCHDOG_TIMEOUT_SHUTDOWN]` and autonomously halts execution, returning the MicroPython VM to the idle REPL prompt `>>> `.
+  3. **Host Periodic Heartbeat Ping (`board_studio_bridge.py` & `run_e906_script.py`)**:
+     - `board_studio_bridge.py` transmits `PING\n` every 1.0 second over stdin.
+     - `run_e906_script.py` multiplexes host `stdin` with the `/dev/rpmsg0` file descriptor via `select.select()`, piping incoming `PING` commands straight through to E906.
+     - On bridge shutdown or exit, transmits `STOP\n\x03\x03\x02` and delays 150 ms before terminating the subprocess.
+* **Hardware Verification on Physical Board (`192.168.3.3`)**:
+  - Deployed updated firmware `e906_repl_app.elf` and restarted RemoteProc0.
+  - Verified autonomous timeout: halting host bridge causes E906 to detect silence and autonomously print `[E906_WATCHDOG_TIMEOUT_SHUTDOWN]` within 3 seconds, gracefully returning to REPL idle.
+  - Verified zero kernel messages in `dmesg` after shutdown.

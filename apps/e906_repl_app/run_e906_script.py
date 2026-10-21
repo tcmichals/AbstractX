@@ -109,12 +109,22 @@ def run_script(script_path, timeout=15.0):
             time.sleep(0.02)
 
         # 4. Stream response from MicroPython VM (stdout and stderr)
+        # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
         start_t = time.time()
         in_raw = True
         eot_count = 0
+        stdin_fileno = None
+        try:
+            stdin_fileno = sys.stdin.fileno()
+        except Exception:
+            pass
+
         while time.time() - start_t < timeout:
-            r, _, _ = select.select([fd], [], [], 0.3)
-            if r:
+            rlist = [fd]
+            if stdin_fileno is not None:
+                rlist.append(stdin_fileno)
+            r, _, _ = select.select(rlist, [], [], 0.1)
+            if fd in r:
                 data = os.read(fd, 2048)
                 if in_raw and b'OK' in data:
                     data = data.split(b'OK', 1)[1]
@@ -129,6 +139,14 @@ def run_script(script_path, timeout=15.0):
                 else:
                     sys.stdout.buffer.write(data)
                     sys.stdout.buffer.flush()
+
+            if stdin_fileno is not None and stdin_fileno in r:
+                try:
+                    in_chunk = os.read(stdin_fileno, 512)
+                    if in_chunk:
+                        write_all(in_chunk)
+                except Exception:
+                    pass
 
         # 5. Exit raw REPL: Ctrl-B
         os.write(fd, b'\x02')
