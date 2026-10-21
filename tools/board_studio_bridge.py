@@ -21,7 +21,7 @@ import signal
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [_HERE, os.path.join(_HERE, "..", "apps", "e906_repl_app")]
 # The app's sensor format (copied next to this file on the board); AbstractX does not define it.
-from sensor_contract import decode_mag, encode_mag_payload  # noqa: E402
+from sensor_contract import decode_mag, encode_mag_payload, nmea_sentence_ok, clamp_i32  # noqa: E402
 
 HOST_IP = os.environ.get("STUDIO_HOST_IP", "192.168.3.1")
 HOST_PORT = int(os.environ.get("STUDIO_PORT", 9870))
@@ -122,6 +122,7 @@ def main():
     gps_lon = 0.0
     gps_alt = 0.0
     gps_spd = 0.0
+    nmea_rejected = 0
     gps_sats = 0
     gps_fix = 0
 
@@ -174,6 +175,9 @@ def main():
                         while "\n" in gps_nmea_acc:
                             sentence, gps_nmea_acc = gps_nmea_acc.split("\n", 1)
                             sentence = sentence.strip()
+                            if not nmea_sentence_ok(sentence):
+                                nmea_rejected += 1  # garbled: never let it reach a packet
+                                continue
                             if sentence.startswith("$GNGGA") or sentence.startswith("$GPGGA"):
                                 flds = sentence.split(",")
                                 if len(flds) >= 10:
@@ -225,7 +229,8 @@ def main():
                 head_i = int(heading_deg * 100000)
                 sats_b = max(0, min(255, int(gps_sats)))
                 fix_b = max(0, min(255, int(gps_fix)))
-                payload_gps = struct.pack("<i5i2B", itow, lat_i, lon_i, alt_i, spd_i, head_i, sats_b, fix_b)
+                payload_gps = struct.pack("<i5i2B", *(clamp_i32(v) for v in (itow, lat_i, lon_i, alt_i, spd_i, head_i)),
+                                          sats_b, fix_b)
                 frame_gps = hdr_gps + payload_gps + (b"\x00" * (40 - len(payload_gps))) + b"\xde\xad\xbe\xef"
                 sock.sendto(frame_gps, (HOST_IP, HOST_PORT))
 
@@ -238,7 +243,7 @@ def main():
                 sock.sendto(frame_mag, (HOST_IP, HOST_PORT))
 
                 if seq % 5 == 0:
-                    print(f"[BRIDGE] Forwarded #{seq}: Heading={heading_deg:.1f}° Sats={gps_sats} Lat={gps_lat:.4f} Lon={gps_lon:.4f} Spd={gps_spd:.2f}m/s")
+                    print(f"[BRIDGE] Forwarded #{seq}: Heading={heading_deg:.1f}° Sats={gps_sats} Lat={gps_lat:.4f} Lon={gps_lon:.4f} Spd={gps_spd:.2f}m/s NMEA_bad={nmea_rejected}")
             else:
                 if line:
                     print(f"[PROC] {line}")

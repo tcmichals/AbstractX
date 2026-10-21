@@ -94,23 +94,18 @@ print("[E906_RAW_STREAMER_READY: I2C=400kHz/200Hz, UART=115200/10Hz]")
 # ==============================================================================
 # 3. Fast Streaming Loop: Non-blocking raw I/O forwarding
 # ==============================================================================
-hex_chars = "0123456789abcdef"
-
 def to_hex(raw_b):
     if not raw_b:
         return "none"
-    out = ""
-    for i in range(len(raw_b)):
-        b = raw_b[i]
-        out += hex_chars[(b >> 4) & 0x0F] + hex_chars[b & 0x0F]
-    return out
+    return "".join(["%02x" % b for b in raw_b])
 
 # Streaming execution loop with Heartbeat Watchdog & Clean Teardown
 # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
 last_heartbeat_ms = abstractx.ticks_ms()
 WATCHDOG_TIMEOUT_MS = 3000
 
-for tick in range(2000):
+# Until stopped (STOP / Ctrl-C) or the host stops pinging; no fixed tick count.
+while True:
     # Check for host ping or stop commands over RPMsg
     cmd = abstractx.console_read(64)
     if cmd:
@@ -126,7 +121,14 @@ for tick in range(2000):
         break
 
     raw_mag = mag_read(MAG_ADDR)
-    raw_gps = abstractx.uart_read(128)
+    # Drain everything the UART ISR buffered: GPS at 115200 baud / 10 Hz outruns 128 B per
+    # 100 ms tick, the RX ring overflowed and NMEA sentences arrived garbled.
+    raw_gps = abstractx.uart_read(512)
+    while len(raw_gps) and len(raw_gps) % 512 == 0:
+        more = abstractx.uart_read(512)
+        if not more:
+            break
+        raw_gps += more
 
     mag_hex = to_hex(raw_mag) if len(raw_mag) == 6 else "none"
 

@@ -109,6 +109,23 @@ def test_compass_bytes_decode_on_the_host():
         raise AssertionError(f"decode_mag accepted {bad!r}")
 
 
+def test_nmea_checksum_gate():
+    """Only checksummed NMEA reaches the GPS packet (a garbled sentence killed the stream)."""
+    sys.path.insert(0, str(ROOT / "apps" / "e906_repl_app"))
+    import sensor_contract as sc
+    good = "$GNGGA,123519,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,*" 
+    body = good[1:-1]
+    cs = 0
+    for ch in body:
+        cs ^= ord(ch)
+    good += f"{cs:02X}"
+    assert sc.nmea_sentence_ok(good)
+    assert not sc.nmea_sentence_ok(good.replace("545.4", "9e99"))   # garbled field
+    assert not sc.nmea_sentence_ok(good[:-3])                        # no checksum
+    assert not sc.nmea_sentence_ok("GNGGA,1*00")                     # no '$'
+    assert sc.clamp_i32(10 ** 12) == 2147483647 and sc.clamp_i32(-10 ** 12) == -2147483648
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -60,3 +60,26 @@ def decode_mag_payload(payload: bytes) -> dict:
         raise ValueError("compass payload: decoded X/Y/Z do not match the raw bytes")
     field_ut = (sum(v * v for v in xyz) ** 0.5) / MAG_LSB_PER_GAUSS[chip] * 100.0
     return {"raw": raw, "chip": chip, "xyz": xyz, "field_ut": field_ut}
+
+
+# GPS: NMEA sentences arrive as raw UART bytes. A sentence counts only if its *hh checksum
+# matches; garbled sentences (baud change, overrun) once put a value too large for int32
+# into the bridge's GPS packet and killed the live stream.
+def nmea_sentence_ok(sentence: str) -> bool:
+    """True for '$...*hh' whose XOR checksum over the text between '$' and '*' matches."""
+    if not sentence.startswith("$") or "*" not in sentence:
+        return False
+    body, _, given = sentence[1:].partition("*")
+    if len(given) < 2:
+        return False
+    calc = 0
+    for ch in body:
+        calc ^= ord(ch)
+    try:
+        return calc == int(given[:2], 16)
+    except ValueError:
+        return False
+
+
+def clamp_i32(v: int) -> int:
+    return max(-2147483648, min(2147483647, int(v)))

@@ -216,6 +216,11 @@ def test_streamer_keeps_running_with_heartbeat():
     out = proc.communicate(timeout=10)[0]
     sock.close()
     assert "WATCHDOG_TIMEOUT" not in out, f"streamer timed out while the bridge pinged: {out[-300:]}"
+    assert "Traceback" not in out, f"bridge crashed: {out[-400:]}"
+    # GPS bytes must arrive whole: a slow script drain overflowed the UART ring and
+    # ~7 NMEA sentences/s failed their checksum (2026-10-21). One partial at start is normal.
+    bad = [int(w.split("=")[1]) for ln in out.splitlines() for w in ln.split() if w.startswith("NMEA_bad=")]
+    assert bad and bad[-1] <= 2, f"{bad[-1] if bad else '?'} NMEA sentences failed their checksum"
     assert last - t0 > 22, f"packets stopped after {last - t0:.1f} s of 25 ({count} received)"
 
 
