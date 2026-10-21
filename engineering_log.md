@@ -1491,3 +1491,24 @@ This log chronicles the development, technical decisions, and architecture miles
 * New tests: live state holds no demo data; the CLI doesn't make up answers; `enable_sim()` seeds; all 12 panels render with empty live state and with sim data. They failed on the old code (`AttributeError: enable_sim`, 8 failed) and pass now (18 passed).
 * `py_test_visualizer_sdk` registered in ctest (when pytest and imgui_bundle are present): `ctest --test-dir build_host` 39/39 passed.
 * Not verified: Studio against live board traffic (board in use for v3); the CTF trace decoder and real REPL link are still missing (review of 2026-10-20).
+
+---
+
+## [2026-10-20] - No On-Board Tests: E906 Planes Checked Only From the PC
+
+### 1. Mistake / Bug Identification
+* **Category**: `process-gap`
+* **Target / Subsystem**: `apps/e906_repl_app`, `tests/board/`, `tools/abstractx_wire.py`
+* **Governing Requirements**: `[SPEC-E906-REPL-05/06/07/08/10/14]`, `[SPEC-E906-REPL-15]` (new)
+* **Symptoms**: the E906 requirements were all `Verified by: host-tests`, which cannot see silicon. Board checks ran from the PC over SSH and UDP, and one passed on host-synthesised TLPs (entry 15). No check decoded CTF trace packets, so "trace never shows in Studio" had no test. The message-protocol bugs in the logs (char-by-char REPL flushing, Ctrl-C not dispatched, stale endpoint dropping 10/10, "no recipient" tail, 496 B / 7-TLP framing) had no regression check. pytest is not on the board image. The E906 spec said the TLP header is 24 B (it is 20 B), and its API list omitted most of the real bindings.
+
+### 2. Root Cause & Lesson Learned
+* **Root Cause**: no requirement said "test on the board"; the verifying skill named for silicon behaviour was the host suite.
+* **Lesson**: every logged protocol failure needs a check that runs where the failure happens, with the tools that exist there (stdlib `python3`), reading the real endpoint, never a re-creation of it.
+
+### 3. Fix & Verification
+* `[SPEC-E906-REPL-15]` added, header size fixed, API list completed; skill `e906-board-selftest`; `Verified by` of REPL-05/06/07/08/10/14 now names it.
+* `tests/board/`: stdlib runner (PASS/FAIL/SKIP, `--json`, exit 0/1/2) and 16 pytest-compatible tests, including one per logged protocol failure. Decoders in `tools/abstractx_wire.py` for Studio to reuse.
+* Off-board: `tests/test_board_suite_local.py` checks decoder layouts against `tracer.hpp` / `asp_tlp64.h`, raw-REPL parsing and runner exit code 2: PASS. `pytest tests/board`: 16 skipped. No-pytest path checked. `ctest --test-dir build_host`: 40/40 passed.
+* Expected to fail on the board until fixed: `test_abstractx_api_matches_spec` (`tlp_poll_into`, `tlp_send_nav` not implemented, [SPEC-E906-REPL-10]).
+* Not verified: any test on the board (in use for v3 kernel work).

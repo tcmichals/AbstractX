@@ -666,7 +666,22 @@ python3 apps/e906_repl_app/linux/e906_workbench.py --peek 0x02502400  # one 32-b
 > `abstractx.tlp_send()` go out on endpoint 1024 → UDP :9871 and are not shown in
 > Studio yet; `tools/test_e906_repl_system.py` is the consumer for that plane.
 
-### 8.4 Board Checks Run From the PC
+### 8.4 On-Board Self-Test (plain python3, no pytest needed)
+
+`tests/board/` runs **on the board** and reads the real endpoints: REPL, 64-byte TLPs,
+CTF trace decoding, the `abstractx` API, compass, GPS, watchdog, and the RPMsg message
+rules from the engineering log ([SPEC-E906-REPL-15], skill `e906-board-selftest`):
+
+```bash
+ssh root@192.168.3.3 mkdir -p /root/abstractx_board_tests
+scp -O tests/board/*.py tools/abstractx_wire.py tools/e906_rpmsg_bridge.py \
+       apps/e906_repl_app/raw_sensor_streamer.py root@192.168.3.3:/root/abstractx_board_tests/
+ssh root@192.168.3.3 "cd /root/abstractx_board_tests && python3 run_board_tests.py --json /tmp/e906_selftest.json"
+```
+
+Exit 0 = all pass, 1 = a failure, 2 = not an E906 board. `-k <name>` runs one test.
+
+### 8.5 Board Checks Run From the PC
 
 ```bash
 python3 tools/test_board_system_checkout.py     # REPL alive + bridge → Studio UDP path
@@ -674,7 +689,7 @@ python3 tools/test_e906_repl_system.py          # REPL / TLP / trace planes and 
 python3 tools/test_e906_sensors_board.py        # flight_sensors.py on the E906
 ```
 
-### 8.5 Troubleshooting
+### 8.6 Troubleshooting
 
 | Symptom | Check |
 |---|---|

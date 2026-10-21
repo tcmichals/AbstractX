@@ -110,7 +110,7 @@ flowchart TD
 #### Plane 2: The TLP Real-Time Data Plane (`Tlp64`)
 * **What it is**: The high-throughput, deterministic sensor ingestion, state estimation, and actuation bus.
 * **Protocol & Encodings**: Fixed 64-byte `Tlp64` binary frames (`sizeof(asp_tlp64_t) == 64`, `alignas(64)`):
-  * **24-Byte Header**: `type` (1B), `flags` (1B), `tag` (1B), `channel` (1B), `target_address` (4B), `length_dw` (2B), `sequence` (2B), `timestamp_ns` (8B).
+  * **20-Byte Header**: `type` (1B), `flags` (1B), `tag` (1B), `channel` (1B), `target_address` (4B), `length_dw` (2B), `sequence` (2B), `timestamp_ns` (8B).
   * **40-Byte Payload**: Pre-scaled binary integer records (GPS latitude/longitude in $10^{-7}$ deg, altitude in mm, 3-axis gyro in $0.01^\circ/\text{s}$, 3-axis accel in $\text{mg}$).
   * **4-Byte Trailer**: Hardware CRC32.
 * **Transport**: Lock-free SPSC circular ring buffers (`SpscTlpRing`, `g_telemetry_ring`) and synthesizable FPGA AXI-Stream crossbar switch fabric (`asp_router.sv`).
@@ -186,7 +186,7 @@ flowchart TD
   2. Text payloads emitted by MicroPython (`mp_hal_stdout_tx_strn`) are batched into
      RPMsg reply frames and kicked over MSGBOX Channel 1.
   3. Seamlessly interoperates with AbstractX Studio Tab 11 ([SPEC-STUDIO-13]) `>>> ` mode.
-* **Verified by**: `host-tests`
+* **Verified by**: `host-tests`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/rpmsg_console.cpp`
 
 ### `[SPEC-E906-REPL-06]` Native `abstractx` Module Hardware Bindings
@@ -201,7 +201,11 @@ flowchart TD
   * `abstractx.uart_write(data)`: Transmits bytes or string over UART3 to GPS.
   * `abstractx.i2c_scan()`: Probes I2C1 (TWI1, Pins 3 & 5, `0x02502400`) and returns list of responding 7-bit addresses.
   * `abstractx.i2c_read(addr, reg, len)`: Reads `len` bytes from register `reg` on I2C device `addr`.
-* **Verified by**: `host-tests`
+  * Also present and part of the contract: `peek_hex`, `uart_init([baud])`, `uart_status()`,
+    `i2c_init([hz])`, `i2c_write(addr, reg, data)`, `sleep_ms(ms)`, `ticks_ms()`,
+    `console_read([n])` ([SPEC-E906-REPL-14]), `tlp_send(buf)`, `tlp_push(buf)`, `tlp_dropped()`
+    ([SPEC-E906-REPL-10]) and `trace(task_id[, state[, msg]])` ([SPEC-E906-REPL-07]).
+* **Verified by**: `host-tests`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`
 
 ### `[SPEC-E906-REPL-07]` Dual-Tier Observability: Lean RemoteProc trace0 vs. Binary barectf Code Tracing
@@ -212,7 +216,7 @@ flowchart TD
      - **Negative Invariant**: It MUST NOT be used for general diagnostic logging, function call tracing, or arbitrary printf string emissions. Firmware rodata string literals are prohibited from consuming on-chip SRAM for trace formatting.
   2. **barectf CTF 1.8 Binary Code Tracing**: All code tracing, driver event telemetry, and coroutine execution instrumentation MUST use structured binary CTF 1.8 frames emitted via `barectf` over VirtIO RPMsg endpoint 1025 (`"abstractx-trace"`).
   3. Binary trace packets must be emitted zero-copy into host SRAM buffers without heap allocation or CPU-bound string rendering.
-* **Verified by**: `host-tests`, `e906-build-layout`
+* **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `targets/allwinner_e906/src/trace.cpp`
 
 ### `[SPEC-E906-REPL-08]` Three-Plane Communication Isolation & Endpoint Mapping
@@ -222,7 +226,7 @@ flowchart TD
      - **Real-Time Data Plane**: Transported exclusively as 64-byte `Tlp64` binary packets over lock-free SPSC rings (`SpscTlpRing`, `g_telemetry_ring`) and FPGA crossbar fabrics.
      - **Observability Plane**: Transported exclusively as CTF 1.8 binary event streams over VirtIO RPMsg Endpoint 1025 (`"abstractx-trace"`).
   2. REPL text streams, real-time TLP packets, and barectf diagnostic events MUST NOT be multiplexed into the same channel or share wire encodings.
-* **Verified by**: `host-tests`, `e906-build-layout`
+* **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
 
 ### `[SPEC-E906-REPL-09]` Packet-Driven Invariant & No-Peeking Mandate for Telemetry/Sensors
@@ -241,7 +245,7 @@ flowchart TD
      - `abstractx.tlp_send_nav(lat, lon, alt_mm, speed_mms, heading_cdeg, sats, fix)`: Direct C helper that packs pre-scaled navigation integers into an in-place `asp_tlp64_unaligned_t*` slot borrowed via `tlp_channel.emplace()`.
   2. **Zero GC Pressure Invariant**: Continuous telemetry emissions (10 Hz – 100 Hz) MUST allocate **0 bytes** on the MicroPython garbage-collected heap during steady-state flight loops.
   3. **Execution Latency Invariant**: Packing and submitting a 64-byte TLP frame from MicroPython MUST complete in $< 5 \ \mu\text{s}$ per frame on the 800 MHz XuanTie E906 core.
-* **Verified by**: `host-tests`, `e906-build-layout`
+* **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
 
 ### `[SPEC-E906-REPL-11]` Serial TLP Tunneling & Streaming Protocol for MicroPython
@@ -281,9 +285,30 @@ flowchart TD
   2. **Autonomous Target Watchdog Shutdown**: The target streaming loops (`raw_sensor_streamer.py`, `flight_sensors.py`) MUST poll incoming console characters via `abstractx.console_read(64)`. If no valid heartbeat (`PING`, `HEARTBEAT`) is received within $3000 \text{ ms}$, the flight loop MUST autonomously break, output `[E906_WATCHDOG_TIMEOUT_SHUTDOWN]`, and return cleanly to the REPL prompt `>>> `.
   3. **Zero Dangling Remote Loop & Recipient Flooding**: Halting the loop on timeout ensures that if the Linux host crashes, disconnects, or closes `/dev/rpmsg0`, the coprocessor stops transmitting RPMsg text frames, preventing kernel `virtio_rpmsg_bus: msg received with no recipient` syslog floods.
   4. **Orderly Graceful Teardown**: On host shutdown, the bridge MUST issue `STOP\n\x03\x03\x02` and allow $\ge 100 \text{ ms}$ for the target to process teardown before terminating the process or closing the device node.
-* **Verified by**: `host-tests`, `e906-build-layout`
+* **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/raw_sensor_streamer.py`, `tools/board_studio_bridge.py`, `apps/e906_repl_app/run_e906_script.py`
 
-
-
+### `[SPEC-E906-REPL-15]` On-Board Self-Test Suite (Runs on the Cubie A5E Itself)
+* **Requirement**: every behaviour above that only silicon can show is checked by
+  `tests/board/run_board_tests.py`, run **on the board** with plain `python3` and the
+  standard library only (no pytest, no pip). Test files use `test_*` functions and bare
+  `assert`, so the same files also run under pytest once the image ships it.
+* **Requirement**: the suite checks, against the real endpoints (not host-synthesised data):
+  remoteproc running the expected firmware; the three channels announced; REPL text round
+  trip; the `abstractx` API names listed in [SPEC-E906-REPL-06] and [SPEC-E906-REPL-10];
+  N x 64-byte TLPs read from the `abstractx-tlp` endpoint with intact payload sequence and
+  `tlp_dropped() == 0`; CTF packets read from `abstractx-trace` that decode (magic
+  `0xC1FC1FC1`, `content_size_bits/8 == datagram length`, 38-byte coroutine events with the
+  names and task ids sent); no TLP or CTF bytes in REPL text; compass on I2C1 answering
+  and its readings changing; GPS bytes (NMEA `$G` or UBX `B5 62`) on UART3; the streamer
+  watchdog stopping without `PING`; the kernel log silent when idle.
+* **Requirement**: the runner prints one line per test (`PASS` / `FAIL` / `SKIP` + reason),
+  writes a JSON evidence record with `--json <file>`, and exits `0` all passed, `1` any
+  failure, `2` could not run (not an E906 board). Decoders live in `tools/abstractx_wire.py`
+  so Studio uses the same wire definitions.
+* **Rationale**: on 2026-10-20 trace never reached Studio, compass and GPS stopped updating,
+  and an earlier checkout passed on host-synthesised TLPs (engineering log entry 15). None of
+  that is visible to `host-tests`, and pytest is not on the board image.
+* **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_board_suite_local.py`: decoders and runner, off-board)
+* **Implementation Target**: `tests/board/`, `tools/abstractx_wire.py`
 

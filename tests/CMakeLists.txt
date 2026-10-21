@@ -63,6 +63,9 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_trac.py)
     add_test(NAME py_test_e906_rpmsg_bridge
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_e906_rpmsg_bridge.py)
+    # [SPEC-E906-REPL-15] board suite decoders, raw-REPL parsing and runner (off-board)
+    add_test(NAME py_test_board_suite_local
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_board_suite_local.py)
     # [SPEC-STUDIO-*] Studio state, panels and live-vs---sim behaviour; needs pytest + imgui_bundle
     execute_process(COMMAND ${Python3_EXECUTABLE} -c "import pytest, imgui_bundle"
                     RESULT_VARIABLE _studio_deps OUTPUT_QUIET ERROR_QUIET)
