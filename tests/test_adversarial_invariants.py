@@ -285,6 +285,20 @@ def test_todays_e906_polling_is_found(repo_root):
             f"{expected} no longer found but still baselined"
 
 
+def test_open_requirement_is_not_a_traceability_miss(tmp_path):
+    """[SPEC-AUDIT-12] a requirement marked 'Not implemented yet' is open, not missing."""
+    spec = tmp_path / "apps" / "x" / "SPECIFICATION.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("# X\n```mermaid\ngraph LR; a-->b\n```\n"
+                    "### `[SPEC-X-01]` Open\n* **Requirement**: later.\n* **Not implemented yet**: `f`\n"
+                    "### `[SPEC-X-02]` Promised\n* **Requirement**: now.\n", encoding="utf-8")
+    auditor = InvariantAuditor(tmp_path)
+    auditor.run_audit([spec])
+    rules = [i["rule"] for i in auditor.violations["Stage 0 (Specification Markdown & SSOT)"]]
+    assert any("SPEC-X-02" in r for r in rules), rules
+    assert not any("SPEC-X-01" in r for r in rules), rules
+
+
 def test_full_adversarial_audit_suite(repo_root):
     """Executes the full 5-stage adversarial audit pipeline."""
     sources = get_freestanding_sources(repo_root)
@@ -319,5 +333,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         test_baseline_reports_known_and_fails_when_stale(Path(td))
     test_todays_e906_polling_is_found(REPO_ROOT)
+    with tempfile.TemporaryDirectory() as td:
+        test_open_requirement_is_not_a_traceability_miss(Path(td))
     test_full_adversarial_audit_suite(REPO_ROOT)
     print("All adversarial invariant tests passed.")

@@ -92,16 +92,10 @@ void abstractx_repl_vm_hook(void) {
 
     if (abstractx::g_repl_console) {
         abstractx::g_repl_console->flush_if_older(hal::Timer::get_ticks(), 20ULL * hal::Timer::TICKS_PER_MS);
-        // Check for keyboard interrupt (Ctrl-C) during bytecode execution
-        char ch = 0;
-        while (abstractx::g_repl_console->try_read_char(ch)) {
-            if (ch == 3 || (mp_interrupt_char != -1 && ch == mp_interrupt_char)) {
-                mp_sched_keyboard_interrupt();
-                mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS);
-                break;
-            }
-        }
     }
+    // Ctrl-C was taken out of the input when it arrived (RpmsgConsole::on_rx_data); the
+    // input queue itself is left alone so scripts still read their own bytes (PING).
+    mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS);
 }
 
 // Garbage collection root scan

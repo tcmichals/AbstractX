@@ -64,7 +64,10 @@ def main():
     time.sleep(0.2)
 
     # Launch E906 raw sensor streamer via verified RPMsg runner
-    cmd = ["python3", "-u", "/root/run_e906_script.py", "/root/raw_sensor_streamer.py"]
+    # Pass the duration through: run_e906_script.py defaults to 15 s, which ended every
+    # live Studio session after 15 s. 0 = until stopped. @impl [SPEC-E906-REPL-14]
+    cmd = ["python3", "-u", "/root/run_e906_script.py", "/root/raw_sensor_streamer.py",
+           str(DURATION_S + 5.0 if DURATION_S > 0 else 0)]
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE,

@@ -131,7 +131,8 @@ def run_script(script_path, timeout=15.0):
         except Exception:
             pass
 
-        while time.time() - start_t < timeout:
+        # timeout <= 0: run until the script ends or the caller stops us (live streaming)
+        while timeout <= 0 or time.time() - start_t < timeout:
             rlist = [fd]
             if stdin_fileno is not None:
                 rlist.append(stdin_fileno)

@@ -6,6 +6,11 @@
 
 #include "rpmsg_console.hpp"
 #include "hal/timer.hpp"
+
+extern "C" {
+#include "py/runtime.h"
+#include "shared/runtime/interrupt_char.h"
+}
 #include <cstring>
 
 namespace abstractx {
@@ -39,8 +44,14 @@ void RpmsgConsole::rx_callback(const ::hal::RpmsgMessage &msg, void *user_data) 
 }
 
 void RpmsgConsole::on_rx_data(const uint8_t *data, size_t len) noexcept {
-    // @impl [SPEC-E906-REPL-03] apps/e906_repl_app/SPECIFICATION.md
+    // @impl [SPEC-E906-REPL-03] [SPEC-E906-REPL-04] apps/e906_repl_app/SPECIFICATION.md
     for (size_t i = 0; i < len; ++i) {
+        // While a script runs, pyexec sets mp_interrupt_char (Ctrl-C): raise it on arrival
+        // instead of queueing it, so nothing has to drain the queue to find it.
+        if (mp_interrupt_char != -1 && data[i] == static_cast<uint8_t>(mp_interrupt_char)) {
+            mp_sched_keyboard_interrupt();
+            continue;
+        }
         m_rx_channel.try_push(static_cast<char>(data[i]));
     }
 }

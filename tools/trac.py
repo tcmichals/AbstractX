@@ -188,7 +188,8 @@ def report(records):
     print("-" * 78)
     for check in sorted(latest):
         r = latest[check]
-        delta_str = " ".join(f"{k}{v:+g}" for k, v in r["delta"].items() if v) or "-"
+        # records written by other tools (e.g. a board run) may carry no delta
+        delta_str = " ".join(f"{k}{v:+g}" for k, v in r.get("delta", {}).items() if v) or "-"
         shown = {k: v for k, v in r["metrics"].items() if not k.endswith("_used")}
         shown_str = json.dumps(shown)
         if len(shown_str) > 27:

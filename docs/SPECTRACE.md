@@ -249,7 +249,8 @@ where its evidence goes. SpecTrace connects them: requirement → code
   counts). Lines that forbid a call (MUST NOT, never, no, instead of) and language operators
   (`sizeof`, `alignas`) are not promises and are skipped. Names listed on the requirement's
   `* **Not implemented yet**:` line are exempt, and such a requirement's verdict is `PARTIAL`,
-  never `VERIFIED`.
+  never `VERIFIED`. The adversarial audit's Stage 0 treats it as open, not as a missing
+  `@impl` tag; a requirement without that line and without an `@impl` tag still fails.
 * **Requirement**: a requirement that names skills but has no evidence that counts is `STALE`,
   never `VERIFIED` (`SPEC-E906-CACHE-02` showed `VERIFIED` with no `e906-disassembly-check` run).
 * **Requirement**: `python3 tools/spectrace_matrix.py --check-tests` exits 1 when a test file is

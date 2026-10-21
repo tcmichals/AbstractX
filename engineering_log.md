@@ -1662,3 +1662,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Host**: ctest 46/46 plain, ASan/UBSan 46/46, TSan 46/46; `sim/test_async_queue_deferred_resume` fails on the old `asp_coro.hpp`, passes on the new.
 * **Size**: SRAM space 0 to `0x3FFEE13F` (~188.7 KB of 192 KB incl. 8 KB stack); SRAM space 1 holds 1.1 KB of 256 KB (vrings are in DDR on this boot) - the place to move code next.
 * **Not done**: DMA (Linux owns all 16 channels until the overlay limits it to 0-7; `dma_bench`, `da_to_pa`), `MsgBox::send_blocking` spin (baselined), REPL-17, moving code into SRAM space 1, the board still boots `riscv-firmware.elf` = the old image.
+
+### Update 2026-10-21: Studio connected, streamed, then disconnected
+* **Category**: `product-bug` (1-4), `process-gap` (5)
+1. The VM hook drained the whole console queue looking for Ctrl-C, discarding the bridge's `PING`s; the streamer's 3 s watchdog stopped the stream. Ctrl-C is now taken out on arrival in `RpmsgConsole::on_rx_data` while `mp_interrupt_char` is set; `main.cpp` no longer sets it permanently (an idle Ctrl-C then interrupted the next script).
+2. `run_e906_script.py` defaulted to a 15 s timeout and the bridge never passed one: every live session ended after 15 s. Timeout `<= 0` is now "until stopped"; the bridge passes `STREAM_DURATION`.
+3. Studio piped the bridge's output and never read it (a 64 KB pipe would stall the bridge after minutes). A reader thread keeps the last 200 lines.
+4. The board ran stale scripts from `/root`; a missing `sensor_contract.py` stopped the bridge at import. Studio now copies the repo's board scripts before starting the bridge.
+5. **Why the tests missed it**: the only streamer test checked that it stops without a heartbeat, never that it keeps running with one, and the first version of the new test used 12 s, under the 15 s limit. It now runs 25 s and fails on the old scripts. Also: `board_studio_bridge.py` `fuser -k`s whoever holds the REPL, so a board test run kills Studio's live link; `run_board_tests.py` now refuses to run (exit 2, names the holder) while the REPL is held.
+* **Also fixed**: adversarial audit Stage 0 flagged `[SPEC-E906-REPL-17]` (marked "Not implemented yet") as a missing `@impl` - `main` failed the app audit after `09e251b` because I added the requirement after running it; `trac.py report` crashed on an evidence record without `delta` (the board record I added by hand).
+* **Board**: 24 passed, 0 failed, 2 skipped; Studio live link held > 45 s with the GUI.

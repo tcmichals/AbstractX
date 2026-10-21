@@ -297,8 +297,18 @@ class InvariantAuditor:
 
         if spec_tags:
             code_impls = self.get_code_impl_tags()
+            # A requirement that says "* **Not implemented yet**:" is honestly open
+            # (PARTIAL in the matrix, [SPEC-AUDIT-12]); it is not a traceability miss.
+            open_tags = set()
+            current = None
+            for line in lines:
+                m = re.search(r"^#{2,4}\s+`?\[(SPEC-[A-Z0-9-]+)\]", line)
+                if m:
+                    current = m.group(1)
+                elif current and line.strip().startswith("* **Not implemented yet**"):
+                    open_tags.add(current)
             for tag, line_no in spec_tags:
-                if tag not in code_impls:
+                if tag not in code_impls and tag not in open_tags:
                     self.log_issue("Stage 0 (Specification Markdown & SSOT)", filepath, line_no,
                                    f"Unimplemented requirement [{tag}] in markdown specification (Missing matching // @impl tag in code)", "")
     # endregion

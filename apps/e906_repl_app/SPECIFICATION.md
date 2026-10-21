@@ -293,8 +293,16 @@ flowchart TD
   2. **Autonomous Target Watchdog Shutdown**: The target streaming loops (`raw_sensor_streamer.py`, `flight_sensors.py`) MUST poll incoming console characters via `abstractx.console_read(64)`. If no valid heartbeat (`PING`, `HEARTBEAT`) is received within $3000 \text{ ms}$, the flight loop MUST autonomously break, output `[E906_WATCHDOG_TIMEOUT_SHUTDOWN]`, and return cleanly to the REPL prompt `>>> `.
   3. **Zero Dangling Remote Loop & Recipient Flooding**: Halting the loop on timeout ensures that if the Linux host crashes, disconnects, or closes `/dev/rpmsg0`, the coprocessor stops transmitting RPMsg text frames, preventing kernel `virtio_rpmsg_bus: msg received with no recipient` syslog floods.
   4. **Orderly Graceful Teardown**: On host shutdown, the bridge MUST issue `STOP\n\x03\x03\x02` and allow $\ge 100 \text{ ms}$ for the target to process teardown before terminating the process or closing the device node.
-* **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
-* **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/raw_sensor_streamer.py`, `tools/board_studio_bridge.py`, `apps/e906_repl_app/run_e906_script.py`
+* **Requirement**: a live stream runs until it is stopped. `STREAM_DURATION=0` reaches
+  `run_e906_script.py` as timeout `0` (no limit); the script's watchdog sees every `PING`
+  because the firmware takes Ctrl-C out of the input on arrival (only while a script runs)
+  and nothing else drains the console queue. Studio copies the repo's board scripts to
+  `/root` before it starts the bridge and reads the bridge's output so its pipe never fills.
+* **Rationale**: on 2026-10-21 Studio connected, showed data and dropped: the VM hook ate
+  the PINGs (3 s watchdog), the runner defaulted to 15 s, and a missing `sensor_contract.py`
+  in `/root` stopped the bridge at start.
+* **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest` (`test_streamer_keeps_running_with_heartbeat`: 25 s, past the old 15 s limit; `test_streamer_stops_without_heartbeat`)
+* **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/raw_sensor_streamer.py`, `tools/board_studio_bridge.py`, `apps/e906_repl_app/run_e906_script.py`, `apps/e906_repl_app/src/rpmsg_console.cpp`, `tools/visualizer/flight_plugin.py`
 
 ### `[SPEC-E906-REPL-15]` On-Board Self-Test Suite (Runs on the Cubie A5E Itself)
 * **Requirement**: every behaviour above that only silicon can show is checked by
@@ -312,7 +320,8 @@ flowchart TD
   watchdog stopping without `PING`; the kernel log silent when idle.
 * **Requirement**: the runner prints one line per test (`PASS` / `FAIL` / `SKIP` + reason),
   writes a JSON evidence record with `--json <file>`, and exits `0` all passed, `1` any
-  failure, `2` could not run (not an E906 board). Decoders live in `tools/abstractx_wire.py`
+  failure, `2` could not run (not an E906 board, or the `abstractx-repl` endpoint is held by
+  another program such as Studio's bridge, which it names). Decoders live in `tools/abstractx_wire.py`
   so Studio uses the same wire definitions.
 * **Rationale**: on 2026-10-20 trace never reached Studio, compass and GPS stopped updating,
   and an earlier checkout passed on host-synthesised TLPs (engineering log entry 15). None of

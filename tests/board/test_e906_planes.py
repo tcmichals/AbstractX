@@ -186,6 +186,39 @@ def test_streamer_stops_without_heartbeat():
     assert dt < 10, f"watchdog took {dt:.1f}s (limit 3 s plus sensor init)"
 
 
+def test_streamer_keeps_running_with_heartbeat():
+    """Studio's live link: board_studio_bridge.py pings, the streamer must not time out.
+    (2026-10-21: the VM hook drained the console queue looking for Ctrl-C and ate every PING,
+    so Studio connected, showed data for ~3 s and disconnected.)"""
+    _require_board()
+    bridge = "/root/board_studio_bridge.py"
+    if not os.path.exists(bridge):
+        skip("board_studio_bridge.py not in /root (README §8.1 step 4)")
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.settimeout(0.5)
+    env = dict(os.environ, STUDIO_HOST_IP="127.0.0.1", STUDIO_PORT=str(sock.getsockname()[1]),
+               STREAM_DURATION="25")  # past the old 15 s runner limit
+    proc = subprocess.Popen(["python3", "-u", bridge], env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    t0 = time.monotonic()
+    last = t0
+    count = 0
+    while time.monotonic() - t0 < 30:
+        try:
+            sock.recvfrom(4096)
+            count += 1
+            last = time.monotonic()
+        except socket.timeout:
+            if proc.poll() is not None:
+                break
+    out = proc.communicate(timeout=10)[0]
+    sock.close()
+    assert "WATCHDOG_TIMEOUT" not in out, f"streamer timed out while the bridge pinged: {out[-300:]}"
+    assert last - t0 > 22, f"packets stopped after {last - t0:.1f} s of 25 ({count} received)"
+
+
 def test_kernel_log_quiet_when_idle():
     _require_board()
     before = _no_recipient_count()

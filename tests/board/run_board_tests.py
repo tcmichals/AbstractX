@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import board_common  # noqa: E402
-from e906_link import on_e906_board, read_text, RPROC  # noqa: E402
+from e906_link import on_e906_board, read_text, RPROC, REPL, RPMSG_CTRL, create_endpoint  # noqa: E402
 
 
 def discover(selector: str = ""):
@@ -34,6 +34,25 @@ def discover(selector: str = ""):
             if name.startswith("test_") and callable(fn) and selector in name:
                 tests.append((f"{mod.__name__}::{name}", fn))
     return tests
+
+
+def repl_busy() -> str:
+    """'' if the REPL endpoint can be opened, else who holds it (e.g. Studio's bridge)."""
+    try:
+        node = create_endpoint(RPMSG_CTRL, REPL["name"], REPL["addr"])
+        os.close(os.open(node, os.O_RDWR | os.O_NONBLOCK))
+        return ""
+    except OSError as e:
+        holders = []
+        for pid in os.listdir("/proc"):
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as f:
+                    cmd = f.read().replace(b"\0", b" ").decode(errors="replace").strip()
+            except OSError:
+                continue
+            if "board_studio_bridge" in cmd or "run_e906_script" in cmd:
+                holders.append(f"pid {pid}: {cmd[:60]}")
+        return f"{e.strerror}; " + ("; ".join(holders) or "holder unknown")
 
 
 def run(tests):
@@ -70,6 +89,11 @@ def main(argv) -> int:
     tests = discover(selector)
     if not on_e906_board():
         print(f"could not run: {RPROC} not found (not an E906 board); {len(tests)} tests discovered")
+        return 2
+    busy = repl_busy()
+    if busy:
+        print(f"could not run: the abstractx-repl endpoint is in use ({busy}); stop Studio's "
+              f"live link or the bridge first")
         return 2
     print(f"E906 board self-test: {len(tests)} tests, firmware "
           f"{read_text(RPROC + '/firmware')!r}, state {read_text(RPROC + '/state')!r}")

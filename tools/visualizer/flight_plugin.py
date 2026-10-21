@@ -34,6 +34,8 @@ Implemented in Python using Dear ImGui Bundle (imgui-bundle):
 # @impl [SPEC-USER-PLUGIN-06] tools/visualizer/flight_plugin.py
 # @impl [SPEC-USER-PLUGIN-07] tools/visualizer/flight_plugin.py
 
+import collections
+import threading
 import math
 import struct
 import subprocess
@@ -55,6 +57,14 @@ from imgui_bundle import imgui, implot
 # ==============================================================================
 
 g_bridge_proc = None
+# Last bridge output lines. The pipe must be read: once its 64 KB fill, the bridge blocks
+# on print() and the live stream stops (looked like a disconnect after a few minutes).
+g_bridge_log = collections.deque(maxlen=200)
+
+
+def _drain_bridge_output(proc) -> None:
+    for line in proc.stdout:
+        g_bridge_log.append(line.rstrip())
 
 def get_bridge_status() -> bool:
     """Returns True if the background SSH telemetry bridge process is actively running."""
@@ -70,6 +80,17 @@ def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.
     global g_bridge_proc
     if get_bridge_status():
         return
+    # Copy the repo's board scripts first: the board must run what is checked in, not stale
+    # copies in /root (2026-10-21: a missing sensor_contract.py stopped the bridge at start).
+    repo = Path(__file__).resolve().parents[2]
+    board_files = [repo / "apps/e906_repl_app/run_e906_script.py", repo / "apps/e906_repl_app/raw_sensor_streamer.py",
+                   repo / "apps/e906_repl_app/flight_sensors.py", repo / "apps/e906_repl_app/sensor_contract.py",
+                   repo / "tools/board_studio_bridge.py", repo / "tools/e906_rpmsg_bridge.py"]
+    copy = subprocess.run(["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+                           *map(str, board_files), f"root@{board_ip}:/root/"],
+                          capture_output=True, text=True, timeout=20)
+    g_bridge_log.append(f"[STUDIO] copied {len(board_files)} board scripts: "
+                        f"{'ok' if copy.returncode == 0 else copy.stderr.strip()}")
     cmd = [
         "ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
         f"STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
@@ -82,6 +103,7 @@ def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.
             text=True,
             bufsize=1
         )
+        threading.Thread(target=_drain_bridge_output, args=(g_bridge_proc,), daemon=True).start()
     except Exception as e:
         print(f"Error starting board bridge: {e}", file=sys.stderr)
 
