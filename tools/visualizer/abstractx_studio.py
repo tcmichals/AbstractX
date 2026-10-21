@@ -946,6 +946,18 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                 g_state.yaw_deg = yaw_cdeg * 0.01
                                 g_state.altitude_m = alt_mm * 0.001
                                 g_state.ground_speed_mps = spd_cm_s * 0.01
+                        elif le_type == 0x10 and le_tag == 2:
+                            # Stream 2: GPS Geodetic Solution Packet (26B)
+                            if len(frame) >= 46:
+                                itow, lat_i, lon_i, alt_i, spd_i, head_i, sats_b, fix_b = struct.unpack("<i5i2B", frame[20:46])
+                                with g_state.lock:
+                                    g_state.gps_lat = lat_i * 1e-7
+                                    g_state.gps_lon = lon_i * 1e-7
+                                    g_state.gps_sats = sats_b
+                                    g_state.gps_fix_type = fix_b
+                        elif le_type == 0x10 and le_tag == 3:
+                            with g_state.lock:
+                                g_state.mag_hz = 200
                         elif le_tag == 0:
                             # Stream 0: Coroutine / FreeRTOS Task Lifecycle Event (CoroEventPayload, 38B)
                             # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
@@ -1232,11 +1244,11 @@ def _render_status_bar():
 
     imgui.same_line()
     try:
-        from flight_plugin import g_bridge_proc, start_board_bridge, stop_board_bridge
+        from flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
     except ImportError:
-        from tools.visualizer.flight_plugin import g_bridge_proc, start_board_bridge, stop_board_bridge
+        from tools.visualizer.flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
 
-    if g_bridge_proc is None or g_bridge_proc.poll() is not None:
+    if not get_bridge_status():
         imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.1, 0.65, 0.3, 1.0))
         if imgui.button("▶ Connect Board (192.168.3.3)##status"):
             start_board_bridge()
@@ -2459,7 +2471,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_coroutine_inspector()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["coro"] = False
 
@@ -2480,7 +2492,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_core_cpu_and_topology()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["cpu"] = False
 
@@ -2501,7 +2513,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_tlp_debugger_window()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["tlp"] = False
 
@@ -2522,7 +2534,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_event_log_window()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["log"] = False
 
@@ -2543,7 +2555,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_core_timeline()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["timeline"] = False
 
@@ -2564,7 +2576,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_simple_trace_view()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["trace"] = False
 
@@ -2585,7 +2597,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_source_inspector_window()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["source"] = False
 
@@ -2606,7 +2618,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_fpga_peripherals_window()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["fpga"] = False
 
@@ -2627,7 +2639,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_level1_memory()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["memory"] = False
 
@@ -2648,7 +2660,7 @@ def _render_floating_canvas_windows():
             imgui.end_group()
             imgui.separator()
             _render_cli_console()
-            imgui.end()
+        imgui.end()
         if not opened:
             g_state.canvas_windows["cli"] = False
 
@@ -2725,19 +2737,11 @@ def _render_core_studio_window():
     flag_fpga    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "fpga"     else 0
     flag_memory  = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "memory"   else 0
     flag_cli     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "cli"      else 0
-    flag_nav     = imgui.TabItemFlags_.set_selected if (g_state.requested_studio_tab == "flight" or (g_initial_tab == "flight" and not getattr(g_state, "_nav_tab_initialized", False))) else 0
-    if flag_nav:
-        g_state._nav_tab_initialized = True
 
     # Reset requested tab after consumption
     g_state.requested_studio_tab = None
 
     if imgui.begin_tab_bar("CoreStudioTabBar"):
-        # Tab 0: 🧭 Compass & GPS Navigation (Default Hero Surface)
-        if imgui.begin_tab_item("🧭 Compass & GPS Navigation", None, flag_nav)[0]:
-            g_flight_plugin.render_ui(0.016, g_state)
-            imgui.end_tab_item()
-
         # Tab 1: Coroutine Inspector (C++20 first - the primary diagnostic surface)
         if imgui.begin_tab_item("Coroutine Inspector", None, flag_coro)[0]:
             if g_state.canvas_windows.get("coro", False):
@@ -2945,28 +2949,33 @@ def _render_event_log_window():
     """
     g_state.update_rates()
     imgui.begin_group()
+    # Row 1: Level chips and action buttons
     levels = ["ALL", "INFO", "TLP", "CORO", "ISR", "WARN"]
     for lvl in levels:
         is_active = (lvl == g_state.log_filter_level)
         if is_active:
             imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
-        if imgui.button(lvl):
+        if imgui.button(f"{lvl}##lvl"):
             g_state.log_filter_level = lvl
         if is_active:
             imgui.pop_style_color()
         imgui.same_line()
 
-    imgui.same_line(0, 15)
-    _, g_state.log_search_text = imgui.input_text("Filter", g_state.log_search_text, 64)
-    imgui.same_line()
-    if imgui.button("Clear Log"):
+    imgui.same_line(0, 12)
+    _, g_state.log_auto_scroll = imgui.checkbox("Auto-Scroll##log", g_state.log_auto_scroll)
+    imgui.same_line(0, 10)
+    if imgui.button("Clear Log##btn"):
         with g_state.lock:
             g_state.logs.clear()
-    imgui.same_line()
-    _, g_state.log_auto_scroll = imgui.checkbox("Auto-Scroll", g_state.log_auto_scroll)
-    imgui.same_line()
+    imgui.same_line(0, 10)
     if imgui.button("🗖 Pop to Canvas##log"):
         g_state.canvas_windows["log"] = True
+
+    # Row 2: Search filter input
+    imgui.text("Search Filter:")
+    imgui.same_line()
+    imgui.set_next_item_width(-10)
+    _, g_state.log_search_text = imgui.input_text("##log_search_input", g_state.log_search_text, 64)
     imgui.end_group()
     imgui.separator()
 
@@ -3381,7 +3390,7 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
     """
     runner_params = hello_imgui.RunnerParams()
     runner_params.app_window_params.window_title = "AbstractX Studio & User Domain Workbench"
-    runner_params.app_window_params.window_geometry.size = (1560, 920)
+    runner_params.app_window_params.window_geometry.size = (1680, 960)
     runner_params.app_window_params.resizable = True
     runner_params.app_window_params.restore_previous_geometry = True
     runner_params.app_window_params.borderless_resizable = True

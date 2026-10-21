@@ -1415,5 +1415,36 @@ This log chronicles the development, technical decisions, and architecture miles
   - Measurement rate configured for 10.0 Hz via `UBX-CFG-RATE` (100 ms period).
   - Ingested 40 consecutive compass samples @ 359° (N) and 4 valid 3D DGPS fixes ($33^\circ 06.91864' \text{ N}, 097^\circ 01.11830' \text{ W}$, 12 sats, alt 160.8m) with zero bus timeouts, sub-1ms epoch precision, and clean cooperative yielding.
 
+## [2026-10-20] - Studio Visualizer Layout Redesign & ImGui Stack Crash Resolution
 
+### 1. Mistake / Bug Identification
+* **Category**: `tool-bug`, `process-gap`
+* **Target / Subsystem**: `tools/visualizer/abstractx_studio.py`, `tools/visualizer/flight_plugin.py`
+* **Governing Requirements**: `[SPEC-STUDIO-01]`, `[SPEC-STUDIO-03]`, `[SPEC-STUDIO-05]`, `[SPEC-USER-PLUGIN-01]`, `[SPEC-USER-PLUGIN-06]`
+* **Symptoms**:
+  1. *Crash*: `RuntimeError: IM_ASSERT( (0) && "Missing End()" ) in window 'MainDockSpace'` when running `abstractx_studio.py`.
+  2. *Toolbar Overlap*: In the System Event Log window, level filter chips (`ALL`, `INFO`, `TLP`, `CORO`, `ISR`, `WARN`), search input, and action buttons (`Clear Log`, `Auto-Scroll`, `Pop to Canvas`) were chained horizontally with `imgui.same_line()`, causing them to wrap onto and overlap each other in narrower docking splits.
+  3. *Unwanted Motor Diagnostics*: The flight domain visualizer contained quadcopter 3D model wireframes, propeller disc rings, and motor mixer demand bars when only pure magnetic compass and GPS navigation testing was required.
+  4. *Missing Connection Visibility*: Operators could not easily find or trigger the live hardware bridge connection to the XuanTie E906 co-processor at `192.168.3.3`.
 
+### 2. Root Cause & Lesson Learned
+* **Root Cause 1: Dear ImGui Missing End() Invariant**:
+  - In Dear ImGui, `imgui.end()` MUST be called unconditionally for every `imgui.begin()`, even if `expanded` (window content visibility) returns False. In `_render_floating_canvas_windows()`, 10 canvas windows had `imgui.end()` indented inside `if expanded:`. When a window was collapsed or obscured by restored HelloImGui docking, `imgui.end()` was skipped, leaving the window on the ImGui internal stack and causing `IM_ASSERT(Missing End())` on the parent dock node.
+  - Additionally, `_render_3d_quadcopter()` contained duplicated `dl.pop_clip_rect()` calls, corrupting the draw list clip stack.
+* **Root Cause 2: Unwrapped Single-Line Toolbars**:
+  - Placing an unbounded `imgui.input_text` alongside 8 buttons on a single horizontal row with `imgui.same_line()` violates responsive ImGui layout principles.
+* **Lesson Learned**:
+  - Always call `imgui.end()` outside `if expanded:`:
+    ```python
+    expanded, opened = imgui.begin("Title##key", True)
+    if expanded:
+        ...
+    imgui.end() # MUST ALWAYS RUN
+    ```
+  - Separate toolbar chips and search filters into distinct logical rows.
+  - Provide a dedicated, prominent 280x32px emerald-green Connect button with live connection pill directly in the primary navigation header.
+
+### 3. Verification & Live Evidence
+* Pytest Suite: `python3 -m pytest tests/test_visualizer_sdk.py` -> 13 passed in 1.06s.
+* ImGui GUI Test: Run under `DISPLAY=:0` for 120+ frames -> 0 asserts, 0 crashes.
+* Live Telemetry Bridge: `get_bridge_status()`, `start_board_bridge()`, `stop_board_bridge()` verified against `root@192.168.3.3`.

@@ -337,89 +337,30 @@ wiring or Pico peripheral timing.
 
 ### View telemetry in AbstractX Studio over UDP
 
-AbstractX Studio is an engineering observability workbench built with Dear ImGui Bundle (`imgui-bundle`). It operates as a passive UDP receiver that ingests 64-byte `Tlp64` telemetry frames, decoding them dynamically through schema contracts and driving real-time flight instruments, coroutine timelines, and the vector Compass Rose HSI.
-
-#### 1. Running Studio from the Command Line
-
-From the repository root, launch Studio using Python 3:
+Open two terminals. Start Studio first so it is listening on UDP port 9870:
 
 ```bash
-# Default launch (listens on 0.0.0.0:9870, opens Flight display tab):
-python3 tools/visualizer/abstractx_studio.py
-```
-
-##### Command-Line Arguments:
-* `--port <PORT>`: UDP listening port (defaults to `9870`).
-* `--tab {flight,platform,memory}`: Initial tab to display (defaults to `flight`).
-* `--sim`: Runs in standalone synthetic simulation mode without physical hardware.
-* `--viewports`: Enables multi-viewport mode allowing tabs to be popped out as native OS desktop windows.
-
-```bash
-# Example: Launch on custom port with pop-out OS viewports enabled
-python3 tools/visualizer/abstractx_studio.py --port 9870 --viewports
-```
-
-#### 2. The UDP Connection Model
-
-Because telemetry transport uses UDP, **Studio acts as a passive listener** bound to `0.0.0.0:<port>`. It does not initiate connections; instead, data sources (such as a hardware development board or desktop SITL simulator) transmit 64-byte datagrams directly to the workstation's IP address and port.
-
-When no packets are arriving, Studio displays:
-```text
-STANDBY (Waiting on UDP :9870)
-```
-
-As soon as binary TLP frames hit the socket, Studio dynamically detects the packet layout, identifies the silicon source, and shifts the status bar and user plugin into active rendering mode.
-
-#### 3. Connecting to Live Silicon Hardware (Radxa Cubie A5E + XuanTie E906)
-
-To stream live hardware telemetry from physical sensors connected to the Radxa Cubie A5E board (XuanTie E906 co-processor):
-
-1. **Start Studio on your workstation** (e.g. `192.168.3.1`):
-   ```bash
-   python3 tools/visualizer/abstractx_studio.py --port 9870
-   ```
-
-2. **Trigger the live sensor bridge on the board** (over SSH):
-   ```bash
-   ssh root@192.168.3.3 "STUDIO_HOST_IP=192.168.3.1 STUDIO_PORT=9870 STREAM_DURATION=120 python3 /root/board_studio_bridge.py"
-   ```
-
-##### What Happens Across the Silicon Pipeline:
-* The XuanTie E906 RISC-V co-processor executes `raw_sensor_streamer.py`, configuring the QMC5883L compass to **400 kHz / 200 Hz continuous ODR** and elevating the u-blox NEO-M8N GPS to **115,200 baud @ 10 Hz rate**.
-* Unprocessed sensor readings are streamed across VirtIO RPMsg (`/dev/rpmsg0`) to Linux user space with **zero floating-point operations and zero heap allocations on the co-processor**.
-* `board_studio_bridge.py` packages the magnetic vector into **Tag 5** (Live Hardware Attitude) and the GPS fix into **Tag 2** (Geodetic Position) 64-byte TLP packets, transmitting them over UDP to `192.168.3.1:9870`.
-* Studio immediately switches to:
-  ```text
-  LIVE HARDWARE (Radxa Cubie A5E + XuanTie E906) | RPMsg /dev/rpmsg0 | QMC5883L 200Hz + u-blox 115200 Baud
-  ```
-* The user domain Compass Rose HSI rotates to the live magnetic heading (e.g. `358.2° N`), draws the magenta GPS Ground Track bug, and calculates the live aerodynamic wind drift / crab angle ($\delta = \text{COG} - \psi$).
-
-#### 4. Running the Desktop SITL Reference App
-
-For software-in-the-loop (SITL) development on Linux without board hardware:
-
-```bash
-# Terminal 1: Start Studio
 python3 tools/visualizer/abstractx_studio.py --port 9870
+```
 
-# Terminal 2: Run host reference application
+Then run the host reference app:
+
+```bash
 ./build_host/apps/gps_imu_app/gps_imu_app
 ```
 
-The reference app's telemetry destination defaults to `127.0.0.1:9870`. Studio shifts to:
-```text
-SOFTWARE C++20 SITL (gps_imu_app) | Runtime: DomainDispatcher::step() | Zero Heap | SPSC Rings Active
-```
+On Linux, the reference app's telemetry destination defaults to
+`127.0.0.1:9870`; Studio and the app must run on the same computer for this
+default route. If Studio stays at **Waiting on UDP**, confirm both processes
+are running, allow local UDP traffic through the firewall, and verify that no
+other process is bound to port 9870. The Pico target sends telemetry as UDP
+broadcast on port 9870, so run Studio on the same Wi-Fi network and allow the
+broadcast through the host firewall. Do not assume the desktop loopback
+address is reachable from the board.
 
-#### 5. Offline Synthetic Simulation Mode
-
-If you are developing UI layouts or testing plugin features without any running backend:
-
-```bash
-python3 tools/visualizer/abstractx_studio.py --sim
-```
-
-This activates an internal 200 Hz multi-rate dynamics generator synthesizing realistic quadcopter roll/pitch oscillation, 360° yaw rotation, and GPS velocity vectors.
+To capture Studio views for the article, save original screenshots under
+`assets/` and label whether each shows host simulation or physical hardware.
+Screenshots make the telemetry visible; they are not timing evidence.
 
 ### Flash and debug the Pico reference
 

@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026 Tim Michals
+# SPDX-License-Identifier: GPL-3.0-or-later
 # @impl [SPEC-USER-PLUGIN-01] [SPEC-E906-IPC-04] tools/board_studio_bridge.py
 """
 board_studio_bridge.py - Live Board Telemetry Bridge to AbstractX Studio
@@ -17,7 +20,7 @@ import signal
 
 HOST_IP = os.environ.get("STUDIO_HOST_IP", "192.168.3.1")
 HOST_PORT = int(os.environ.get("STUDIO_PORT", 9870))
-DURATION_S = float(os.environ.get("STREAM_DURATION", 60.0))
+DURATION_S = float(os.environ.get("STREAM_DURATION", 0.0))
 
 def parse_nmea_lat_lon(val_str, hemi):
     if not val_str or "." not in val_str:
@@ -61,7 +64,7 @@ def main():
     gps_fix = 0
 
     try:
-        while time.time() - start_time < DURATION_S:
+        while DURATION_S <= 0 or (time.time() - start_time < DURATION_S):
             line = proc.stdout.readline()
             if not line:
                 if proc.poll() is not None:
