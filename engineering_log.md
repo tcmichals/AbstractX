@@ -1512,3 +1512,38 @@ This log chronicles the development, technical decisions, and architecture miles
 * Off-board: `tests/test_board_suite_local.py` checks decoder layouts against `tracer.hpp` / `asp_tlp64.h`, raw-REPL parsing and runner exit code 2: PASS. `pytest tests/board`: 16 skipped. No-pytest path checked. `ctest --test-dir build_host`: 40/40 passed.
 * Expected to fail on the board until fixed: `test_abstractx_api_matches_spec` (`tlp_poll_into`, `tlp_send_nav` not implemented, [SPEC-E906-REPL-10]).
 * Not verified: any test on the board (in use for v3 kernel work).
+
+---
+
+## [2026-10-21] - E906 REPL Polls UART, I2C and RPMsg; Interrupt Dispatcher Targets a PLIC the E906 Lacks
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug` (x2), `tool-bug` (x1), `process-gap` (x3)
+* **Target / Subsystem**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/src/main.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `tools/run_adversarial_audit.py`
+* **Governing Requirements**: AGENTS.md §3 (event-driven drivers: ISR / DMA, no polling spinloops) and §4; `[SPEC-E906-REPL-03]`, `[SPEC-E906-REPL-04]`, `[SPEC-E906-REPL-11]` (MUST NOT busy-poll `LSR`)
+* **Symptoms** (found by reading code on 2026-10-21; not yet measured on silicon):
+  1. **Polled I/O in the REPL app** (`product-bug`): `abstractx.uart_read()` spins on `HW_UART3_LSR & 0x01` (`modabstractx.c:121`), `uart_write` on THRE (`:141`), and I2C on `HW_TWI1_CNTR & TWI_CNTR_INT_FLG` with a timeout counter (`:200`). The main loop calls `rpmsg.poll()` and `s_console.poll()` on every pass (`main.cpp:31`, `:107`). AbstractX requires drivers to submit to hardware (ISR / DMA) and yield, with completions coming back through SPSC rings and doorbells.
+  2. **No external interrupt can reach the core, and the dispatcher would hang if one did** (`product-bug`): the only `mie` write is MTIE for the core timer (`timer.cpp:26/90`); nothing sets MEIE or enables a CLIC line. `irq_dispatcher.cpp` dispatches external interrupts through `dispatch_external_plic()` (mcause 11, claim/complete at `0x10000000`). The E906 has a T-Head CLIC at `0xE0800000`, where an interrupt arrives as `mcause = 0x80000000 | id` (message box = line 17, proven by cubie-a5e `testFreeRTOS`). That id falls into `default:` → `fatal_unhandled_irq_panic()` → `wfi` forever. The `irq_id::` values (MSGBOX 48, TWI0 26, SPI1 54, UART0 34, DMA 64, GPIO 82) are PLIC-style guesses. The same code exists in cubie-a5e `firmware/common/arch_riscv/irq_dispatcher.cpp` (TODO.md §5.6a FW-IRQ).
+  3. The owner's understanding was "the E906 REPL is ISR and DMA based". The code shows that, for the REPL app, it is not.
+
+### 2. Why Nothing Caught It (what was missed, which check should have, why it did not)
+1. **The deterministic audit cannot see polling** (`tool-bug`): Stage 2 of `tools/run_adversarial_audit.py` matches only `usleep(` and `sleep(N)`. "Spin-polling" appears only in the LLM prompt text for Stage 2, which is advice, not a gate. Status-register spin loops, `poll()` calls from the main loop, and "interrupts never enabled" all pass.
+2. **Requirements were verified by a skill that cannot see the violation** (`process-gap`): `[SPEC-E906-REPL-11]` says "MUST NOT busy-poll `LSR`" and `[SPEC-E906-REPL-04]` assumes ISR dispatcher queues, but both name `host-tests`. No host test exercises E906 MMIO, and no board test counts interrupts. `audit_specs.py` reported the tags as "100% verified".
+3. **A rule violation was logged as a future improvement** (`process-gap`): the 2026-10-18 entry 29, items 1 and 3, recorded "`uart_read()` polls `HW_UART3_LSR`" and "polls `HW_TWI1_CNTR & TWI_CNTR_INT_FLG`" under *Future Improvements*. A breach of an AGENTS.md invariant is a `product-bug` and must block, not wait on a roadmap.
+4. **A deadlock was worked around instead of root-caused** (`process-gap`): 2026-10-18 entry 5 ("Awaiting IRQ doorbell in cooperative REPL coroutine") and entry 21 (doorbell starvation) switched the REPL to polling RPMsg. The likely root cause is item 2 above: the message-box interrupt was never enabled on the CLIC, and the dispatcher could not have handled it. Polling hid the real bug for three days.
+5. **The other agent session found it by reading code; this session did not.** The 2026-10-20 reviews (Studio vs. E906 spec, board-suite design) checked the planes and wire formats but never asked "how does a byte get from the UART into the coroutine?". An architecture review must trace one data path from the hardware interrupt to the coroutine resume.
+
+### 3. Lesson
+* An AbstractX invariant needs a deterministic check, not a prompt. Anything that only an LLM reviewer is asked to notice will eventually be missed.
+* "It works" on the E906 means nothing about *how*. Every driver claim needs an observable: an ISR counter that rises, CLIC enable/pending bytes, `mie`/`mcause` values.
+* Never accept a workaround for a hang until the reason the interrupt did not arrive is known.
+
+### 4. Fix Plan (spec first; each check must fail on today's code and pass after the fix)
+1. **Spec**: E906 target requirement for CLIC interrupt delivery (base `0xE0800000`, control words at `0xE0801000 + 4*id`, dispatch on `mcause & 0xFFF`, level-triggered sources masked or drained at the source, ids from the T527 User Manual Table 2-16). E906 REPL requirement that UART3, TWI1 and RPMsg are interrupt-driven, completions via SPSC rings and doorbells, with no status-register spin loops after the scheduler starts.
+2. **Audit (deterministic)**: Stage 2 flags `while` loops whose condition reads an MMIO register (`HW_*`, `*_REG`, `readl`, volatile casts) in `targets/` and `apps/*/src/` unless the line is tagged pre-scheduler; flags `poll()` calls from the event loop; and on `allwinner_e906` fails if a non-weak `fc_*_isr` exists with no matching CLIC enable, or if any PLIC access remains.
+3. **Board test** (`tests/board`, [SPEC-E906-REPL-15]): `abstractx.irq_counts()` exposes per-line ISR counters; the test runs an I2C read and UART traffic and asserts the TWI1 and UART3 counters rise, and reads the CLIC bytes and `mie`. On today's firmware it must show 0 interrupts.
+4. **Code**: replace `dispatch_external_plic()` with CLIC dispatch, add `clic_enable/disable(id)`, set MEIE, move UART3/TWI1 to ISR → SPSC ring → doorbell, and make the REPL await RPMsg on the message-box interrupt. Then re-run the board suite.
+5. **Process**: add to the review checklist "trace one data path from interrupt to coroutine resume". Add a log rule: a violated invariant is always `product-bug`, never a future improvement.
+6. **Coordinate** with the cubie-a5e session on the shared `firmware/common/arch_riscv/irq_dispatcher.cpp` and on board time (message before any flash or reboot).
+
+* **Not verified**: none of this has been measured on the board yet. The C++ HAL drivers (`targets/allwinner_e906/src/i2c.cpp`, `uart.cpp`, `dma.cpp`) were not reviewed for how they wait. The DMA path is unchecked.
