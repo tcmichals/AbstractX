@@ -1,1 +1,2 @@
 {"check": "e906-board-selftest", "commit": "09e251b65792", "dirty": false, "family": "board", "host": "cubie-a5e", "metrics": {"failed": 0, "firmware": "e906_repl_app_irq.elf", "passed": 23, "skipped": 2, "uname": "7.1.0"}, "result": "pass", "source": "board", "time": "2026-10-21T23:08:58Z"}
+{"check": "e906-board-selftest", "commit": "700ba6a88d98", "dirty": false, "family": "board", "host": "cubie-a5e", "metrics": {"failed": 0, "firmware": "e906_repl_app.elf", "passed": 24, "skipped": 2, "uname": "7.1.0"}, "result": "pass", "source": "board", "time": "2026-10-21T23:46:22Z"}
