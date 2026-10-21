@@ -13,7 +13,10 @@ from pathlib import Path
 from tools.track_memory_membrowse import audit_zero_heap
 
 def test_membrowse_targets_configuration(repo_root):
-    """Verifies that tools/membrowse-targets.json defines targets and strict memory budgets."""
+    """
+    # @impl [SPEC-STUDIO-10] tools/visualizer/SPECIFICATION.md
+    Verifies that tools/membrowse-targets.json defines targets and strict memory budgets.
+    """
     config_path = repo_root / "tools" / "membrowse-targets.json"
     assert config_path.exists(), f"Configuration file missing: {config_path}"
 
@@ -28,9 +31,10 @@ def test_membrowse_targets_configuration(repo_root):
 
     for target in config["targets"]:
         assert "ram_budget_bytes" in target, f"Target {target['name']} missing ram_budget_bytes"
-        assert "flash_budget_bytes" in target, f"Target {target['name']} missing flash_budget_bytes"
         assert target["ram_budget_bytes"] > 0
-        assert target["flash_budget_bytes"] > 0
+        if target.get("memory_model") != "sram_only":
+            assert "flash_budget_bytes" in target, f"Target {target['name']} missing flash_budget_bytes"
+            assert target["flash_budget_bytes"] > 0
 
 def test_zero_heap_symbol_audit_detection(repo_root, tmp_path):
     """Verifies that audit_zero_heap correctly identifies clean binaries vs forbidden heap calls."""
