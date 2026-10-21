@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# @verifies [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] [SPEC-AUDIT-05] docs/SPECTRACE.md
+# @verifies [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] [SPEC-AUDIT-05] [SPEC-AUDIT-14] docs/SPECTRACE.md
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
@@ -86,6 +86,7 @@ def get_freestanding_sources(repo_root: Path):
             target_files.extend(d.rglob("*.hpp"))
             target_files.extend(d.rglob("*.cpp"))
             target_files.extend(d.rglob("*.h"))
+            target_files.extend(d.rglob("*.c"))  # modabstractx.c was never audited ([SPEC-AUDIT-14])
 
     # Freestanding target BSPs (excluding hosted Linux host reactor)
     targets_dir = repo_root / "targets"
@@ -96,6 +97,7 @@ def get_freestanding_sources(repo_root: Path):
                 target_files.extend(bsp_dir.rglob("*.hpp"))
                 target_files.extend(bsp_dir.rglob("*.cpp"))
                 target_files.extend(bsp_dir.rglob("*.h"))
+                target_files.extend(bsp_dir.rglob("*.c"))
 
     return target_files
 
@@ -173,6 +175,111 @@ def test_stage4_wire_framing_and_tlp_scaling_invariants(repo_root):
     assert "Fixed 64B TLP payload overflow" in stage4_issues[0]["rule"]
 
 
+BAD_E906 = """
+#define HW_UART_LSR (*(volatile unsigned *)0x1)
+void tx(char c) {
+    while (!(HW_UART_LSR & (1U << 5))) {
+        __asm__ volatile("" : : : "memory");
+    }
+}
+bool wait_flag() {
+    unsigned timeout = 50000;
+    while (!(HW_TWI1_CNTR & 8)) {
+        if (--timeout == 0) return false;
+        abstractx_repl_vm_hook();
+    }
+    return true;
+}
+void send(int c) { while ((ARM_MSG_STA_REG(c) & 7) >= 4) {} }
+void stop() { while (HW_TWI1_CNTR & 16) ; }
+void loop() { for (;;) { rpmsg.poll(); } }
+namespace plic { inline unsigned claim() { return 0; } }
+void uart_isr() noexcept {
+}
+"""
+
+GOOD_E906 = """
+void drain() {
+    while (UART2_LSR & 1) {
+        uint8_t ch = UART2_RBR & 0xFF;
+        g_ring.push(ch);
+    }
+    while ((RV_MSG_STA_REG(c) & 7) > 0) {
+        (void)RV_MSG_FIFO_REG(c);
+    }
+    // pre-scheduler bring-up: clocks settle before the dispatcher exists
+    while (!(HW_CCU_PLL_STATUS & 1)) {}
+    do { x(); } while (HW_FOO_STATUS & 1);
+}
+// PLIC was wrong here; the E906 uses the CLIC (comments are not code)
+void timer_isr() noexcept {
+}
+void irq_enable() { asm volatile("csrs mie, %0" :: "r"(1U << 11)); }
+"""
+
+
+def _audit_snippets(root: Path, files: dict, baseline: str = None):
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    if baseline is not None:
+        (root / "tools").mkdir(exist_ok=True)
+        (root / "tools" / "audit_baseline.txt").write_text(baseline, encoding="utf-8")
+    auditor = InvariantAuditor(root)
+    auditor.run_audit([root / rel for rel in files])
+    found = [(i["file"], i["rule"].split(":", 1)[0], i["line"])
+             for v in auditor.violations.values() for i in v if i["file"] in files]
+    return auditor, found
+
+
+def test_interrupt_and_polling_rules_on_fixtures(tmp_path):
+    """[SPEC-AUDIT-14] each rule fires on the bad pattern and not on drains, comments or bring-up."""
+    bad = "targets/allwinner_e906/src/bad.cpp"
+    _, found = _audit_snippets(tmp_path, {bad: BAD_E906})
+    rules = sorted((r, n) for f, r, n in found if f == bad)
+    assert rules == [("DRIVER-POLL", 18), ("E906-NO-MEIE", 20), ("E906-PLIC", 19),
+                     ("MMIO-SPIN", 4), ("MMIO-SPIN", 10), ("MMIO-SPIN", 16), ("MMIO-SPIN", 17)], rules
+
+    with tempfile.TemporaryDirectory() as d:
+        _, found = _audit_snippets(Path(d), {"targets/allwinner_e906/src/good.cpp": GOOD_E906})
+        assert found == [], found
+
+    with tempfile.TemporaryDirectory() as d:  # PLIC and MEIE rules are E906-only
+        _, found = _audit_snippets(Path(d), {"targets/pico2w_rp2350/src/p.cpp": BAD_E906})
+        assert sorted({r for _, r, _ in found}) == ["DRIVER-POLL", "MMIO-SPIN"], found
+
+
+def test_baseline_reports_known_and_fails_when_stale(tmp_path):
+    """[SPEC-AUDIT-14] a listed violation is KNOWN; an entry that stopped matching fails."""
+    rel = "apps/x/src/a.c"
+    code = "void tx(void) {\n    while (!(HW_UART3_LSR & 32)) {\n    }\n}\n"
+    entry = f"{rel} MMIO-SPIN while (!(HW_UART3_LSR & 32)) {{  # engineering_log test\n"
+    auditor, found = _audit_snippets(tmp_path, {rel: code}, baseline=entry)
+    assert found == [] and len(auditor.known) == 1 and auditor.stale_baseline() == []
+
+    (tmp_path / rel).write_text("void tx(void) { }\n", encoding="utf-8")  # fixed, entry left behind
+    auditor = InvariantAuditor(tmp_path)
+    auditor.run_audit([tmp_path / rel])
+    assert len(auditor.stale_baseline()) == 1
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert auditor.print_report() == 1, "a stale baseline entry fails the audit"
+
+
+def test_todays_e906_polling_is_found(repo_root):
+    """[SPEC-AUDIT-14] the rules find the 2026-10-21 violations when the baseline is ignored."""
+    auditor = InvariantAuditor(repo_root, use_baseline=False)
+    auditor.run_audit(get_freestanding_sources(repo_root))
+    found = {(i["file"], i["rule"].split(":", 1)[0]) for v in auditor.violations.values() for i in v}
+    for expected in [("apps/e906_repl_app/src/modabstractx.c", "MMIO-SPIN"),
+                     ("apps/e906_repl_app/src/main.cpp", "DRIVER-POLL"),
+                     ("targets/allwinner_e906/src/irq_dispatcher.cpp", "E906-PLIC")]:
+        if expected in found:
+            continue
+        # fixed: then its baseline entry must be gone too (checked by the full-suite test)
+        assert not any(k[0] == expected[0] and k[1] == expected[1] for k in InvariantAuditor(repo_root).baseline), \
+            f"{expected} no longer found but still baselined"
+
+
 def test_full_adversarial_audit_suite(repo_root):
     """Executes the full 5-stage adversarial audit pipeline."""
     sources = get_freestanding_sources(repo_root)
@@ -180,6 +287,7 @@ def test_full_adversarial_audit_suite(repo_root):
     auditor.run_audit(sources)
     total_issues = sum(len(v) for v in auditor.violations.values())
     assert total_issues == 0, f"Adversarial audit failed with {total_issues} violations: {auditor.violations}"
+    assert auditor.stale_baseline() == [], auditor.stale_baseline()
 
 
 if __name__ == "__main__":
@@ -201,5 +309,10 @@ if __name__ == "__main__":
     test_stage2_non_blocking_hal_invariant(REPO_ROOT)
     test_stage3_isr_boundary_safety(REPO_ROOT)
     test_stage4_wire_framing_and_tlp_scaling_invariants(REPO_ROOT)
+    with tempfile.TemporaryDirectory() as td:
+        test_interrupt_and_polling_rules_on_fixtures(Path(td))
+    with tempfile.TemporaryDirectory() as td:
+        test_baseline_reports_known_and_fails_when_stale(Path(td))
+    test_todays_e906_polling_is_found(REPO_ROOT)
     test_full_adversarial_audit_suite(REPO_ROOT)
     print("All adversarial invariant tests passed.")

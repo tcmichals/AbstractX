@@ -280,6 +280,32 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `tools/spectrace_matrix.py`, `.agents/skills/`, `tests/test_board_checkout.py`, `tests/CMakeLists.txt`
 
+### `[SPEC-AUDIT-14]` Deterministic Interrupt and Polling Checks
+* **Requirement**: `tools/run_adversarial_audit.py` checks AGENTS §3/§4 (ISR/DMA, no polling) by
+  rule, not only in the AI-review prompt. On MCU code (`include/`, `apps/`, and
+  `targets/{allwinner_e906,pico2w_rp2350,esp32p4}`; `.c`, `.cpp`, `.h`, `.hpp`):
+  * `MMIO-SPIN` (Stage 2): a `while` loop whose condition reads a hardware register
+    (`HW_*`, `*_REG`, `*_LSR`, `*_STA`, `*_STAT`, `*_CNTR`, `*_SR`, `*_ISR`, `*_STATUS`) and whose
+    body consumes nothing: it is empty, or holds only barriers, timeout counters or VM hooks.
+    A loop that drains a FIFO (reads a register into data, or pops) is not a spin.
+  * `DRIVER-POLL` (Stage 2): a call `obj.poll()` in MCU code; drivers wake coroutines via
+    ISR → SPSC ring → doorbell, and the event loop only drains the dispatcher.
+  * `E906-PLIC` (Stage 3): a PLIC identifier in E906 code (`targets/allwinner_e906/`,
+    `apps/e906_repl_app/src/`), outside comments. The E906 has a T-Head CLIC at `0xE0800000`.
+  * `E906-NO-MEIE` (Stage 3): E906 code defines interrupt handlers but no `csrs mie` sets
+    MEIE (bit 11), so no external interrupt can be delivered.
+* **Requirement**: a loop marked `pre-scheduler` on its line or the two lines above is
+  tolerated (AGENTS §4 bring-up).
+* **Requirement**: known violations that cannot be fixed in the same change are listed in
+  `tools/audit_baseline.txt` as `<file> <rule> <snippet>  # <engineering_log entry>`. A listed
+  violation is reported as *known*, not hidden; any unlisted violation fails; a listed entry
+  that no longer matches also fails, so the list only shrinks.
+* **Rationale**: on 2026-10-21 the E906 REPL was found polling UART3, TWI1 and RPMsg and its
+  dispatcher targeting a PLIC the core does not have. Stage 2 only matched `usleep(`/`sleep(N)`,
+  and the test's source list skipped `.c` files, so `modabstractx.c` was never audited.
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
+* **Implementation Target**: `tools/run_adversarial_audit.py`, `tools/audit_baseline.txt`
+
 ### Stage 3: Adversarial Invariant Auditing
 An independent Critic persona evaluates code and specifications across 6 strict stages:
 * **Stage 0: Specification SSOT Anti-Drift** (Validates markdown structure, Mermaid diagrams, formal requirement tags).

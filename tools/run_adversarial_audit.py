@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
-# @impl [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] docs/SPECTRACE.md
+# @impl [SPEC-AUDIT-01] [SPEC-AUDIT-02] [SPEC-AUDIT-03] [SPEC-AUDIT-04] [SPEC-AUDIT-14] docs/SPECTRACE.md
 """
 AbstractX Static Invariant & Specification Auditor (run_adversarial_audit.py)
 =============================================================================
@@ -41,7 +41,59 @@ CODE_SUFFIXES = {
 }
 C_CPP_SUFFIXES = {".hpp", ".h", ".cpp", ".c"}
 AUDIT_ROOTS = ("include", "apps", "targets", "docs", "rtl", "hw", "sim", "examples", "src", "tools", "trace")
-GENERATED_DIRS = {".git", ".venv", "venv", "third_party", "node_modules", "__pycache__", "build", "dist", "out"}
+GENERATED_DIRS = {".git", ".venv", "venv", "third_party", "node_modules", "__pycache__", "build", "dist", "out", "sim_build"}
+
+# [SPEC-AUDIT-14] interrupt and polling rules
+MCU_DIRS = ("include/", "apps/", "targets/allwinner_e906/", "targets/pico2w_rp2350/", "targets/esp32p4/")
+E906_DIRS = ("targets/allwinner_e906/", "apps/e906_repl_app/src/")
+REG_TOKEN = re.compile(r"\b(?:HW_[A-Z0-9_]+|[A-Z][A-Z0-9_]*_(?:REG|LSR|STA|STAT|CNTR|SR|ISR|STATUS))\b")
+SPIN_NOISE = re.compile(r"^(?:(?:__asm__|asm)\b.*|__NOP\(\)|cpu_relax\(\)|abstractx_repl_vm_hook\(\)"
+                        r"|MICROPY_EVENT_POLL_HOOK|--\w+|\w+--"
+                        r"|if\s*\(\s*(?:--\w+\s*==\s*0|!\s*--\w+|\w+--\s*==\s*0)\s*\)\s*(?:return\b.*|break))?$")
+DRIVER_POLL = re.compile(r"[\w\]\)](?:\.|->)poll\s*\(\s*\)")
+ISR_DEF = re.compile(r"\b[A-Za-z0-9_:]*(?:_isr|_irq_handler|::isr|_handler)\s*\([^;]*\)\s*(?:noexcept\s*)?\{?\s*$")
+MEIE_BIT = re.compile(r"\bMEIE\b|\b1U?L?\s*<<\s*11\b|\b0x800U?\b")
+BASELINE_FILE = Path("tools") / "audit_baseline.txt"
+
+
+def strip_c_comments(text: str) -> str:
+    """Remove // and /* */ comments, keeping line breaks so line numbers stay right."""
+    text = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
+
+
+def _match_paren(text: str, open_idx: int) -> int:
+    depth = 0
+    for i in range(open_idx, len(text)):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
+def _loop_body(text: str, start: int) -> str | None:
+    """Body of the loop statement starting at text[start:], or None for a do-while tail."""
+    rest = text[start:].lstrip()
+    if rest.startswith(";"):
+        return ""
+    if rest.startswith("{"):
+        depth = 0
+        for i, ch in enumerate(rest):
+            depth += ch == "{"
+            depth -= ch == "}"
+            if depth == 0:
+                return rest[1:i]
+        return rest[1:]
+    return rest.split(";", 1)[0]
+
+
+def is_spin_body(body: str) -> bool:
+    """True when the loop body consumes nothing: empty, barriers, timeout counters, VM hooks."""
+    stmts = [re.sub(r"\s+", " ", st).strip() for st in re.split(r";|\n", body)]
+    return all(SPIN_NOISE.match(st) for st in stmts if st not in ("", "{", "}"))
 
 
 def _is_generated_path(path: Path, root_dir: Path) -> bool:
@@ -130,8 +182,14 @@ correctness.""")
 
 class InvariantAuditor:
     # region Auditor lifecycle and traceability index
-    def __init__(self, root_dir: Path):
+    def __init__(self, root_dir: Path, use_baseline: bool = True):
         self.root_dir = root_dir
+        # [SPEC-AUDIT-14] known violations: reported as known, never hidden
+        self.baseline = self._load_baseline() if use_baseline else {}
+        self.known = []
+        self.audited_files = set()
+        self._e906_isr = None      # first E906 interrupt handler by path (rel, line, path, text)
+        self._e906_meie = False    # some E906 file sets mie.MEIE
         self.violations = {
             "Stage 0 (Specification Markdown & SSOT)": [],
             "Stage 1 (Zero-Heap & Freestanding C++20)": [],
@@ -142,8 +200,34 @@ class InvariantAuditor:
         }
         self._code_impl_tags = None
 
+    def _load_baseline(self) -> dict:
+        path = self.root_dir / BASELINE_FILE
+        entries = {}
+        if not path.exists():
+            return entries
+        for n, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not raw.strip() or raw.lstrip().startswith("#"):
+                continue
+            body, _, reason = raw.partition("  # ")
+            parts = body.split(None, 2)
+            if len(parts) == 3 and reason.strip():
+                entries[(parts[0], parts[1], " ".join(parts[2].split()))] = {"line": n, "reason": reason.strip(),
+                                                                          "matched": False}
+        return entries
+
+    def stale_baseline(self) -> list:
+        """Baseline entries in audited files that no longer match a violation (fix done: delete the line)."""
+        return [f"{BASELINE_FILE}:{v['line']}: {k[0]} {k[1]} no longer occurs; remove the entry"
+                for k, v in self.baseline.items() if k[0] in self.audited_files and not v["matched"]]
+
     def log_issue(self, stage: str, filepath: Path, line_no: int, rule: str, snippet: str):
         rel_path = filepath.relative_to(self.root_dir) if filepath.is_relative_to(self.root_dir) else filepath
+        key = (str(rel_path), rule.split(":", 1)[0], " ".join(snippet.split()))
+        if key in self.baseline:
+            self.baseline[key]["matched"] = True
+            self.known.append({"file": str(rel_path), "line": line_no, "rule": rule,
+                               "reason": self.baseline[key]["reason"]})
+            return
         self.violations[stage].append({
             "file": str(rel_path),
             "line": line_no,
@@ -305,6 +389,71 @@ class InvariantAuditor:
                                "Direct .resume() from ISR context violates Rule 4.2", line)
     # endregion
 
+    # region Stage 2/3 interrupt and polling rules ([SPEC-AUDIT-14])
+    def audit_interrupt_rules(self, filepath: Path, lines: list):
+        """MMIO spin-waits, driver poll() calls, PLIC use and missing MEIE on MCU code."""
+        rel = str(filepath.relative_to(self.root_dir)) if filepath.is_relative_to(self.root_dir) else str(filepath)
+        if filepath.suffix not in C_CPP_SUFFIXES or not rel.startswith(MCU_DIRS) or "third_party/" in rel:
+            return
+        raw = "".join(lines)
+        code = strip_c_comments(raw)
+        code_lines = code.splitlines()
+
+        def line_of(pos: int) -> int:
+            return code.count("\n", 0, pos) + 1
+
+        def src(n: int) -> str:
+            return lines[n - 1] if 0 < n <= len(lines) else ""
+
+        for m in re.finditer(r"\bwhile\s*\(", code):
+            n = line_of(m.start())
+            if code_lines[n - 1].lstrip().startswith("}"):
+                continue  # do { ... } while (...);
+            close = _match_paren(code, m.end() - 1)
+            if close < 0:
+                continue
+            cond = code[m.end():close]
+            if not REG_TOKEN.search(cond):
+                continue
+            body = _loop_body(code, close + 1)
+            if body is None or not is_spin_body(body):
+                continue
+            if any("pre-scheduler" in src(k).lower() for k in range(n - 2, n + 1)):
+                continue
+            self.log_issue("Stage 2 (Non-Blocking HAL & Lifecycle)", filepath, n,
+                           "MMIO-SPIN: loop waits on a hardware register; use the peripheral's "
+                           "interrupt -> SPSC ring -> doorbell (AGENTS 3/4)", src(n))
+
+        for n, line in enumerate(code_lines, 1):
+            if DRIVER_POLL.search(line):
+                self.log_issue("Stage 2 (Non-Blocking HAL & Lifecycle)", filepath, n,
+                               "DRIVER-POLL: driver polled from the event loop; wake the coroutine "
+                               "from the driver's interrupt instead (AGENTS 3)", src(n))
+
+        if not rel.startswith(E906_DIRS):
+            return
+        for n, line in enumerate(code_lines, 1):
+            if re.search(r"\bplic\b|\bPLIC_|\bplic_", line, re.I):
+                self.log_issue("Stage 3 (ISR Boundary & Dispatch Safety)", filepath, n,
+                               "E906-PLIC: the E906 has a T-Head CLIC at 0xE0800000, not a PLIC", src(n))
+            if ISR_DEF.search(line) and not line.lstrip().startswith(("extern", "static_assert")):
+                cand = (rel, n, filepath, src(n))  # report at the first handler by path, whatever the scan order
+                if self._e906_isr is None or cand[:2] < self._e906_isr[:2]:
+                    self._e906_isr = cand
+            if re.search(r"csr[sw]\s+mie\b|set_csr\s*\(\s*mie", line):
+                window = "\n".join(code_lines[max(0, n - 4):n + 3])
+                if MEIE_BIT.search(window):
+                    self._e906_meie = True
+
+    def finish_interrupt_rules(self):
+        """Whole-target rule: E906 interrupt handlers exist but MEIE is never enabled."""
+        if self._e906_isr is not None and not self._e906_meie:
+            _, n, f, text = self._e906_isr
+            self.log_issue("Stage 3 (ISR Boundary & Dispatch Safety)", f, n,
+                           "E906-NO-MEIE: interrupt handlers are defined but no csrs mie sets MEIE "
+                           "(bit 11), so no external interrupt can be delivered", text)
+    # endregion
+
     # region Stage 4: Wire framing checks
     def audit_stage4_wire_framing_endianness(self, filepath: Path, lines: list):
         """Stage 4: Verify wire packet packing, 64B alignment, and payload scaling invariants"""
@@ -362,11 +511,15 @@ class InvariantAuditor:
             if f.suffix == ".md":
                 self.audit_stage0_spec_markdown(f, lines)
             elif f.suffix in CODE_SUFFIXES - {".py"}:
+                rel = f.relative_to(self.root_dir) if f.is_relative_to(self.root_dir) else f
+                self.audited_files.add(str(rel))
+                self.audit_interrupt_rules(f, lines)
                 self.audit_stage1_zero_heap(f, lines)
                 self.audit_stage2_non_blocking_hal(f, lines)
                 self.audit_stage3_isr_boundary(f, lines)
                 self.audit_stage4_wire_framing_endianness(f, lines)
 
+        self.finish_interrupt_rules()
         self.audit_stage5_test_coverage()
 
     def print_report(self) -> int:
@@ -386,6 +539,16 @@ class InvariantAuditor:
                     print(f"  {YELLOW}-> {iss['file']}:{iss['line']}{RESET} [{iss['rule']}]")
                     if iss["snippet"]:
                         print(f"     Code: {iss['snippet']}")
+
+        if self.known:
+            print(f"{YELLOW}[KNOWN] {len(self.known)} baselined violation(s) still present "
+                  f"({BASELINE_FILE}; each must be fixed, not ignored):{RESET}")
+            for k in self.known:
+                print(f"  {YELLOW}-> {k['file']}:{k['line']}{RESET} [{k['rule'].split(':', 1)[0]}] {k['reason']}")
+        stale = self.stale_baseline()
+        for msg in stale:
+            print(f"{RED}[STALE BASELINE] {msg}{RESET}")
+        total_issues += len(stale)
 
         print(f"\n{BOLD}{BLUE}======================================================================={RESET}")
         if total_issues == 0:

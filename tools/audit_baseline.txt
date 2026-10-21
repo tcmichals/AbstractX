@@ -1,0 +1,23 @@
+# Known invariant violations ([SPEC-AUDIT-14] docs/SPECTRACE.md).
+# <file> <rule> <source line>  # <why it is not fixed yet>
+# Reported as KNOWN on every audit. Delete the line in the change that fixes it;
+# an entry that no longer matches fails the audit, so this list only shrinks.
+
+apps/e906_repl_app/include/rpmsg_console.hpp DRIVER-POLL (void)m_rpmsg.poll();  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg (RPMsg awaits no msgbox IRQ)
+apps/e906_repl_app/src/mphalport.cpp DRIVER-POLL abstractx::g_repl_console->poll();  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg (RPMsg awaits no msgbox IRQ)
+apps/e906_repl_app/src/main.cpp DRIVER-POLL rpmsg.poll();  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg (RPMsg awaits no msgbox IRQ)
+apps/e906_repl_app/src/main.cpp DRIVER-POLL s_console.poll(); // also retries the 'abstractx-repl' announcement  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg (RPMsg awaits no msgbox IRQ)
+apps/e906_repl_app/src/modabstractx.c MMIO-SPIN while (!(HW_UART3_LSR & (1U << 5))) {  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg
+apps/e906_repl_app/src/modabstractx.c MMIO-SPIN while (!(HW_TWI1_CNTR & TWI_CNTR_INT_FLG)) {  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg
+apps/e906_repl_app/src/modabstractx.c MMIO-SPIN while ((HW_TWI1_CNTR & TWI_CNTR_M_STP) && --timeout) {  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg
+targets/allwinner_e906/include/hal/rpmsg.hpp DRIVER-POLL return get_active_driver()->poll();  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg (RPMsg awaits no msgbox IRQ)
+targets/allwinner_e906/src/rpmsg.cpp DRIVER-POLL return driver ? driver->poll() : false;  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg (RPMsg awaits no msgbox IRQ)
+targets/allwinner_e906/src/msgbox.cpp MMIO-SPIN while ((ARM_MSG_STA_REG(c) & MSG_NUM_MASK) >= FIFO_DEPTH_MAX) {  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg
+targets/allwinner_e906/src/msgbox.cpp MMIO-SPIN while ((ARM_DSP_MSG_STA_REG(c) & MSG_NUM_MASK) >= FIFO_DEPTH_MAX) {  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg
+targets/allwinner_e906/src/platform.cpp DRIVER-POLL (void)g_rpmsg.poll();  # engineering_log 2026-10-21 E906 REPL polls UART, I2C and RPMsg (RPMsg awaits no msgbox IRQ)
+targets/allwinner_e906/src/irq_dispatcher.cpp E906-PLIC namespace plic {  # engineering_log 2026-10-21 interrupt dispatcher targets a PLIC the E906 lacks
+targets/allwinner_e906/src/irq_dispatcher.cpp E906-PLIC volatile uint32_t& plic_reg = plic::claim_complete();  # engineering_log 2026-10-21 interrupt dispatcher targets a PLIC the E906 lacks
+targets/allwinner_e906/src/irq_dispatcher.cpp E906-PLIC uint32_t irq = plic_reg;  # engineering_log 2026-10-21 interrupt dispatcher targets a PLIC the E906 lacks
+targets/allwinner_e906/src/irq_dispatcher.cpp E906-PLIC plic_reg = irq; // Signal completion to hardware  # engineering_log 2026-10-21 interrupt dispatcher targets a PLIC the E906 lacks
+targets/allwinner_e906/src/irq_dispatcher.cpp E906-PLIC irq = plic_reg; // Check for next pending interrupt  # engineering_log 2026-10-21 interrupt dispatcher targets a PLIC the E906 lacks
+targets/allwinner_e906/src/dma.cpp E906-NO-MEIE void fc_dma_isr() noexcept {  # engineering_log 2026-10-21 only MTIE is enabled; no external IRQ reaches the E906

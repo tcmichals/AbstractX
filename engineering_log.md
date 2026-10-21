@@ -1594,3 +1594,10 @@ This log chronicles the development, technical decisions, and architecture miles
   - `test_asp_top_cocotb.py` still needs porting to Dual-SPI or deleting.
   - 27 placement warnings remain; that is the board-test worklist.
   - Cocotb builds on this PC fail with FST tracing (`lz4.h` missing). They run with `TRACE=`.
+
+### Update 2026-10-21: fix plan step 2 done (audit check)
+* `[SPEC-AUDIT-14]` added to `docs/SPECTRACE.md`. `tools/run_adversarial_audit.py` now has four rules: `MMIO-SPIN`, `DRIVER-POLL`, `E906-PLIC` and `E906-NO-MEIE`. The audit test now scans `.c` files, which brings in `modabstractx.c`.
+* **The check fails on the old code.** With the baseline off, it finds 18 violations: 5 MMIO spins (3 in `modabstractx.c`, 2 in `msgbox.cpp` `send_blocking`), 7 `poll()` calls, 5 PLIC references in `irq_dispatcher.cpp`, and missing MEIE. All 18 are listed in `tools/audit_baseline.txt` against this entry, so the audit reports them as KNOWN and still passes. A new violation fails the audit, and so does a baseline entry that no longer matches.
+* **New finding**: `MsgBox::send_blocking` / `send_dsp_blocking` spin with an empty body until the ARM-side FIFO has space.
+* **Still wrong, now visible**: other E906 files cite PLIC IRQ numbers in comments (i2c IRQ 26, dma IRQ 64, DRDY IRQ 82, spi IRQ 15, uart IRQ 10). So does `[SPEC-E906-CORO-02]`, which says "PLIC IRQ 48". These need rewriting with the CLIC requirement (step 1).
+* **Not caught by rule**: `mp_hal_stdin_rx_chr` spins on a software ring (`try_read_char`) with a VM hook. It has no register in its condition, so it is outside `MMIO-SPIN`.
