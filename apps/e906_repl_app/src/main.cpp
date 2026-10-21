@@ -15,6 +15,7 @@ extern "C" {
 #include "py/gc.h"
 #include "py/stackctrl.h"
 #include "shared/runtime/pyexec.h"
+#include "shared/runtime/interrupt_char.h"
 }
 
 namespace abstractx::hal {
@@ -94,6 +95,7 @@ int main() {
     mp_stack_set_limit(8192);
     mp_init();
     pyexec_event_repl_init();
+    mp_hal_set_interrupt_char(3); // CHAR_CTRL_C (0x03)
 
     // 5. Spawn cooperative C++20 coroutines
     abstractx::spawn(rpmsg_rx_coroutine(abstractx::hal::g_rpmsg));

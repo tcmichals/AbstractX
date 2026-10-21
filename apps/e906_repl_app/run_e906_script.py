@@ -45,7 +45,15 @@ def run_script(script_path, timeout=15.0):
         code = f.read()
 
     target_dev = ensure_rpmsg_device()
-    fd = os.open(target_dev, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        fd = os.open(target_dev, os.O_RDWR | os.O_NONBLOCK)
+    except OSError as err:
+        if err.errno == 16:  # EBUSY: another process has /dev/rpmsg0 open
+            os.system(f"fuser -k {target_dev} 2>/dev/null")
+            time.sleep(0.3)
+            fd = os.open(target_dev, os.O_RDWR | os.O_NONBLOCK)
+        else:
+            raise
 
     try:
         def write_all(buf):
@@ -57,21 +65,24 @@ def run_script(script_path, timeout=15.0):
                 except (BlockingIOError, OSError):
                     time.sleep(0.01)
 
-        # 0. Drain any stale RX buffers
-        while select.select([fd], [], [], 0.05)[0]:
-            os.read(fd, 2048)
+        def drain_rx(max_chunks=30, timeout_s=0.05):
+            for _ in range(max_chunks):
+                if not select.select([fd], [], [], timeout_s)[0]:
+                    break
+                try:
+                    os.read(fd, 2048)
+                except (BlockingIOError, OSError):
+                    break
 
-        # 1. Reset any running script and exit to normal REPL
+        # 1. Reset any running script immediately and exit to normal REPL
         write_all(b'\x03\x03\x02')
         time.sleep(0.05)
-        while select.select([fd], [], [], 0.05)[0]:
-            os.read(fd, 2048)
+        drain_rx(30, 0.05)
 
         # 2. Enter raw REPL: Ctrl-A
         write_all(b'\x01')
         time.sleep(0.05)
-        while select.select([fd], [], [], 0.05)[0]:
-            os.read(fd, 2048)
+        drain_rx(10, 0.05)
 
         # 3. Send script in 256-byte chunks (matches VirtIO RPMsg buffer limits)
         payload = code.strip().encode('utf-8') + b'\x04'
@@ -96,17 +107,20 @@ def run_script(script_path, timeout=15.0):
                     eot_count += data.count(b'\x04')
                     data = data.replace(b'\x04', b'')
                     sys.stdout.buffer.write(data)
-                    sys.stdout.flush()
+                    sys.stdout.buffer.flush()
                     if eot_count >= 2:
                         break
                 else:
                     sys.stdout.buffer.write(data)
-                    sys.stdout.flush()
-
+                    sys.stdout.buffer.flush()
 
         # 5. Exit raw REPL: Ctrl-B
         os.write(fd, b'\x02')
     finally:
+        try:
+            os.write(fd, b'\x03\x03\x02')
+        except Exception:
+            pass
         os.close(fd)
 
 if __name__ == '__main__':

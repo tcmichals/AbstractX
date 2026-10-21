@@ -72,12 +72,17 @@ void abstractx_repl_vm_hook(void) {
     // Cooperatively pump the dispatcher
     abstractx::Dispatcher::process();
 
-    // Check for keyboard interrupt (Ctrl-C) during bytecode execution
-    if (abstractx::g_repl_console && mp_interrupt_char != -1) {
-        char ch = 0;
-        if (abstractx::g_repl_console->try_peek_char(ch) && ch == mp_interrupt_char) {
-            abstractx::g_repl_console->try_read_char(ch);
-            mp_sched_keyboard_interrupt();
+    if (abstractx::g_repl_console) {
+        // Poll RPMsg transport to process incoming packets from host during VM execution
+        abstractx::g_repl_console->poll();
+
+        // Check for keyboard interrupt (Ctrl-C) during bytecode execution
+        if (mp_interrupt_char != -1) {
+            char ch = 0;
+            if (abstractx::g_repl_console->try_peek_char(ch) && ch == mp_interrupt_char) {
+                abstractx::g_repl_console->try_read_char(ch);
+                mp_sched_keyboard_interrupt();
+            }
         }
     }
 }

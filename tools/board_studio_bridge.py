@@ -40,8 +40,12 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     print(f"[BRIDGE] Forwarding live telemetry to AbstractX Studio at {HOST_IP}:{HOST_PORT}...")
 
+    # Ensure /dev/rpmsg0 is not locked by a stale process
+    os.system("fuser -k /dev/rpmsg0 2>/dev/null")
+    time.sleep(0.2)
+
     # Launch E906 raw sensor streamer via verified RPMsg runner
-    cmd = ["python3", "/root/run_e906_script.py", "/root/raw_sensor_streamer.py"]
+    cmd = ["python3", "-u", "/root/run_e906_script.py", "/root/raw_sensor_streamer.py"]
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -49,6 +53,17 @@ def main():
         text=True,
         bufsize=1
     )
+
+    def handle_sig(sig, frame):
+        try:
+            proc.terminate()
+            proc.wait(timeout=1.0)
+        except Exception:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_sig)
+    signal.signal(signal.SIGTERM, handle_sig)
 
     print("[BRIDGE] E906 raw_sensor_streamer running on XuanTie E906. Streaming to Studio...")
 

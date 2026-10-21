@@ -72,6 +72,11 @@ public:
     // Flush staged buffer over RPMsg
     void flush() noexcept;
 
+    // Poll RPMsg transport to process incoming packets from host during VM execution
+    void poll() noexcept {
+        (void)m_rpmsg.poll();
+    }
+
 private:
     static void rx_callback(const ::hal::RpmsgMessage &msg, void *user_data) noexcept;
 

@@ -3365,11 +3365,25 @@ def main():
     parser.add_argument("--sim", action="store_true", help="Run with synthetic flight & telemetry generator")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],
                         help="Initial tab to display in single-window mode")
-    parser.add_argument("--viewports", action="store_true",
-                        help="Enable experimental multi-viewport secondary OS windows")
+    parser.add_argument("--auto-connect", action="store_true", default=True,
+                        help="Auto-start live telemetry bridge to physical board (default: True)")
+    parser.add_argument("--no-auto-connect", action="store_false", dest="auto_connect",
+                        help="Disable automatic live telemetry bridge connection")
     args = parser.parse_args()
 
     g_initial_tab = args.tab
+
+    import atexit
+    try:
+        from flight_plugin import start_board_bridge, stop_board_bridge
+    except ImportError:
+        from tools.visualizer.flight_plugin import start_board_bridge, stop_board_bridge
+
+    atexit.register(stop_board_bridge)
+
+    if not args.sim and args.auto_connect:
+        start_board_bridge()
+        g_state.add_log("BRIDGE", "SSH", "Auto-started live sensor streaming from XuanTie E906 (192.168.3.3)")
 
     # Start UDP receiver background thread
     recv_thread = threading.Thread(target=udp_receiver_thread, args=(args.port, args.sim), daemon=True)

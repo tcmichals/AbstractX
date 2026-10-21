@@ -64,7 +64,7 @@ def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.
         return
     cmd = [
         "ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-        f"STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} STREAM_DURATION=0 python3 /root/board_studio_bridge.py"
+        f"STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
     ]
     try:
         g_bridge_proc = subprocess.Popen(
