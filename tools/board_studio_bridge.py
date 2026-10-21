@@ -18,6 +18,11 @@ import math
 import subprocess
 import signal
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [_HERE, os.path.join(_HERE, "..", "apps", "e906_repl_app")]
+# The app's sensor format (copied next to this file on the board); AbstractX does not define it.
+from sensor_contract import decode_mag, encode_mag_payload  # noqa: E402
+
 HOST_IP = os.environ.get("STUDIO_HOST_IP", "192.168.3.1")
 HOST_PORT = int(os.environ.get("STUDIO_PORT", 9870))
 DURATION_S = float(os.environ.get("STREAM_DURATION", 0.0))
@@ -142,21 +147,18 @@ def main():
                 line = line[raw_idx:]
                 parts = line[7:].split(":")
                 mag_hex = parts[0] if len(parts) > 0 else ""
-                gps_hex = ""
-                if len(parts) > 1 and parts[1].startswith("G="):
-                    gps_hex = parts[1][2:]
+                fields = dict(p.split("=", 1) for p in parts[1:] if "=" in p)
+                gps_hex = fields.get("G", "")
+                mag_chip = fields.get("C", "QMC5883L")  # untagged lines come from older streamers
 
                 # 1. Process Magnetometer
                 heading_deg = 0.0
+                raw_mag, mag_x, mag_y, mag_z = b"\x00" * 6, 0, 0, 0
                 if len(mag_hex) == 12:
                     try:
-                        raw_bytes = bytes.fromhex(mag_hex)
-                        x = raw_bytes[0] | (raw_bytes[1] << 8)
-                        y = raw_bytes[2] | (raw_bytes[3] << 8)
-                        z = raw_bytes[4] | (raw_bytes[5] << 8)
-                        if x >= 32768: x -= 65536
-                        if y >= 32768: y -= 65536
-                        if z >= 32768: z -= 65536
+                        raw_mag = bytes.fromhex(mag_hex)
+                        x, y, z = decode_mag(raw_mag, mag_chip)
+                        mag_x, mag_y, mag_z = x, y, z
                         heading_deg = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
                     except Exception:
                         pass
@@ -225,8 +227,11 @@ def main():
                 sock.sendto(frame_gps, (HOST_IP, HOST_PORT))
 
                 # Synthesize 64B TLP Tag 3 (Mag count trigger)
-                hdr_mag = struct.pack("<BBBBIHHQ", 0x10, 0x00, 3, 2, 0x40000300, 0, seq, ts)
-                frame_mag = hdr_mag + (b"\x00" * 40) + b"\xde\xad\xbe\xef"
+                # Tag 3: the compass registers exactly as the E906 read them, a chip code
+                # (1 HMC5883L, 2 QMC5883L), a pad byte and the decoded X/Y/Z: 14 bytes, 4 DW.
+                payload_mag = encode_mag_payload(raw_mag, mag_chip) if any(raw_mag) else b"\x00" * 14
+                hdr_mag = struct.pack("<BBBBIHHQ", 0x10, 0x00, 3, 2, 0x40000300, (len(payload_mag) + 3) // 4, seq, ts)
+                frame_mag = hdr_mag + payload_mag + b"\x00" * (40 - len(payload_mag)) + b"\xde\xad\xbe\xef"
                 sock.sendto(frame_mag, (HOST_IP, HOST_PORT))
 
                 if seq % 5 == 0:

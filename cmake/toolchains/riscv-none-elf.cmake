@@ -33,8 +33,9 @@ set(CMAKE_SIZE         "${RISCV_TOOLCHAIN_PREFIX}size"    CACHE INTERNAL "size")
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
 # 2. Architecture & ABI flags
-# RV32IMAFDC: XuanTie E907 with FPU, Atomics, Compressed instructions
-set(ARCH_FLAGS "-march=rv32imafdc_zicsr_zifencei_zihintpause -mabi=ilp32d -mcmodel=medany")
+# XuanTie E906 on the T527 is RV32IMAFCX: single-precision FPU, no D (misa 0x40901125,
+# [SPEC-E906-ARCH-01]). With D enabled every double instruction is illegal on the core.
+set(ARCH_FLAGS "-march=rv32imafc_zicsr_zifencei_zihintpause -mabi=ilp32f -mcmodel=medany")
 
 set(CMAKE_C_FLAGS_INIT   "${ARCH_FLAGS} -ffunction-sections -fdata-sections -Wall -Wextra")
 set(CMAKE_CXX_FLAGS_INIT "${ARCH_FLAGS} -ffunction-sections -fdata-sections -Wall -Wextra -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-threadsafe-statics -Wno-template-body")

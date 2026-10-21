@@ -145,6 +145,42 @@ class NavVectorEngine:
 # 3. Demonstration & Sensor Integration
 # ==============================================================================
 
+# Compass on TWI1: the A5E board carries an HMC5883L at 0x1E (ID registers 0x0A..0x0C read
+# b"H43", measured 2026-10-21); a QMC5883L would sit at 0x0D. mag_init()/mag_read() hide the
+# difference; bytes are sent as read and tagged with the chip so the host decodes them.
+MAG_HMC, MAG_QMC = 0x1E, 0x0D
+
+
+def mag_init():
+    if bytes(abstractx.i2c_read(MAG_HMC, 0x0A, 3)) == b"H43":
+        abstractx.i2c_write(MAG_HMC, 0x00, b"\x70")  # CRA: 8-sample average, 15 Hz
+        abstractx.i2c_write(MAG_HMC, 0x01, b"\x20")  # CRB: +-1.3 Ga
+        abstractx.i2c_write(MAG_HMC, 0x02, b"\x00")  # MR: continuous
+        return MAG_HMC
+    abstractx.i2c_write(MAG_QMC, 0x0B, b"\x01")      # QMC5883L set/reset period
+    abstractx.i2c_write(MAG_QMC, 0x09, b"\x1D")      # continuous, 200 Hz, 8 G
+    return MAG_QMC
+
+
+def mag_read(addr):
+    # Data registers exactly as read; the host decodes them (abstractx_wire.decode_mag).
+    if addr == MAG_HMC:
+        return abstractx.i2c_read(MAG_HMC, 0x03, 6)  # X, Z, Y big-endian; reading all 6 unlocks
+    return abstractx.i2c_read(MAG_QMC, 0x00, 6)      # X, Y, Z little-endian
+
+
+def mag_chip(addr):
+    return "HMC5883L" if addr == MAG_HMC else "QMC5883L"
+
+
+def mag_xyz(addr, d):
+    """Signed X, Y, Z from mag_read() bytes (for headings computed on the E906)."""
+    if addr == MAG_HMC:
+        v = ((d[0] << 8) | d[1], (d[4] << 8) | d[5], (d[2] << 8) | d[3])
+    else:
+        v = (d[0] | (d[1] << 8), d[2] | (d[3] << 8), d[4] | (d[5] << 8))
+    return tuple(a - 65536 if a > 32767 else a for a in v)
+
 def run_vector_synthesis_demo():
     print("========================================================================")
     print("  AbstractX XuanTie E906: Fixed-Point Compass & GPS Vector Synthesis")
@@ -164,12 +200,11 @@ def run_vector_synthesis_demo():
         abstractx.sleep_ms(40)
 
         # 1. Read live compass
-        raw_mag = abstractx.i2c_read(0x1E, 0x00, 6)
+        mag_addr = mag_init()
+        abstractx.sleep_ms(80)
+        raw_mag = mag_read(mag_addr)
         if raw_mag and len(raw_mag) >= 6:
-            x = raw_mag[0] | (raw_mag[1] << 8)
-            y = raw_mag[2] | (raw_mag[3] << 8)
-            if x >= 32768: x -= 65536
-            if y >= 32768: y -= 65536
+            x, y, _ = mag_xyz(mag_addr, raw_mag)
             print("[I2C] Raw Mag Vector: X=" + str(x) + " Y=" + str(y))
             # Fixed live heading
             live_heading = 359

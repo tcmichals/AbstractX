@@ -17,6 +17,7 @@
 
 #include "asp_tlp64.hpp"
 #include "spsc_tlp_ring.hpp"
+#include "abstractx/domain_dispatcher.hpp"
 #include <coroutine>
 #include <cstdint>
 #include <cstddef>
@@ -496,12 +497,13 @@ class Event {
 public:
     constexpr Event(bool initial_state = false) noexcept : state_(initial_state) {}
 
+    // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
     void set() noexcept {
         state_ = true;
         if (waiter_) {
             auto h = waiter_;
             waiter_ = nullptr;
-            h.resume();
+            abstractx::Dispatcher::push(h);  // never inline: only step() resumes
         }
     }
 
@@ -527,13 +529,13 @@ class Semaphore {
 public:
     explicit constexpr Semaphore(size_t initial_count = 0) noexcept : count_(initial_count) {}
 
+    // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
     void release() noexcept {
         ++count_;
-        if (waiter_ && count_ > 0) {
+        if (waiter_) {
             auto h = waiter_;
             waiter_ = nullptr;
-            --count_;
-            h.resume();
+            abstractx::Dispatcher::push(h);  // the waiter takes the count in await_resume()
         }
     }
 
@@ -558,6 +560,7 @@ private:
 };
 
 // Cooperative Lock-Free SPSC Queue (replaces raw circular buffers)
+// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
 template <typename T, size_t Capacity = 16>
 class AsyncQueue {
 public:
@@ -589,7 +592,7 @@ public:
         if (pop_waiter_) {
             auto h = pop_waiter_;
             pop_waiter_ = nullptr;
-            h.resume();
+            abstractx::Dispatcher::push(h);  // [SPEC-ARCH-10]: never inline
         }
         return true;
     }
@@ -601,7 +604,7 @@ public:
         if (push_waiter_) {
             auto h = push_waiter_;
             push_waiter_ = nullptr;
-            h.resume();
+            abstractx::Dispatcher::push(h);  // [SPEC-ARCH-10]: never inline
         }
         return true;
     }
@@ -613,7 +616,7 @@ public:
         if (push_waiter_) {
             auto h = push_waiter_;
             push_waiter_ = nullptr;
-            h.resume();
+            abstractx::Dispatcher::push(h);  // [SPEC-ARCH-10]: never inline
         }
         return item;
     }

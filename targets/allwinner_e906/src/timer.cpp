@@ -1,61 +1,66 @@
 #include "timer.hpp"
+#include "hal/clic.hpp"
 #include "abstractx/isr_dispatcher.hpp"
 #include <atomic>
 
 namespace hal {
 
-// CORET / CLINT Register Definitions
-static constexpr uintptr_t CORET_CMP_BASE   = 0x14004000;
+// @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
+// T-Head core timer (measured): mtime 0xE000BFF8, mtimecmp 0xE0004000, 24 MHz.
+static constexpr uintptr_t MTIMECMP_BASE = 0xE0004000U;
+static constexpr uintptr_t MTIME_BASE    = 0xE000BFF8U;
+static constexpr uint64_t  kNever        = ~0ULL;
 
 static std::atomic<std::coroutine_handle<>> g_timer_coroutine{nullptr};
-static uint64_t g_alarm_target_ticks{0};
-static volatile bool g_alarm_armed{false};
+// Two deadlines share one comparator: a sleeping coroutine and a synchronous wake.
+static volatile uint64_t g_coro_target{kNever};
+static volatile uint64_t g_wake_target{kNever};
+
+static void program_compare(uint64_t target) noexcept {
+    auto *cmp_lo = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE);
+    auto *cmp_hi = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE + 4);
+    // High word first to all-ones so the split write never matches early
+    *cmp_hi = 0xFFFFFFFFUL;
+    if (target == kNever) return;
+    *cmp_lo = static_cast<uint32_t>(target & 0xFFFFFFFFUL);
+    *cmp_hi = static_cast<uint32_t>(target >> 32);
+}
+
+static void reprogram() noexcept {
+    const uint64_t a = g_coro_target;
+    const uint64_t b = g_wake_target;
+    program_compare(a < b ? a : b);
+}
 
 void Timer::init() noexcept {
 #if defined(__riscv)
-    // 1. Enable mcycle/minstret counters (clear mcountinhibit CSR 0x320)
+    // Enable mcycle/minstret counters (clear mcountinhibit CSR 0x320)
     asm volatile (
-        "csrw 0x320, zero\n"   // allow all counters to increment
+        "csrw 0x320, zero\n"
         "csrw 0x306, %0\n"     // mcounteren = 0xFFFFFFFF (allow unprivileged read)
         :: "r"(-1)
     );
-
-    // 2. Enable Machine Timer Interrupt (MTIE = bit 7 in mie CSR)
-    uint32_t mtie = (1U << 7);
-    asm volatile (
-        "csrs mie, %0\n"
-        :: "r"(mtie)
-    );
-
-    // 3. Enable Global Interrupts (MIE = bit 3 in mstatus CSR)
-    uint32_t mie_global = (1U << 3);
-    asm volatile (
-        "csrs mstatus, %0\n"
-        :: "r"(mie_global)
-    );
 #endif
     cancel_alarm();
+    // CLIC mode ignores mie.MTIE: the timer is line 7 ([SPEC-E906-IRQ-01]).
+    clic::enable(clic::kLineTimer);
+#if defined(__riscv)
+    // mie.MTIE | mie.MEIE as testFreeRTOS (FreeRTOS sets both) does, then mstatus.MIE
+    asm volatile ("csrs mie, %0\n" :: "r"((1U << 7) | (1U << 11)));
+    asm volatile ("csrs mstatus, %0\n" :: "r"(1U << 3));
+#endif
 }
 
 uint64_t Timer::get_ticks() noexcept {
-#if defined(__riscv)
-    // 64-bit atomic counter read using rdcycle / rdcycleh (runs at 24 MHz on Allwinner)
+    auto *lo_reg = reinterpret_cast<volatile uint32_t *>(MTIME_BASE);
+    auto *hi_reg = reinterpret_cast<volatile uint32_t *>(MTIME_BASE + 4);
     uint32_t hi0 = 0, lo = 0, hi1 = 0;
     do {
-        asm volatile (
-            "1: rdcycleh %0\n"
-            "   rdcycle  %1\n"
-            "   rdcycleh %2\n"
-            : "=r"(hi0), "=r"(lo), "=r"(hi1)
-            :
-            : "memory"
-        );
+        hi0 = *hi_reg;
+        lo  = *lo_reg;
+        hi1 = *hi_reg;
     } while (hi0 != hi1);
-
     return (static_cast<uint64_t>(hi0) << 32) | lo;
-#else
-    return 0;
-#endif
 }
 
 uint64_t Timer::get_time_us() noexcept {
@@ -71,24 +76,9 @@ uint32_t Timer::get_time_ms() noexcept {
 }
 
 void Timer::set_compare(uint64_t target_ticks) noexcept {
-    {
-        abstractx::InterruptGuard guard;
-        g_alarm_target_ticks = target_ticks;
-        g_alarm_armed = true;
-    }
-
-    auto *cmp_lo = reinterpret_cast<volatile uint32_t *>(CORET_CMP_BASE);
-    auto *cmp_hi = reinterpret_cast<volatile uint32_t *>(CORET_CMP_BASE + 4);
-
-    // Prevent spurious match during split 32-bit writes
-    *cmp_hi = 0xFFFFFFFFUL;
-    *cmp_lo = static_cast<uint32_t>(target_ticks & 0xFFFFFFFFUL);
-    *cmp_hi = static_cast<uint32_t>(target_ticks >> 32);
-
-#if defined(__riscv)
-    uint32_t mtie = (1U << 7);
-    asm volatile ("csrs mie, %0\n" :: "r"(mtie));
-#endif
+    abstractx::InterruptGuard guard;
+    g_coro_target = target_ticks;
+    reprogram();
 }
 
 void Timer::set_alarm_us(uint32_t us_from_now) noexcept {
@@ -97,27 +87,33 @@ void Timer::set_alarm_us(uint32_t us_from_now) noexcept {
 
 void Timer::cancel_alarm() noexcept {
     abstractx::InterruptGuard guard;
-    g_alarm_armed = false;
-    auto *cmp_hi = reinterpret_cast<volatile uint32_t *>(CORET_CMP_BASE + 4);
-    *cmp_hi = 0xFFFFFFFFUL;
+    g_coro_target = kNever;
+    g_wake_target = kNever;
+    program_compare(kNever);
 }
 
-void Timer::handle_irq() noexcept {
-    if (!g_alarm_armed) {
-        return;
+void Timer::arm_wake(uint64_t target_ticks) noexcept {
+    abstractx::InterruptGuard guard;
+    if (target_ticks < g_wake_target || g_wake_target <= get_ticks()) {
+        g_wake_target = target_ticks;
     }
+    reprogram();
+}
 
-    uint64_t now = get_ticks();
-    if (now >= g_alarm_target_ticks) {
-        g_alarm_armed = false;
-        auto *cmp_hi = reinterpret_cast<volatile uint32_t *>(CORET_CMP_BASE + 4);
-        *cmp_hi = 0xFFFFFFFFUL;
-
+// Line 7 is level while mtime >= mtimecmp: always leave the comparator in the future or parked.
+void Timer::handle_irq() noexcept {
+    const uint64_t now = get_ticks();
+    if (now >= g_coro_target) {
+        g_coro_target = kNever;
         auto handle = g_timer_coroutine.exchange(nullptr, std::memory_order_acq_rel);
         if (handle) {
             abstractx::IsrDispatcher::post(handle);
         }
     }
+    if (now >= g_wake_target) {
+        g_wake_target = kNever;  // the woken wfi loop re-checks its own deadline
+    }
+    reprogram();
 }
 
 // ----------------------------------------------------------------------------
@@ -149,9 +145,9 @@ Timer::SleepAwaiter Timer::sleep_ms_async(uint32_t ms) noexcept {
 // ----------------------------------------------------------------------------
 void Timer::delay_ticks(uint64_t ticks) noexcept {
     uint64_t end = get_ticks() + ticks;
+    arm_wake(end);  // guarantees a timer interrupt to end the wfi
     while (get_ticks() < end) {
 #if defined(__riscv)
-        // If interrupts are enabled, halt core in low-power WFI until next IRQ
         asm volatile ("wfi");
 #endif
     }

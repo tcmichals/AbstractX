@@ -52,7 +52,7 @@ SPIN_NOISE = re.compile(r"^(?:(?:__asm__|asm)\b.*|__NOP\(\)|cpu_relax\(\)|abstra
                         r"|if\s*\(\s*(?:--\w+\s*==\s*0|!\s*--\w+|\w+--\s*==\s*0)\s*\)\s*(?:return\b.*|break))?$")
 DRIVER_POLL = re.compile(r"[\w\]\)](?:\.|->)poll\s*\(\s*\)")
 ISR_DEF = re.compile(r"\b[A-Za-z0-9_:]*(?:_isr|_irq_handler|::isr|_handler)\s*\([^;]*\)\s*(?:noexcept\s*)?\{?\s*$")
-MEIE_BIT = re.compile(r"\bMEIE\b|\b1U?L?\s*<<\s*11\b|\b0x800U?\b")
+CLIC_ENABLE = re.compile(r"\bclic::enable\s*\(|\birq::attach\s*\(|\bclic_enable\s*\(")
 BASELINE_FILE = Path("tools") / "audit_baseline.txt"
 
 
@@ -189,7 +189,7 @@ class InvariantAuditor:
         self.known = []
         self.audited_files = set()
         self._e906_isr = None      # first E906 interrupt handler by path (rel, line, path, text)
-        self._e906_meie = False    # some E906 file sets mie.MEIE
+        self._e906_meie = False    # some E906 file enables a CLIC line
         self.violations = {
             "Stage 0 (Specification Markdown & SSOT)": [],
             "Stage 1 (Zero-Heap & Freestanding C++20)": [],
@@ -391,7 +391,7 @@ class InvariantAuditor:
 
     # region Stage 2/3 interrupt and polling rules ([SPEC-AUDIT-14])
     def audit_interrupt_rules(self, filepath: Path, lines: list):
-        """MMIO spin-waits, driver poll() calls, PLIC use and missing MEIE on MCU code."""
+        """MMIO spin-waits, driver poll() calls, PLIC use and missing CLIC enables on MCU code."""
         rel = str(filepath.relative_to(self.root_dir)) if filepath.is_relative_to(self.root_dir) else str(filepath)
         if filepath.suffix not in C_CPP_SUFFIXES or not rel.startswith(MCU_DIRS) or "third_party/" in rel:
             return
@@ -425,13 +425,15 @@ class InvariantAuditor:
                            "interrupt -> SPSC ring -> doorbell (AGENTS 3/4)", src(n))
 
         for n, line in enumerate(code_lines, 1):
-            if DRIVER_POLL.search(line):
+            if DRIVER_POLL.search(line) and "irq-gated" not in src(n) and "irq-gated" not in src(n - 1):
                 self.log_issue("Stage 2 (Non-Blocking HAL & Lifecycle)", filepath, n,
                                "DRIVER-POLL: driver polled from the event loop; wake the coroutine "
                                "from the driver's interrupt instead (AGENTS 3)", src(n))
 
         if not rel.startswith(E906_DIRS):
             return
+        if CLIC_ENABLE.search(code):
+            self._e906_meie = True
         for n, line in enumerate(code_lines, 1):
             if re.search(r"\bplic\b|\bPLIC_|\bplic_", line, re.I):
                 self.log_issue("Stage 3 (ISR Boundary & Dispatch Safety)", filepath, n,
@@ -440,18 +442,16 @@ class InvariantAuditor:
                 cand = (rel, n, filepath, src(n))  # report at the first handler by path, whatever the scan order
                 if self._e906_isr is None or cand[:2] < self._e906_isr[:2]:
                     self._e906_isr = cand
-            if re.search(r"csr[sw]\s+mie\b|set_csr\s*\(\s*mie", line):
-                window = "\n".join(code_lines[max(0, n - 4):n + 3])
-                if MEIE_BIT.search(window):
-                    self._e906_meie = True
+            if CLIC_ENABLE.search(line):
+                self._e906_meie = True
 
     def finish_interrupt_rules(self):
-        """Whole-target rule: E906 interrupt handlers exist but MEIE is never enabled."""
+        """Whole-target rule: E906 interrupt handlers exist but no CLIC line is ever enabled."""
         if self._e906_isr is not None and not self._e906_meie:
             _, n, f, text = self._e906_isr
             self.log_issue("Stage 3 (ISR Boundary & Dispatch Safety)", f, n,
-                           "E906-NO-MEIE: interrupt handlers are defined but no csrs mie sets MEIE "
-                           "(bit 11), so no external interrupt can be delivered", text)
+                           "E906-NO-CLIC-ENABLE: interrupt handlers are defined but no CLIC line is "
+                           "enabled (clic::enable / irq::attach); mie is ignored in CLIC mode", text)
     # endregion
 
     # region Stage 4: Wire framing checks

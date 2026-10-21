@@ -18,6 +18,9 @@ extern "C" {
 #include "abstractx/abstractx.hpp"
 #include "asp_coro.hpp"
 #include "rpmsg_console.hpp"
+#include "abstractx/hal/platform.hpp"
+#include "hal/timer.hpp"
+#include "hal/rpmsg.hpp"
 #include <cstdint>
 
 namespace abstractx::hal {
@@ -42,20 +45,21 @@ static inline uint64_t read_mcycle() noexcept {
 
 extern "C" {
 
-void mp_hal_delay_ms(mp_uint_t ms) {
-    uint64_t start = read_mcycle();
-    uint64_t target = static_cast<uint64_t>(ms) * 200000ULL;
-    while ((read_mcycle() - start) < target) {
+// Sleeps use wfi with a timer interrupt at the deadline ([SPEC-E906-REPL-16]).
+static void sleep_until_ticks(uint64_t deadline) {
+    while (hal::Timer::get_ticks() < deadline) {
+        hal::Timer::arm_wake(deadline);
         abstractx_repl_vm_hook();
+        abstractx::hal::platform_idle_wait();
     }
 }
 
+void mp_hal_delay_ms(mp_uint_t ms) {
+    sleep_until_ticks(hal::Timer::get_ticks() + static_cast<uint64_t>(ms) * hal::Timer::TICKS_PER_MS);
+}
+
 void mp_hal_delay_us(mp_uint_t us) {
-    uint64_t start = read_mcycle();
-    uint64_t target = static_cast<uint64_t>(us) * 200ULL;
-    while ((read_mcycle() - start) < target) {
-        abstractx_repl_vm_hook();
-    }
+    sleep_until_ticks(hal::Timer::get_ticks() + static_cast<uint64_t>(us) * hal::Timer::TICKS_PER_US);
 }
 
 mp_uint_t mp_hal_ticks_ms(void) {
@@ -71,15 +75,23 @@ mp_uint_t mp_hal_ticks_cpu(void) {
 }
 
 // Non-preemptive VM Hook: called on every bytecode loop iteration
-// @impl [SPEC-E906-REPL-04] apps/e906_repl_app/SPECIFICATION.md
+// @impl [SPEC-E906-REPL-04] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
 void abstractx_repl_vm_hook(void) {
+    // Runs on every backward jump: return at once unless an interrupt posted work,
+    // or every 64th call (aged output, TLP batches).
+    static uint32_t s_calls = 0;
+    if (!::hal::rpmsg_doorbell_pending() && !abstractx::Dispatcher::has_pending_resumes() &&
+        (++s_calls & 63U) != 0) {
+        return;
+    }
     // Cooperatively pump the dispatcher
     abstractx::Dispatcher::process();
+    // Host messages (Ctrl-C) are read only after a message box interrupt; this also
+    // flushes partial TLP batches so tlp_send() data leaves during long scripts.
+    abstractx::hal::platform_poll_network();
 
     if (abstractx::g_repl_console) {
-        // Poll RPMsg transport to process incoming packets from host during VM execution
-        abstractx::g_repl_console->poll();
-
+        abstractx::g_repl_console->flush_if_older(hal::Timer::get_ticks(), 20ULL * hal::Timer::TICKS_PER_MS);
         // Check for keyboard interrupt (Ctrl-C) during bytecode execution
         char ch = 0;
         while (abstractx::g_repl_console->try_read_char(ch)) {
@@ -129,13 +141,14 @@ mp_import_stat_t mp_import_stat(const char *path) {
     return MP_IMPORT_STAT_NO_EXIST;
 }
 
-// Polling character read for raw/event REPL helpers
+// Blocking character read for raw/event REPL helpers: sleeps (wfi) until RX arrives
 int mp_hal_stdin_rx_chr(void) {
     if (abstractx::g_repl_console) {
         abstractx::g_repl_console->flush();
         char ch = 0;
         while (!abstractx::g_repl_console->try_read_char(ch)) {
             abstractx_repl_vm_hook();
+            abstractx::hal::platform_idle_wait();
         }
         return static_cast<int>(ch);
     }

@@ -13,24 +13,49 @@
 import abstractx
 
 # ==============================================================================
-# 1. Initialize & Maximize QMC5883L Compass (200 Hz Continuous ODR)
+# 1. Compass (HMC5883L or QMC5883L, continuous)
 # ==============================================================================
 abstractx.i2c_init(400000)
 abstractx.sleep_ms(20)
+# Compass on TWI1: the A5E board carries an HMC5883L at 0x1E (ID registers 0x0A..0x0C read
+# b"H43", measured 2026-10-21); a QMC5883L would sit at 0x0D. mag_init()/mag_read() hide the
+# difference; bytes are sent as read and tagged with the chip so the host decodes them.
+MAG_HMC, MAG_QMC = 0x1E, 0x0D
 
-# Soft Reset QMC5883L (0x0A = 0x80)
-abstractx.i2c_write(0x1E, 0x0A, b"\x80")
-abstractx.sleep_ms(20)
 
-# Set Period Register (0x0B = 0x01)
-abstractx.i2c_write(0x1E, 0x0B, b"\x01")
+def mag_init():
+    if bytes(abstractx.i2c_read(MAG_HMC, 0x0A, 3)) == b"H43":
+        abstractx.i2c_write(MAG_HMC, 0x00, b"\x70")  # CRA: 8-sample average, 15 Hz
+        abstractx.i2c_write(MAG_HMC, 0x01, b"\x20")  # CRB: +-1.3 Ga
+        abstractx.i2c_write(MAG_HMC, 0x02, b"\x00")  # MR: continuous
+        return MAG_HMC
+    abstractx.i2c_write(MAG_QMC, 0x0B, b"\x01")      # QMC5883L set/reset period
+    abstractx.i2c_write(MAG_QMC, 0x09, b"\x1D")      # continuous, 200 Hz, 8 G
+    return MAG_QMC
 
-# Configure Control 1: Mode=Continuous (0b01), ODR=200Hz (0b11<<2),
-# RNG=8G (0b01<<4), OSR=512 (0b00<<6) -> 0x1D
-abstractx.i2c_write(0x1E, 0x09, b"\x1D")
 
-# Fallback for HMC5883L continuous measurement (0x02 = 0x00)
-abstractx.i2c_write(0x1E, 0x02, b"\x00")
+def mag_read(addr):
+    # Data registers exactly as read; the host decodes them (abstractx_wire.decode_mag).
+    if addr == MAG_HMC:
+        return abstractx.i2c_read(MAG_HMC, 0x03, 6)  # X, Z, Y big-endian; reading all 6 unlocks
+    return abstractx.i2c_read(MAG_QMC, 0x00, 6)      # X, Y, Z little-endian
+
+
+def mag_chip(addr):
+    return "HMC5883L" if addr == MAG_HMC else "QMC5883L"
+
+
+def mag_xyz(addr, d):
+    """Signed X, Y, Z from mag_read() bytes (for headings computed on the E906)."""
+    if addr == MAG_HMC:
+        v = ((d[0] << 8) | d[1], (d[4] << 8) | d[5], (d[2] << 8) | d[3])
+    else:
+        v = (d[0] | (d[1] << 8), d[2] | (d[3] << 8), d[4] | (d[5] << 8))
+    return tuple(a - 65536 if a > 32767 else a for a in v)
+
+
+MAG_ADDR = mag_init()
+MAG_CHIP = mag_chip(MAG_ADDR)
 abstractx.sleep_ms(20)
 
 # ==============================================================================
@@ -100,16 +125,16 @@ for tick in range(2000):
         print("[E906_WATCHDOG_TIMEOUT_SHUTDOWN]")
         break
 
-    raw_mag = abstractx.i2c_read(0x1E, 0x00, 6)
+    raw_mag = mag_read(MAG_ADDR)
     raw_gps = abstractx.uart_read(128)
 
     mag_hex = to_hex(raw_mag) if len(raw_mag) == 6 else "none"
 
     if raw_gps and len(raw_gps) > 0:
         gps_hex = to_hex(raw_gps)
-        print("!RAW:M=" + mag_hex + ":G=" + gps_hex)
+        print("!RAW:M=" + mag_hex + ":C=" + MAG_CHIP + ":G=" + gps_hex)
     else:
-        print("!RAW:M=" + mag_hex)
+        print("!RAW:M=" + mag_hex + ":C=" + MAG_CHIP)
 
     abstractx.sleep_ms(100)
 

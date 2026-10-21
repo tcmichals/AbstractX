@@ -15,6 +15,7 @@
 #include "hal/i2c.hpp"
 #include "hal/pio.hpp"
 #include "hal/msgbox.hpp"
+#include "hal/clic.hpp"
 #include "hal/rpmsg_endpoints.hpp"
 #include "resource_table.h"
 
@@ -204,6 +205,11 @@ IGpio& get_gpio_driver() noexcept {
 ::hal::RpmsgTlpChannel g_tlp_channel{g_rpmsg};
 
 void platform_init() noexcept {
+#if defined(__riscv)
+    uint32_t mtvec = 0;
+    __asm__ volatile("csrr %0, mtvec" : "=r"(mtvec));
+    g_e906_diag[3] = mtvec;
+#endif
     ::hal::Ccu::init();
     ::hal::Timer::init();
     g_rpmsg.init(&global_resource_table);
@@ -218,24 +224,43 @@ void platform_launch_processing_domain(void (*entry)()) noexcept {
 }
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-void platform_idle_wait() noexcept {
-    // Mask MIE, re-check, then wfi: an ISR that posts a resume between the
-    // caller's check and the wfi would otherwise be slept through. wfi still
-    // wakes on a pending interrupt while MIE is clear; it is taken on unmask.
+// @impl [SPEC-E906-IRQ-01] targets/allwinner_e906/SPECIFICATION.md
+// Sleep with MIE set, so nothing depends on wfi waking while interrupts are
+// masked (not verified on the E906). Race-free: check with MIE clear, then enable
+// and wfi; an interrupt that arrives in between is taken on the wfi itself and the
+// trap entry (startup.S) returns past it. noinline: the label must be unique.
+__attribute__((noinline)) void platform_idle_wait() noexcept {
     const interrupt_flags_t flags = disable_interrupts_save_flags();
-    if (!Dispatcher::has_pending_resumes()) {
-        __asm__ volatile("wfi");
+    if (!Dispatcher::has_pending_resumes() && !::hal::rpmsg_doorbell_pending()) {
+        g_e906_diag[0] = g_e906_diag[0] + 1u;
+        g_e906_diag[4] = *reinterpret_cast<volatile uint32_t*>(::hal::clic::kIntBase + 4U * ::hal::clic::kLineMsgbox);
+        g_e906_diag[5] = *reinterpret_cast<volatile uint32_t*>(::hal::clic::kIntBase + 4U * ::hal::clic::kLineTimer);
+        uint32_t mie = 0, mstatus = 0;
+        __asm__ volatile("csrr %0, mie" : "=r"(mie));
+        __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus));
+        g_e906_diag[6] = mie;
+        g_e906_diag[7] = mstatus;
+        __asm__ volatile(
+            "csrs mstatus, %0\n"
+            ".global e906_idle_wfi\n"
+            "e906_idle_wfi:\n"
+            "wfi\n"
+            :: "r"(1U << 3) : "memory");
     }
     restore_interrupts_flags(flags);
 }
 
+// @impl [SPEC-E906-IRQ-04] targets/allwinner_e906/SPECIFICATION.md
 void platform_poll_network() noexcept {
-    // No network stack on the coprocessor: service RPMsg from the cooperative
-    // loop: announcements, one poll for host messages, then send any partial
-    // TLP batch so TLPs never wait for a full message.
+    // No network stack on the coprocessor: announcements, host messages only
+    // after a message box interrupt, then any partial TLP batch so TLPs never
+    // wait for a full message.
     g_tlp_channel.service();
     g_trace_transport.service();
-    (void)g_rpmsg.poll();
+    if (::hal::rpmsg_take_doorbell()) {
+        (void)g_rpmsg.poll();  // irq-gated: only after a message box interrupt
+    }
+    ::hal::rpmsg_arm_doorbell();
     g_tlp_channel.flush();
 }
 

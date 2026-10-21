@@ -28,7 +28,8 @@ EXPECTED_FIRMWARE = os.environ.get("E906_FIRMWARE", "e906_repl_app.elf")
 SPEC_API = ("peek", "peek_hex", "poke", "version", "cycles", "alive", "uart_init", "uart_read",
             "uart_write", "uart_status", "i2c_init", "i2c_scan", "i2c_read", "i2c_write", "sleep_ms",
             "ticks_ms", "console_read", "tlp_send", "tlp_push", "tlp_dropped", "trace",
-            "tlp_poll_into", "tlp_send_nav")
+            "irq_stats")
+# Listed under 'Not implemented yet' in [SPEC-E906-REPL-10]; not required here.
 COMPASS_ADDRS = (0x0D, 0x1E)
 # RPMsg framing ([SPEC-E906-IPC-04], engineering log 2026-10-18 #3): 512 B buffer - 16 B header.
 RPMSG_MAX_PAYLOAD = 496
@@ -75,9 +76,11 @@ def test_repl_round_trip():
 
 def test_abstractx_api_matches_spec():
     _require_board()
-    out = _ok("import abstractx\nprint(' '.join(dir(abstractx)))")
-    have = set(out.split())
-    missing = [n for n in SPEC_API if n not in have]
+    # getattr, not dir(): the E906 build has no dir() ([SPEC-E906-REPL-02] SRAM budget)
+    out = _ok("import abstractx\nfor n in %r:\n    try:\n        getattr(abstractx, n)\n"
+              "    except AttributeError:\n        print('MISSING', n)\nprint('DONE')" % (SPEC_API,))
+    assert "DONE" in out, out
+    missing = [ln.split()[1] for ln in out.splitlines() if ln.startswith("MISSING ")]
     assert not missing, f"abstractx lacks spec'd functions: {missing}"
 
 
@@ -129,16 +132,25 @@ def test_repl_text_has_no_binary_planes():
 
 
 def test_compass_answers_and_changes():
+    """The data registers move between samples (log 2026-10-21: scripts read the HMC5883L's
+    config registers as if it were a QMC5883L, so the heading never changed)."""
     _require_board()
-    out = _ok("import abstractx\nabstractx.i2c_init(400000)\nprint('SCAN', abstractx.i2c_scan())")
-    found = [a for a in COMPASS_ADDRS if hex(a) in out.lower() or f" {a}" in out or f"[{a}" in out]
+    out = _ok("import abstractx\nabstractx.i2c_init(400000)\nprint('SCAN', abstractx.i2c_scan())\n"
+              "print('ID', list(abstractx.i2c_read(0x1E, 0x0A, 3)))")
+    found = [a for a in COMPASS_ADDRS if f"{a}" in out.split("SCAN", 1)[-1].split("ID")[0]]
     assert found, f"no compass at {[hex(a) for a in COMPASS_ADDRS]} on I2C1: {out.strip()}"
-    addr = found[0]
-    out = _ok(f"import abstractx\nabstractx.i2c_init(400000)\n"
-              f"abstractx.i2c_write({addr}, 0x0B, b'\\x01')\nabstractx.i2c_write({addr}, 0x09, b'\\x1d')\n"
-              f"abstractx.sleep_ms(20)\nfor i in range(8):\n"
-              f"    print('MAG', bytes(abstractx.i2c_read({addr}, 0x00, 6)).hex())\n    abstractx.sleep_ms(25)")
-    samples = [ln.split()[1] for ln in out.splitlines() if ln.startswith("MAG ") and len(ln.split()) == 2]
+    hmc = "[72, 52, 51]" in out  # b"H43"
+    if hmc:
+        cfg = ("abstractx.i2c_write(0x1E, 0x00, b'\\x70')\nabstractx.i2c_write(0x1E, 0x01, b'\\x20')\n"
+               "abstractx.i2c_write(0x1E, 0x02, b'\\x00')\n")
+        read = "abstractx.i2c_read(0x1E, 0x03, 6)"
+    else:
+        cfg = "abstractx.i2c_write(0x0D, 0x0B, b'\\x01')\nabstractx.i2c_write(0x0D, 0x09, b'\\x1d')\n"
+        read = "abstractx.i2c_read(0x0D, 0x00, 6)"
+    out = _ok("import abstractx\nabstractx.i2c_init(400000)\n" + cfg +
+              "for i in range(8):\n    abstractx.sleep_ms(80)\n    print('MAG', list(" + read + "))")
+    # list(), not .hex(): bytes.hex() is not in the E906 build
+    samples = [bytes(eval(ln[4:], {"__builtins__": {}})).hex() for ln in out.splitlines() if ln.startswith("MAG ")]
     assert len(samples) == 8, out
     assert len(set(samples)) > 1, f"compass readings never change: {samples[0]}"
     assert not all(s in ("000000000000", "ffffffffffff") for s in samples), samples
@@ -151,9 +163,9 @@ def test_gps_bytes_arrive():
         out = _ok(f"import abstractx\nabstractx.uart_init({baud})\nacc = b''\nt = abstractx.ticks_ms()\n"
                   f"while abstractx.ticks_ms() - t < 1500 and len(acc) < 600:\n"
                   f"    d = abstractx.uart_read(128)\n    if d: acc += d\n    abstractx.sleep_ms(10)\n"
-                  f"print('GPS', len(acc), acc.hex())", timeout_s=8)
-        line = [ln for ln in out.splitlines() if ln.startswith("GPS ")][-1].split()
-        data = bytes.fromhex(line[2]) if len(line) > 2 else b""
+                  f"print('GPS', list(acc))", timeout_s=8)
+        line = [ln for ln in out.splitlines() if ln.startswith("GPS ")][-1]
+        data = bytes(eval(line[4:], {"__builtins__": {}}))
         seen[baud] = len(data)
         if b"$G" in data or b"\xb5\x62" in data:
             return

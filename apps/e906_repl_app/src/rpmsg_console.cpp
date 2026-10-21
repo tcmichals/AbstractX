@@ -5,6 +5,7 @@
  */
 
 #include "rpmsg_console.hpp"
+#include "hal/timer.hpp"
 #include <cstring>
 
 namespace abstractx {
@@ -57,6 +58,9 @@ void RpmsgConsole::write(const char *str, size_t len) noexcept {
 }
 
 bool RpmsgConsole::stage_tx_char(char ch) noexcept {
+    if (m_out_len == 0) {
+        m_out_since = ::hal::Timer::get_ticks();
+    }
     if (m_out_len < OUTPUT_BUFFER_SIZE) {
         m_out_buf[m_out_len++] = ch;
         return true;

@@ -27,7 +27,10 @@ sequenceDiagram
 ## 1. System Architecture Specifications (`SPEC-E906-ARCH`)
 
 ### `[SPEC-E906-ARCH-01]` Processor Core Architecture
-* **Target Core**: T-Head / XuanTie E906 (32-bit RISC-V: RV32IMAFDC).
+* **Target Core**: T-Head / XuanTie E906, RV32IMAFCX: single-precision FPU, **no D**
+  (`misa = 0x40901125`, measured by cubie-a5e). Firmware is built with
+  `-march=rv32imafc... -mabi=ilp32f`; a double instruction (`fld`/`fsd`/`*.d`) is an illegal
+  instruction on this core.
 * **Operating Frequency**: Up to 200 MHz driven by the MCU CCU PLL.
 * **Privilege Modes**: Machine (M) and User (U) modes only.
 * **MMU Absence**: The E906 does NOT implement Supervisor mode virtual memory
@@ -35,7 +38,9 @@ sequenceDiagram
 * **Refines**: `[SPEC-ARCH-04]`
 * **Method**: `Analysis`
 * **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
-* **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`
+* **Rationale**: until 2026-10-21 the toolchain file built `rv32imafdc`/`ilp32d`. The first
+  interrupt ever taken (CLIC line 17) hit `fsd` in the trap entry's FP save and locked the core.
+* **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`, `cmake/toolchains/riscv-none-elf.cmake`
 
 ### `[SPEC-E906-ARCH-02]` Fixed Hardware System Memory Map (SYSMAP)
 * **Hardware PMA Invariant**: Physical Memory Attributes (PMAs) are hardwired
@@ -337,17 +342,75 @@ sequenceDiagram
   acknowledge the interrupt and post the suspended coroutine handle through
   the ISR-safe dispatcher queue; `abstractx::step()` MUST resume it from the
   cooperative context on the next dispatcher drain.
-* **Mechanism**: PLIC IRQ 48 executes `fc_msgbox_doorbell_isr()`:
-  1. Clears hardware MSGBOX interrupt status.
-  2. Transfers `s_rpmsg_coroutine_handle` to `IsrDispatcher::post()`.
+* **Mechanism**: CLIC line 17 (`[SPEC-E906-IRQ-04]`) executes `fc_msgbox_doorbell_isr()`:
+  1. Masks and clears the MSGBOX read interrupt (the line is level-triggered).
+  2. Sets the doorbell flag and transfers `s_rpmsg_coroutine_handle` to `IsrDispatcher::post()`.
   3. Leaves all coroutine resumption to `Dispatcher::process()`.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
+
+---
+
+## 5a. Interrupt Delivery (`SPEC-E906-IRQ`)
+
+Measured on the Cubie A5E (T527) on 2026-10-21 through the REPL (`peek`/`poke`, CLIC IE left 0)
+and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not verified.
+
+| Source | GIC | CLIC line | Route | Evidence |
+|---|---|---|---|---|
+| Core timer (`mtimecmp`) | - | 7 | direct | testFreeRTOS tick |
+| MSGBOX RV read | - | 17 | direct | testFreeRTOS ping 2000/2000 |
+| DMAC channels 8-15 (`DMAC_IRQ1_NS`) | - | 88 | `DMA_MCU_IRQ_CTRL` | manual Table 2-16, not measured |
+| UART3 | 37 | 90 | S_INTC `GINTC_CONFIG_REG0` bit 5 | IP 0→1 with bit set, RX data |
+| TWI1 | 43 | 91 | S_INTC `GINTC_CONFIG_REG0` bit 11 | IP 0→1 after START with INT_EN |
+
+### `[SPEC-E906-IRQ-01]` CLIC Mode and Dispatch
+* **Requirement**: the E906 has a T-Head CLIC at `0xE0800000` and no PLIC. `mtvec` MUST be written
+  with MODE = 3 (CLIC, non-vectored) and a 64-byte aligned base; `mie` bits are ignored in this
+  mode. A line is enabled by writing 1 to byte +1 (IE) of `0xE0801000 + 4*line`.
+* **Requirement**: the dispatcher selects the handler by `mcause & 0xFFF` (the E906 mirrors
+  MPP/MPIE/MPIL into `mcause[29:16]`). Handlers are attached per line at run time
+  (`hal::irq::attach(line, fn, ctx)`); a line may carry several handlers (shared S_INTC group lines).
+  A line that fires with no handler is disabled and counted, never a hang.
+* **Requirement**: every line keeps a 32-bit interrupt count readable from the firmware
+  (`hal::irq::count(line)`), so a board test can prove the interrupt path ran.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `e906-build-layout`
+* **Implementation Target**: `targets/allwinner_e906/include/hal/clic.hpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `targets/allwinner_e906/bsp/startup.S`
+
+### `[SPEC-E906-IRQ-02]` Main-Domain Peripherals via the S_INTC Group Router
+* **Requirement**: main-domain peripherals reach the CLIC only through the S_INTC group router
+  (`0x07021000`, `GINTC_CONFIG_REGn` at `+0xC0 + 4n`): GIC IRQ `g` (32..159) is bit `(g-32) % 32` of
+  register `(g-32) / 32`, and arrives on CLIC line `90 + (g-32)/8`. Eight GIC sources share one
+  CLIC line, so each handler checks its own peripheral's status register.
+* **Requirement**: routing is done with `hal::clic::route_gic(g, on)` (read-modify-write under an
+  interrupt guard); nothing else writes `GINTC_CONFIG_REGn`.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`)
+* **Implementation Target**: `targets/allwinner_e906/include/hal/clic.hpp`
+
+### `[SPEC-E906-IRQ-03]` Core Timer: `mtime` at 24 MHz, `mcycle` at 200 MHz
+* **Requirement**: `mtime` is at `0xE000BFF8` and `mtimecmp` at `0xE0004000` (not `0x1400xxxx`), both
+  counting the 24 MHz oscillator; `hal::Timer` ticks are `mtime` ticks. `mcycle` counts the 200 MHz
+  core clock (measured: `mcycle`/200000 per ms matched 24,000,410 `mtime` ticks over 1 s).
+* **Requirement**: the timer interrupt (line 7) is level while `mtime >= mtimecmp`; the handler
+  re-arms or parks `mtimecmp` at all-ones before returning, never leaves it matched.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`)
+* **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`
+
+### `[SPEC-E906-IRQ-04]` RPMsg Doorbell Interrupt (No Polling)
+* **Requirement**: Linux kicks arrive on MSGBOX channels 0 and 1 (CLIC line 17, level until the
+  FIFO is read). The ISR masks the read interrupt, clears status, sets a doorbell flag, counts,
+  and posts the waiting coroutine. Consumers call `hal::rpmsg_take_doorbell()` and, after draining
+  the vrings, `hal::rpmsg_arm_doorbell()` to unmask.
+* **Requirement**: no application or platform loop calls `poll()` unconditionally; RX vrings are
+  read only after a doorbell (or when an awaiter's `await_ready` sees pending descriptors).
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
+* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/src/platform.cpp`
 
 ---
 
 ### [SPEC-E906-CRASH-01] Trap Classification, FPU State Preservation & Crash Dump
 * **Requirement**:
-  1. The trap entry (`bsp/startup.S`) MUST allocate a 416-byte stack frame (`CrashFrame`) and save all 31 integer GPRs (`x1`..`x31`), 4 CSRs (`mepc`, `mcause`, `mtval`, `mstatus`), all 32 hardware floating-point registers (`f0`..`f31`, 64-bit double precision for RV32IMAFDC / `ilp32d`), and `fcsr` BEFORE branching to or calling any C/C++ code.
+  1. The trap entry (`bsp/startup.S`) MUST allocate a 416-byte stack frame (`CrashFrame`) and save all 31 integer GPRs (`x1`..`x31`), 4 CSRs (`mepc`, `mcause`, `mtval`, `mstatus`), all 32 hardware floating-point registers (`f0`..`f31`, single precision `fsw` into 8-byte slots: the E906 has no D, `ilp32f`), and `fcsr` BEFORE branching to or calling any C/C++ code.
   2. The trap entry MUST classify the trap by bit 31 of **`mcause`** (1 = interrupt, 0 = synchronous exception).
   3. Interrupts branch to `.Lhandle_irq`, dispatch to `riscv_trap_dispatcher(mcause, mepc)`, completely restore all FP registers (`f0`..`f31`), `fcsr`, CSRs, and integer GPRs, deallocate the 416-byte stack frame, and return with `mret`.
   4. Synchronous exceptions MUST pass the `CrashFrame*` (`sp`) in `a0` to `hal_crash_dispatcher`, which records the full GPR, CSR, and FPR crash dump to `Trace` and SRAM and halts.
@@ -355,21 +418,33 @@ sequenceDiagram
   - In `ilp32d` ABI, C/C++ compilers generate floating-point instructions in any subroutine and can clobber caller-saved FP registers (`ft0`..`ft11`, `fa0`..`fa7`). Without saving FP registers in the trap prologue, an asynchronous interrupt clobbers live floating-point computations in interrupted coroutines (e.g. sensor fusion math), causing silent corruption upon `mret`.
   - In synchronous exceptions, saving FP registers ensures the crash autopsy dump captures the full FPU state at the moment of the fault, and prevents formatting routines in `hal_crash_dispatcher` from destroying the fault context.
   - Branching on `mcause` bit 31 is mandatory because `mstatus` bit 31 is the SD summary bit, which is always 1 when `mstatus.FS = Dirty`.
-* **Verified by**: `e906-disassembly-check` (`fsd f0, 144(sp)`, `lw t0, 128(sp); bltz t0`, `fld f0, 144(sp)`), `e906-build-layout`
+* **Verified by**: `e906-disassembly-check` (`fsw f0, 144(sp)`, `lw t0, 128(sp); bltz t0`, `flw f0, 144(sp)`, no double-precision instruction anywhere in the ELF), `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_irq.py`: an interrupt is taken and returns)
 * **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`, `targets/allwinner_e906/include/hal/crash.hpp`, `targets/allwinner_e906/src/crash.cpp`
 
 ## 6. Threshold-Balanced Peripheral HAL (`SPEC-E906-HAL`)
 
-### `[SPEC-E906-HAL-01]` Direct FIFO vs. DMA Threshold Balancing
-* **Requirement**: Peripheral drivers must balance latency vs. bandwidth:
-  * Payloads below threshold use direct CPU FIFO writes (zero DMA overhead).
-  * Payloads above threshold arm the dedicated co-processor DMA controller
-    (Channels 8..15) and suspend calling coroutines.
-* **Thresholds**:
-  * `hal::Spi`: `<= 4 bytes` (Fast FIFO) vs. `> 4 bytes` (DMA Awaiter)
-  * `hal::I2c`: `<= 4 bytes` (Fast FIFO) vs. `> 4 bytes` (DMA Awaiter)
-  * `hal::Uart`: `<= 32 bytes` (Fast FIFO) vs. `> 32 bytes` (DMA Awaiter)
-* **Implementation Target**: `targets/allwinner_e906/src/{spi,i2c,uart,dma}.cpp`
+### `[SPEC-E906-HAL-01]` Choosing DMA or Interrupt-Driven FIFO per Transfer
+* **Requirement**: every driver picks DMA or ISR-driven FIFO I/O per transfer by rule, not by habit:
+  * **ISR + FIFO** when the transfer fits the peripheral FIFO (UART 64 B, SPI 64 B), when the
+    protocol needs a decision per byte (I2C ACK/NACK, repeated START), or when the average
+    interrupt rate stays below one per 50 µs (e.g. GPS NMEA at 9600 baud: one RX-timeout interrupt
+    per sentence).
+  * **DMA** when the transfer is larger than the FIFO and contiguous (SPI IMU bursts, flash), for
+    continuous streams that would interrupt more often than every 50 µs (UART at >= 921600 baud as a
+    cyclic ring), and for memory copies of at least `kDmaCopyMinBytes`.
+  * The thresholds (`kDmaCopyMinBytes`, the per-peripheral byte limit) are measured on the board
+    by `abstractx.dma_bench()` (DMA setup + completion interrupt vs. CPU copy) and recorded with
+    the commit; until measured they are marked "not measured" and drivers use ISR + FIFO.
+* **Requirement**: the E906 owns DMAC channels 8..15 at `0x03002000`, routed to CLIC line 88 by
+  `DMA_MCU_IRQ_CTRL` (`+0x38` = `0xFF00`); the E906 overlay limits Linux's `sun6i-dma` to channels
+  0..7 (`dma-channels = <8>`). Descriptors and buffers are handed to the DMAC as physical
+  addresses (SRAM space 0 DA `0x3FFC0000` = PA `0x07280000`, space 1 DA `0x40000000` = PA `0x072C0000`).
+* **Not implemented yet**: `dma_bench`, `da_to_pa`
+* **Rationale**: the previous thresholds (SPI/I2C 4 B, UART 32 B) were never measured; the DMA
+  driver passed E906 addresses to the DMAC and never routed its interrupt; Linux owns all 16
+  channels of the same controller.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`)
+* **Implementation Target**: `targets/allwinner_e906/src/dma.cpp`, `apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso`
 
 ---
 

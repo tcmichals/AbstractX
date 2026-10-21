@@ -1,12 +1,14 @@
 /*
  * main.cpp - XuanTie E906 MicroPython REPL Application
  *
- * @impl [SPEC-E906-REPL-01] [SPEC-E906-REPL-02] [SPEC-E906-REPL-03] [SPEC-E906-REPL-07] [SPEC-E906-REPL-08] [SPEC-E906-REPL-12] apps/e906_repl_app/SPECIFICATION.md
+ * @impl [SPEC-E906-REPL-01] [SPEC-E906-REPL-02] [SPEC-E906-REPL-03] [SPEC-E906-REPL-07] [SPEC-E906-REPL-08] [SPEC-E906-REPL-12] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
  */
 
 #include "abstractx/abstractx.hpp"
 #include "asp_coro.hpp"
+#include "abstractx/hal/platform.hpp"
 #include "hal/rpmsg.hpp"
+#include "hal/clic.hpp"
 #include "memory_map.h"
 #include "rpmsg_console.hpp"
 
@@ -25,10 +27,11 @@ extern ::hal::Rpmsg g_rpmsg;
 // Statically allocated Console instance bound to unified g_rpmsg (Zero Heap)
 static abstractx::RpmsgConsole s_console(abstractx::hal::g_rpmsg);
 
-// 1. Dedicated C++20 Coroutine Task for VirtIO RPMsg RX Notifications
-static abstractx::coro::Task<void> rpmsg_rx_coroutine(::hal::IRpmsg &rpmsg) {
+// 1. RPMsg RX: woken by the message box interrupt ([SPEC-E906-IRQ-04]); each wake
+//    also retries the 'abstractx-repl' announcement until the host is ready.
+static abstractx::coro::Task<void> rpmsg_rx_coroutine(::hal::IRpmsg &rpmsg, abstractx::RpmsgConsole &console) {
     for (;;) {
-        rpmsg.poll();
+        console.service();
         co_await rpmsg.async_receive();
     }
 }
@@ -39,6 +42,9 @@ static abstractx::coro::Task<void> repl_rx_coroutine(abstractx::RpmsgConsole &co
     for (;;) {
         char ch = co_await console.read_char_async();
         int ret = pyexec_event_repl_process_char(ch);
+        if (!console.has_char()) {
+            console.flush();  // a reply without '\n' (raw-REPL "\x04\x04>") goes out now
+        }
         if (ret & PYEXEC_FORCED_EXIT) {
             mp_deinit();
             char stack_dummy;
@@ -98,14 +104,17 @@ int main() {
     mp_hal_set_interrupt_char(3); // CHAR_CTRL_C (0x03)
 
     // 5. Spawn cooperative C++20 coroutines
-    abstractx::spawn(rpmsg_rx_coroutine(abstractx::hal::g_rpmsg));
+    abstractx::spawn(rpmsg_rx_coroutine(abstractx::hal::g_rpmsg, s_console));
     abstractx::spawn(repl_rx_coroutine(s_console));
     abstractx::spawn(repl_tx_coroutine(s_console));
 
-    // 6. Cooperative Event Loop
+    // 6. Cooperative Event Loop: interrupts post work; sleep (wfi) when nothing is ready
     for (;;) {
-        s_console.poll(); // also retries the 'abstractx-repl' announcement
+        g_e906_diag[8] = g_e906_diag[8] + 1u;  // loop count, readable over devmem
         abstractx::step();
+        if (!abstractx::Dispatcher::has_pending_resumes()) {
+            abstractx::hal::platform_idle_wait();
+        }
     }
 
     return 0;

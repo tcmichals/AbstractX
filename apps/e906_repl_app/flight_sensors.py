@@ -106,6 +106,7 @@ class CompassDriver:
 
     def __init__(self):
         self.connected = False
+        self.hmc = False
         self.last_x = 0
         self.last_y = 0
         self.last_z = 0
@@ -115,35 +116,41 @@ class CompassDriver:
     def init(self):
         abstractx.i2c_init(100000)
         abstractx.sleep_ms(20)
-
-        # 1. Soft Reset QMC5883L
-        abstractx.i2c_write(self.I2C_ADDR, self.REG_CONTROL_2, b"\x80")
-        abstractx.sleep_ms(20)
-
-        # 2. Set Period Register (recommended 0x01)
-        abstractx.i2c_write(self.I2C_ADDR, self.REG_SET_RESET, b"\x01")
-
-        # 3. Configure Control 1: Mode=Continuous (0b01), ODR=100Hz (0b01<<2),
-        #    RNG=2G (0b00<<4), OSR=512 (0b00<<6) -> 0x1D
-        abstractx.i2c_write(self.I2C_ADDR, self.REG_CONTROL_1, b"\x1d")
-
-        # Fallback for HMC5883L (Reg 0x02 = 0x00: Continuous Measurement)
-        abstractx.i2c_write(self.I2C_ADDR, 0x02, b"\x00")
-
+        # The A5E board carries an HMC5883L at 0x1E (ID b"H43", measured 2026-10-21);
+        # a QMC5883L answers at 0x0D with a different register map.
+        self.hmc = bytes(abstractx.i2c_read(0x1E, 0x0A, 3)) == b"H43"
+        if self.hmc:
+            self.I2C_ADDR = 0x1E
+            abstractx.i2c_write(0x1E, 0x00, b"\x70")  # CRA: 8-sample average, 15 Hz
+            abstractx.i2c_write(0x1E, 0x01, b"\x20")  # CRB: +-1.3 Ga
+            abstractx.i2c_write(0x1E, 0x02, b"\x00")  # MR: continuous
+        else:
+            self.I2C_ADDR = 0x0D
+            abstractx.i2c_write(self.I2C_ADDR, self.REG_CONTROL_2, b"\x80")  # soft reset
+            abstractx.sleep_ms(20)
+            abstractx.i2c_write(self.I2C_ADDR, self.REG_SET_RESET, b"\x01")
+            abstractx.i2c_write(self.I2C_ADDR, self.REG_CONTROL_1, b"\x1d")  # continuous 100 Hz
         abstractx.sleep_ms(20)
         self.connected = True
         return True
 
     def read_sample(self):
-        """Reads 6-byte magnetometer vector and calculates heading."""
-        raw = abstractx.i2c_read(self.I2C_ADDR, self.REG_DATA_X_LSB, 6)
-        if len(raw) != 6:
-            return None
-
-        # Little-endian 16-bit signed integers (X, Y, Z)
-        x = raw[0] | (raw[1] << 8)
-        y = raw[2] | (raw[3] << 8)
-        z = raw[4] | (raw[5] << 8)
+        """Reads the 3-axis magnetometer vector and calculates heading."""
+        if self.hmc:
+            raw = abstractx.i2c_read(0x1E, 0x03, 6)   # X, Z, Y big-endian (all 6 unlock the latch)
+            if len(raw) != 6:
+                return None
+            x = (raw[0] << 8) | raw[1]
+            z = (raw[2] << 8) | raw[3]
+            y = (raw[4] << 8) | raw[5]
+        else:
+            raw = abstractx.i2c_read(self.I2C_ADDR, self.REG_DATA_X_LSB, 6)
+            if len(raw) != 6:
+                return None
+            # Little-endian 16-bit signed integers (X, Y, Z)
+            x = raw[0] | (raw[1] << 8)
+            y = raw[2] | (raw[3] << 8)
+            z = raw[4] | (raw[5] << 8)
         if x >= 32768: x -= 65536
         if y >= 32768: y -= 65536
         if z >= 32768: z -= 65536

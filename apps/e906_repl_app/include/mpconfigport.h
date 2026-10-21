@@ -24,7 +24,13 @@ void abstractx_repl_vm_hook(void);
 // Options controlling how MicroPython is built
 // -----------------------------------------------------------------------------
 
+// Minimum level (CORE_FEATURES overflows SRAM_FAST by ~19 KB) plus what the spec'd scripts
+// and board tests use ([SPEC-E906-REPL-06], [SPEC-E906-REPL-15]).
 #define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_MINIMUM)
+#define MICROPY_PY_BUILTINS_SLICE   (1)
+#define MICROPY_PY_BUILTINS_STR_OP_MODULO (1)
+#define MICROPY_FLOAT_IMPL          (MICROPY_FLOAT_IMPL_FLOAT)   // single precision: the E906 has no D
+#define MICROPY_LONGINT_IMPL        (MICROPY_LONGINT_IMPL_MPZ)   // 32-bit registers / addresses
 #define MICROPY_PY_BUILTINS_BYTEARRAY (1)   // TLP buffers [SPEC-E906-REPL-10]
 
 #define MICROPY_ENABLE_COMPILER     (1)
@@ -43,7 +49,7 @@ void abstractx_repl_vm_hook(void);
 
 // Target machine attributes
 #define MICROPY_HW_BOARD_NAME       "Radxa Cubie A5E / A7A"
-#define MICROPY_HW_MCU_NAME         "XuanTie E906 (RV32IMAFDC)"
+#define MICROPY_HW_MCU_NAME         "XuanTie E906 (RV32IMAFC)"
 
 typedef long mp_off_t;
 

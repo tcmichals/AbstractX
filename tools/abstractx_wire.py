@@ -67,3 +67,4 @@ def decode_ctf_packet(data: bytes) -> dict:
     return {"stream_id": stream_id, "packet_size_bits": pkt_bits, "content_size_bits": content_bits,
             "timestamp_begin_us": t_begin, "timestamp_end_us": t_end,
             "events_discarded": discarded, "events": events}
+

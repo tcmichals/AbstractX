@@ -1,6 +1,7 @@
 #include "hal/rpmsg.hpp"
 #include "hal/msgbox.hpp"
 #include "hal/pmp.hpp"
+#include "hal/clic.hpp"
 #include "abstractx/isr_dispatcher.hpp"
 #include <string.h>
 #include <span>
@@ -9,6 +10,37 @@ namespace hal {
 
 // @impl [SPEC-E906-CORO-01] targets/allwinner_e906/SPECIFICATION.md
 static std::coroutine_handle<> s_rpmsg_coroutine_handle{nullptr};
+
+// Message box doorbell state ([SPEC-E906-IRQ-04]); set by the ISR, taken by consumers.
+static std::atomic<bool> s_doorbell{false};
+static std::atomic<bool> s_doorbell_armed{false};
+static std::atomic<uint32_t> s_doorbell_irqs{0};
+
+static void msgbox_rx_irq(bool enable) noexcept {
+    // Linux kicks on channels 0 and 1; both are read by drain_host_doorbells()
+    MsgBox::enable_rx_irq(MsgBox::Channel::Channel0, enable);
+    MsgBox::enable_rx_irq(MsgBox::Channel::Channel1, enable);
+}
+
+bool rpmsg_take_doorbell() noexcept {
+    return s_doorbell.exchange(false, std::memory_order_acq_rel);
+}
+
+void rpmsg_arm_doorbell() noexcept {
+    if (!s_doorbell_armed.exchange(true, std::memory_order_acq_rel)) {
+        MsgBox::clear_irq_status(MsgBox::Channel::Channel0);
+        MsgBox::clear_irq_status(MsgBox::Channel::Channel1);
+        msgbox_rx_irq(true);  // level line: fires at once if a kick is still queued
+    }
+}
+
+bool rpmsg_doorbell_pending() noexcept {
+    return s_doorbell.load(std::memory_order_acquire);
+}
+
+uint32_t rpmsg_doorbell_irqs() noexcept {
+    return s_doorbell_irqs.load(std::memory_order_relaxed);
+}
 
 /*
  * VirtIO Ring Internal Descriptors
@@ -205,6 +237,8 @@ namespace {
 
 void Rpmsg::init(const struct rpmsg_resource_table *rsc) noexcept {
     MsgBox::init();
+    s_doorbell_armed.store(false, std::memory_order_relaxed);
+    clic::enable(clic::kLineMsgbox);  // [SPEC-E906-IRQ-04]; the read IRQ stays masked until armed
     s_linux_rsc = rsc;
     s_linux_vdev_ready = false;
     s_linux_rx_count.store(0, std::memory_order_relaxed);
@@ -432,10 +466,16 @@ bool Rpmsg::poll() noexcept {
             s_rx_vq.last_avail_idx++;
         }
 
-        // Re-check: did more buffers arrive while we were processing?
+        // Re-enable host kicks before the last check: interrupt-driven RX
+        // ([SPEC-E906-IRQ-04]) never wakes if NO_NOTIFY is left set. A buffer
+        // posted between the check and the flag write is caught by re-checking.
+        s_rx_vq.used->flags = 0;
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         if (!avail_pending(s_rx_vq, pending) || pending == 0) {
             break;
         }
+        s_rx_vq.used->flags = VRING_USED_F_NO_NOTIFY;
+        std::atomic_thread_fence(std::memory_order_seq_cst);
     }
 
     // Tell the host its transmit buffers are back
@@ -847,21 +887,22 @@ bool IRpmsg::AsyncRxAwaiter::await_ready() const noexcept {
 }
 
 void IRpmsg::AsyncRxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
-    // @impl [SPEC-E906-CORO-01] targets/allwinner_e906/SPECIFICATION.md
+    // @impl [SPEC-E906-CORO-01] [SPEC-E906-IRQ-04] targets/allwinner_e906/SPECIFICATION.md
     s_rpmsg_coroutine_handle = handle;
     if (driver) {
         driver->enable_rx_kick(true);
     }
-    // Enable Channel 1 receive interrupt so Linux doorbell triggers PLIC/CLIC IRQ
-    MsgBox::enable_rx_irq(MsgBox::Channel::Channel1, true);
+    // Unmask the message box read interrupt (CLIC line 17) so a Linux kick resumes us
+    rpmsg_arm_doorbell();
 }
 
 bool IRpmsg::AsyncRxAwaiter::await_resume() noexcept {
     s_rpmsg_coroutine_handle = nullptr;
+    (void)rpmsg_take_doorbell();
     if (driver) {
         driver->enable_rx_kick(false);
     }
-    return driver ? driver->poll() : false;
+    return driver ? driver->poll() : false;  // irq-gated: resumed by the doorbell ISR or pending vring
 }
 
 } // namespace hal
@@ -870,8 +911,15 @@ bool IRpmsg::AsyncRxAwaiter::await_resume() noexcept {
 extern "C" __attribute__((section(".fastcode")))
 void fc_msgbox_doorbell_isr() noexcept {
     // @impl [SPEC-E906-CORO-02] targets/allwinner_e906/SPECIFICATION.md
-    // 1. Clear hardware interrupt status
+    // @impl [SPEC-E906-IRQ-04] targets/allwinner_e906/SPECIFICATION.md
+    // 1. The line is level until the FIFO is read: mask it, clear, and leave the
+    //    FIFO to the consumer, which re-arms after draining.
+    hal::msgbox_rx_irq(false);
+    hal::MsgBox::clear_irq_status(hal::MsgBox::Channel::Channel0);
     hal::MsgBox::clear_irq_status(hal::MsgBox::Channel::Channel1);
+    hal::s_doorbell_armed.store(false, std::memory_order_release);
+    hal::s_doorbell_irqs.fetch_add(1, std::memory_order_relaxed);
+    hal::s_doorbell.store(true, std::memory_order_release);
 
     // Post the handle; abstractx::step() resumes it from the cooperative context.
     if (hal::s_rpmsg_coroutine_handle) {

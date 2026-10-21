@@ -163,6 +163,8 @@ class TelemetryState:
         self._mag_count = 0
         self._gps_count = 0
         self._ahrs_count = 0
+        # Last tag-3 payload as received; its format belongs to the app (plugins decode it)
+        self.mag_payload = b""
 
         # Ring buffers for Sensor Data (Time vs Value)
         self.time_history = np.zeros(HISTORY_SIZE, dtype=np.float64)
@@ -1155,6 +1157,7 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                             # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
                             with g_state.lock:
                                 g_state._mag_count += 1
+                                g_state.mag_payload = bytes(frame[20:60])
                         elif le_tag == 0:
                             # Stream 0: Coroutine / FreeRTOS Task Lifecycle Event (CoroEventPayload, 38B)
                             # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py

@@ -256,9 +256,15 @@ flowchart TD
      - **Serial Egress (`abstractx.serial_tlp_send(data)`)**: Outgoing serial byte sequences are chunked by the native C binding into 40-byte streaming TLPs (`Tlp64::make_stream_tx`) and pushed into the egress SPSC ring, where the hardware serializer transmits them via DMA/FIFO.
   2. **Zero Polling Invariant**: MicroPython MUST NOT busy-poll UART status registers (`LSR`). Ingress serial TLPs are signaled cooperatively via `abstractx::Dispatcher` wakeups.
   3. **Packet Framing Invariant**: Each serial TLP carries a 2-byte sequence counter and 2-byte valid payload length, ensuring lossless stream reassembly across multi-core boundaries.
+* **Requirement**: sensor formats belong to the application, not to AbstractX. The E906 script
+  sends sensor registers exactly as read (no reordering on the target) and names the chip;
+  the PC side decodes them with `apps/e906_repl_app/sensor_contract.py`, which both the board
+  bridge and the Studio flight plugin import, so the two cannot disagree. The compass on the
+  A5E board is an HMC5883L at `0x1E` (ID `H43`, data registers `0x03..0x08` = X, Z, Y
+  big-endian), not a QMC5883L (`0x0D`); reading it from `0x00` returns its config registers.
 * **Not implemented yet**: `serial_tlp_poll`, `serial_tlp_send`
-* **Verified by**: `host-tests`, `e906-build-layout`
-* **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
+* **Verified by**: `host-tests` (`tests/test_board_suite_local.py`: decode and bridge/Studio payload round trip), `e906-board-selftest` (`test_compass_answers_and_changes`), `e906-build-layout`
+* **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`, `apps/e906_repl_app/raw_sensor_streamer.py`, `apps/e906_repl_app/sensor_contract.py`, `tools/board_studio_bridge.py`, `tools/visualizer/flight_plugin.py`
 
 ### `[SPEC-E906-REPL-12]` Resource Lifecycle & Open/Close Semantics across Host and Target
 * **Requirement**:
@@ -314,3 +320,40 @@ flowchart TD
 * **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_board_suite_local.py`: decoders and runner, off-board)
 * **Implementation Target**: `tests/board/`, `tools/abstractx_wire.py`
 
+
+### `[SPEC-E906-REPL-16]` Interrupt-Driven Bindings and No Polling in the Event Loop
+* **Requirement**: the main loop is only `abstractx::step()`. RPMsg is read after the message box
+  interrupt ([SPEC-E906-IRQ-04]); the `abstractx-repl` announcement is retried on each doorbell
+  wake, not from a polling loop.
+* **Requirement**: UART3 (GPS) is interrupt-driven on CLIC line 90 ([SPEC-E906-IRQ-02]): the ISR
+  drains the RX FIFO into a ring on RX-data / RX-timeout, and refills the TX FIFO from a ring on
+  THR-empty. `uart_read` takes bytes from the ring without touching the UART; `uart_write`
+  queues bytes and sleeps (`wfi`) only while the TX ring is full.
+* **Requirement**: TWI1 (compass) is interrupt-driven on CLIC line 91: one `INT_FLG` interrupt per
+  bus step runs a state machine (START, address, register, repeated START, data, STOP).
+  `i2c_read` / `i2c_write` / `i2c_scan` start a transaction and sleep (`wfi`) until the ISR
+  completes it or a 20 ms `mtimecmp` timeout fires, which aborts with STOP and returns empty / 0.
+* **Requirement**: blocking MicroPython calls (`sleep_ms`, stdin read, UART/I2C waits) sleep with
+  `wfi` under the masked-check pattern ([SPEC-ARCH-06]) and run the VM hook on each wake; they never
+  spin on a hardware register.
+* **Requirement**: REPL output is flushed when the input queue is empty after a character was
+  processed, so a reply that does not end in a newline (the raw-REPL `\x04\x04>` tail) is sent
+  without waiting for more input.
+* **Requirement**: `abstractx.irq_stats()` returns `{line: count}` for every line that fired plus
+  `mtvec`, so the board suite can show each interrupt path ran.
+* **Rationale**: on 2026-10-21 every CLIC line had IE = 0, `mtvec` was in direct mode, the UART
+  and I2C bindings spun on `LSR`/`INT_FLG`, the main loop polled RPMsg, and the raw-REPL tail
+  stayed queued until the host sent more bytes.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/src/mphalport.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
+
+### `[SPEC-E906-REPL-17]` Scripts Format Their Own Telemetry; Linux Only Forwards
+* **Requirement**: a MicroPython script builds its telemetry frames itself and sends them with
+  `abstractx.tlp_send()` on the `abstractx-tlp` endpoint; `tools/e906_rpmsg_bridge.py` forwards
+  the frames to Studio unchanged. Nothing on Linux builds or rewrites a frame. The script and its
+  Studio plugin share one definition of the payload (`sensor_contract.py`).
+* **Rationale**: today `board_studio_bridge.py` parses the streamer's `!RAW` text lines and builds
+  the TLPs on Linux, so a Studio view can be right while the E906 sends something else.
+* **Not implemented yet**: `stream_tlp`
+* **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_board_suite_local.py`)
+* **Implementation Target**: `apps/e906_repl_app/raw_sensor_streamer.py`, `apps/e906_repl_app/sensor_contract.py`, `tools/e906_rpmsg_bridge.py`

@@ -24,6 +24,9 @@ public:
     static void set_compare(uint64_t target_ticks) noexcept;
     static void set_alarm_us(uint32_t us_from_now) noexcept;
     static void cancel_alarm() noexcept;
+    // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
+    // Make sure a timer interrupt fires at target_ticks (for wfi waits); does not resume anything.
+    static void arm_wake(uint64_t target_ticks) noexcept;
 
     // Top-half ISR called from riscv_trap_dispatcher on MTIP (mcause 7)
     static void handle_irq() noexcept;

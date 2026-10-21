@@ -1623,3 +1623,42 @@ This log chronicles the development, technical decisions, and architecture miles
 * FreeRTOS-Kernel V11.1.0 added as submodule `third_party/FreeRTOS-Kernel` (MIT). Port asm copied from cubie-a5e `testFreeRTOS`.
 * Host: `tests/test_e906_bench_local.py` (collector parsing, units, protocol constants vs firmware source), in ctest. Board: `tests/board/test_e906_bench.py` (skips unless the bench firmware is loaded), collector `tests/board/bench_e906_runtime.py`.
 * **Not verified**: nothing has run on the board. The bare-metal bench cannot wake until the CLIC interrupt path lands (`mtvec` CLIC mode, line 17 dispatch, line 3 → `abx_bench_soft_isr()`). The `free` link-in is not fixed.
+
+## [2026-10-21] - E906 Interrupts Work on Silicon; Nine Bugs Behind "It Polls"
+
+* **Category**: `product-bug` (1-8), `hardware-fact` (table), `process-gap` (why)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906`, `include/asp_coro.hpp`, `apps/e906_repl_app`, `cmake/toolchains/riscv-none-elf.cmake`, Studio
+* **Symptoms**: no E906 interrupt was ever taken; the REPL polled; the raw REPL held its reply tail; Ctrl-C could not stop a script; the compass "never updated".
+
+### 2. Root Cause & Lesson Learned
+Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_diag`):
+1. `mtvec` in direct mode and every CLIC IE = 0: nothing could be delivered.
+2. **Wrong ISA**: built `rv32imafdc/ilp32d`; the E906 has no D (`misa 0x40901125`). The first interrupt hit `fsd` in the trap entry's FP save, an illegal instruction inside the trap handler, and the core locked. Now `rv32imafc/ilp32f`, 0 double instructions.
+3. Timer at `0x14004000` (reads 0) and ticks from `rdcycle` (200 MHz) against a 24 MHz comparator. Real: `mtime 0xE000BFF8`, `mtimecmp 0xE0004000`.
+4. `Rpmsg::poll()` left `VRING_USED_F_NO_NOTIFY` set after draining: with interrupt-driven RX Linux never kicked again.
+5. **AbstractX core**: `AsyncQueue::try_push/try_pop`, `Event::set`, `Semaphore::release` resumed waiters inline. The RPMsg RX callback therefore ran the whole MicroPython script inside `poll()`, before the vring buffer was returned. Fixed as `[SPEC-ARCH-10]`; the test fails on the old header.
+6. Console output was only flushed on `'\n'`: the raw-REPL `\x04\x04>` tail and `OK` waited for more input. This made 19 board tests time out on the old firmware.
+7. UART3 ISR treated IIR 0x7 (busy detect) as "nothing pending" (`iir & 1`): an interrupt storm of ~150 M traps. `uart_init` changing baud while the GPS streams raises busy detect; it now uses the T527 `UART_HALT` configure-at-busy sequence.
+8. The compass is an HMC5883L at `0x1E` (ID `H43`), but every script treated it as a QMC5883L and read config registers 0x00-0x02 as data, so the heading was constant. The PC bridge then sent an all-zero tag-3 TLP, and the Studio plugin drew X/Y/Z computed from yaw.
+9. The MicroPython build was `ROM_LEVEL_MINIMUM`: no slicing, `%`, floats, long ints, so the spec'd scripts and five board tests could not run. Now minimum plus slice, `%`, float (single), MPZ; `CORE_FEATURES` overflows SRAM_FAST by 18,960 B.
+
+| Measured | Value |
+|---|---|
+| CLIC lines | 7 timer, 17 msgbox, 90 UART3 (S_INTC `GINTC_CONFIG_REG0` bit 5), 91 TWI1 (bit 11) |
+| Clocks | `mcycle` 200 MHz, `mtime` 24 MHz |
+| `mie` | reads 0 in CLIC mode (ignored) |
+
+* **Why nothing caught it**: no board test took an interrupt; the old firmware never slept or trapped, so the trap entry, timer, and FP save had never executed; the ISA came from a toolchain file, not from the core's `misa`; host tests drove `AsyncQueue` in a way where inline resume looked fine.
+
+### 3. Specification Update (SSOT Defense)
+* `targets/allwinner_e906/SPECIFICATION.md`: `[SPEC-E906-IRQ-01..04]` (new), `[SPEC-E906-ARCH-01]` (no D), `[SPEC-E906-CRASH-01]`, `[SPEC-E906-CORO-02]`, `[SPEC-E906-HAL-01]` (DMA vs ISR rule; thresholds to be measured).
+* `docs/DESIGN_SPECIFICATION.md`: `[SPEC-ARCH-10]` wake primitives never resume inline; `[SPEC-ARCH-06]` idle text.
+* `apps/e906_repl_app/SPECIFICATION.md`: `[SPEC-E906-REPL-16]` interrupt-driven bindings, `[SPEC-E906-REPL-11]` sensor format belongs to the app (`sensor_contract.py`), `[SPEC-E906-REPL-17]` scripts build their own TLPs (not implemented yet).
+
+### 4. Implementation & Regression Test
+* **Board** (`e906_repl_app_irq.elf`): `run_board_tests.py` 23 passed, 0 failed, 2 skipped (bench firmware not loaded). End to end: bridge to UDP, heading ~190 deg moving, 12 satellites, tag-3 frames carry the HMC5883L sample (16 distinct of 26).
+* **Host**: ctest 46/46 plain, ASan/UBSan 46/46, TSan 46/46; `sim/test_async_queue_deferred_resume` fails on the old `asp_coro.hpp`, passes on the new.
+* **Size**: SRAM space 0 to `0x3FFEE13F` (~188.7 KB of 192 KB incl. 8 KB stack); SRAM space 1 holds 1.1 KB of 256 KB (vrings are in DDR on this boot) - the place to move code next.
+* **Not done**: DMA (Linux owns all 16 channels until the overlay limits it to 0-7; `dma_bench`, `da_to_pa`), `MsgBox::send_blocking` spin (baselined), REPL-17, moving code into SRAM space 1, the board still boots `riscv-firmware.elf` = the old image.

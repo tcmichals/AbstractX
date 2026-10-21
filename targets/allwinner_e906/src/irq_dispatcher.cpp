@@ -1,4 +1,7 @@
 #include "hal/crash.hpp"
+#include "hal/clic.hpp"
+
+// @impl [SPEC-E906-IRQ-01] targets/allwinner_e906/SPECIFICATION.md
 
 // -----------------------------------------------------------------------------
 // Crash Dispatcher Implementation
@@ -14,114 +17,108 @@ void hal_crash_dispatcher(const hal::CrashFrame* f) noexcept {
 }
 
 // -----------------------------------------------------------------------------
-// Panic & Default Fallback Handlers (ITCM)
+// Default Fallback Handler (ITCM)
 // -----------------------------------------------------------------------------
-__attribute__((section(".fastcode"), noinline))
-static void fatal_unhandled_irq_panic(uint32_t irq_id) noexcept {
-    (void)irq_id;
-    while (true) {
-        __asm__ volatile("wfi");
-    }
-}
-
 extern "C" __attribute__((section(".fastcode")))
 void default_isr_ignore() noexcept {
     // No-op return
 }
 
 // -----------------------------------------------------------------------------
-// Weak C-Linkage ISR Declarations
+// Weak C-Linkage ISR Declarations (lines with a fixed owner)
 // -----------------------------------------------------------------------------
 extern "C" {
     void fc_msgbox_doorbell_isr() noexcept __attribute__((weak, alias("default_isr_ignore")));
-    void fc_spi1_isr()            noexcept __attribute__((weak, alias("default_isr_ignore")));
-    void fc_twi0_isr()            noexcept __attribute__((weak, alias("default_isr_ignore")));
-    void fc_uart0_isr()           noexcept __attribute__((weak, alias("default_isr_ignore")));
     void fc_dma_isr()             noexcept __attribute__((weak, alias("default_isr_ignore")));
-    void fc_gpio_drdy_isr()       noexcept __attribute__((weak, alias("default_isr_ignore")));
     void fc_timer_tick_isr()      noexcept __attribute__((weak, alias("default_isr_ignore")));
 }
 
 // -----------------------------------------------------------------------------
-// Hardware IRQ IDs & PLIC Registers
+// CLIC line table ([SPEC-E906-IRQ-01]): fixed lines call their ISR directly,
+// other lines run the handlers attached at run time (shared S_INTC group lines
+// run each one; every handler checks its own peripheral status).
 // -----------------------------------------------------------------------------
-namespace irq_id {
-    constexpr uint32_t TWI0        = 26; // High-Speed I2C/TWI0 Controller
-    constexpr uint32_t MSGBOX_E906 = 48; // Hardware Doorbell
-    constexpr uint32_t SPI1        = 54; // Primary Sensor SPI
-    constexpr uint32_t UART0       = 34; // Debug Console
-    constexpr uint32_t DMA_E906    = 64; // Dedicated DMA Engine
-    constexpr uint32_t GPIO_DRDY   = 82; // IMU Data-Ready Pin
+// Readable from Linux with devmem (SRAM space 0, PA = DA - 0x38D40000) when the REPL is
+// unreachable: [0] idle sleeps, [1] last mcause, [2] interrupts taken, [3] mtvec at boot,
+// [4] CLIC word line 17, [5] CLIC word line 7, [6] mie, [7] mstatus (both at the last idle),
+// [8] main loop passes, [11] trap entries, [12] raw mcause, [13] mepc of the last trap (startup.S).
+extern "C" { volatile uint32_t g_e906_diag[16] = {}; }
+
+namespace {
+
+struct Slot {
+    uint32_t line;
+    hal::irq::Handler fn;
+    void* ctx;
+};
+
+constexpr size_t kMaxSlots = 8;
+Slot s_slots[kMaxSlots]{};
+size_t s_num_slots = 0;
+uint32_t s_counts[hal::clic::kNumLines]{};
+uint32_t s_spurious = 0;
+
+} // namespace
+
+namespace hal::irq {
+
+bool attach(uint32_t line, Handler fn, void* ctx) noexcept {
+    if (line >= clic::kNumLines || fn == nullptr) return false;
+    {
+        abstractx::InterruptGuard guard;
+        if (s_num_slots >= kMaxSlots) return false;
+        s_slots[s_num_slots++] = Slot{line, fn, ctx};
+    }
+    clic::enable(line);
+    return true;
 }
 
-namespace plic {
-    inline volatile uint32_t& claim_complete() noexcept {
-        return *reinterpret_cast<volatile uint32_t*>(0x10000000 + 0x200004);
-    }
-
-    inline void enable_irq(uint32_t irq_id) noexcept {
-        volatile uint32_t* priority = reinterpret_cast<volatile uint32_t*>(0x10000000 + 4 * irq_id);
-        *priority = 1;
-        volatile uint32_t* enable = reinterpret_cast<volatile uint32_t*>(0x10002000 + 4 * (irq_id / 32));
-        *enable |= (1U << (irq_id % 32));
-    }
+uint32_t count(uint32_t line) noexcept {
+    return line < clic::kNumLines ? s_counts[line] : 0;
 }
 
-// -----------------------------------------------------------------------------
-// Hardcoded PLIC External Dispatcher (ITCM)
-// -----------------------------------------------------------------------------
+uint32_t spurious() noexcept { return s_spurious; }
+
+} // namespace hal::irq
+
 __attribute__((section(".fastcode")))
-static inline void dispatch_external_plic() noexcept {
-    volatile uint32_t& plic_reg = plic::claim_complete();
-    uint32_t irq = plic_reg;
-
-    while (irq != 0) {
-        switch (irq) {
-            case irq_id::TWI0:        fc_twi0_isr();            break;
-            case irq_id::MSGBOX_E906: fc_msgbox_doorbell_isr(); break;
-            case irq_id::SPI1:        fc_spi1_isr();            break;
-            case irq_id::UART0:       fc_uart0_isr();           break;
-            case irq_id::DMA_E906:    fc_dma_isr();             break;
-            case irq_id::GPIO_DRDY:   fc_gpio_drdy_isr();       break;
-
-            default:
-                fatal_unhandled_irq_panic(irq);
-                break;
+static void dispatch_clic_line(uint32_t line) noexcept {
+    if (line >= hal::clic::kNumLines) {
+        ++s_spurious;
+        return;
+    }
+    ++s_counts[line];
+    switch (line) {
+        case hal::clic::kLineTimer:  fc_timer_tick_isr();      return;
+        case hal::clic::kLineMsgbox: fc_msgbox_doorbell_isr(); return;
+        case hal::clic::kLineDma:    fc_dma_isr();             return;
+        default: break;
+    }
+    bool handled = false;
+    for (size_t i = 0; i < s_num_slots; ++i) {
+        if (s_slots[i].line == line) {
+            s_slots[i].fn(s_slots[i].ctx);
+            handled = true;
         }
-
-        plic_reg = irq; // Signal completion to hardware
-        irq = plic_reg; // Check for next pending interrupt
+    }
+    if (!handled) {
+        // Nobody owns this line: switch it off instead of re-entering forever.
+        hal::clic::disable(line);
+        ++s_spurious;
     }
 }
 
 // -----------------------------------------------------------------------------
-// Top-Level Trap Entry (Called directly by default_trap_entry in startup.S)
+// Top-Level Trap Entry (called by default_trap_entry in startup.S for interrupts)
 // -----------------------------------------------------------------------------
 extern "C" __attribute__((section(".fastcode")))
 void riscv_trap_dispatcher(uint32_t mcause, uint32_t mepc) noexcept {
     (void)mepc;
-    constexpr uint32_t INTERRUPT_FLAG = 0x80000000;
-
-    // Asynchronous Interrupts (Bit 31 set)
+    constexpr uint32_t INTERRUPT_FLAG = 0x80000000U;
+    g_e906_diag[1] = mcause;
+    g_e906_diag[2] = g_e906_diag[2] + 1u;
     if (__builtin_expect((mcause & INTERRUPT_FLAG) != 0, 1)) {
-        uint32_t irq_type = mcause & 0x7FFFFFFF;
-
-        switch (irq_type) {
-            case 3:  // Machine Software Interrupt (MSIP Doorbell fallback)
-                fc_msgbox_doorbell_isr();
-                break;
-
-            case 7:  // Machine Timer Interrupt (MTIP / Core Timer)
-                fc_timer_tick_isr();
-                break;
-
-            case 11: // Machine External Interrupt (MEIP / PLIC)
-                dispatch_external_plic();
-                break;
-
-            default:
-                fatal_unhandled_irq_panic(irq_type);
-                break;
-        }
+        // The E906 mirrors MPP/MPIE/MPIL into mcause[29:16]; the CLIC id is [11:0].
+        dispatch_clic_line(mcause & 0xFFFU);
     }
 }

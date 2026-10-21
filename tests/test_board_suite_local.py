@@ -80,6 +80,35 @@ def test_runner_reports_could_not_run_off_board():
     assert n >= 16, r.stdout
 
 
+def test_compass_bytes_decode_on_the_host():
+    """The E906 sends compass registers as read; the app's host side decodes per chip."""
+    sys.path.insert(0, str(ROOT / "apps" / "e906_repl_app"))
+    import sensor_contract as wire  # the app's format, not AbstractX's
+    hmc = bytes([0xFF, 0xB7, 0x02, 0x2A, 0xFF, 0xF7])  # X=-73, Z=554, Y=-9 (board, 2026-10-21)
+    assert wire.decode_mag(hmc, "HMC5883L") == (-73, -9, 554)
+    qmc = struct.pack("<hhh", 100, -200, 300)
+    assert wire.decode_mag(qmc, "QMC5883L") == (100, -200, 300)
+    assert wire.decode_mag(qmc) == (100, -200, 300), "untagged lines are QMC5883L"
+    # bridge (encode) and Studio plugin (decode) must agree on the tag-3 payload
+    sample = wire.decode_mag_payload(wire.encode_mag_payload(hmc, "HMC5883L") + bytes(26))
+    assert sample["chip"] == "HMC5883L" and sample["xyz"] == (-73, -9, 554) and sample["raw"] == hmc
+    assert 50 < sample["field_ut"] < 52, sample["field_ut"]  # |v| = 559 LSB / 1090 LSB/Ga
+    tampered = bytearray(wire.encode_mag_payload(hmc, "HMC5883L"))
+    tampered[8] ^= 1
+    try:
+        wire.decode_mag_payload(bytes(tampered))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("decode_mag_payload accepted X/Y/Z that disagree with the raw bytes")
+    for bad in ((hmc[:5], "HMC5883L"), (hmc, "XYZ")):
+        try:
+            wire.decode_mag(*bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"decode_mag accepted {bad!r}")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

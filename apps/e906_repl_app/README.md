@@ -597,6 +597,7 @@ flowchart LR
           apps/e906_repl_app/flight_sensors.py \
           tools/board_studio_bridge.py \
           tools/e906_rpmsg_bridge.py \
+          apps/e906_repl_app/sensor_contract.py \
           root@192.168.3.3:/root/
    ```
    Re-copy after changing any of them; the board does not run them from the repo.

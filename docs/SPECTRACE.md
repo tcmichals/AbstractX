@@ -289,11 +289,12 @@ where its evidence goes. SpecTrace connects them: requirement → code
     body consumes nothing: it is empty, or holds only barriers, timeout counters or VM hooks.
     A loop that drains a FIFO (reads a register into data, or pops) is not a spin.
   * `DRIVER-POLL` (Stage 2): a call `obj.poll()` in MCU code; drivers wake coroutines via
-    ISR → SPSC ring → doorbell, and the event loop only drains the dispatcher.
+    ISR → SPSC ring → doorbell, and the event loop only drains the dispatcher. A call that runs
+    only after an interrupt flag was taken is marked `irq-gated` on its line or the line above.
   * `E906-PLIC` (Stage 3): a PLIC identifier in E906 code (`targets/allwinner_e906/`,
     `apps/e906_repl_app/src/`), outside comments. The E906 has a T-Head CLIC at `0xE0800000`.
-  * `E906-NO-MEIE` (Stage 3): E906 code defines interrupt handlers but no `csrs mie` sets
-    MEIE (bit 11), so no external interrupt can be delivered.
+  * `E906-NO-CLIC-ENABLE` (Stage 3): E906 code defines interrupt handlers but never enables a
+    CLIC line (`clic::enable`, `irq::attach`); `mie` is ignored in CLIC mode ([SPEC-E906-IRQ-01]).
 * **Requirement**: a loop marked `pre-scheduler` on its line or the two lines above is
   tolerated (AGENTS §4 bring-up).
 * **Requirement**: known violations that cannot be fixed in the same change are listed in

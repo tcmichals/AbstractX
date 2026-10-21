@@ -72,13 +72,21 @@ public:
     // Flush staged buffer over RPMsg
     void flush() noexcept;
 
-    // Poll RPMsg transport to process incoming packets from host during VM execution
-    // @impl [SPEC-E906-REPL-05] apps/e906_repl_app/SPECIFICATION.md
-    void poll() noexcept {
+    // Flush output that has waited longer than max_age_ticks (mtime): text without a
+    // newline (raw-REPL "OK", prompts) must not wait for the script to end ([SPEC-E906-REPL-16]).
+    void flush_if_older(uint64_t now_ticks, uint64_t max_age_ticks) noexcept {
+        if (m_out_len != 0 && now_ticks - m_out_since >= max_age_ticks) {
+            flush();
+        }
+    }
+
+    // Announce 'abstractx-repl' once the host virtio driver is ready; called on each
+    // message box wake. Reading the vrings is interrupt-driven ([SPEC-E906-REPL-16]).
+    // @impl [SPEC-E906-REPL-05] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
+    void service() noexcept {
         if (!m_announced && m_rpmsg.is_driver_ready()) {
             m_announced = m_rpmsg.announce_service("abstractx-repl", REPL_ENDPOINT_ADDR);
         }
-        (void)m_rpmsg.poll();
     }
 
 private:
@@ -89,6 +97,7 @@ private:
     coro::AsyncQueue<char, OUTPUT_BUFFER_SIZE> m_tx_channel{};
     char m_out_buf[OUTPUT_BUFFER_SIZE]{};
     size_t m_out_len{0};
+    uint64_t m_out_since{0};   // mtime when the first unsent byte was staged
     uint32_t m_host_addr{0};
     bool m_host_known{false};
     bool m_announced{false};

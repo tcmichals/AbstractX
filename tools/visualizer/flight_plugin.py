@@ -39,6 +39,14 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+
+# The e906_repl_app's sensor format (the app owns it, not AbstractX or Studio)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "apps" / "e906_repl_app"))
+try:
+    import sensor_contract
+except ImportError:  # Studio still runs without the app checked out
+    sensor_contract = None
+from pathlib import Path
 import numpy as np
 from imgui_bundle import imgui, implot
 
@@ -371,11 +379,23 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         cog_deg = (yaw + 7.5 * math.sin(self.sim_phase * 0.4)) % 360.0
         drift_deg = ((cog_deg - yaw + 180.0) % 360.0) - 180.0
 
-        # Simulated or live Magnetometer components
-        mag_x = int(320 * math.cos(math.radians(yaw)))
-        mag_y = int(320 * math.sin(math.radians(yaw)))
-        mag_z = -420
-        mag_field_ut = 48.5
+        # Magnetometer: the received sample in live mode, a made-up one only with --sim
+        if getattr(state, "sim_mode", False):
+            mag_x = int(320 * math.cos(math.radians(yaw)))
+            mag_y = int(320 * math.sin(math.radians(yaw)))
+            mag_z = -420
+            mag_field_ut = 48.5
+        else:
+            mag_x = mag_y = mag_z = 0
+            mag_field_ut = 0.0
+            payload = getattr(state, "mag_payload", b"")
+            if sensor_contract is not None and any(payload[:6]):
+                try:
+                    sample = sensor_contract.decode_mag_payload(payload)
+                    mag_x, mag_y, mag_z = sample["xyz"]
+                    mag_field_ut = sample["field_ut"]
+                except ValueError:
+                    pass
 
         # ----------------------------------------------------------------------
         # 1. Hardware Connection & Telemetry Header

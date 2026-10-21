@@ -41,9 +41,10 @@ public:
         setup_ = setup;
         num_channels_ = 0;
 
-        // Initialize underlying DMA controller & MSGBOX
+        // @impl [SPEC-E906-IRQ-04] [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+        // DMA channels 8..15; the message box belongs to Rpmsg (re-initialising it
+        // here would mask the armed doorbell interrupt, [SPEC-E906-IRQ-04]).
         ::hal::DmaController::init();
-        ::hal::MsgBox::init();
 
         for (const auto& ch : setup_.channels) {
             if (num_channels_ >= MAX_CHANNELS) break;

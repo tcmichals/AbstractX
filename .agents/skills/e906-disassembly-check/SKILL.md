@@ -15,11 +15,15 @@ description: "Check skill. Bare-metal control flow that source review cannot pro
 riscv-none-elf-objdump -d build_e906/apps/gps_imu_app/platforms/allwinner_e906/e906_coprocessor | less
 # default_trap_entry:
 #   stack alloc:   addi sp, sp, -416
-#   fpu save:      fsd f0, 144(sp) ... fsd f31, 392(sp)
+#   fpu save:      fsw f0, 144(sp) ... fsw f31, 392(sp)   (single precision: the E906 has no D)
 #   branch:        lw t0, 128(sp); bltz t0
-#   fpu restore:   fld f0, 144(sp) ... fld f31, 392(sp)
+#   idle skip:     la t1, e906_idle_wfi; bne t0, t1; addi t0, t0, 4   ([SPEC-E906-IRQ-01])
+#   fpu restore:   flw f0, 144(sp) ... flw f31, 392(sp)
 #   stack free:    addi sp, sp, 416
-# _start: csrw 0x7c1 with 0x1031
+# _start: csrw 0x7c1 with 0x1031; mtvec written as (default_trap_entry | 3), base 64-byte aligned
+
+# No double-precision instruction anywhere (they trap on this core, [SPEC-E906-ARCH-01]); must print 0:
+riscv-none-elf-objdump -d <elf> | grep -cE '\s(fld|fsd|c\.fldsp|c\.fsdsp|f[a-z]+\.d|fcvt\.[a-z]+\.d|fcvt\.d\.[a-z]+)\s'
 ```
 
 ## Pass criteria

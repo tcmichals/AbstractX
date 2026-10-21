@@ -43,7 +43,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-ARCH-06]` Unified AbstractX Runtime API & Autonomous Domain Placement
 * **Requirement**: Applications must interface with the framework exclusively through the unified `abstractx::` API (`init()`, `spawn()`, `step()`, `step_async()`, `run()`). The runtime must automatically determine target topology and assign `io_processor`, `trace_dispatcher`, and user coroutines to their optimal hardware execution domains (Core 0 vs Core 1 on dual-core MCU, E906 vs Linux on heterogeneous SoCs, or cooperative coroutine loop on SITL), guaranteeing 0 application `#ifdef`s.
-* **Idle Policy**: `run()` MAY call `platform_idle_wait()` only when `Dispatcher::has_pending_resumes()` is false. On bare-metal targets `platform_idle_wait()` MUST mask interrupts, re-check the Dispatcher, then sleep (`wfi`), restoring the prior interrupt state, so an ISR posting between the check and the sleep is never slept through.
+* **Idle Policy**: `run()` MAY call `platform_idle_wait()` only when `Dispatcher::has_pending_resumes()` is false. On bare-metal targets `platform_idle_wait()` MUST re-check the Dispatcher with interrupts masked and then sleep (`wfi`) so that an ISR posting between the check and the sleep is never slept through: either `wfi` with interrupts still masked (the core wakes on a pending interrupt), or, where that is not guaranteed (E906, `[SPEC-E906-IRQ-01]`), unmask immediately before `wfi` and have the trap entry return past that `wfi` when it interrupted it.
 * **Spawn Capacity**: `spawn()` returns `false` when every task slot holds a live task; it never drops a task silently.
 * **Verified by**: `host-tests` (`sim/test_abstractx_runtime.cpp`: idle policy, spawn capacity)
 * **Implementation Target**: `include/abstractx/abstractx.hpp`, `src/runtime.cpp`
@@ -70,6 +70,17 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: `Task<T>` MUST NOT store or propagate exceptions. An exception that escapes a coroutine body is a firmware bug: `unhandled_exception()` MUST report it through `abstractx::coro::set_unhandled_exception_hook()` (if set) and then stop with `__builtin_trap()`, so the target's trap handler records it (E906: `[SPEC-E906-CRASH-01]`, trace0). Errors that are expected at run time are returned as values (`Result`, status codes), not thrown.
 * **Completion callbacks** (used by `when_all` / `when_any`) MUST be a plain function pointer plus context pointer, not `std::function`.
 * **Verified by**: `host-tests` (`sim/test_coro_failures.cpp`), `memory-footprint` (no `_Unwind_*` / `__cxa_rethrow` symbols in the E906 and Pico 2 W ELFs)
+* **Implementation Target**: `include/asp_coro.hpp`
+
+### `[SPEC-ARCH-10]` Wake Primitives Never Resume Inline
+* **Requirement**: `AsyncQueue::try_push` / `try_pop`, `Event::set` and `Semaphore::release` MUST NOT call
+  `.resume()`. They hand the waiting handle to `Dispatcher::push()`; the waiter runs on the next
+  `Dispatcher::process()` (from `step()`), after the producer has returned.
+* **Rationale**: on 2026-10-21 the E906 RPMsg RX callback pushed a character into the REPL queue and
+  `try_push` resumed the REPL inline, so a MicroPython script ran inside `Rpmsg::poll()`: the vring
+  buffer was never returned, host kicks stayed disabled and Ctrl-C could not arrive. AGENTS §3 already
+  says `step()` is the sole context that resumes coroutines; these primitives broke it.
+* **Verified by**: `host-tests` (`sim/test_async_queue_deferred_resume.cpp`), `e906-board-selftest` (`test_ctrl_c_interrupts_running_script`)
 * **Implementation Target**: `include/asp_coro.hpp`
 
 ---

@@ -15,6 +15,7 @@ add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
 add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)
 add_abstractx_sim(test_coro_failures       test_coro_failures.cpp)
+add_abstractx_sim(test_async_queue_deferred_resume test_async_queue_deferred_resume.cpp)
 add_abstractx_sim(test_gps_imu_coro_pool   test_gps_imu_coro_pool.cpp)
 target_include_directories(test_gps_imu_coro_pool PRIVATE ${PROJECT_SOURCE_DIR}/apps/gps_imu_app/include)
 

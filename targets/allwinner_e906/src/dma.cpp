@@ -26,16 +26,14 @@ static std::array<DmaChannelState, DmaController::NUM_CHANNELS> g_channels{};
 
 } // namespace
 
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 void DmaController::init() noexcept {
     // Enable DMA bus gating and deassert reset in CCU
     Ccu::enable_module(Ccu::BusModule::McuDma);
 
-    // Disable all channel interrupts initially
-    DMA_IRQ_EN_REG0 = 0;
+    // Channels 0..7 belong to Linux (sun6i-dma on the same controller): touch only
+    // the E906's channels 8..15, i.e. register 1 ([SPEC-E906-HAL-01]).
     DMA_IRQ_EN_REG1 = 0;
-
-    // Clear all pending status
-    DMA_IRQ_STAT_REG0 = 0xFFFFFFFFU;
     DMA_IRQ_STAT_REG1 = 0xFFFFFFFFU;
 
     // Reset channel states
@@ -66,25 +64,22 @@ void DmaController::release_channel(uint8_t channel) noexcept {
     g_channels[channel].callback = {};
 }
 
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 bool DmaController::start_transfer(
     uint8_t channel,
     const DmaLli* lli_desc,
     CompletionCallback callback
 ) noexcept {
-    if (channel >= NUM_CHANNELS || !lli_desc) return false;
+    if (channel < DMA_START_CHANNEL || channel >= NUM_CHANNELS || !lli_desc) return false;
 
     abstractx::InterruptGuard guard;
     g_channels[channel].callback = callback;
 
-    // Clear any previous status for this channel
-    if (channel < 8) {
-        DMA_IRQ_STAT_REG0 = (0x0FU << (channel * 4));
-        DMA_IRQ_EN_REG0 |= (0x01U << (channel * 4)); // Package End interrupt
-    } else {
-        uint8_t ch_idx = channel - 8;
-        DMA_IRQ_STAT_REG1 = (0x0FU << (ch_idx * 4));
-        DMA_IRQ_EN_REG1 |= (0x01U << (ch_idx * 4)); // Package End interrupt
-    }
+    // Per-channel nibble: bit0 half package, bit1 package end, bit2 queue end.
+    // Interrupt on queue end (the whole LLI chain is done).
+    const uint8_t ch_idx = channel - 8;
+    DMA_IRQ_STAT_REG1 = (0x0FU << (ch_idx * 4));
+    DMA_IRQ_EN_REG1 |= (0x04U << (ch_idx * 4));
 
     // Load LLI descriptor physical address and start channel
     DMA_CHAN_LLI_ADDR_REG(channel) = reinterpret_cast<uint32_t>(lli_desc);
@@ -93,18 +88,16 @@ bool DmaController::start_transfer(
     return true;
 }
 
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 void DmaController::stop_transfer(uint8_t channel) noexcept {
     if (channel >= NUM_CHANNELS) return;
 
     abstractx::InterruptGuard guard;
     DMA_CHAN_ENABLE_REG(channel) = 0;
 
-    // Disable IRQ for channel
-    if (channel < 8) {
-        DMA_IRQ_EN_REG0 &= ~(0x0FU << (channel * 4));
-    } else {
-        uint8_t ch_idx = channel - 8;
-        DMA_IRQ_EN_REG1 &= ~(0x0FU << (ch_idx * 4));
+    // Disable IRQ for channel (E906 channels only)
+    if (channel >= DMA_START_CHANNEL) {
+        DMA_IRQ_EN_REG1 &= ~(0x0FU << ((channel - 8) * 4));
     }
 }
 
@@ -113,36 +106,17 @@ bool DmaController::is_busy(uint8_t channel) noexcept {
     return (DMA_CHAN_ENABLE_REG(channel) & 1) != 0;
 }
 
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 void DmaController::handle_irq() noexcept {
-    uint32_t stat0 = DMA_IRQ_STAT_REG0;
-    uint32_t stat1 = DMA_IRQ_STAT_REG1;
-
-    // Acknowledge all active interrupts
-    DMA_IRQ_STAT_REG0 = stat0;
+    // Only channels 8..15 are the E906's; acknowledging register 0 would steal
+    // Linux's completions ([SPEC-E906-HAL-01]).
+    const uint32_t stat1 = DMA_IRQ_STAT_REG1;
     DMA_IRQ_STAT_REG1 = stat1;
 
-    // Process channels 0..7
-    for (uint8_t ch = 0; ch < 8; ++ch) {
-        uint32_t ch_stat = (stat0 >> (ch * 4)) & 0x0F;
+    for (uint8_t ch = DMA_START_CHANNEL; ch < NUM_CHANNELS; ++ch) {
+        const uint32_t ch_stat = (stat1 >> ((ch - 8) * 4)) & 0x0F;
         if (ch_stat != 0) {
-            // Package End complete
-            bool success = (ch_stat & 0x01) != 0;
-            auto cb = g_channels[ch].callback;
-            g_channels[ch].callback = {};
-            // Disable channel enable bit
-            DMA_CHAN_ENABLE_REG(ch) = 0;
-            if (cb.is_valid()) {
-                cb(ch, success);
-            }
-        }
-    }
-
-    // Process channels 8..15
-    for (uint8_t ch = 8; ch < NUM_CHANNELS; ++ch) {
-        uint8_t ch_idx = ch - 8;
-        uint32_t ch_stat = (stat1 >> (ch_idx * 4)) & 0x0F;
-        if (ch_stat != 0) {
-            bool success = (ch_stat & 0x01) != 0;
+            const bool success = (ch_stat & 0x02) != 0 || (ch_stat & 0x04) != 0;  // package / queue end
             auto cb = g_channels[ch].callback;
             g_channels[ch].callback = {};
             DMA_CHAN_ENABLE_REG(ch) = 0;

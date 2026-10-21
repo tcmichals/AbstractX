@@ -214,7 +214,12 @@ void drain() {
 // PLIC was wrong here; the E906 uses the CLIC (comments are not code)
 void timer_isr() noexcept {
 }
-void irq_enable() { asm volatile("csrs mie, %0" :: "r"(1U << 11)); }
+void irq_enable() { hal::clic::enable(17); }
+void after_doorbell() {
+    if (take_doorbell()) {
+        rpmsg.poll();  // irq-gated: only after the message box interrupt
+    }
+}
 """
 
 
@@ -237,14 +242,14 @@ def test_interrupt_and_polling_rules_on_fixtures(tmp_path):
     bad = "targets/allwinner_e906/src/bad.cpp"
     _, found = _audit_snippets(tmp_path, {bad: BAD_E906})
     rules = sorted((r, n) for f, r, n in found if f == bad)
-    assert rules == [("DRIVER-POLL", 18), ("E906-NO-MEIE", 20), ("E906-PLIC", 19),
+    assert rules == [("DRIVER-POLL", 18), ("E906-NO-CLIC-ENABLE", 20), ("E906-PLIC", 19),
                      ("MMIO-SPIN", 4), ("MMIO-SPIN", 10), ("MMIO-SPIN", 16), ("MMIO-SPIN", 17)], rules
 
     with tempfile.TemporaryDirectory() as d:
         _, found = _audit_snippets(Path(d), {"targets/allwinner_e906/src/good.cpp": GOOD_E906})
         assert found == [], found
 
-    with tempfile.TemporaryDirectory() as d:  # PLIC and MEIE rules are E906-only
+    with tempfile.TemporaryDirectory() as d:  # PLIC and CLIC-enable rules are E906-only
         _, found = _audit_snippets(Path(d), {"targets/pico2w_rp2350/src/p.cpp": BAD_E906})
         assert sorted({r for _, r, _ in found}) == ["DRIVER-POLL", "MMIO-SPIN"], found
 

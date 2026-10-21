@@ -116,9 +116,6 @@ public:
     static void init_active(const struct rpmsg_resource_table *rsc) noexcept {
         get_active_driver()->init(rsc);
     }
-    static bool poll_active() noexcept {
-        return get_active_driver()->poll();
-    }
     static bool reply_active(const RpmsgMessage &msg, const void *payload, uint16_t len) noexcept {
         return get_active_driver()->reply(msg, payload, len);
     }
@@ -154,5 +151,12 @@ public:
     uint32_t get_mbox_full_waits() noexcept override;
     uint32_t get_host_kicks() noexcept override;
 };
+
+// Message box doorbell ([SPEC-E906-IRQ-04]): the ISR masks the level-triggered read
+// interrupt and sets a flag. take() returns and clears it; arm() unmasks after draining.
+bool rpmsg_take_doorbell() noexcept;
+void rpmsg_arm_doorbell() noexcept;
+bool rpmsg_doorbell_pending() noexcept;
+uint32_t rpmsg_doorbell_irqs() noexcept;
 
 } // namespace hal

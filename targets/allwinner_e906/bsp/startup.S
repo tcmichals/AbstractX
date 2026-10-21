@@ -3,13 +3,14 @@
  */
 
     .section .vectors, "ax", @progbits
-    .align 4
+    /* CLIC mode needs a 64-byte aligned mtvec base ([SPEC-E906-IRQ-01]) */
+    .balign 64
     .global default_trap_entry
     .type default_trap_entry, @function
 
 /*
  * =====================================================================
- * Direct Mode Trap Entry Point
+ * Trap Entry Point (CLIC non-vectored mode: every trap lands here)
  * =====================================================================
  */
 default_trap_entry:
@@ -67,6 +68,15 @@ default_trap_entry:
     sw t0,  124(sp)
     csrr t0, mcause
     sw t0,  128(sp)
+    /* Trap entries in g_e906_diag[11], raw mcause in [12], mepc in [13]: readable from
+     * Linux with devmem when the core is stuck (irq_dispatcher.cpp) */
+    la t1, g_e906_diag
+    lw t2, 44(t1)
+    addi t2, t2, 1
+    sw t2, 44(t1)
+    sw t0, 48(t1)
+    lw t2, 124(sp)
+    sw t2, 52(t1)
     csrr t0, mtval
     sw t0,  132(sp)
     csrr t0, mstatus
@@ -78,38 +88,38 @@ default_trap_entry:
      * caller-saved FP registers (ft0-ft11, fa0-fa7).
      * @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md
      * ----------------------------------------------------------------- */
-    fsd f0,  144(sp)
-    fsd f1,  152(sp)
-    fsd f2,  160(sp)
-    fsd f3,  168(sp)
-    fsd f4,  176(sp)
-    fsd f5,  184(sp)
-    fsd f6,  192(sp)
-    fsd f7,  200(sp)
-    fsd f8,  208(sp)
-    fsd f9,  216(sp)
-    fsd f10, 224(sp)
-    fsd f11, 232(sp)
-    fsd f12, 240(sp)
-    fsd f13, 248(sp)
-    fsd f14, 256(sp)
-    fsd f15, 264(sp)
-    fsd f16, 272(sp)
-    fsd f17, 280(sp)
-    fsd f18, 288(sp)
-    fsd f19, 296(sp)
-    fsd f20, 304(sp)
-    fsd f21, 312(sp)
-    fsd f22, 320(sp)
-    fsd f23, 328(sp)
-    fsd f24, 336(sp)
-    fsd f25, 344(sp)
-    fsd f26, 352(sp)
-    fsd f27, 360(sp)
-    fsd f28, 368(sp)
-    fsd f29, 376(sp)
-    fsd f30, 384(sp)
-    fsd f31, 392(sp)
+    fsw f0,  144(sp)
+    fsw f1,  152(sp)
+    fsw f2,  160(sp)
+    fsw f3,  168(sp)
+    fsw f4,  176(sp)
+    fsw f5,  184(sp)
+    fsw f6,  192(sp)
+    fsw f7,  200(sp)
+    fsw f8,  208(sp)
+    fsw f9,  216(sp)
+    fsw f10, 224(sp)
+    fsw f11, 232(sp)
+    fsw f12, 240(sp)
+    fsw f13, 248(sp)
+    fsw f14, 256(sp)
+    fsw f15, 264(sp)
+    fsw f16, 272(sp)
+    fsw f17, 280(sp)
+    fsw f18, 288(sp)
+    fsw f19, 296(sp)
+    fsw f20, 304(sp)
+    fsw f21, 312(sp)
+    fsw f22, 320(sp)
+    fsw f23, 328(sp)
+    fsw f24, 336(sp)
+    fsw f25, 344(sp)
+    fsw f26, 352(sp)
+    fsw f27, 360(sp)
+    fsw f28, 368(sp)
+    fsw f29, 376(sp)
+    fsw f30, 384(sp)
+    fsw f31, 392(sp)
     frcsr t0
     sw t0,   400(sp)
 
@@ -140,43 +150,49 @@ default_trap_entry:
     /* Restore Floating-Point Registers f0..f31 and fcsr */
     lw t0, 400(sp)
     fscsr t0
-    fld f0,  144(sp)
-    fld f1,  152(sp)
-    fld f2,  160(sp)
-    fld f3,  168(sp)
-    fld f4,  176(sp)
-    fld f5,  184(sp)
-    fld f6,  192(sp)
-    fld f7,  200(sp)
-    fld f8,  208(sp)
-    fld f9,  216(sp)
-    fld f10, 224(sp)
-    fld f11, 232(sp)
-    fld f12, 240(sp)
-    fld f13, 248(sp)
-    fld f14, 256(sp)
-    fld f15, 264(sp)
-    fld f16, 272(sp)
-    fld f17, 280(sp)
-    fld f18, 288(sp)
-    fld f19, 296(sp)
-    fld f20, 304(sp)
-    fld f21, 312(sp)
-    fld f22, 320(sp)
-    fld f23, 328(sp)
-    fld f24, 336(sp)
-    fld f25, 344(sp)
-    fld f26, 352(sp)
-    fld f27, 360(sp)
-    fld f28, 368(sp)
-    fld f29, 376(sp)
-    fld f30, 384(sp)
-    fld f31, 392(sp)
+    flw f0,  144(sp)
+    flw f1,  152(sp)
+    flw f2,  160(sp)
+    flw f3,  168(sp)
+    flw f4,  176(sp)
+    flw f5,  184(sp)
+    flw f6,  192(sp)
+    flw f7,  200(sp)
+    flw f8,  208(sp)
+    flw f9,  216(sp)
+    flw f10, 224(sp)
+    flw f11, 232(sp)
+    flw f12, 240(sp)
+    flw f13, 248(sp)
+    flw f14, 256(sp)
+    flw f15, 264(sp)
+    flw f16, 272(sp)
+    flw f17, 280(sp)
+    flw f18, 288(sp)
+    flw f19, 296(sp)
+    flw f20, 304(sp)
+    flw f21, 312(sp)
+    flw f22, 320(sp)
+    flw f23, 328(sp)
+    flw f24, 336(sp)
+    flw f25, 344(sp)
+    flw f26, 352(sp)
+    flw f27, 360(sp)
+    flw f28, 368(sp)
+    flw f29, 376(sp)
+    flw f30, 384(sp)
+    flw f31, 392(sp)
 
     /* Restore CSRs */
     lw t0, 136(sp)
     csrw mstatus, t0
     lw t0, 124(sp)
+    /* An interrupt taken on the idle wfi returns past it, so work it posted is
+     * never slept through ([SPEC-ARCH-06], platform_idle_wait). */
+    la t1, e906_idle_wfi
+    bne t0, t1, 1f
+    addi t0, t0, 4
+1:
     csrw mepc, t0
 
     /* Restore all GPRs */
@@ -240,14 +256,16 @@ _start:
     la gp, __global_pointer$
 .option pop
 
-    /* 
-     * 4. Set mtvec CSR to Direct Mode Trap Handler 
+    /*
+     * 4. mtvec = trap entry, MODE = 3 (T-Head CLIC, non-vectored). In direct
+     *    mode no CLIC line is delivered. @impl [SPEC-E906-IRQ-01] targets/allwinner_e906/SPECIFICATION.md
      */
     la t0, default_trap_entry
+    ori t0, t0, 3
     csrw mtvec, t0
 
     /* 
-     * 5. Enable FPU (mstatus.FS = 0b11) for hardware float/double.
+     * 5. Enable FPU (mstatus.FS = 0b11): single precision only, the E906 has no D.
      * Note: If running on an RV32IMAC core without FPU, remove this block
      * or ensure compiler flags match -march=rv32imac -mabi=ilp32.
      */

@@ -49,7 +49,7 @@ struct CrashFrame {
     // Floating Point Registers f0..f31 (RV32IMAFDC 64-bit double precision, ilp32d)
     // @impl [SPEC-E906-CRASH-01] targets/allwinner_e906/SPECIFICATION.md
     uint32_t _reserved; // offset 140 (padding to 8-byte boundary for f0)
-    uint64_t f[32];     // offsets 144..399 (256 bytes)
+    uint64_t f[32];     // offsets 144..399; single-precision f-regs in the low word (no D on the E906)
     uint32_t fcsr;      // offset 400
     uint32_t _pad[3];   // offsets 404..415 (padding to 16-byte stack frame alignment)
 };
