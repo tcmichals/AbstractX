@@ -382,17 +382,29 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         # ----------------------------------------------------------------------
         imgui.begin_group()
         is_streaming = get_bridge_status()
+        b_ip = getattr(state, "board_ip", "192.168.3.3")
+        h_ip = getattr(state, "host_ip", "192.168.3.1")
+        u_port = getattr(state, "udp_port", 9870)
         if not is_streaming:
             imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.1, 0.65, 0.25, 1.0))
             imgui.push_style_color(imgui.Col_.button_hovered, imgui.ImVec4(0.15, 0.75, 0.3, 1.0))
-            if imgui.button("▶ Connect Board (192.168.3.3)##nav_connect", imgui.ImVec2(280, 32)):
-                start_board_bridge()
-                state.add_log("BRIDGE", "SSH", "Started live sensor streaming from XuanTie E906 (192.168.3.3)")
+            if imgui.button(f"▶ Connect Board ({b_ip})##nav_connect", imgui.ImVec2(280, 32)):
+                start_board_bridge(b_ip, h_ip, u_port)
+                state.add_log("BRIDGE", "SSH", f"Started live sensor streaming from XuanTie E906 ({b_ip})")
             imgui.pop_style_color(2)
         else:
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.15, 0.5, 0.85, 1.0))
+            imgui.push_style_color(imgui.Col_.button_hovered, imgui.ImVec4(0.2, 0.6, 0.95, 1.0))
+            if imgui.button(f"🔄 Reconnect##nav_reconnect", imgui.ImVec2(130, 32)):
+                stop_board_bridge()
+                time.sleep(0.2)
+                start_board_bridge(b_ip, h_ip, u_port)
+                state.add_log("BRIDGE", "SSH", f"Reconnected live streaming to {b_ip}")
+            imgui.pop_style_color(2)
+            imgui.same_line(0, 8)
             imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.2, 0.2, 1.0))
             imgui.push_style_color(imgui.Col_.button_hovered, imgui.ImVec4(0.95, 0.3, 0.3, 1.0))
-            if imgui.button("⏹ Disconnect Board##nav_disconnect", imgui.ImVec2(240, 32)):
+            if imgui.button("⏹ Disconnect##nav_disconnect", imgui.ImVec2(140, 32)):
                 stop_board_bridge()
                 state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
             imgui.pop_style_color(2)

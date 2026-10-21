@@ -71,6 +71,9 @@ class TelemetryState:
         self.discarded_events = 0
 
         # Source & Pipeline status
+        self.board_ip = "192.168.3.3"
+        self.host_ip = "192.168.3.1"
+        self.udp_port = 9870
         self.source_mode = "STANDBY (Waiting on UDP :9870)"
         self.fpga_trace = "Pipeline: Idle | Zero-Copy SPSC Rings Ready"
 
@@ -1235,34 +1238,87 @@ def _setup_studio_style():
     style.set_color_(imgui.Col_.title_bg, imgui.ImVec4(0.12, 0.16, 0.22, 1.0))
     style.set_color_(imgui.Col_.title_bg_active, imgui.ImVec4(0.18, 0.28, 0.42, 1.0))
 
-def _render_status_bar():
-    """Renders bottom status bar with quick dynamic window layout presets, reset, and canvas pop-out."""
-    if g_state.connected:
-        imgui.text_colored(imgui.ImVec4(0.1, 0.9, 0.2, 1.0), " [ONLINE] ")
-    else:
-        imgui.text_colored(imgui.ImVec4(0.9, 0.2, 0.1, 1.0), " [OFFLINE / WAITING :9870] ")
-
-    imgui.same_line()
+def _render_connection_bar(prefix: str = "core"):
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    Renders unified hardware connection and live UDP streaming toolbar.
+    Provides clear status, IP/Port inputs, Connect, Disconnect, and Reconnect controls.
+    """
     try:
         from flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
     except ImportError:
         from tools.visualizer.flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
 
-    if not get_bridge_status():
-        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.1, 0.65, 0.3, 1.0))
-        if imgui.button("▶ Connect Board (192.168.3.3)##status"):
-            start_board_bridge()
-            g_state.add_log("BRIDGE", "SSH", "Started live sensor streaming from XuanTie E906 (192.168.3.3)")
-        imgui.pop_style_color()
+    is_bridge_running = get_bridge_status()
+    is_live = g_state.connected and g_state.fps_packet_rate > 0
+
+    imgui.begin_group()
+    # Status Badge
+    if is_live:
+        imgui.text_colored(imgui.ImVec4(0.1, 0.95, 0.3, 1.0), "● STREAMING")
+    elif is_bridge_running:
+        imgui.text_colored(imgui.ImVec4(0.95, 0.8, 0.1, 1.0), "◌ BRIDGE CONNECTED")
     else:
+        imgui.text_colored(imgui.ImVec4(0.95, 0.3, 0.2, 1.0), "○ DISCONNECTED")
+
+    imgui.same_line(0, 10)
+    # Editable Board IP and Host IP / Port
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Board:")
+    imgui.same_line(0, 4)
+    imgui.push_item_width(110)
+    _, g_state.board_ip = imgui.input_text(f"##board_ip_{prefix}", g_state.board_ip)
+    imgui.pop_item_width()
+
+    imgui.same_line(0, 8)
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Host UDP:")
+    imgui.same_line(0, 4)
+    imgui.push_item_width(110)
+    _, g_state.host_ip = imgui.input_text(f"##host_ip_{prefix}", g_state.host_ip)
+    imgui.pop_item_width()
+
+    imgui.same_line(0, 4)
+    imgui.text(":")
+    imgui.same_line(0, 4)
+    imgui.push_item_width(55)
+    _, g_state.udp_port = imgui.input_int(f"##udp_port_{prefix}", g_state.udp_port, 0, 0)
+    imgui.pop_item_width()
+
+    imgui.same_line(0, 12)
+    # Connect button
+    if not is_bridge_running:
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.1, 0.68, 0.3, 1.0))
+        imgui.push_style_color(imgui.Col_.button_hovered, imgui.ImVec4(0.15, 0.8, 0.35, 1.0))
+        if imgui.button(f"▶ Connect Board##btn_conn_{prefix}"):
+            start_board_bridge(g_state.board_ip, g_state.host_ip, g_state.udp_port)
+            g_state.add_log("BRIDGE", "SSH", f"Started live sensor streaming from {g_state.board_ip} to {g_state.host_ip}:{g_state.udp_port}")
+        imgui.pop_style_color(2)
+    else:
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.15, 0.5, 0.85, 1.0))
+        imgui.push_style_color(imgui.Col_.button_hovered, imgui.ImVec4(0.2, 0.6, 0.95, 1.0))
+        if imgui.button(f"🔄 Reconnect##btn_reconn_{prefix}"):
+            stop_board_bridge()
+            time.sleep(0.2)
+            start_board_bridge(g_state.board_ip, g_state.host_ip, g_state.udp_port)
+            g_state.add_log("BRIDGE", "SSH", f"Reconnected live streaming to {g_state.board_ip}")
+        imgui.pop_style_color(2)
+
+        imgui.same_line(0, 6)
         imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.2, 0.2, 1.0))
-        if imgui.button("⏹ Disconnect Board##status"):
+        imgui.push_style_color(imgui.Col_.button_hovered, imgui.ImVec4(0.95, 0.3, 0.3, 1.0))
+        if imgui.button(f"⏹ Disconnect##btn_disc_{prefix}"):
             stop_board_bridge()
             g_state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
-        imgui.pop_style_color()
+        imgui.pop_style_color(2)
 
-    imgui.same_line()
-    imgui.text(f"| Platform: {g_state.platform_name} | Packets: {g_state.packet_count:,} | Rate: {g_state.fps_packet_rate} pkts/s | Dynamic Heap: 0 B")
+    imgui.same_line(0, 14)
+    imgui.text_colored(imgui.ImVec4(0.7, 0.8, 0.9, 1.0), f"| Packets: {g_state.packet_count:,} ({g_state.fps_packet_rate} pkts/s)")
+    imgui.end_group()
+
+def _render_status_bar():
+    """Renders bottom status bar with quick dynamic window layout presets, reset, and canvas pop-out."""
+    _render_connection_bar("status")
+    imgui.same_line(0, 15)
+    imgui.text(f"| Platform: {g_state.platform_name} | Heap: 0 B")
     imgui.same_line()
     if imgui.small_button("MemBrowse CI: 0 B Heap (Pass)"):
         g_state.requested_studio_tab = "memory"
@@ -2412,27 +2468,44 @@ def _render_anomaly_drill_down_modal():
 
         imgui.end_popup()
 
+def is_tool_rendered_externally(key: str) -> bool:
+    """Returns True if the tool is actively visible in a dedicated dock window or floating canvas."""
+    if g_state.canvas_windows.get(key, False):
+        return True
+    w = g_dockable_windows.get(key)
+    if w is not None and w.is_visible:
+        return True
+    return False
+
 def _render_popped_tab_placeholder(display_name: str, key: str, window_title: str):
-    """Renders an interactive placeholder when a diagnostic tab is popped out onto the canvas."""
-    imgui.dummy(imgui.ImVec2(1, 20))
+    """Renders an interactive placeholder when a diagnostic tab is popped out or active in a dedicated window."""
+    imgui.dummy(imgui.ImVec2(1, 16))
     imgui.push_style_color(imgui.Col_.child_bg, imgui.ImVec4(0.08, 0.12, 0.18, 0.95))
-    imgui.begin_child(f"PoppedPlaceholder_{key}", imgui.ImVec2(-1, 200), True)
-    imgui.text_colored(imgui.ImVec4(0.3, 0.85, 1.0, 1.0), f"🗖 {display_name} Active as Movable Canvas Window")
+    imgui.begin_child(f"PoppedPlaceholder_{key}", imgui.ImVec2(-1, 160), True)
+
+    is_canvas = g_state.canvas_windows.get(key, False)
+    mode_desc = "Movable Floating Canvas Window" if is_canvas else "Dedicated Window"
+    imgui.text_colored(imgui.ImVec4(0.3, 0.85, 1.0, 1.0), f"🗖 {display_name} Active in {mode_desc}")
     imgui.separator()
     imgui.spacing()
-    imgui.text("This diagnostic tool has been detached and is currently running as a movable floating window.")
-    imgui.text("You can drag it anywhere across your desktop canvas, place it side-by-side with other tools,")
-    imgui.text("or layer it on top of the workbench.")
-    imgui.dummy(imgui.ImVec2(1, 14))
+    imgui.text("This diagnostic tool is currently open in its dedicated window to eliminate duplicate controls and clutter.")
+    imgui.text("You can view it in its dedicated window, or click below to embed it directly inside this tab.")
+    imgui.dummy(imgui.ImVec2(1, 12))
     if imgui.button(f"Bring {display_name} to Front##focus_{key}"):
         try:
-            imgui.set_window_focus(f"{window_title}##CanvasWin")
+            if is_canvas:
+                imgui.set_window_focus(f"{window_title}##CanvasWin")
+            else:
+                imgui.set_window_focus(display_name)
         except Exception:
             pass
     imgui.same_line(0, 16)
     imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
-    if imgui.button(f"🗗 Pop In (Dock back to Studio Tab)##dock_{key}"):
+    if imgui.button(f"🗗 Embed into this Studio Tab##dock_{key}"):
         g_state.canvas_windows[key] = False
+        w = g_dockable_windows.get(key)
+        if w:
+            w.is_visible = False
     imgui.pop_style_color()
     imgui.end_child()
     imgui.pop_style_color()
@@ -2440,19 +2513,8 @@ def _render_popped_tab_placeholder(display_name: str, key: str, window_title: st
 def _render_floating_canvas_windows():
     """
     Renders popped-out floating canvas windows directly onto the desktop workspace.
-    Enables the user to position and move multiple diagnostic tools side-by-side or stacked,
-    while the USER Flight Instruments float on top of AbstractX Studio.
+    Enables the user to position and move multiple diagnostic tools side-by-side or stacked.
     """
-    # 1. On startup: ensure User Domain Instruments is undocked to float as its own canvas window
-    if not g_state.user_canvas_floated_on_startup:
-        ctx = imgui.get_current_context()
-        if ctx:
-            win = imgui.internal.find_window_by_name("User Domain Instruments")
-            if win:
-                imgui.internal.dock_context_queue_undock_window(ctx, win)
-                imgui.set_window_size("User Domain Instruments", imgui.ImVec2(1040, 720), imgui.Cond_.always)
-                imgui.set_window_pos("User Domain Instruments", imgui.ImVec2(480, 70), imgui.Cond_.always)
-                g_state.user_canvas_floated_on_startup = True
 
     # 2. Coroutine State & Suspension Inspector Floating Window
     if g_state.canvas_windows.get("coro", False):
@@ -2704,6 +2766,8 @@ def _render_core_studio_window():
     imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Unified engineering workspace")
     imgui.end_group()
     imgui.separator()
+    _render_connection_bar("core")
+    imgui.separator()
 
     # Handle requested window activations for TLP / Log
     if g_state.requested_studio_tab == "tlp":
@@ -2744,28 +2808,28 @@ def _render_core_studio_window():
     if imgui.begin_tab_bar("CoreStudioTabBar"):
         # Tab 1: Coroutine Inspector (C++20 first - the primary diagnostic surface)
         if imgui.begin_tab_item("Coroutine Inspector", None, flag_coro)[0]:
-            if g_state.canvas_windows.get("coro", False):
+            if is_tool_rendered_externally("coro"):
                 _render_popped_tab_placeholder("Coroutine Inspector", "coro", "Coroutine State & Suspension Inspector")
             else:
                 _render_coroutine_inspector()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("CPU Gauges & Topology", None, flag_cpu)[0]:
-            if g_state.canvas_windows.get("cpu", False):
+            if is_tool_rendered_externally("cpu"):
                 _render_popped_tab_placeholder("CPU Gauges & Topology", "cpu", "Silicon Cores & CPU Gauges")
             else:
                 _render_core_cpu_and_topology()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("TLP Bus Debugger", None, flag_tlp)[0]:
-            if g_state.canvas_windows.get("tlp", False):
+            if is_tool_rendered_externally("tlp"):
                 _render_popped_tab_placeholder("TLP Bus Debugger", "tlp", "TLP Bus Debugger")
             else:
                 _render_tlp_debugger_window()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("System Event Log", None, flag_log)[0]:
-            if g_state.canvas_windows.get("log", False):
+            if is_tool_rendered_externally("log"):
                 _render_popped_tab_placeholder("System Event Log", "log", "System Event Log")
             else:
                 _render_event_log_window()
@@ -2776,35 +2840,35 @@ def _render_core_studio_window():
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Simple Trace Viewer", None, flag_trace)[0]:
-            if g_state.canvas_windows.get("trace", False):
+            if is_tool_rendered_externally("trace"):
                 _render_popped_tab_placeholder("Simple Trace Viewer", "trace", "Simple Trace Viewer")
             else:
                 _render_simple_trace_view()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Dual-Plane Timeline", None, flag_timeline)[0]:
-            if g_state.canvas_windows.get("timeline", False):
+            if is_tool_rendered_externally("timeline"):
                 _render_popped_tab_placeholder("Dual-Plane Timeline", "timeline", "Dual-Plane Coroutine Timeline")
             else:
                 _render_core_timeline()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Source Code & RTL Inspector", None, flag_source)[0]:
-            if g_state.canvas_windows.get("source", False):
+            if is_tool_rendered_externally("source"):
                 _render_popped_tab_placeholder("Source Code & RTL Inspector", "source", "Source Code & RTL Inspector")
             else:
                 _render_source_inspector_window()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("FPGA Peripherals", None, flag_fpga)[0]:
-            if g_state.canvas_windows.get("fpga", False):
+            if is_tool_rendered_externally("fpga"):
                 _render_popped_tab_placeholder("FPGA Peripherals", "fpga", "FPGA & Hardware Peripherals")
             else:
                 _render_fpga_peripherals_window()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("MemBrowse CI Report", None, flag_memory)[0]:
-            if g_state.canvas_windows.get("memory", False):
+            if is_tool_rendered_externally("memory"):
                 _render_popped_tab_placeholder("MemBrowse CI Report", "memory", "Memory & MemBrowse CI Tracker")
             else:
                 _render_level1_memory()
@@ -2813,7 +2877,7 @@ def _render_core_studio_window():
         # Tab 11: Interactive CLI Console & MicroPython Hardware REPL
         # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
         if imgui.begin_tab_item("CLI Console & REPL", None, flag_cli)[0]:
-            if g_state.canvas_windows.get("cli", False):
+            if is_tool_rendered_externally("cli"):
                 _render_popped_tab_placeholder("CLI Console & REPL", "cli", "Interactive CLI Console & Hardware REPL")
             else:
                 _render_cli_console()
@@ -3361,17 +3425,22 @@ def render_gui():
 def main():
     global g_initial_tab
     parser = argparse.ArgumentParser(description="AbstractX Visualizer Studio Workbench")
-    parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT, help="UDP listening port")
+    parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT, help="UDP listening port (default: 9870)")
+    parser.add_argument("--board-ip", type=str, default="192.168.3.3", help="Target board IP address (default: 192.168.3.3)")
+    parser.add_argument("--host-ip", type=str, default="192.168.3.1", help="Studio host IP address for UDP telemetry (default: 192.168.3.1)")
     parser.add_argument("--sim", action="store_true", help="Run with synthetic flight & telemetry generator")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],
                         help="Initial tab to display in single-window mode")
-    parser.add_argument("--auto-connect", action="store_true", default=True,
-                        help="Auto-start live telemetry bridge to physical board (default: True)")
-    parser.add_argument("--no-auto-connect", action="store_false", dest="auto_connect",
-                        help="Disable automatic live telemetry bridge connection")
+    parser.add_argument("--viewports", action="store_true", default=False,
+                        help="Enable experimental multi-viewport secondary OS windows")
+    parser.add_argument("--auto-connect", action="store_true", default=False,
+                        help="Auto-start live telemetry bridge to physical board on launch")
     args = parser.parse_args()
 
     g_initial_tab = args.tab
+    g_state.board_ip = args.board_ip
+    g_state.host_ip = args.host_ip
+    g_state.udp_port = args.port
 
     import atexit
     try:
@@ -3382,8 +3451,8 @@ def main():
     atexit.register(stop_board_bridge)
 
     if not args.sim and args.auto_connect:
-        start_board_bridge()
-        g_state.add_log("BRIDGE", "SSH", "Auto-started live sensor streaming from XuanTie E906 (192.168.3.3)")
+        start_board_bridge(args.board_ip, args.host_ip, args.port)
+        g_state.add_log("BRIDGE", "SSH", f"Auto-started live sensor streaming from XuanTie E906 ({args.board_ip})")
 
     # Start UDP receiver background thread
     recv_thread = threading.Thread(target=udp_receiver_thread, args=(args.port, args.sim), daemon=True)
@@ -3488,10 +3557,41 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
 
     runner_params.docking_params.docking_splits = [split_left, split_bottom, split_bottom_log]
     runner_params.docking_params.dockable_windows = [win_core, win_user, win_tlp, win_log, win_source, win_fpga]
+    runner_params.callbacks.show_menus = _render_studio_menus
     runner_params.callbacks.show_status = _render_status_bar
     runner_params.callbacks.setup_imgui_style = _setup_studio_style
     runner_params.callbacks.post_render_dockable_windows = _render_floating_canvas_windows
     return runner_params
+
+def _render_studio_menus():
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    Renders top menu bar items for hardware connection and live telemetry control.
+    """
+    if imgui.begin_menu("Connection"):
+        try:
+            from flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
+        except ImportError:
+            from tools.visualizer.flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
+
+        is_bridge = get_bridge_status()
+        if not is_bridge:
+            if imgui.menu_item(f"▶ Connect Board ({g_state.board_ip}:{g_state.udp_port})")[0]:
+                start_board_bridge(g_state.board_ip, g_state.host_ip, g_state.udp_port)
+                g_state.add_log("BRIDGE", "SSH", f"Started live sensor streaming from {g_state.board_ip}")
+        else:
+            if imgui.menu_item(f"🔄 Reconnect Board ({g_state.board_ip})")[0]:
+                stop_board_bridge()
+                time.sleep(0.2)
+                start_board_bridge(g_state.board_ip, g_state.host_ip, g_state.udp_port)
+                g_state.add_log("BRIDGE", "SSH", f"Reconnected live streaming to {g_state.board_ip}")
+            if imgui.menu_item("⏹ Disconnect Board")[0]:
+                stop_board_bridge()
+                g_state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
+        imgui.separator()
+        imgui.menu_item(f"Target: {g_state.board_model} ({g_state.board_ip})", "", False, False)
+        imgui.menu_item(f"Host UDP Port: {g_state.udp_port}", "", False, False)
+        imgui.end_menu()
 
 if __name__ == "__main__":
     main()
