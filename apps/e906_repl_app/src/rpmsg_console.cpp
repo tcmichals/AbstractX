@@ -19,7 +19,9 @@ RpmsgConsole::RpmsgConsole(::hal::IRpmsg &rpmsg) noexcept
 void RpmsgConsole::init() noexcept {
     // @impl [SPEC-E906-REPL-05] apps/e906_repl_app/SPECIFICATION.md
     m_rpmsg.register_endpoint(REPL_ENDPOINT_ADDR, rx_callback, this);
-    m_rpmsg.announce_service("abstractx-repl", REPL_ENDPOINT_ADDR);
+    // Announcement is retried from poll() once the host virtio driver is ready.
+    m_announced = m_rpmsg.is_driver_ready() &&
+                  m_rpmsg.announce_service("abstractx-repl", REPL_ENDPOINT_ADDR);
 }
 
 void RpmsgConsole::rx_callback(const ::hal::RpmsgMessage &msg, void *user_data) noexcept {

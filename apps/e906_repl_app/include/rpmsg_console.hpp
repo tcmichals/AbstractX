@@ -73,7 +73,11 @@ public:
     void flush() noexcept;
 
     // Poll RPMsg transport to process incoming packets from host during VM execution
+    // @impl [SPEC-E906-REPL-05] apps/e906_repl_app/SPECIFICATION.md
     void poll() noexcept {
+        if (!m_announced && m_rpmsg.is_driver_ready()) {
+            m_announced = m_rpmsg.announce_service("abstractx-repl", REPL_ENDPOINT_ADDR);
+        }
         (void)m_rpmsg.poll();
     }
 
@@ -87,6 +91,7 @@ private:
     size_t m_out_len{0};
     uint32_t m_host_addr{0};
     bool m_host_known{false};
+    bool m_announced{false};
 };
 
 // Global singleton instance for MicroPython HAL bridging

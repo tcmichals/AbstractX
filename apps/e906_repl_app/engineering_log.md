@@ -764,3 +764,21 @@ In AbstractX, all real-time observability, telemetry, and peripheral communicati
   - Deployed updated firmware `e906_repl_app.elf` and restarted RemoteProc0.
   - Verified autonomous timeout: halting host bridge causes E906 to detect silence and autonomously print `[E906_WATCHDOG_TIMEOUT_SHUTDOWN]` within 3 seconds, gracefully returning to REPL idle.
   - Verified zero kernel messages in `dmesg` after shutdown.
+
+---
+
+### 15. E906 emitted no TLP/trace (REPL text only); REPL announce race; node-selection bug
+* **Date**: 2026-10-20
+* **Category**: `product-bug` (x3), `process-gap` (x2), `false-alarm` (x1)
+* **Subsystem**: E906 REPL firmware, `modabstractx.c`, `mphalport.cpp`, `rpmsg_console`, `run_e906_script.py`, `e906_rpmsg_bridge.py`, `board_studio_bridge.py`
+* **Governing Requirements**: `[SPEC-E906-REPL-05]`, `[SPEC-E906-REPL-07]`, `[SPEC-E906-REPL-08]`, `[SPEC-E906-REPL-10]`
+* **What was missed (and why checks did not catch it)**:
+  1. **No TLP/trace from MicroPython** (`product-bug`): `[SPEC-E906-REPL-10]` named `abstractx.tlp_push/tlp_send_nav`, `[SPEC-E906-REPL-07]` required CTF trace, but `modabstractx.c` had neither. `raw_sensor_streamer.py` sent sensor data as *hex text on the REPL channel* (violating `[SPEC-E906-REPL-08]` plane isolation) and `board_studio_bridge.py` fabricated TLPs on the host. `audit_specs.py` only checks tags (they were present on the spec, not the missing code) and no test ran on silicon. Earlier checkout (`test_board_system_checkout.py`) passed because it only looked at the host-synthesised TLPs: **it was a false pass** (`process-gap`).
+  2. **REPL never announced after reboot** (`product-bug`): `RpmsgConsole::init()` announced `abstractx-repl` once, before Linux's virtio driver was online, so no endpoint appeared (`dmesg` listed only tlp/trace). Fix: announcement retried from `RpmsgConsole::poll()`; main loop now calls `s_console.poll()`.
+  3. **Any `/dev/rpmsgN` assumed to be the REPL** (`product-bug`): `run_e906_script.py`, `board_studio_bridge.py` (`fuser -k /dev/rpmsg0`) picked the first node, so a TLP/trace bridge could hijack the REPL or be killed. `e906_rpmsg_bridge.py` diffed `/dev` to find its node (racy). Fix: select by `/sys/class/rpmsg/*/name`.
+  4. **`bytearray` missing** (`product-bug`): `MICROPY_CONFIG_ROM_LEVEL_MINIMUM` has no bytearray, so TLP buffers could not be built in Python. Enabled `MICROPY_PY_BUILTINS_BYTEARRAY`.
+  5. **SRAM_FAST overflow** (`hardware-fact`): adding the bindings overflowed the 192 KB region by 1488 B. Fix: build the app with `-Os` (text 170 KB -> 131 KB). An override of `ABSTRACTX_CORO_POOL_SIZE` in the app was tried and reverted (ODR mismatch with the target's definition).
+  6. **Entry 14 claimed "zero kernel messages after shutdown"** (`false-alarm` correction): measured 6 `no recipient` per `run_e906_script.py` run (REPL teardown output after the host closes its fd) and 2 more per TLP/trace run; idle is silent (0 in 5 s). It is a bounded teardown tail, not a flood. Test asserts `<16` per run and `0` idle.
+* **Fix / checks added**: `abstractx.tlp_send(buf)` / `tlp_push` / `tlp_dropped()` / `trace(id,state,msg)`; `tools/test_e906_repl_system.py` (announce x3, REPL text, 10/10 64-byte TLPs with payload sequence, CTF trace datagrams, plane isolation, `no recipient` bounded and idle-silent), ledger check `board:e906:repl-system`.
+* **Evidence**: before fix (run 1, firmware freshly flashed): `SENT=10 DROPPED=10`, 0 TLPs; after endpoint-by-name fix and clean firmware restart: `SENT=10 DROPPED=0`, 10/10 TLPs, 10 trace datagrams.
+* **Open**: `raw_sensor_streamer.py` / `board_studio_bridge.py` still use the text path; migrating them to `abstractx.tlp_send` + the TLP bridge is next. First-run `DROPPED=10` (stale endpoint nodes, host address unknown until `helo`) needs a "host connected" query so scripts can wait instead of dropping.

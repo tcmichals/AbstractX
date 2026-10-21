@@ -45,9 +45,22 @@ EPT_INFO = struct.Struct("<32sII")
 RPMSG_CREATE_EPT_IOCTL = (1 << 30) | (EPT_INFO.size << 16) | (0xB5 << 8) | 0x1  # _IOW(0xb5, 1, ...)
 
 
+def find_node(name: str):
+    """/dev/rpmsgN whose sysfs endpoint name matches (race-free vs. diffing /dev)."""
+    for d in sorted(glob.glob("/sys/class/rpmsg/rpmsg[0-9]*")):
+        try:
+            if open(d + "/name").read().strip() == name:
+                return "/dev/" + os.path.basename(d)
+        except OSError:
+            pass
+    return None
+
+
 def create_endpoint(ctrl_path: str, name: str, addr: int, settle_s: float = 0.05) -> str:
-    """Create an endpoint through the rpmsg control device; return the new /dev/rpmsgN."""
-    before = set(glob.glob("/dev/rpmsg[0-9]*"))
+    """Create an endpoint through the rpmsg control device; return its /dev/rpmsgN."""
+    existing = find_node(name)
+    if existing:
+        return existing
     info = EPT_INFO.pack(name.encode()[:31], addr, addr)
     fd = os.open(ctrl_path, os.O_RDWR)
     try:
@@ -56,12 +69,12 @@ def create_endpoint(ctrl_path: str, name: str, addr: int, settle_s: float = 0.05
         os.close(fd)
     deadline = time.monotonic() + 2.0
     while time.monotonic() < deadline:
-        new = sorted(set(glob.glob("/dev/rpmsg[0-9]*")) - before)
-        if new:
+        node = find_node(name)
+        if node:
             time.sleep(settle_s)  # devtmpfs node permissions settle
-            return new[0]
+            return node
         time.sleep(0.01)
-    raise RuntimeError(f"no new /dev/rpmsgN appeared after creating '{name}'")
+    raise RuntimeError(f"no /dev/rpmsgN named '{name}' appeared after creating it")
 
 
 class Bridge:

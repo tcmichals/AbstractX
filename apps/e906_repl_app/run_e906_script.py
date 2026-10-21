@@ -17,25 +17,37 @@ import struct
 import fcntl
 import signal
 
-def ensure_rpmsg_device():
-    devs = glob.glob('/dev/rpmsg[0-9]*')
-    if not devs:
-        if not os.path.exists('/dev/rpmsg_ctrl0'):
-            print("Error: /dev/rpmsg_ctrl0 not found. Is remoteproc running?", file=sys.stderr)
-            sys.exit(1)
-        info = struct.pack('<32sII', b'abstractx-repl', 1026, 1026)
-        fd = os.open('/dev/rpmsg_ctrl0', os.O_RDWR)
+def _find_repl_node():
+    """Return /dev/rpmsgN whose endpoint is 'abstractx-repl' (never a TLP/trace node)."""
+    for d in sorted(glob.glob('/sys/class/rpmsg/rpmsg[0-9]*')):
         try:
-            # RPMSG_CREATE_EPT_IOCTL
-            fcntl.ioctl(fd, (1 << 30) | (40 << 16) | (0xB5 << 8) | 0x1, info)
-        finally:
-            os.close(fd)
+            if open(d + '/name').read().strip() == 'abstractx-repl':
+                return '/dev/' + os.path.basename(d)
+        except OSError:
+            pass
+    return None
+
+def ensure_rpmsg_device():
+    # @impl [SPEC-E906-REPL-12] apps/e906_repl_app/SPECIFICATION.md
+    node = _find_repl_node()
+    if node:
+        return node
+    if not os.path.exists('/dev/rpmsg_ctrl0'):
+        print("Error: /dev/rpmsg_ctrl0 not found. Is remoteproc running?", file=sys.stderr)
+        sys.exit(1)
+    info = struct.pack('<32sII', b'abstractx-repl', 1026, 1026)
+    fd = os.open('/dev/rpmsg_ctrl0', os.O_RDWR)
+    try:
+        fcntl.ioctl(fd, (1 << 30) | (40 << 16) | (0xB5 << 8) | 0x1, info)
+    finally:
+        os.close(fd)
+    for _ in range(20):
         time.sleep(0.1)
-        devs = glob.glob('/dev/rpmsg[0-9]*')
-        if not devs:
-            print("Error: Failed to create RPMsg endpoint /dev/rpmsg0", file=sys.stderr)
-            sys.exit(1)
-    return devs[0]
+        node = _find_repl_node()
+        if node:
+            return node
+    print("Error: Failed to create abstractx-repl endpoint", file=sys.stderr)
+    sys.exit(1)
 
 def run_script(script_path, timeout=15.0):
     if not os.path.exists(script_path):
@@ -159,4 +171,5 @@ def run_script(script_path, timeout=15.0):
 
 if __name__ == '__main__':
     script = sys.argv[1] if len(sys.argv) > 1 else 'flight_sensors.py'
-    run_script(script)
+    timeout = float(sys.argv[2]) if len(sys.argv) > 2 else 15.0
+    run_script(script, timeout=timeout)

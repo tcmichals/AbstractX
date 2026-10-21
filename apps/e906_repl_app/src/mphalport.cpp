@@ -20,6 +20,10 @@ extern "C" {
 #include "rpmsg_console.hpp"
 #include <cstdint>
 
+namespace abstractx::hal {
+extern volatile uint32_t g_telemetry_dropped;
+}
+
 #if defined(__riscv)
 static inline uint64_t read_mcycle() noexcept {
     uint32_t hi0, hi1, lo;
@@ -150,6 +154,28 @@ size_t abstractx_console_rx_bytes(uint8_t *dest, size_t max_len) {
 
 bool abstractx_console_has_rx(void) {
     return abstractx::g_repl_console ? abstractx::g_repl_console->has_char() : false;
+}
+
+// @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+bool abstractx_tlp_send_bytes(const uint8_t *data, size_t len) {
+    if (!data || len != 64) return false;
+    abstractx::hal::platform_send_telemetry(data, len);
+    return true;
+}
+
+// @impl [SPEC-E906-REPL-07] apps/e906_repl_app/SPECIFICATION.md
+void abstractx_trace_emit(uint32_t task_id, uint8_t state, const char *msg) {
+    uint64_t now_us = mp_hal_ticks_us();
+    abstractx::trace::g_tracer.trace_coro_named(
+        task_id, 0, static_cast<abstractx::trace::CoroState>(state), 0,
+        msg ? msg : "mpy", "repl", now_us
+    );
+    abstractx::trace::g_tracer.flush(now_us);
+}
+
+// @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+uint32_t abstractx_tlp_dropped_count(void) {
+    return abstractx::hal::g_telemetry_dropped;
 }
 
 } // extern "C"

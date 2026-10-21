@@ -104,7 +104,7 @@ int main() {
 
     // 6. Cooperative Event Loop
     for (;;) {
-        abstractx::hal::g_rpmsg.poll();
+        s_console.poll(); // also retries the 'abstractx-repl' announcement
         abstractx::step();
     }
 

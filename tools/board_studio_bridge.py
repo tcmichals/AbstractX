@@ -36,12 +36,26 @@ def parse_nmea_lat_lon(val_str, hemi):
         res = -res
     return res
 
+def find_repl_node():
+    """/dev/rpmsgN of the 'abstractx-repl' endpoint (never the TLP/trace nodes)."""
+    import glob
+    for d in sorted(glob.glob("/sys/class/rpmsg/rpmsg[0-9]*")):
+        try:
+            if open(d + "/name").read().strip() == "abstractx-repl":
+                return "/dev/" + os.path.basename(d)
+        except OSError:
+            pass
+    return None
+
+
 def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     print(f"[BRIDGE] Forwarding live telemetry to AbstractX Studio at {HOST_IP}:{HOST_PORT}...")
 
     # Ensure /dev/rpmsg0 is not locked by a stale process
-    os.system("fuser -k /dev/rpmsg0 2>/dev/null")
+    repl_node = find_repl_node()
+    if repl_node:
+        os.system(f"fuser -k {repl_node} 2>/dev/null")
     time.sleep(0.2)
 
     # Launch E906 raw sensor streamer via verified RPMsg runner
@@ -75,9 +89,9 @@ def main():
         # Guarantee E906 script loop is interrupted so RPMsg messages cease
         try:
             import glob
-            devs = glob.glob('/dev/rpmsg[0-9]*')
-            if devs:
-                with open(devs[0], "wb", buffering=0) as f:
+            node = find_repl_node()
+            if node:
+                with open(node, "wb", buffering=0) as f:
                     f.write(b'\x03\x03\x02')
         except Exception:
             pass

@@ -364,6 +364,41 @@ static mp_obj_t mod_abstractx_console_read(size_t n_args, const mp_obj_t *args) 
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_console_read_obj, 0, 1, mod_abstractx_console_read);
 
+extern bool abstractx_tlp_send_bytes(const uint8_t *data, size_t len);
+extern void abstractx_trace_emit(uint32_t task_id, uint8_t state, const char *msg);
+extern uint32_t abstractx_tlp_dropped_count(void);
+
+// abstractx.tlp_send(buf) -> bool
+// @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_tlp_send(mp_obj_t buf_in) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_READ);
+    if (bufinfo.len != 64) {
+        mp_raise_ValueError(MP_ERROR_TEXT("TLP packet must be exactly 64 bytes"));
+    }
+    bool ok = abstractx_tlp_send_bytes((const uint8_t *)bufinfo.buf, 64);
+    return ok ? mp_const_true : mp_const_false;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_tlp_send_obj, mod_abstractx_tlp_send);
+
+// abstractx.tlp_dropped() -> int
+// @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_tlp_dropped(void) {
+    return mp_obj_new_int_from_uint(abstractx_tlp_dropped_count());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_tlp_dropped_obj, mod_abstractx_tlp_dropped);
+
+// abstractx.trace(task_id, state, msg)
+// @impl [SPEC-E906-REPL-07] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_trace(size_t n_args, const mp_obj_t *args) {
+    uint32_t task_id = (uint32_t)mp_obj_get_int_truncated(args[0]);
+    uint8_t state = n_args > 1 ? (uint8_t)mp_obj_get_int_truncated(args[1]) : 1;
+    const char *msg = n_args > 2 ? mp_obj_str_get_str(args[2]) : "mpy";
+    abstractx_trace_emit(task_id, state, msg);
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_trace_obj, 1, 3, mod_abstractx_trace);
+
 static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_abstractx) },
     { MP_ROM_QSTR(MP_QSTR_peek), MP_ROM_PTR(&mod_abstractx_peek_obj) },
@@ -383,6 +418,10 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_sleep_ms), MP_ROM_PTR(&mod_abstractx_sleep_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_ticks_ms), MP_ROM_PTR(&mod_abstractx_ticks_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_console_read), MP_ROM_PTR(&mod_abstractx_console_read_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tlp_send), MP_ROM_PTR(&mod_abstractx_tlp_send_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tlp_push), MP_ROM_PTR(&mod_abstractx_tlp_send_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tlp_dropped), MP_ROM_PTR(&mod_abstractx_tlp_dropped_obj) },
+    { MP_ROM_QSTR(MP_QSTR_trace), MP_ROM_PTR(&mod_abstractx_trace_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_abstractx_globals, mp_module_abstractx_globals_table);
@@ -393,4 +432,5 @@ const mp_obj_module_t mp_module_abstractx = {
 };
 
 MP_REGISTER_MODULE(MP_QSTR_abstractx, mp_module_abstractx);
+
 

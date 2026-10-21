@@ -80,3 +80,7 @@ add_custom_command(TARGET e906_repl_app POST_BUILD
     COMMAND ${CMAKE_SIZE} $<TARGET_FILE:e906_repl_app>
     COMMENT "Generated e906_repl_app.bin and displaying memory footprint"
 )
+
+# Size-optimise the MicroPython VM + glue: SRAM_FAST (192 KB) is nearly full and the
+# TLP/trace bindings ([SPEC-E906-REPL-07] [SPEC-E906-REPL-10]) need headroom.
+target_compile_options(e906_repl_app PRIVATE -Os)

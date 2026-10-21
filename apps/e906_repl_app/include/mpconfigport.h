@@ -25,6 +25,7 @@ void abstractx_repl_vm_hook(void);
 // -----------------------------------------------------------------------------
 
 #define MICROPY_CONFIG_ROM_LEVEL (MICROPY_CONFIG_ROM_LEVEL_MINIMUM)
+#define MICROPY_PY_BUILTINS_BYTEARRAY (1)   // TLP buffers [SPEC-E906-REPL-10]
 
 #define MICROPY_ENABLE_COMPILER     (1)
 #define MICROPY_ENABLE_GC           (1)
