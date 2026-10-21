@@ -78,16 +78,27 @@ class TelemetryState:
         self.fpga_trace = "Pipeline: Idle | Zero-Copy SPSC Rings Ready"
 
         # Platform Topology Table & Hardware Interconnect (Level 1)
-        self.platform_arch = "Linux_Host_E906_FPGA"
-        self.platform_name = "Allwinner A5E Heterogeneous"
+        # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
+        # @impl [SPEC-STUDIO-07] tools/visualizer/abstractx_studio.py
+        self.has_fpga = False  # Pure Silicon by default (Radxa Cubie A5E / No FPGA)
+        self.profile_id = "cubie_a5e_pure"
+        self.profile_file = "tools/visualizer/profiles/cubie_a5e_pure.json"
+        self.schema_file = "apps/gps_imu_app/trace_schema.json"
+        self.compiled_schema = None
+        self.show_profile_dialog = False
+        self.show_schema_dialog = False
+        self.custom_profile_path = "tools/visualizer/profiles/cubie_a5e_pure.json"
+        self.custom_schema_path = "apps/gps_imu_app/trace_schema.json"
+
+        self.platform_arch = "Linux_Host_E906_PureSilicon"
+        self.platform_name = "Allwinner Cubie A5E (Pure Silicon)"
         self.board_model = "Radxa Cubie A5E"
-        self.primary_transport = "Shared SRAM A3/C (0x40000000) + sun6i-msgbox"
+        self.primary_transport = "Shared SRAM (0x40000000) + sun6i-msgbox (/dev/rpmsg0)"
         self.active_cores = [
             {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
-            {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & DMA", "clock_mhz": 200},
-            {"id": 2, "role": "Tang Primer 20K FPGA", "task": "Hardware Auto-DMA & DShot Fabric", "clock_mhz": 50},
+            {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & Sensors", "clock_mhz": 800},
         ]
-        self.hardware_accels = ["IMU Auto-DMA IP", "DShot 4-CH Core", "NeoPixel IP", "sun6i-msgbox"]
+        self.hardware_accels = ["UART3 FIFO (GPS)", "TWI1 I2C (Compass)", "sun6i-msgbox"]
 
         # Dual-Plane Execution Data (Level 1)
         # Plane 1: I/O Processor & Drivers (Interrupt & DMA Context)
@@ -759,6 +770,109 @@ class TelemetryState:
             self.membrowse_status_msg = f"Dashboard error: {e}"
             self.add_log("WARN", "SpecTrace", f"Failed to run track_quality_trends.py: {e}")
 
+    def set_has_fpga(self, enabled: bool):
+        # @impl [SPEC-STUDIO-02] tools/visualizer/abstractx_studio.py
+        self.has_fpga = enabled
+        global g_dockable_windows
+        if "fpga" in g_dockable_windows and g_dockable_windows["fpga"] is not None:
+            g_dockable_windows["fpga"].is_visible = enabled
+        if not enabled:
+            self.canvas_windows["fpga"] = False
+            # Filter out FPGA core from active_cores in pure silicon mode
+            self.active_cores = [c for c in self.active_cores if "FPGA" not in c.get("role", "")]
+            self.platform_arch = "Linux_Host_E906_PureSilicon"
+            self.add_log("PROFILE", "CFG", "Hardware Profile: Pure Silicon Mode (FPGA windows disabled)")
+        else:
+            if not any("FPGA" in c.get("role", "") for c in self.active_cores):
+                self.active_cores.append({"id": 2, "role": "Tang Primer 20K FPGA", "task": "Hardware Auto-DMA & DShot Fabric", "clock_mhz": 50})
+            self.platform_arch = "Linux_Host_E906_FPGA"
+            self.add_log("PROFILE", "CFG", "Hardware Profile: FPGA X-Fabric Enabled (FPGA windows active)")
+
+    def load_profile_from_json(self, profile_path: str):
+        # @impl [SPEC-STUDIO-07] tools/visualizer/abstractx_studio.py
+        try:
+            import json
+            from pathlib import Path
+            p = Path(profile_path)
+            if not p.is_absolute():
+                repo_root = Path(__file__).resolve().parent.parent.parent
+                p = repo_root / profile_path
+            if not p.exists():
+                self.add_log("WARN", "CFG", f"Profile file not found: {p}")
+                return False
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            self.profile_id = data.get("profile_id", p.stem)
+            self.profile_file = str(p)
+            self.platform_name = data.get("platform_name", self.platform_name)
+            self.board_model = data.get("board_model", self.board_model)
+            self.platform_arch = data.get("platform_arch", self.platform_arch)
+            self.primary_transport = data.get("primary_transport", self.primary_transport)
+            self.board_ip = data.get("board_ip", self.board_ip)
+            self.host_ip = data.get("host_ip", self.host_ip)
+            self.udp_port = data.get("udp_port", self.udp_port)
+            if "active_cores" in data:
+                self.active_cores = data["active_cores"]
+            if "hardware_accels" in data:
+                self.hardware_accels = data["hardware_accels"]
+            has_fpga = data.get("has_fpga", False)
+            self.set_has_fpga(has_fpga)
+
+            schema_f = data.get("schema_file")
+            if schema_f:
+                self.load_barectf_schema(schema_f)
+
+            self.add_log("PROFILE", "JSON", f"Loaded profile '{self.platform_name}' (has_fpga={self.has_fpga})")
+            return True
+        except Exception as e:
+            self.add_log("ERROR", "CFG", f"Failed loading profile {profile_path}: {e}")
+            return False
+
+    def load_barectf_schema(self, schema_path: str):
+        # @impl [SPEC-STUDIO-07] tools/visualizer/abstractx_studio.py
+        try:
+            from pathlib import Path
+            p = Path(schema_path)
+            if not p.is_absolute():
+                repo_root = Path(__file__).resolve().parent.parent.parent
+                p = repo_root / schema_path
+            if not p.exists():
+                self.add_log("WARN", "SCHEMA", f"Schema file not found: {p}")
+                return False
+            try:
+                from ctf_schema_loader import CtfSchema
+            except ImportError:
+                from tools.visualizer.ctf_schema_loader import CtfSchema
+            self.compiled_schema = CtfSchema(str(p))
+            self.schema_file = str(p)
+            stream_count = len(self.compiled_schema.streams)
+            self.add_log("SCHEMA", "CTF1.8", f"Loaded barectf schema '{p.name}': {stream_count} streams compiled.")
+            return True
+        except Exception as e:
+            self.add_log("ERROR", "SCHEMA", f"Failed compiling barectf schema: {e}")
+            return False
+
+    def auto_detect_target(self, board_ip: str):
+        # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+        import subprocess
+        try:
+            res = subprocess.run(
+                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=2", f"root@{board_ip}",
+                 "test -e /dev/asp_fpga || test -e /sys/class/fpga_manager/fpga0 && echo 'FPGA' || echo 'PURE_SILICON'"],
+                capture_output=True, text=True, timeout=3
+            )
+            detected = res.stdout.strip()
+            if "FPGA" in detected:
+                self.load_profile_from_json("tools/visualizer/profiles/cubie_a5e_fpga.json")
+                self.add_log("DETECT", "SSH", f"Target {board_ip}: Detected FPGA hardware switch fabric.")
+            else:
+                self.load_profile_from_json("tools/visualizer/profiles/cubie_a5e_pure.json")
+                self.add_log("DETECT", "SSH", f"Target {board_ip}: Detected Pure Silicon (No FPGA attached).")
+        except Exception as e:
+            self.load_profile_from_json("tools/visualizer/profiles/cubie_a5e_pure.json")
+            self.add_log("DETECT", "SYS", f"Target query failed ({e}); defaulting to Pure Silicon (No FPGA).")
+
 g_state = TelemetryState()
 g_flight_plugin = FlightVisualizerPlugin()
 g_initial_tab = "platform"
@@ -1101,20 +1215,31 @@ def apply_docking_layout(preset: str):
         if w_user: w_user.is_visible = True
         if w_tlp: w_tlp.is_visible = False
         if w_log: w_log.is_visible = False
+        if w_source: w_source.is_visible = False
+        if w_fpga: w_fpga.is_visible = False
     elif preset == "core_focus":
         if w_core: w_core.is_visible = True
         if w_user: w_user.is_visible = False
         if w_tlp: w_tlp.is_visible = True
         if w_log: w_log.is_visible = True
+        if w_source: w_source.is_visible = False
+        if w_fpga: w_fpga.is_visible = False
     elif preset == "source_focus":
         if w_core: w_core.is_visible = True
         if w_source: w_source.is_visible = True
         if w_user: w_user.is_visible = False
+        if w_tlp: w_tlp.is_visible = False
+        if w_log: w_log.is_visible = False
+        if w_fpga: w_fpga.is_visible = False
         g_state.requested_studio_tab = "source"
     elif preset == "fpga_focus":
+        g_state.has_fpga = True
         if w_core: w_core.is_visible = True
         if w_fpga: w_fpga.is_visible = True
         if w_user: w_user.is_visible = False
+        if w_tlp: w_tlp.is_visible = False
+        if w_log: w_log.is_visible = False
+        if w_source: w_source.is_visible = False
         g_state.requested_studio_tab = "fpga"
 
 def decouple_window(window_title: str, default_width: float = 1280.0, default_height: float = 820.0):
@@ -1318,7 +1443,7 @@ def _render_status_bar():
     """Renders bottom status bar with quick dynamic window layout presets, reset, and canvas pop-out."""
     _render_connection_bar("status")
     imgui.same_line(0, 15)
-    imgui.text(f"| Platform: {g_state.platform_name} | Heap: 0 B")
+    imgui.text(f"| Platform: {g_state.platform_name} | {'FPGA: Tang20K' if g_state.has_fpga else 'Pure Silicon (No FPGA)'} | Heap: 0 B")
     imgui.same_line()
     if imgui.small_button("MemBrowse CI: 0 B Heap (Pass)"):
         g_state.requested_studio_tab = "memory"
@@ -1337,8 +1462,9 @@ def _render_status_bar():
         ("✈️ Flight Focus", "user_focus"),
         ("🔬 Core Studio", "core_focus"),
         ("💻 Source Code", "source_focus"),
-        ("⚡ FPGA Hardware", "fpga_focus"),
     ]
+    if g_state.has_fpga:
+        presets.append(("⚡ FPGA Hardware", "fpga_focus"))
     for lbl, pr in presets:
         is_active = (pr == g_state.active_layout_preset)
         if is_active:
@@ -1451,8 +1577,9 @@ def _render_core_cpu_and_topology():
     imgui.end_group()
     imgui.separator()
 
-    # ── Section 1: Silicon Cores & Hardware SPSC Gauges (4 Dense Cards, Zero Wasted Space) ──
-    imgui.columns(4, "cpu_gauge_cols", True)
+    # ── Section 1: Silicon Cores & Hardware SPSC Gauges ──
+    num_cols = 4 if g_state.has_fpga else 3
+    imgui.columns(num_cols, "cpu_gauge_cols", True)
 
     # Card 1: Core 0 (Host Linux / ARM Cortex-M33)
     col_w = imgui.get_column_width()
@@ -1476,16 +1603,17 @@ def _render_core_cpu_and_topology():
     imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), f"Pool: {g_state.coro_pool_used_bytes // 1024} / {g_state.coro_pool_capacity_bytes // 1024} KB")
     imgui.next_column()
 
-    # Card 3: SPU (FPGA AXI-Stream TLP Crossbar Fabric)
-    col_w = imgui.get_column_width()
-    cur_pos = imgui.get_cursor_screen_pos()
-    draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 40.0, 32.0,
-                      g_state.fpga_lut_utilization_pct, "SPU Fabric", f"Logic {g_state.fpga_lut_utilization_pct:.1f}%")
-    imgui.dummy(imgui.ImVec2(col_w, 105.0))
-    imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "FPGA Crossbar Switch")
-    imgui.text("Throughput: 8,240 pkts/s")
-    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Contention: 0 Stalls (0%)")
-    imgui.next_column()
+    # Card 3: SPU (FPGA AXI-Stream TLP Crossbar Fabric) - only rendered if FPGA present
+    if g_state.has_fpga:
+        col_w = imgui.get_column_width()
+        cur_pos = imgui.get_cursor_screen_pos()
+        draw_radial_gauge(cur_pos.x + col_w / 2.0, cur_pos.y + 40.0, 32.0,
+                          g_state.fpga_lut_utilization_pct, "SPU Fabric", f"Logic {g_state.fpga_lut_utilization_pct:.1f}%")
+        imgui.dummy(imgui.ImVec2(col_w, 105.0))
+        imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), "FPGA Crossbar Switch")
+        imgui.text("Throughput: 8,240 pkts/s")
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Contention: 0 Stalls (0%)")
+        imgui.next_column()
 
     # Card 4: SPSC Lock-Free Rings & Freestanding Zero-Heap
     col_w = imgui.get_column_width()
@@ -1578,7 +1706,8 @@ def _render_core_cpu_and_topology():
 
         implot.plot_line("Core 0 (Host Linux / ARM64)", t_data, c0_data)
         implot.plot_line("Core 1 (C++20 Coroutine Duty)", t_data, c1_data)
-        implot.plot_line("SPU (FPGA Switch Fabric)", t_data, spu_data)
+        if g_state.has_fpga:
+            implot.plot_line("SPU (FPGA Switch Fabric)", t_data, spu_data)
 
         if g_state.cpu_chart_show_rings:
             implot.plot_line("Sensor Ring Fill (%)", t_data, ring_s)
@@ -2663,8 +2792,8 @@ def _render_floating_canvas_windows():
         if not opened:
             g_state.canvas_windows["source"] = False
 
-    # 9. FPGA & Hardware Peripherals Floating Window
-    if g_state.canvas_windows.get("fpga", False):
+    # 9. FPGA & Hardware Peripherals Floating Window (only if FPGA present)
+    if g_state.has_fpga and g_state.canvas_windows.get("fpga", False):
         imgui.set_next_window_size(imgui.ImVec2(1050, 620), imgui.Cond_.first_use_ever)
         expanded, opened = imgui.begin("FPGA & Hardware Peripherals##CanvasWin", True)
         if expanded:
@@ -2725,6 +2854,57 @@ def _render_floating_canvas_windows():
         imgui.end()
         if not opened:
             g_state.canvas_windows["cli"] = False
+
+    # 12. Load Hardware Profile JSON Dialog
+    if getattr(g_state, "show_profile_dialog", False):
+        imgui.set_next_window_size(imgui.ImVec2(520, 280), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Load Target Hardware Profile JSON##Dialog", True)
+        if expanded:
+            imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "Target Hardware Topology Profile (JSON):")
+            _, g_state.custom_profile_path = imgui.input_text("##profile_path_in", g_state.custom_profile_path)
+            imgui.spacing()
+            imgui.text("Predefined Target Profiles:")
+            for p_lbl, p_file in [
+                ("Cubie A5E (Pure Silicon - No FPGA)", "tools/visualizer/profiles/cubie_a5e_pure.json"),
+                ("Cubie A5E + FPGA X-Fabric", "tools/visualizer/profiles/cubie_a5e_fpga.json"),
+                ("Raspberry Pi Pico 2 W", "tools/visualizer/profiles/pico2w_rp2350.json"),
+                ("Desktop SITL (Linux)", "tools/visualizer/profiles/desktop_sitl.json"),
+            ]:
+                if imgui.small_button(f"📄 {p_lbl}"):
+                    g_state.custom_profile_path = p_file
+            imgui.spacing()
+            imgui.separator()
+            if imgui.button("Load Profile##act_btn", imgui.ImVec2(120, 28)):
+                g_state.load_profile_from_json(g_state.custom_profile_path)
+                g_state.show_profile_dialog = False
+            imgui.same_line()
+            if imgui.button("Cancel##prof_canc", imgui.ImVec2(100, 28)):
+                g_state.show_profile_dialog = False
+        imgui.end()
+        if not opened:
+            g_state.show_profile_dialog = False
+
+    # 13. Load barectf Trace Schema JSON Dialog
+    if getattr(g_state, "show_schema_dialog", False):
+        imgui.set_next_window_size(imgui.ImVec2(520, 240), imgui.Cond_.first_use_ever)
+        expanded, opened = imgui.begin("Load CTF 1.8 barectf Schema JSON##Dialog", True)
+        if expanded:
+            imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "Dynamic CTF 1.8 Schema File:")
+            _, g_state.custom_schema_path = imgui.input_text("##schema_path_in", g_state.custom_schema_path)
+            imgui.spacing()
+            if imgui.small_button("📄 apps/gps_imu_app/trace_schema.json"):
+                g_state.custom_schema_path = "apps/gps_imu_app/trace_schema.json"
+            imgui.spacing()
+            imgui.separator()
+            if imgui.button("Compile Schema##act_btn", imgui.ImVec2(140, 28)):
+                g_state.load_barectf_schema(g_state.custom_schema_path)
+                g_state.show_schema_dialog = False
+            imgui.same_line()
+            if imgui.button("Cancel##schema_canc", imgui.ImVec2(100, 28)):
+                g_state.show_schema_dialog = False
+        imgui.end()
+        if not opened:
+            g_state.show_schema_dialog = False
 
 def _render_core_studio_window():
     """
@@ -2860,12 +3040,13 @@ def _render_core_studio_window():
                 _render_source_inspector_window()
             imgui.end_tab_item()
 
-        if imgui.begin_tab_item("FPGA Peripherals", None, flag_fpga)[0]:
-            if is_tool_rendered_externally("fpga"):
-                _render_popped_tab_placeholder("FPGA Peripherals", "fpga", "FPGA & Hardware Peripherals")
-            else:
-                _render_fpga_peripherals_window()
-            imgui.end_tab_item()
+        if g_state.has_fpga:
+            if imgui.begin_tab_item("FPGA Peripherals", None, flag_fpga)[0]:
+                if is_tool_rendered_externally("fpga"):
+                    _render_popped_tab_placeholder("FPGA Peripherals", "fpga", "FPGA & Hardware Peripherals")
+                else:
+                    _render_fpga_peripherals_window()
+                imgui.end_tab_item()
 
         if imgui.begin_tab_item("MemBrowse CI Report", None, flag_memory)[0]:
             if is_tool_rendered_externally("memory"):
@@ -3088,24 +3269,27 @@ def _render_source_inspector_window():
     imgui.begin_group()
 
     # View Mode: C++ Firmware vs FPGA RTL
-    is_cpp = (g_state.source_view_mode == "CPP")
-    if is_cpp:
-        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
-    if imgui.button("C++ Firmware##src_mode"):
+    if not g_state.has_fpga:
         g_state.source_view_mode = "CPP"
-    if is_cpp:
-        imgui.pop_style_color()
+    else:
+        is_cpp = (g_state.source_view_mode == "CPP")
+        if is_cpp:
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
+        if imgui.button("C++ Firmware##src_mode"):
+            g_state.source_view_mode = "CPP"
+        if is_cpp:
+            imgui.pop_style_color()
 
-    imgui.same_line()
-    is_rtl = (g_state.source_view_mode == "RTL")
-    if is_rtl:
-        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.8, 0.4, 1.0, 1.0))
-    if imgui.button("FPGA SystemVerilog RTL##src_mode"):
-        g_state.source_view_mode = "RTL"
-    if is_rtl:
-        imgui.pop_style_color()
+        imgui.same_line()
+        is_rtl = (g_state.source_view_mode == "RTL")
+        if is_rtl:
+            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.8, 0.4, 1.0, 1.0))
+        if imgui.button("FPGA SystemVerilog RTL##src_mode"):
+            g_state.source_view_mode = "RTL"
+        if is_rtl:
+            imgui.pop_style_color()
 
-    imgui.same_line(0, 15)
+        imgui.same_line(0, 15)
 
     if g_state.source_view_mode == "CPP":
         files = g_state.source_code_files
@@ -3566,31 +3750,99 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
 def _render_studio_menus():
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
-    Renders top menu bar items for hardware connection and live telemetry control.
+    # @impl [SPEC-STUDIO-07] tools/visualizer/abstractx_studio.py
+    Renders top menu bar items for hardware connection, profile configuration, and schema management.
     """
-    if imgui.begin_menu("Connection"):
-        try:
-            from flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
-        except ImportError:
-            from tools.visualizer.flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
+    try:
+        from flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
+    except ImportError:
+        from tools.visualizer.flight_plugin import get_bridge_status, start_board_bridge, stop_board_bridge
 
-        is_bridge = get_bridge_status()
+    is_bridge = get_bridge_status()
+    is_live = g_state.connected and g_state.fps_packet_rate > 0
+
+    # ── 1. Top-Level Connect Action in Menu Bar (Direct 1-Click Access) ──
+    if not is_bridge:
+        if imgui.menu_item(f"▶ Connect ({g_state.board_ip})", "", False)[0]:
+            start_board_bridge(g_state.board_ip, g_state.host_ip, g_state.udp_port)
+            g_state.add_log("BRIDGE", "SSH", f"Started live sensor streaming from {g_state.board_ip}")
+    else:
+        status_lbl = "● Streaming" if is_live else "◌ Bridge Up"
+        imgui.menu_item(status_lbl, "", False, False)
+        if imgui.menu_item("⏹ Disconnect", "", False)[0]:
+            stop_board_bridge()
+            g_state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
+
+    # ── 2. Connection Submenu ──
+    if imgui.begin_menu("Connection"):
         if not is_bridge:
-            if imgui.menu_item(f"▶ Connect Board ({g_state.board_ip}:{g_state.udp_port})")[0]:
+            if imgui.menu_item(f"▶ Connect to Board ({g_state.board_ip}:{g_state.udp_port})", "", False)[0]:
                 start_board_bridge(g_state.board_ip, g_state.host_ip, g_state.udp_port)
                 g_state.add_log("BRIDGE", "SSH", f"Started live sensor streaming from {g_state.board_ip}")
         else:
-            if imgui.menu_item(f"🔄 Reconnect Board ({g_state.board_ip})")[0]:
+            if imgui.menu_item(f"🔄 Reconnect Board ({g_state.board_ip})", "", False)[0]:
                 stop_board_bridge()
                 time.sleep(0.2)
                 start_board_bridge(g_state.board_ip, g_state.host_ip, g_state.udp_port)
                 g_state.add_log("BRIDGE", "SSH", f"Reconnected live streaming to {g_state.board_ip}")
-            if imgui.menu_item("⏹ Disconnect Board")[0]:
+            if imgui.menu_item("⏹ Disconnect Board", "", False)[0]:
                 stop_board_bridge()
                 g_state.add_log("BRIDGE", "SSH", "Stopped live sensor streaming")
+
         imgui.separator()
-        imgui.menu_item(f"Target: {g_state.board_model} ({g_state.board_ip})", "", False, False)
-        imgui.menu_item(f"Host UDP Port: {g_state.udp_port}", "", False, False)
+        imgui.text("Target Board IP:")
+        imgui.set_next_item_width(140)
+        _, g_state.board_ip = imgui.input_text("##menu_board_ip", g_state.board_ip)
+
+        imgui.text("Host UDP Port:")
+        imgui.set_next_item_width(80)
+        _, g_state.udp_port = imgui.input_int("##menu_udp_port", g_state.udp_port, 0, 0)
+
+        imgui.separator()
+        if imgui.menu_item("🔍 Auto-Detect Target Silicon & FPGA", "", False)[0]:
+            g_state.auto_detect_target(g_state.board_ip)
+        imgui.end_menu()
+
+    # ── 3. Target Hardware & Profile Submenu ──
+    if imgui.begin_menu("Hardware Profile"):
+        imgui.text_colored(imgui.ImVec4(0.95, 0.8, 0.3, 1.0), f"Current: {g_state.platform_name}")
+        imgui.separator()
+
+        # Selection: Cubie A5E Pure Silicon
+        is_a5e_pure = (g_state.profile_id == "cubie_a5e_pure")
+        if imgui.menu_item("● Cubie A5E Pure Silicon (No FPGA)" if is_a5e_pure else "○ Cubie A5E Pure Silicon (No FPGA)", "", False)[0]:
+            g_state.load_profile_from_json("tools/visualizer/profiles/cubie_a5e_pure.json")
+
+        # Selection: Cubie A5E + Tang 20K FPGA
+        is_a5e_fpga = (g_state.profile_id == "cubie_a5e_fpga")
+        if imgui.menu_item("● Cubie A5E + FPGA X-Fabric (Tang 20K)" if is_a5e_fpga else "○ Cubie A5E + FPGA X-Fabric (Tang 20K)", "", False)[0]:
+            g_state.load_profile_from_json("tools/visualizer/profiles/cubie_a5e_fpga.json")
+
+        # Selection: Pico 2 W
+        is_pico = (g_state.profile_id == "pico2w_rp2350")
+        if imgui.menu_item("● Raspberry Pi Pico 2 W (No FPGA)" if is_pico else "○ Raspberry Pi Pico 2 W (No FPGA)", "", False)[0]:
+            g_state.load_profile_from_json("tools/visualizer/profiles/pico2w_rp2350.json")
+
+        # Selection: Desktop SITL
+        is_sitl = (g_state.profile_id == "desktop_sitl")
+        if imgui.menu_item("● Desktop SITL Simulation (No FPGA)" if is_sitl else "○ Desktop SITL Simulation (No FPGA)", "", False)[0]:
+            g_state.load_profile_from_json("tools/visualizer/profiles/desktop_sitl.json")
+
+        imgui.separator()
+        # Direct FPGA Switch Fabric Toggle Checkbox
+        fpga_val = g_state.has_fpga
+        changed, fpga_val = imgui.checkbox("FPGA Switch Fabric Present", fpga_val)
+        if changed:
+            g_state.set_has_fpga(fpga_val)
+
+        imgui.separator()
+        imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), "JSON Configuration & Schema:")
+        if imgui.menu_item("📂 Load Hardware Profile (JSON)...", "", False)[0]:
+            g_state.show_profile_dialog = True
+        if imgui.menu_item("📄 Load barectf Trace Schema (JSON)...", "", False)[0]:
+            g_state.show_schema_dialog = True
+        if imgui.menu_item("🔄 Reload Default Schema (trace_schema.json)", "", False)[0]:
+            g_state.load_barectf_schema("apps/gps_imu_app/trace_schema.json")
         imgui.end_menu()
 
 if __name__ == "__main__":

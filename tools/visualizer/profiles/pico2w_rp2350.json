@@ -1,0 +1,17 @@
+{
+  "profile_id": "pico2w_rp2350",
+  "platform_name": "Raspberry Pi Pico 2 W (RP2350)",
+  "board_model": "Raspberry Pi Pico 2 W",
+  "platform_arch": "RP2350_Dual_M33",
+  "has_fpga": false,
+  "primary_transport": "Core 0 DMA Ring + Wi-Fi CYW43439 UDP",
+  "board_ip": "192.168.1.100",
+  "host_ip": "192.168.1.50",
+  "udp_port": 9870,
+  "active_cores": [
+    {"id": 0, "role": "RP2350 Core 0 M33", "task": "PIO / DMA & Wi-Fi Stack", "clock_mhz": 150},
+    {"id": 1, "role": "RP2350 Core 1 M33", "task": "AbstractX Coroutine Flight Engine", "clock_mhz": 150}
+  ],
+  "hardware_accels": ["PIO0 SPI Host", "PIO1 DShot", "Hardware Spinlocks", "SIO SPSC FIFO"],
+  "schema_file": "apps/gps_imu_app/trace_schema.json"
+}

@@ -1,0 +1,17 @@
+{
+  "profile_id": "cubie_a5e_pure",
+  "platform_name": "Allwinner Cubie A5E (Pure Silicon)",
+  "board_model": "Radxa Cubie A5E",
+  "platform_arch": "Linux_Host_E906_PureSilicon",
+  "has_fpga": false,
+  "primary_transport": "Shared SRAM (0x40000000) + sun6i-msgbox (/dev/rpmsg0)",
+  "board_ip": "192.168.3.3",
+  "host_ip": "192.168.3.1",
+  "udp_port": 9870,
+  "active_cores": [
+    {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
+    {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & Sensors", "clock_mhz": 800}
+  ],
+  "hardware_accels": ["UART3 FIFO (GPS)", "TWI1 I2C (Compass)", "sun6i-msgbox"],
+  "schema_file": "apps/gps_imu_app/trace_schema.json"
+}

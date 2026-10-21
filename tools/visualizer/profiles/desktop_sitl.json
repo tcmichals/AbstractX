@@ -1,0 +1,17 @@
+{
+  "profile_id": "desktop_sitl",
+  "platform_name": "Desktop SITL Simulation (Linux x86_64 / AArch64)",
+  "board_model": "Native SITL Simulator",
+  "platform_arch": "Host_Linux_x86_64",
+  "has_fpga": false,
+  "primary_transport": "POSIX Loopback UDP 127.0.0.1:9870",
+  "board_ip": "127.0.0.1",
+  "host_ip": "127.0.0.1",
+  "udp_port": 9870,
+  "active_cores": [
+    {"id": 0, "role": "Host Thread 0", "task": "Flight Supervisor & GDB/ASan", "clock_mhz": 3200},
+    {"id": 1, "role": "Host Thread 1", "task": "Simulated Sensor Ingestion Loop", "clock_mhz": 3200}
+  ],
+  "hardware_accels": ["Synthetic Multi-Rate Generator", "Software SPSC Rings"],
+  "schema_file": "apps/gps_imu_app/trace_schema.json"
+}

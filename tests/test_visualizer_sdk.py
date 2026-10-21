@@ -369,5 +369,41 @@ def test_studio_cli_console_and_repl():
     assert any(line[1] == str(len(state.coro_frames)) for line in state.cli_history)
 
 
+def test_studio_hardware_profile_and_fpga_filtering():
+    """
+    # @impl [SPEC-STUDIO-02] tools/visualizer/SPECIFICATION.md
+    # @impl [SPEC-STUDIO-07] tools/visualizer/SPECIFICATION.md
+    Validates dynamic hardware profiles, FPGA window suppression, and barectf schema loading.
+    """
+    state = studio.TelemetryState()
+    assert state.has_fpga is False, "Pure Silicon profile should be default (no FPGA)"
+    assert not any("FPGA" in c.get("role", "") for c in state.active_cores), "FPGA core should not be active in Pure Silicon mode"
+
+    # 1. Test profile loading: Pure Silicon
+    ok = state.load_profile_from_json("tools/visualizer/profiles/cubie_a5e_pure.json")
+    assert ok is True
+    assert state.has_fpga is False
+    assert state.profile_id == "cubie_a5e_pure"
+
+    # 2. Test profile loading: FPGA X-Fabric
+    ok = state.load_profile_from_json("tools/visualizer/profiles/cubie_a5e_fpga.json")
+    assert ok is True
+    assert state.has_fpga is True
+    assert state.profile_id == "cubie_a5e_fpga"
+    assert any("FPGA" in c.get("role", "") for c in state.active_cores), "FPGA core should be active in FPGA profile"
+
+    # 3. Test explicit set_has_fpga toggle
+    state.set_has_fpga(False)
+    assert state.has_fpga is False
+    assert state.canvas_windows["fpga"] is False
+
+    # 4. Test dynamic barectf schema loading
+    ok = state.load_barectf_schema("apps/gps_imu_app/trace_schema.json")
+    assert ok is True
+    assert state.compiled_schema is not None
+    assert len(state.compiled_schema.streams) > 0
+
+
+
 
 

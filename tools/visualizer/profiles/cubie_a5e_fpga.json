@@ -1,0 +1,18 @@
+{
+  "profile_id": "cubie_a5e_fpga",
+  "platform_name": "Allwinner Cubie A5E + FPGA X-Fabric",
+  "board_model": "Radxa Cubie A5E + Tang Primer 20K",
+  "platform_arch": "Linux_Host_E906_FPGA",
+  "has_fpga": true,
+  "primary_transport": "Shared SRAM A3/C (0x40000000) + Gowin FPGA AXI-Stream X-Fabric",
+  "board_ip": "192.168.3.3",
+  "host_ip": "192.168.3.1",
+  "udp_port": 9870,
+  "active_cores": [
+    {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
+    {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & DMA", "clock_mhz": 200},
+    {"id": 2, "role": "Tang Primer 20K FPGA", "task": "Hardware Auto-DMA & DShot Fabric", "clock_mhz": 50}
+  ],
+  "hardware_accels": ["IMU Auto-DMA IP", "DShot 4-CH Core", "NeoPixel IP", "sun6i-msgbox", "asp_router.sv"],
+  "schema_file": "apps/gps_imu_app/trace_schema.json"
+}
