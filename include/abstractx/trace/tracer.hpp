@@ -469,6 +469,28 @@ public:
         ev->len_dw       = len_dw;
     }
 
+    // One packet of its own for a stream (e.g. runtime status, [SPEC-TRACE-08]): any open
+    // packet is sent first, then fill(dst) writes exactly `bytes` after the header.
+    // Returns false (counted as discarded) if no buffer of that size is free.
+    template <typename Fill>
+    bool emit_stream_packet(uint8_t stream_id, size_t bytes, Fill&& fill, uint64_t now_us) noexcept {
+        flush(now_us);
+        if (!buf_.empty() || !open_packet(now_us)) {
+            ++discarded_count_;
+            return false;
+        }
+        if (offset_ + bytes > buf_.size()) {
+            ++discarded_count_;
+            commit_packet(now_us);  // header only: returns the buffer, readers skip it
+            return false;
+        }
+        reinterpret_cast<CtfPacketHeaderWire*>(buf_.data())->stream_id = stream_id;
+        fill(buf_.data() + offset_);
+        offset_ += bytes;
+        commit_packet(now_us);
+        return true;
+    }
+
     // Hand the current packet to the transport if it holds any events.
     void flush(uint64_t now_us) noexcept {
         if (!buf_.empty() && offset_ > sizeof(CtfPacketHeaderWire)) {

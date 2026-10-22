@@ -39,6 +39,7 @@ void wait_step(uint64_t deadline) noexcept {
     hal::Timer::arm_wake(deadline);
     abstractx_repl_vm_hook();
     abstractx::hal::platform_idle_wait();
+    abstractx::status_service();  // reports keep coming while a script waits [SPEC-E906-REPL-18]
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +239,8 @@ bool e906_uart3_init(uint32_t baud) {
     hal::clic::route_gic(hal::clic::kGicUart3, true);
     if (!s_uart_attached) {
         s_uart_attached = hal::irq::attach(hal::clic::line_for_gic(hal::clic::kGicUart3), uart3_isr, nullptr);
+        // @impl [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
+        hal::irq::describe(hal::clic::line_for_gic(hal::clic::kGicUart3), "uart3", &s_uart_rx_dropped);
     } else {
         hal::clic::enable(hal::clic::line_for_gic(hal::clic::kGicUart3));
     }
@@ -293,6 +296,7 @@ bool e906_twi1_init(uint32_t freq) {
     hal::clic::route_gic(hal::clic::kGicTwi1, true);
     if (!s_twi_attached) {
         s_twi_attached = hal::irq::attach(hal::clic::line_for_gic(hal::clic::kGicTwi1), twi1_isr, nullptr);
+        hal::irq::describe(hal::clic::line_for_gic(hal::clic::kGicTwi1), "twi1", &s_twi_timeouts);
     } else {
         hal::clic::enable(hal::clic::line_for_gic(hal::clic::kGicTwi1));
     }

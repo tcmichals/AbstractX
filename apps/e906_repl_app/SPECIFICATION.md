@@ -356,6 +356,19 @@ flowchart TD
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
 * **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/src/mphalport.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
 
+### `[SPEC-E906-REPL-18]` Status and Trace Reach Studio by Default
+* **Requirement**: the app names its coroutines at spawn (`rpmsg_rx`, `repl_rx`, `repl_tx`); a
+  MicroPython script runs inside `repl_rx`, so its load shows there. UART3 and TWI1 describe their
+  lines (`uart3` with RX bytes dropped, `twi1` with timeouts) so driver errors are in the report.
+* **Requirement**: the VM hook services the status deadline as `step()` does, so reports keep coming
+  while a script runs ([SPEC-TRACE-08]).
+* **Requirement**: when Studio starts the live link it also starts `e906_rpmsg_bridge.py trace` on the
+  board, which forwards every `abstractx-trace` packet to Studio unchanged and exits when its ssh
+  session closes. The sensor bridge (`board_studio_bridge.py`) also exits when its ssh session
+  closes (`EXIT_ON_STDIN_EOF=1`), so a closed Studio never leaves the REPL held.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_trace.py`)
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/mphalport.cpp`, `tools/visualizer/flight_plugin.py`, `tools/e906_rpmsg_bridge.py`
+
 ### `[SPEC-E906-REPL-17]` Scripts Format Their Own Telemetry; Linux Only Forwards
 * **Requirement**: a MicroPython script builds its telemetry frames itself and sends them with
   `abstractx.tlp_send()` on the `abstractx-tlp` endpoint; `tools/e906_rpmsg_bridge.py` forwards

@@ -229,6 +229,40 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`sim/test_trace_zero_copy.cpp`), `sanitizer-gate` (misaligned buffers)
 * **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `include/abstractx/trace/sink.hpp`, per-target transports in `targets/*/`
 
+### `[SPEC-TRACE-08]` Runtime Status by Default: CPU, Coroutines, Drivers, Pools
+* **Goal**: every AbstractX build reports what FreeRTOS's run-time stats report (per-task run time and
+  CPU %, idle time) plus driver and pool health, without the application asking for it.
+* **Requirement (coroutines)**: `Dispatcher::process()` times every `resume()` with the platform
+  cycle clock and charges it to the resumed frame: resume count, run cycles and the longest single
+  resume. Up to `stats::kMaxTasks` (8) frames are tracked; frames beyond that are charged to an
+  `other` slot. `abstractx::spawn(task, name)` names the root frame; a frame with no name is shown by
+  address. Accounting runs only in the coroutine domain (no locks, no allocation).
+* **Requirement (CPU)**: the platform reports idle time measured around its sleep instruction, minus
+  interrupt time taken during the sleep (`stats::add_idle_cycles`). Busy % = 1 - idle / elapsed.
+* **Requirement (drivers)**: the platform reports, per interrupt source, a short name, the
+  interrupt count, the cycles spent in its handler and an error count (drops, timeouts) that the
+  owning driver registers (`platform_runtime_stats()`); up to `stats::kMaxDrivers` (6).
+* **Requirement (pools)**: the report carries coroutine frame pool used / high water / capacity,
+  `Dispatcher` queue depth / capacity / dropped resumes, trace events discarded and `step()` count.
+* **Requirement (wire)**: once per `TraceConfig::status_period_ms` (default 1000, 0 = off) `step()`
+  emits one CTF packet with `stream_id = 3` holding one `RuntimeStatsHeader` (event_id `0x20`)
+  followed by `n_tasks` `TaskStatsRecord` and `n_drivers` `DriverStatsRecord`, all packed
+  little-endian. Counters are cumulative and wrap at 2^32; readers take modulo-2^32 differences
+  between packets, so a lost packet loses no time. The whole report fits a 496-byte RPMsg buffer.
+
+  | Record | Bytes | Fields |
+  | :--- | :--- | :--- |
+  | `RuntimeStatsHeader` | 56 | u8 event_id `0x20`, u8 version 1, u8 n_tasks, u8 n_drivers, u64 timestamp_us, u32 cycle_hz, u32 cycles, u32 idle_cycles, u32 steps, u32 pool_used, u32 pool_high_water, u32 pool_capacity, u32 dropped_resumes, u16 queue_depth, u16 queue_capacity, u32 trace_discarded, u32 reserved |
+  | `TaskStatsRecord` | 28 | char name[12], u32 frame_addr, u32 resumes, u32 run_cycles, u32 max_cycles |
+  | `DriverStatsRecord` | 24 | char name[8], u16 id, u16 reserved, u32 events, u32 cycles, u32 errors |
+
+* **Requirement (other runtimes)**: the same packet is the contract for an AbstractX build on an
+  RTOS (FreeRTOS fills the task records from its task-state snapshot, uxTaskGetSystemState), so Studio shows both alike.
+* **Rationale**: on 2026-10-21 Studio's CPU, coroutine and timeline tabs had only ever shown
+  generated numbers; the live board sent no status at all, and nothing measured idle time.
+* **Verified by**: `host-tests` (`sim/test_runtime_stats.cpp`, `tests/test_runtime_stats_decode.py`), `sanitizer-gate`, `e906-board-selftest` (`tests/board/test_e906_trace.py`)
+* **Implementation Target**: `include/abstractx/trace/runtime_stats.hpp`, `include/abstractx/domain_dispatcher.hpp`, `include/abstractx/trace/tracer.hpp`, `src/runtime.cpp`, `tools/visualizer/runtime_stats.py`
+
 ### `[SPEC-ILA-01]` Decoupled Hardware ILA Trace Memory Pool & Non-Blocking DMA Reader
 * **Requirement**: Hardware and software tracing must operate on a dedicated memory pool completely isolated from the primary 64-byte control TLP plane. The FPGA hardware ILA (`asp_ila_trace.sv`) MUST capture timestamped internal events into an on-chip dual-port Block RAM circular buffer without consuming TLP bus bandwidth. The egress DMA reader MUST stream accumulated ILA trace frames only when the primary control TLP egress channel is idle, or upon receiving an explicit host DMA pull request, guaranteeing 0 head-of-line blocking for flight-critical control packets.
 * **Verified by**: `rtl-lint`, `rtl-synth-check`

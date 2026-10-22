@@ -27,6 +27,7 @@
 #include <etl/queue_spsc_isr.h>
 
 #include "abstractx/interrupt_lock.hpp"
+#include "abstractx/trace/runtime_stats.hpp"
 
 namespace abstractx {
 
@@ -103,6 +104,8 @@ public:
         value_type handle{};
         while (count-- > 0 && queue_.pop(handle)) {
             if (is_resumable(handle) && !handle.done()) {
+                // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
+                stats::ResumeScope charge(handle.address());
                 handle.resume();
             }
         }
@@ -111,6 +114,10 @@ public:
 
     static inline void process() noexcept {
         process_ready_coroutines();
+    }
+
+    static inline size_t queue_depth() noexcept {
+        return queue_.size();
     }
 
     static inline bool has_pending_resumes() noexcept {

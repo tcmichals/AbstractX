@@ -18,6 +18,8 @@
 #include "hal/clic.hpp"
 #include "hal/rpmsg_endpoints.hpp"
 #include "resource_table.h"
+#include "abstractx/abstractx.hpp"
+#include "abstractx/trace/runtime_stats.hpp"
 
 extern "C" const struct rpmsg_resource_table global_resource_table;
 
@@ -212,6 +214,20 @@ void platform_init() noexcept {
 #endif
     ::hal::Ccu::init();
     ::hal::Timer::init();
+    // Runtime status clock: mcycle at 200 MHz ([SPEC-E906-IRQ-05], [SPEC-TRACE-08])
+    stats::set_cycle_clock(+[]() noexcept -> uint64_t {
+        uint32_t hi0 = 0, hi1 = 0, lo = 0;
+#if defined(__riscv)
+        do {
+            __asm__ volatile("csrr %0, mcycleh" : "=r"(hi0));
+            __asm__ volatile("csrr %0, mcycle" : "=r"(lo));
+            __asm__ volatile("csrr %0, mcycleh" : "=r"(hi1));
+        } while (hi0 != hi1);
+#endif
+        return (static_cast<uint64_t>(hi0) << 32) | lo;
+    }, 200'000'000u);
+    ::hal::irq::describe(::hal::clic::kLineTimer, "timer");
+    ::hal::irq::describe(::hal::clic::kLineMsgbox, "msgbox");
     g_rpmsg.init(&global_resource_table);
     g_trace_transport.attach();
     g_tlp_channel.attach();
@@ -240,12 +256,19 @@ __attribute__((noinline)) void platform_idle_wait() noexcept {
         __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus));
         g_e906_diag[6] = mie;
         g_e906_diag[7] = mstatus;
+        // Wake for the next status report even if nothing else happens ([SPEC-E906-IRQ-05]).
+        const uint64_t due_us = status_deadline_us();
+        if (due_us != UINT64_MAX) {
+            ::hal::Timer::arm_wake(due_us * ::hal::Timer::TICKS_PER_US);
+        }
+        stats::idle_begin();  // idle = this window minus the ISR cycles taken in it
         __asm__ volatile(
             "csrs mstatus, %0\n"
             ".global e906_idle_wfi\n"
             "e906_idle_wfi:\n"
             "wfi\n"
             :: "r"(1U << 3) : "memory");
+        stats::idle_end();
     }
     restore_interrupts_flags(flags);
 }

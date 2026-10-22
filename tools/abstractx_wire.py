@@ -39,6 +39,11 @@ def is_ctf_packet(data: bytes) -> bool:
     return len(data) >= CTF_HEADER.size and struct.unpack_from("<I", data)[0] == CTF_MAGIC
 
 
+STATUS_STREAM_ID = 3       # [SPEC-TRACE-08] runtime status report
+STATUS_EVENT_ID = 0x20
+STATUS_HEADER_BYTES = 56
+
+
 def _cstr(raw: bytes) -> str:
     return raw.split(b"\x00", 1)[0].decode("utf-8", "replace")
 
@@ -56,6 +61,14 @@ def decode_ctf_packet(data: bytes) -> dict:
     if pkt_bits < content_bits:
         raise ValueError(f"packet_size_bits={pkt_bits} < content_size_bits={content_bits}")
     body = data[CTF_HEADER.size:content]
+    common = {"stream_id": stream_id, "packet_size_bits": pkt_bits, "content_size_bits": content_bits,
+              "timestamp_begin_us": t_begin, "timestamp_end_us": t_end, "events_discarded": discarded}
+    if stream_id == STATUS_STREAM_ID:
+        # Runtime status report ([SPEC-TRACE-08]): no coroutine events; decoded by
+        # tools/visualizer/runtime_stats.py.
+        if len(body) < STATUS_HEADER_BYTES or body[0] != STATUS_EVENT_ID:
+            raise ValueError(f"stream 3: {len(body)} bytes is not a runtime status report")
+        return {**common, "events": [], "status": bytes(data)}
     if stream_id != 0 or len(body) % CORO_EVENT.size:
         raise ValueError(f"stream {stream_id}: {len(body)} event bytes is not a whole number of "
                          f"{CORO_EVENT.size}-byte coroutine events")

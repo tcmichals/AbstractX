@@ -53,6 +53,10 @@ try:
     from flight_plugin import FlightVisualizerPlugin
 except ImportError:
     from tools.visualizer.flight_plugin import FlightVisualizerPlugin
+try:
+    import runtime_stats
+except ImportError:
+    from tools.visualizer import runtime_stats
 
 # Live mode ([SPEC-STUDIO-14]): commands that would need a REPL link to the target.
 TARGET_CLI_COMMANDS = ("peek", "poke", "ping", "tasks", "tlp")
@@ -189,6 +193,19 @@ class TelemetryState:
         self.recent_tlp_packets = []
         self.selected_tlp_idx = 0
         self.tlp_stream_paused = False
+        # TLP debugger view ([SPEC-STUDIO-04]): the table is a snapshot refreshed a few times a
+        # second, and the selection is the packet itself, so neither moves under the reader.
+        self.tlp_view = []
+        self.tlp_view_t = 0.0
+        self.selected_tlp = None
+        self.tlp_tag_counts = {}
+
+        # Live runtime status from the target ([SPEC-STUDIO-15], [SPEC-TRACE-08])
+        self.runtime_report = None
+        self.runtime_rates = None
+        self.runtime_reports = 0
+        self.runtime_busy_hist = []
+        self.ctf_other_packets = 0
         self.log_filter_level = "ALL"
         self.log_search_text = ""
         self.log_auto_scroll = True
@@ -579,6 +596,46 @@ class TelemetryState:
             now = time.strftime("%H:%M:%S") + f".{int((time.time() % 1) * 1000):03d}"
             self.logs.append({"time": now, "level": level, "source": source, "message": message})
 
+    def ingest_ctf(self, data: bytes):
+        """A CTF packet from the target's trace endpoint ([SPEC-STUDIO-15])."""
+        # @impl [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
+        report = runtime_stats.decode(data)
+        if report is None:
+            with self.lock:
+                self.ctf_other_packets += 1
+            return
+        prev = self.runtime_report
+        rates = runtime_stats.rates(prev, report) if prev else None
+        if prev and report["timestamp_us"] < prev["timestamp_us"]:
+            self.add_log("WARN", "status", "target restarted (status timestamps went back)")
+            rates = None
+        with self.lock:
+            self.runtime_report = report
+            self.runtime_reports += 1
+            if rates:
+                self.runtime_rates = rates
+                self.e906_active_duty_pct = rates["busy_pct"]
+                self.e906_wfi_sleep_pct = rates["idle_pct"]
+                self.runtime_busy_hist.append((time.time(), rates["busy_pct"], rates["isr_pct"]))
+                del self.runtime_busy_hist[:-300]
+        if not rates:
+            return
+        top = rates["tasks"][0] if rates["tasks"] else None
+        drv = ", ".join(f"{d['name']} {d['irq_per_s']:.0f}/s" for d in rates["drivers"] if d["irq_per_s"] >= 1)
+        self.add_log("INFO", "status",
+                     f"busy {rates['busy_pct']:.1f}% (isr {rates['isr_pct']:.2f}%)"
+                     + (f" | {top['name']} {top['cpu_pct']:.1f}%" if top else "")
+                     + (f" | irq {drv}" if drv else ""))
+        for d in rates["drivers"]:
+            if d["new_errors"]:
+                self.add_log("WARN", d["name"], f"{d['new_errors']} new errors (total {d['errors']})")
+        if prev and report["dropped_resumes"] != prev["dropped_resumes"]:
+            self.add_log("WARN", "dispatcher", f"dropped resumes: {report['dropped_resumes']}")
+        if prev and report["trace_discarded"] != prev["trace_discarded"]:
+            self.add_log("WARN", "trace", f"trace events discarded: {report['trace_discarded']}")
+        if prev and report["pool_high_water"] > prev["pool_high_water"]:
+            self.add_log("CORO", "frame_pool", f"high water {report['pool_high_water']} / {report['pool_capacity']} B")
+
     def add_cli_line(self, line_type: str, text: str):
         # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
         with self.lock:
@@ -749,6 +806,7 @@ class TelemetryState:
 
     def add_tlp_packet(self, raw_bytes: bytes, tlp_type: int, tag: int, channel: int, seq: int, ts_ns: int, crc_ok: bool):
         with self.lock:
+            self.tlp_tag_counts[tag] = self.tlp_tag_counts.get(tag, 0) + 1
             if self.tlp_stream_paused:
                 return
             if len(self.recent_tlp_packets) > 60:
@@ -1086,6 +1144,11 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                     g_state.bytes_received += len(data)
                     g_state.rate_counter += 1
 
+                # A CTF packet (trace endpoint) is never a run of TLPs ([SPEC-STUDIO-15]).
+                if runtime_stats.is_ctf(data):
+                    g_state.ingest_ctf(data)
+                    continue
+
                 if len(data) >= 64:
                     for off in range(0, len(data) - 63, 64):
                         frame = data[off:off+64]
@@ -1095,8 +1158,6 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                         le_type, le_flags, le_tag, le_ch, le_addr, le_len, le_seq, le_ts = struct.unpack("<BBBBIHHQ", frame[:20])
 
                         g_state.add_tlp_packet(frame, le_type, le_tag, le_ch, le_seq, le_ts, True)
-                        if g_state.packet_count % 30 == 0:
-                            g_state.add_log("TLP", "udp_rx", f"Received 64B TLP Seq #{le_seq} on Ch {le_ch} (Tag 0x{le_tag:02X})")
 
                         # 1. FPGA Hardware RTL Telemetry (Big-Endian Wire Layout from asp_top.sv)
                         if be_type == 0x10 and be_ch == 0x02 and be_addr == 0x40000100:
@@ -1642,12 +1703,87 @@ def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct
     sub_w = len(sublabel) * 5.8
     dl.add_text(imgui.ImVec2(center_x - sub_w / 2.0, center_y + radius + 26.0), c_sub, sublabel)
 
+def _render_live_runtime_status():
+    """Live CPU, coroutine, driver and pool status from the target ([SPEC-STUDIO-15])."""
+    # @impl [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
+    with g_state.lock:
+        rates = g_state.runtime_rates
+        report = g_state.runtime_report
+        n = g_state.runtime_reports
+        hist = list(g_state.runtime_busy_hist)
+    if rates is None:
+        imgui.text_colored(imgui.ImVec4(0.9, 0.75, 0.3, 1.0), "Runtime status: waiting for the target")
+        imgui.text_wrapped("Needs: runtime status reports (CTF stream 3) on the abstractx-trace endpoint, "
+                           f"one per second; {n} received so far. Connect the board link to start "
+                           "e906_rpmsg_bridge.py trace.")
+        return
+    dim = imgui.ImVec4(0.6, 0.7, 0.8, 1.0)
+    hz = report["cycle_hz"]
+
+    # Gauges: target busy, interrupt share, frame pool fill.
+    imgui.columns(3, "rt_gauges", False)
+    for value, label, sub in (
+            (rates["busy_pct"], "Target CPU", f"busy {rates['busy_pct']:.1f}%"),
+            (rates["isr_pct"], "Interrupts", f"ISR {rates['isr_pct']:.2f}%"),
+            (100.0 * rates["pool_used"] / max(1, rates["pool_capacity"]), "Frame pool",
+             f"{rates['pool_used']} / {rates['pool_capacity']} B")):
+        col_w = imgui.get_column_width()
+        pos = imgui.get_cursor_screen_pos()
+        draw_radial_gauge(pos.x + col_w / 2.0, pos.y + 40.0, 32.0, value, label, sub)
+        imgui.dummy(imgui.ImVec2(col_w, 100.0))
+        imgui.next_column()
+    imgui.columns(1)
+    imgui.text_colored(dim, f"Clock {hz / 1e6:.0f} MHz | step() {rates['steps_per_s']:.0f}/s | "
+                            f"reports {n} | host CPU: not measured")
+    imgui.separator()
+
+    # Busy history
+    if len(hist) >= 2 and implot.begin_plot("Target CPU busy % (1 s reports)##rt_busy", imgui.ImVec2(-1, 160)):
+        implot.setup_axes("seconds ago", "%", implot.AxisFlags_.none, implot.AxisFlags_.none)
+        implot.setup_axes_limits(-len(hist), 0, 0, 100, imgui.Cond_.always)
+        t_end = hist[-1][0]
+        t = np.array([h[0] - t_end for h in hist], dtype=np.float64)
+        implot.plot_line("busy %", t, np.array([h[1] for h in hist], dtype=np.float64))
+        implot.plot_line("ISR %", t, np.array([h[2] for h in hist], dtype=np.float64))
+        implot.end_plot()
+
+    def table(title, cols, rows):
+        imgui.text_colored(imgui.ImVec4(0.3, 0.8, 1.0, 1.0), title)
+        imgui.columns(len(cols), title, True)
+        for c in cols:
+            imgui.text(c)
+            imgui.next_column()
+        imgui.separator()
+        for row in rows:
+            for cell in row:
+                imgui.text(cell)
+                imgui.next_column()
+        imgui.columns(1)
+        imgui.spacing()
+
+    table("Coroutines (like RTOS task run-time stats)", ["Task", "CPU %", "Resumes/s", "Longest resume"],
+          [(t["name"], f"{t['cpu_pct']:.1f}", f"{t['resumes_per_s']:.1f}",
+            f"{t['max_us'] / 1000:.1f} ms" if t["max_us"] >= 1000 else f"{t['max_us']:.1f} µs")
+           for t in rates["tasks"]])
+    table("Drivers / interrupt lines", ["Driver (line)", "IRQ/s", "ISR CPU %", "µs / IRQ", "Errors"],
+          [(f"{d['name']} ({d['id']})", f"{d['irq_per_s']:.0f}", f"{d['isr_pct']:.3f}",
+            f"{d['isr_pct'] * 1e4 / d['irq_per_s']:.2f}" if d["irq_per_s"] else "-",
+            f"{d['errors']}" + (f" (+{d['new_errors']})" if d["new_errors"] else ""))
+           for d in rates["drivers"]])
+    table("Pools", ["Pool", "Now", "High water", "Capacity / note"],
+          [("Coroutine frames (B)", str(rates["pool_used"]), str(rates["pool_high_water"]), str(rates["pool_capacity"])),
+           ("Dispatcher queue", str(rates["queue_depth"]), "-",
+            f"{rates['queue_capacity']} | dropped {rates['dropped_resumes']}"),
+           ("Trace events", "-", "-", f"discarded {rates['trace_discarded']}")])
+
+
 def _render_core_cpu_and_topology():
     """
     Renders Silicon Cores, Radial CPU & SPSC Gauges, Interactive Zoomable Load Plots,
     Dynamic Window Sizing Controls, and Platform Architecture Topology.
     """
-    if _no_live_data("CPU Gauges & Topology", "CPU load and ring fill telemetry from the target (not decoded yet)"):
+    if not g_state.sim_mode:
+        _render_live_runtime_status()
         return
     # ── Top Toolbar: Dynamic Window Sizing & Plot Zoom Controls ──
     imgui.begin_group()
@@ -3206,6 +3342,8 @@ def _render_tlp_debugger_window():
     if imgui.button("Clear Packets"):
         with g_state.lock:
             g_state.recent_tlp_packets.clear()
+            g_state.tlp_view = []
+            g_state.selected_tlp = None
             g_state.selected_tlp_idx = 0
     imgui.same_line()
     if g_state.active_layout_preset == "fpga_focus":
@@ -3219,6 +3357,12 @@ def _render_tlp_debugger_window():
         g_state.canvas_windows["tlp"] = True
     imgui.same_line()
     imgui.text(f"| Captured: {len(g_state.recent_tlp_packets)} | Total: {g_state.packet_count:,}")
+    tag_names = {1: "IMU", 2: "GPS", 3: "MAG", 4: "AHRS", 5: "ATT"}
+    with g_state.lock:
+        counts = dict(g_state.tlp_tag_counts)
+    if counts:
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "Per tag: " + "  ".join(
+            f"{tag_names.get(t, f'0x{t:02X}')} {n:,}" for t, n in sorted(counts.items())))
     imgui.end_group()
     imgui.separator()
 
@@ -3240,18 +3384,24 @@ def _render_tlp_debugger_window():
     imgui.next_column()
     imgui.separator()
 
+    # @impl [SPEC-STUDIO-04] tools/visualizer/abstractx_studio.py
+    # Refresh the table 4 times a second (the live link sends ~30 TLPs/s), and keep the
+    # selected packet itself so the inspector does not jump as new packets arrive.
+    now = time.time()
     with g_state.lock:
-        packets = list(g_state.recent_tlp_packets)
-        sel_idx = g_state.selected_tlp_idx
+        if not g_state.tlp_stream_paused and now - g_state.tlp_view_t >= 0.25:
+            g_state.tlp_view = list(g_state.recent_tlp_packets)
+            g_state.tlp_view_t = now
+        packets = g_state.tlp_view
+        selected = g_state.selected_tlp
 
     for idx, pkt in enumerate(reversed(packets)):
-        actual_idx = len(packets) - 1 - idx
-        is_selected = (actual_idx == sel_idx)
-        tag_name = {1: "IMU", 2: "GPS", 3: "MAG", 4: "AHRS"}.get(pkt["tag"], f"0x{pkt['tag']:02X}")
-        clicked, _ = imgui.selectable(f"#{pkt['seq']:<5}", is_selected, imgui.SelectableFlags_.span_all_columns)
+        is_selected = pkt is selected
+        tag_name = tag_names.get(pkt["tag"], f"0x{pkt['tag']:02X}")
+        clicked, _ = imgui.selectable(f"#{pkt['seq']:<5}##{id(pkt)}", is_selected, imgui.SelectableFlags_.span_all_columns)
         if clicked:
             with g_state.lock:
-                g_state.selected_tlp_idx = actual_idx
+                g_state.selected_tlp = pkt
         imgui.next_column()
         imgui.text(tag_name)
         imgui.next_column()
@@ -3273,8 +3423,8 @@ def _render_tlp_debugger_window():
     # Right column: Packet Inspector & Hex Dump
     imgui.text_colored(imgui.ImVec4(0.4, 1.0, 0.5, 1.0), "Selected Packet Breakdown (64 Bytes):")
     imgui.begin_child("TlpDetailChild", imgui.ImVec2(-1, -1), True)
-    if packets and 0 <= sel_idx < len(packets):
-        p = packets[sel_idx]
+    p = selected if selected is not None else (packets[-1] if packets else None)
+    if p is not None:
         imgui.text_colored(imgui.ImVec4(1.0, 0.8, 0.2, 1.0), f"Packet #{p['seq']} | Tag: {p['tag']} | Channel: {p['channel']} | Size: 64 Bytes")
         imgui.separator()
 

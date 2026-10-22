@@ -406,6 +406,20 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/src/platform.cpp`
 
+### `[SPEC-E906-IRQ-05]` Runtime Status: Cycle Clock, Idle Time and Per-Line ISR Time
+* **Requirement**: the cycle clock for [SPEC-TRACE-08] is `mcycle` (200 MHz, low 32 bits).
+  `platform_idle_wait()` reads it before and after `wfi` and reports the difference minus the ISR
+  cycles taken in that window as idle time.
+* **Requirement**: `riscv_trap_dispatcher` adds the `mcycle` cost of each line's handlers to that
+  line's cycle total next to its count ([SPEC-E906-IRQ-01]). `hal::irq::describe(line, name, errors)`
+  gives a line a short name and an optional error counter owned by its driver; the platform names
+  `timer` (7) and `msgbox` (17).
+* **Requirement**: `platform_runtime_stats()` reports up to six lines that fired, most interrupts
+  first. The idle loop arms a timer wake for the next status deadline so a report goes out once a
+  second even when nothing else happens.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_trace.py`), `e906-build-layout`
+* **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `targets/allwinner_e906/include/hal/clic.hpp`
+
 ---
 
 ### [SPEC-E906-CRASH-01] Trap Classification, FPU State Preservation & Crash Dump

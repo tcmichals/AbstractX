@@ -26,6 +26,10 @@
 namespace abstractx::trace {
 class ITraceTransport;
 }
+// @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
+namespace abstractx::stats {
+struct PlatformStats;
+}
 
 namespace abstractx::hal {
 
@@ -53,6 +57,11 @@ void platform_send_telemetry(const uint8_t* data, size_t len) noexcept;
 // writes CTF packets straight into its buffers. nullptr = use the static pool
 // and platform_send_telemetry() (host targets, where the kernel copies anyway).
 trace::ITraceTransport* platform_trace_transport() noexcept;
+
+// Driver / interrupt counters for the runtime status report.
+// @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
+// The core's weak default reports none.
+void platform_runtime_stats(stats::PlatformStats& out) noexcept;
 
 // Universal HAL Driver Accessors
 ISpi&         get_spi_driver() noexcept;

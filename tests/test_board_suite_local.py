@@ -126,6 +126,24 @@ def test_nmea_checksum_gate():
     assert sc.clamp_i32(10 ** 12) == 2147483647 and sc.clamp_i32(-10 ** 12) == -2147483648
 
 
+def test_ctf_decoder_takes_status_reports():
+    """Stream 3 is a runtime status report ([SPEC-TRACE-08]), not malformed coroutine events."""
+    sys.path.insert(0, str(ROOT / "tools" / "visualizer"))
+    import runtime_stats as rs
+    pkt = rs.encode({"timestamp_us": 1, "cycle_hz": 200_000_000, "cycles": 2, "idle_cycles": 1, "steps": 1,
+                     "pool_used": 0, "pool_high_water": 0, "pool_capacity": 4096, "dropped_resumes": 0,
+                     "queue_depth": 0, "queue_capacity": 32, "trace_discarded": 0, "tasks": [], "drivers": []})
+    d = wire.decode_ctf_packet(pkt)
+    assert d["stream_id"] == 3 and d["events"] == [] and rs.decode(d["status"])["pool_capacity"] == 4096
+    short = pkt[:44]
+    short = short[:12] + struct.pack("<I", len(short) * 8) + short[16:]
+    try:
+        wire.decode_ctf_packet(short)
+    except ValueError:
+        return
+    raise AssertionError("decoder accepted a truncated status report")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

@@ -103,9 +103,10 @@ int main() {
     pyexec_event_repl_init();
 
     // 5. Spawn cooperative C++20 coroutines
-    abstractx::spawn(rpmsg_rx_coroutine(abstractx::hal::g_rpmsg, s_console));
-    abstractx::spawn(repl_rx_coroutine(s_console));
-    abstractx::spawn(repl_tx_coroutine(s_console));
+    // @impl [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
+    abstractx::spawn(rpmsg_rx_coroutine(abstractx::hal::g_rpmsg, s_console), "rpmsg_rx");
+    abstractx::spawn(repl_rx_coroutine(s_console), "repl_rx");
+    abstractx::spawn(repl_tx_coroutine(s_console), "repl_tx");
 
     // 6. Cooperative Event Loop: interrupts post work; sleep (wfi) when nothing is ready
     for (;;) {

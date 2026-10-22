@@ -29,6 +29,7 @@ import select
 import socket
 import struct
 import sys
+import threading
 import time
 
 TLP_BYTES = 64
@@ -128,7 +129,15 @@ def main() -> int:
     ap.add_argument("--udp-host", default="127.0.0.1")
     ap.add_argument("--udp-port", type=int, help="destination port (trace 9870, tlp 9871)")
     ap.add_argument("--listen-port", type=int, default=9872, help="tlp: UDP port for TLPs to the E906")
+    ap.add_argument("--exit-on-stdin-eof", action="store_true",
+                    help="exit when stdin closes (run over ssh: ends with the session) [SPEC-E906-REPL-18]")
     args = ap.parse_args()
+
+    if args.exit_on_stdin_eof:
+        def _watch_stdin():
+            sys.stdin.buffer.read()
+            os._exit(0)
+        threading.Thread(target=_watch_stdin, daemon=True).start()
 
     ep = ENDPOINTS[args.mode]
     dev = args.dev or create_endpoint(args.ctrl, ep["name"], ep["addr"])

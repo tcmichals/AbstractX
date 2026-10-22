@@ -47,6 +47,8 @@ struct TraceConfig {
     uint16_t      port{9870};
     uint32_t      flush_watermark_bytes{1024};
     uint32_t      flush_interval_ms{10};
+    // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
+    uint32_t      status_period_ms{1000};  // runtime status report, 0 = off
 };
 
 // Complete Master AbstractX Configuration
@@ -70,6 +72,9 @@ bool init(const Config& config = {}) noexcept;
  *    Returns false (and destroys the task) when all task slots hold live tasks.
  */
 bool spawn(coro::Task<void> task) noexcept;
+// Same, and names the coroutine in the runtime status report.
+// @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
+bool spawn(coro::Task<void> task, const char* name) noexcept;
 
 // Cooperative Step Awaiter that re-enqueues the coroutine handle into the Dispatcher
 struct StepAwaiter {
@@ -107,6 +112,16 @@ void run(coro::Task<void> main_app_task);
  *    custom loop that does not call step().
  */
 coro::Task<void> service_task() noexcept;
+
+/*
+ * 7. Runtime Status:
+ *    step() calls status_service(); loops that run outside step() for a long time
+ *    (an interpreter's VM hook) call it too. status_deadline_us() is when the next
+ *    report is due, so an idle loop can arm a wake for it.
+ */
+// @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
+void status_service() noexcept;
+uint64_t status_deadline_us() noexcept;
 
 } // namespace abstractx
 

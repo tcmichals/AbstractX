@@ -494,3 +494,51 @@ def test_studio_panels_render_live_and_sim():
     sim = studio.TelemetryState()
     sim.enable_sim()
     assert _render_panels(sim) >= 2
+
+
+def _status_packet(ts_us, cycles, idle, run, events, isr):
+    from tools.visualizer import runtime_stats as rs
+    return rs.encode({"timestamp_us": ts_us, "cycle_hz": 200_000_000, "cycles": cycles, "idle_cycles": idle,
+                      "steps": 0, "pool_used": 192, "pool_high_water": 192, "pool_capacity": 4096,
+                      "dropped_resumes": 0, "queue_depth": 0, "queue_capacity": 32, "trace_discarded": 0,
+                      "tasks": [{"name": "repl_rx", "frame": 0x3FFC1000, "resumes": 1, "run_cycles": run,
+                                 "max_cycles": 10}],
+                      "drivers": [{"name": "twi1", "id": 91, "events": events, "cycles": isr, "errors": 0}]})
+
+
+def test_studio_live_runtime_status_panel():
+    """[SPEC-STUDIO-15]: two status reports give rates; the live CPU panel and TLP debugger render."""
+    # @verifies [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
+    state = studio.TelemetryState()
+    studio.g_state = state
+    assert not state.sim_mode
+    state.ingest_ctf(_status_packet(1_000_000, 0, 0, 0, 0, 0))
+    assert state.runtime_rates is None  # one report has no rate yet
+    state.ingest_ctf(_status_packet(2_000_000, 200_000_000, 100_000_000, 90_000_000, 2600, 720_000))
+    r = state.runtime_rates
+    assert abs(r["busy_pct"] - 50.0) < 1e-6 and abs(r["tasks"][0]["cpu_pct"] - 45.0) < 1e-6
+    assert abs(r["drivers"][0]["irq_per_s"] - 2600) < 1e-6
+    assert any(e["source"] == "status" and "busy 50.0%" in e["message"] for e in state.logs)
+    for i in range(80):
+        state.add_tlp_packet(bytes(64), 0x10, 2, 2, i, i, True)
+    frames = 0
+
+    def step_gui():
+        nonlocal frames
+        frames += 1
+        studio._render_live_runtime_status()
+        studio._render_tlp_debugger_window()
+        if frames >= 3:
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    runner = hello_imgui.RunnerParams()
+    runner.app_window_params.window_title = "Pytest Studio - Runtime Status"
+    runner.app_window_params.window_geometry.size = (900, 700)
+    runner.callbacks.show_gui = step_gui
+    implot.create_context()
+    try:
+        immapp.run(runner)
+    finally:
+        implot.destroy_context()
+    assert frames >= 3
+    assert state.tlp_view and state.tlp_tag_counts[2] == 80

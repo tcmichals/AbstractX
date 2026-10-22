@@ -66,6 +66,9 @@ def _drain_bridge_output(proc) -> None:
     for line in proc.stdout:
         g_bridge_log.append(line.rstrip())
 
+g_trace_bridge_proc = None
+
+
 def get_bridge_status() -> bool:
     """Returns True if the background SSH telemetry bridge process is actively running."""
     global g_bridge_proc
@@ -93,11 +96,12 @@ def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.
                         f"{'ok' if copy.returncode == 0 else copy.stderr.strip()}")
     cmd = [
         "ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-        f"STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
+        f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
     ]
     try:
         g_bridge_proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.PIPE,  # closes with Studio, so the board bridge exits too
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -106,10 +110,28 @@ def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.
         threading.Thread(target=_drain_bridge_output, args=(g_bridge_proc,), daemon=True).start()
     except Exception as e:
         print(f"Error starting board bridge: {e}", file=sys.stderr)
+    # Runtime status and trace: forward the 'abstractx-trace' endpoint unchanged; the bridge
+    # exits when this ssh session closes. @impl [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
+    global g_trace_bridge_proc
+    try:
+        g_trace_bridge_proc = subprocess.Popen(
+            ["ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
+             f"python3 -u /root/e906_rpmsg_bridge.py trace --udp-host {host_ip} --udp-port {port} --exit-on-stdin-eof"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        threading.Thread(target=_drain_bridge_output, args=(g_trace_bridge_proc,), daemon=True).start()
+    except Exception as e:
+        print(f"Error starting trace bridge: {e}", file=sys.stderr)
 
 def stop_board_bridge():
     """Terminates the live telemetry bridge subprocess."""
-    global g_bridge_proc
+    global g_bridge_proc, g_trace_bridge_proc
+    if g_trace_bridge_proc is not None:
+        try:
+            g_trace_bridge_proc.terminate()
+            g_trace_bridge_proc.wait(timeout=1.5)
+        except Exception:
+            g_trace_bridge_proc.kill()
+        g_trace_bridge_proc = None
     if g_bridge_proc is not None:
         try:
             g_bridge_proc.terminate()

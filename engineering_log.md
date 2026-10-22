@@ -1673,3 +1673,41 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Also fixed**: adversarial audit Stage 0 flagged `[SPEC-E906-REPL-17]` (marked "Not implemented yet") as a missing `@impl` - `main` failed the app audit after `09e251b` because I added the requirement after running it; `trac.py report` crashed on an evidence record without `delta` (the board record I added by hand).
 * **Board**: 24 passed, 0 failed, 2 skipped; Studio live link held > 45 s with the GUI.
 * **Then (same day)**: the link still dropped after ~65 s. The bridge crashed on `struct.error` - GPS fields parsed from NMEA without checking the checksum, and one garbled sentence put a value too large for int32 into the packet. The garbling came from the streamer itself: it read at most 128 B per 100 ms tick (1,280 B/s) from a GPS at 115200 baud / 10 Hz, so the E906's UART ring overflowed (~7 bad sentences/s). It also stopped after 2,000 ticks (~200 s). Fixed: `sensor_contract.nmea_sentence_ok` (checksum) + int32 clamp in the bridge, the streamer drains the ring every tick and loops until stopped. Soak: 3 min alive, 0 tracebacks; bad sentences 1,245 → 1 per 90 s. The board test now fails if more than 2 sentences fail their checksum in 25 s.
+
+## [2026-10-21] - Runtime status by default: CPU, coroutines, drivers, pools (Studio had only ever shown generated numbers)
+
+### 1. Mistake / Bug Observed
+* **Category**: `process-gap` (1), `tool-bug` (2, 3), `product-bug` (4), `hardware-fact` (5), `process-gap` (6)
+* **Target / Subsystem**: `include/abstractx/domain_dispatcher.hpp`, `src/runtime.cpp`, `targets/allwinner_e906`, `tools/visualizer`
+1. Studio's CPU gauges, coroutine inspector and timeline had never been fed by a target: in live mode they showed "no live data", and before `[SPEC-STUDIO-14]` they showed numbers generated in Python. Nothing in AbstractX measured idle time, per-coroutine run time or per-interrupt cost, and the E906 sent nothing on `abstractx-trace` although the endpoint, the CTF tracer and the Linux bridge all existed.
+2. Studio treated every UDP datagram as a run of 64-byte TLPs; a CTF packet on port 9870 would have been decoded as garbage TLPs.
+3. TLP debugger: the selection was an index into a list that shifted with every packet (~30 TLPs/s from the live link), so the inspected packet changed constantly and the table redrew every frame. The event log in live mode only got one "Received TLP" line per 30 packets.
+4. Closing Studio left `board_studio_bridge.py` running on the board (ssh closed, the remote process never noticed), holding the REPL until killed by hand; the board suite then refused to run.
+5. Measured on the board with the status report (MicroPython loop reading the compass and GPS):
+
+| Source | Interrupts/s | Cost per interrupt | CPU |
+|---|---|---|---|
+| TWI1 compass (400 kHz, 6-byte reads) | ~2,190-2,630 | 1.43 µs | 0.31-0.36 % |
+| UART3 GPS at 115200 | 30 | 38.9 µs (byte-wise FIFO reads over APB) | 0.117 % |
+| Timer (`mtimecmp`) | 1-50 | 0.66 µs | < 0.01 % |
+| `repl_rx` running the script | - | - | 90 % (rest: `wfi` during I2C transfers) |
+| Idle board | - | - | 0.01 % busy |
+
+   UART3 keeps receiving after a script ends, so its RX-dropped counter climbs while nothing reads the ring (76,875 by the time of the measurement).
+6. My own process: I ran `git stash` on `domain_dispatcher.hpp` to show the new test fails on the old code while the ASan/TSan builds ran in the background; those builds compiled the stashed header and reported failures that were not real. The old-code check was redone in a separate worktree. I also first measured UART3 at 9600 baud while the GPS runs at 115200 (the streamer switches it) and reported those numbers before correcting them.
+
+### 2. Root Cause & Lesson Learned
+* The Studio panels were specified before any target produced their data, and no requirement said the runtime itself must report it, so "no live data" was the steady state. A runtime that owns the only `resume()` call site (`Dispatcher::process`) can do RTOS-style run-time stats at almost no cost; it has to charge time in slices (account at every switch, subtract interrupt cycles) because a MicroPython script runs inside one never-ending `repl_rx` resume, sleeps inside it and nests further `Dispatcher::process` calls.
+* Never change files that a running background build is reading.
+
+### 3. Specification Update (SSOT Defense)
+* `docs/DESIGN_SPECIFICATION.md` `[SPEC-TRACE-08]`: status report by default, slice accounting, wire layout (stream 3, header 56 B, task 28 B, driver 24 B, fits 496 B).
+* `targets/allwinner_e906/SPECIFICATION.md` `[SPEC-E906-IRQ-05]`: `mcycle` clock, idle minus ISR, per-line ISR cycles, `hal::irq::describe`, wake for the next report.
+* `apps/e906_repl_app/SPECIFICATION.md` `[SPEC-E906-REPL-18]`: named coroutines, driver error counters, status from the VM hook, both board bridges exit with their ssh session.
+* `tools/visualizer/SPECIFICATION.md` `[SPEC-STUDIO-15]`: CTF datagrams are never TLPs; live CPU / task / driver / pool panel.
+
+### 4. Implementation & Regression Test
+* `sim/test_runtime_stats.cpp`: fake cycle clock, 1000 rounds; exclusive charging with nesting, idle and ISR; packet offsets; dumps the packet for `tests/test_runtime_stats_decode.py`, so the Python decoder is checked against the C++ bytes. Fails without the dispatcher hook (1 resume counted instead of 1001), passes with it.
+* `tests/board/test_e906_trace.py`: reports once a second with named tasks; under load busy > 30 %, `repl_rx` > 20 %, twi1 > 50 irq/s, uart3 present, task + ISR time never above busy.
+* `tests/test_visualizer_sdk.py::test_studio_live_runtime_status_panel`, `tests/test_board_suite_local.py::test_ctf_decoder_takes_status_reports`.
+* Not done: the event timeline (switch-in/out and ISR enter/exit events, the Tracealyzer timeline), host (Linux) CPU, the FreeRTOS app filling the same packet, a frame's parent task for child coroutines (child frames show by address).

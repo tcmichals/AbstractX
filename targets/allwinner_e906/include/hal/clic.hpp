@@ -74,5 +74,9 @@ using Handler = void (*)(void* ctx);
 bool attach(uint32_t line, Handler fn, void* ctx) noexcept;
 uint32_t count(uint32_t line) noexcept;
 uint32_t spurious() noexcept;
+// Runtime status ([SPEC-E906-IRQ-05]): a short name for a line and an error counter its
+// driver owns (drops, timeouts); cycles spent in the line's handlers.
+void describe(uint32_t line, const char* name, const volatile uint32_t* errors = nullptr) noexcept;
+uint32_t cycles(uint32_t line) noexcept;
 
 } // namespace hal::irq

@@ -66,6 +66,10 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-E906-REPL-15] board suite decoders, raw-REPL parsing and runner (off-board)
     add_test(NAME py_test_board_suite_local
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_board_suite_local.py)
+    # [SPEC-TRACE-08] runtime status decoder, checked against the C++ packet
+    add_test(NAME py_test_runtime_stats_decode
+             COMMAND ${CMAKE_COMMAND} -E env RUNTIME_STATS_EXE=$<TARGET_FILE:test_runtime_stats>
+                     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_runtime_stats_decode.py)
     # [SPEC-STUDIO-*] Studio state, panels and live-vs---sim behaviour; needs pytest + imgui_bundle
     execute_process(COMMAND ${Python3_EXECUTABLE} -c "import pytest, imgui_bundle"
                     RESULT_VARIABLE _studio_deps OUTPUT_QUIET ERROR_QUIET)
@@ -86,6 +90,7 @@ if(Python3_Interpreter_FOUND)
     # not-in-ctest: tests/test_board_checkout.py needs a board; opt-in with ABSTRACTX_BOARD_IP ([SPEC-AUDIT-13])
     # not-in-ctest: tests/board/test_e906_planes.py runs on the board via run_board_tests.py ([SPEC-E906-REPL-15])
     # not-in-ctest: tests/board/test_e906_irq.py runs on the board via run_board_tests.py ([SPEC-E906-IRQ-01])
+    # not-in-ctest: tests/board/test_e906_trace.py runs on the board via run_board_tests.py ([SPEC-TRACE-08])
     # not-in-ctest: tests/board/test_e906_bench.py runs on the board via run_board_tests.py ([SPEC-E906-BENCH-*])
     # [SPEC-E906-BENCH-02/04] benchmark collector parsing and units (off-board)
     add_test(NAME py_test_e906_bench_local

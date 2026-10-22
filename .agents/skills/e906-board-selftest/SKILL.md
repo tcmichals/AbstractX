@@ -21,7 +21,7 @@ From the repository root on the PC:
 
 ```bash
 ssh root@192.168.3.3 mkdir -p /root/abstractx_board_tests
-scp -O tests/board/*.py tools/abstractx_wire.py tools/e906_rpmsg_bridge.py \
+scp -O tests/board/*.py tools/abstractx_wire.py tools/e906_rpmsg_bridge.py tools/visualizer/runtime_stats.py \
        apps/e906_repl_app/raw_sensor_streamer.py root@192.168.3.3:/root/abstractx_board_tests/
 ssh root@192.168.3.3 "cd /root/abstractx_board_tests && python3 run_board_tests.py --json /tmp/e906_selftest.json"
 scp -O root@192.168.3.3:/tmp/e906_selftest.json docs/verification/evidence/

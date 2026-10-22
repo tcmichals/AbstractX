@@ -111,6 +111,17 @@ def main():
     signal.signal(signal.SIGINT, handle_sig)
     signal.signal(signal.SIGTERM, handle_sig)
 
+    # Started by Studio over ssh with a stdin pipe: when Studio exits, the session closes,
+    # stdin hits EOF and the bridge stops cleanly instead of holding the REPL forever.
+    # @impl [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
+    if os.environ.get("EXIT_ON_STDIN_EOF") == "1":
+        import threading
+
+        def _watch_stdin():
+            sys.stdin.buffer.read()
+            os.kill(os.getpid(), signal.SIGTERM)
+        threading.Thread(target=_watch_stdin, daemon=True).start()
+
     print("[BRIDGE] E906 raw_sensor_streamer running on XuanTie E906. Streaming to Studio...")
 
     seq = 0

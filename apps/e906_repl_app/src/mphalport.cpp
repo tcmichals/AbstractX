@@ -51,6 +51,7 @@ static void sleep_until_ticks(uint64_t deadline) {
         hal::Timer::arm_wake(deadline);
         abstractx_repl_vm_hook();
         abstractx::hal::platform_idle_wait();
+        abstractx::status_service();  // [SPEC-E906-REPL-18]
     }
 }
 
@@ -89,6 +90,7 @@ void abstractx_repl_vm_hook(void) {
     // Host messages (Ctrl-C) are read only after a message box interrupt; this also
     // flushes partial TLP batches so tlp_send() data leaves during long scripts.
     abstractx::hal::platform_poll_network();
+    abstractx::status_service();  // while a script runs, step() does not ([SPEC-E906-REPL-18])
 
     if (abstractx::g_repl_console) {
         abstractx::g_repl_console->flush_if_older(hal::Timer::get_ticks(), 20ULL * hal::Timer::TICKS_PER_MS);
