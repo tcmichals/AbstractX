@@ -303,6 +303,11 @@ void platform_event_buffers(EventBuffers& out) noexcept {
     out = EventBuffers{s_profile_ring, 256, s_timeline_ring, 512};
 }
 
+// @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
+bool platform_trace_listening() noexcept {
+    return g_trace_transport.listening();
+}
+
 void platform_profile_start(uint32_t hz) noexcept {
     ::hal::Timer::set_sample_period(hz ? ::hal::Timer::CLOCK_FREQ_HZ / hz : 0);
 }

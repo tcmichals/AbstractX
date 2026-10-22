@@ -1804,3 +1804,40 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   decodes the C++ packets. `tests/test_live_profile.py`, Studio render test.
 * Memory: SRAM_FAST 99.3 % -> 85.0 % (compiler code to `.text_cold`), 88.4 % with the profiler
   and timeline code; rings (10 KB) in `.sram_c`. Host ctest 51/51, ASan 50/50, TSan 50/50.
+
+## [2026-10-22] - Profiler firmware flooded the serial console and hung the board suite
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/src/rpmsg_endpoints.cpp`, `bsp/startup.S`, `src/runtime.cpp`, `tests/board/e906_link.py`
+* **Symptoms**: after deploying the profiler firmware the board suite hung, and the serial console
+  filled with `virtio_rpmsg_bus virtio0: msg received with no recipient` (~20/s) so the user
+  could not log in; the user rebooted the board twice. I rolled back to the previous firmware.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug**: the trace endpoint kept sending to the host address learned from a hello after
+  that reader had closed (Linux has no "closed" message). At 1 status packet/s this was hidden; at
+  ~20 packets/s it flooded the console. Fix: 3 s hello lease ([SPEC-E906-IPC-05]); readers renew
+  it every second; with no reader the rings are emptied and no status is sent.
+* **hardware-fact**: an interrupt that ends the idle `wfi` leaves `mepc` = `wfi + 4` on this E906
+  (measured `0x3FFD4AA2`, `wfi` at `0x3FFD4A9E`). The first sample-only return compared with the
+  `wfi` itself, so the idle loop woke ~1050 times/s. Now both addresses are accepted.
+* **product-bug** (test library): `_drain()` read until 50 ms of silence; a continuously streaming
+  endpoint is never silent, so `Plane("trace")` never returned. Now bounded (1 s).
+* **process-gap**: no check looked at the kernel log after a reader closed; host tests cannot see
+  either problem. New board test `test_trace_quiet_after_reader_closes`. Before deploying firmware
+  that adds a stream, watch `dmesg` with no reader attached.
+* **product-bug**: one packet per stream per `status_service()` call lost 23,227 samples and
+  8,618 spans under load; now up to 4 per call: 0 dropped in the load test window.
+* **tool-bug**: `E906-NO-CLIC-ENABLE` is a whole-target rule but saw only the files in the diff,
+  so a change to `platform.cpp` alone was flagged. It now searches every E906 source
+  ([SPEC-AUDIT-14]); `test_clic_enable_rule_sees_files_outside_the_diff` fails on the old tool.
+
+### 3. Specification Update (SSOT Defense)
+* `targets/allwinner_e906/SPECIFICATION.md`: [SPEC-E906-IPC-05], [SPEC-E906-IRQ-06] (wfi + 4).
+* `docs/DESIGN_SPECIFICATION.md`: [SPEC-TRACE-09]/[SPEC-TRACE-10] listener and 4-packet drain.
+* `docs/SPECTRACE.md`: [SPEC-AUDIT-14] target-wide CLIC rule.
+
+### 4. Implementation & Regression Test
+* Board suite on the fixed firmware: 30 passed, 0 failed, 2 skipped (idle: 4015 samples,
+  124 idle spans in 4.5 s, busy 0.40 %; load: 2999/4565 samples in repl_rx, 9450 twi1 spans,
+  0 dropped; no new "no recipient" lines after the reader closed).

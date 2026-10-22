@@ -337,3 +337,16 @@ if __name__ == "__main__":
         test_open_requirement_is_not_a_traceability_miss(Path(td))
     test_full_adversarial_audit_suite(REPO_ROOT)
     print("All adversarial invariant tests passed.")
+
+
+def test_clic_enable_rule_sees_files_outside_the_diff(tmp_path):
+    """[SPEC-AUDIT-14] E906-NO-CLIC-ENABLE is target-wide: an enable in an unreviewed E906 file counts
+    (2026-10-22: a diff of only platform.cpp was flagged although timer.cpp enables its line)."""
+    # @verifies [SPEC-AUDIT-14] docs/SPECTRACE.md
+    other = tmp_path / "targets/allwinner_e906/src/timer.cpp"
+    other.parent.mkdir(parents=True, exist_ok=True)
+    other.write_text("void Timer::init() noexcept { clic::enable(clic::kLineTimer); }\n", encoding="utf-8")
+    reviewed = "targets/allwinner_e906/src/bad.cpp"
+    _, found = _audit_snippets(tmp_path, {reviewed: BAD_E906})
+    assert "E906-NO-CLIC-ENABLE" not in [r for f, r, n in found]
+    assert "E906-PLIC" in [r for f, r, n in found]  # the per-line rules still fire

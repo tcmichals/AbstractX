@@ -109,10 +109,15 @@ void emit_status(uint64_t now_us) noexcept {
 // cannot take stays in the ring for the next call.
 // @impl [SPEC-TRACE-09] [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
 template <typename T, typename Header>
-void drain_ring(events::Ring<T>& ring, uint8_t stream, size_t max_n, uint64_t wait_us,
+void drain_once(events::Ring<T>& ring, uint8_t stream, size_t max_n, uint64_t wait_us,
                 Header hdr, uint64_t now_us) noexcept {
     uint32_t n = ring.size();
     if (n == 0) {
+        ring.first_wait_us = 0;
+        return;
+    }
+    if (!hal::platform_trace_listening()) {  // nobody reads: empty the ring, no drops counted
+        ring.tail.store(ring.tail.load(std::memory_order_relaxed) + n, std::memory_order_release);
         ring.first_wait_us = 0;
         return;
     }
@@ -132,6 +137,17 @@ void drain_ring(events::Ring<T>& ring, uint8_t stream, size_t max_n, uint64_t wa
     if (sent) {
         ring.tail.store(t + n, std::memory_order_release);
         ring.first_wait_us = ring.size() ? now_us : 0;
+    }
+}
+
+// Up to 4 packets per call so a busy target keeps up ([SPEC-TRACE-10]).
+template <typename T, typename Header>
+void drain_ring(events::Ring<T>& ring, uint8_t stream, size_t max_n, uint64_t wait_us,
+                Header hdr, uint64_t now_us) noexcept {
+    for (int i = 0; i < 4; ++i) {
+        const uint32_t before = ring.tail.load(std::memory_order_relaxed);
+        drain_once(ring, stream, max_n, wait_us, hdr, now_us);
+        if (ring.tail.load(std::memory_order_relaxed) == before || ring.size() < max_n) break;
     }
 }
 
@@ -160,6 +176,8 @@ __attribute__((weak)) void hal::platform_event_buffers(hal::EventBuffers& out) n
     out = hal::EventBuffers{nullptr, 0, spans, 128};
 }
 __attribute__((weak)) void hal::platform_profile_start(uint32_t /*hz*/) noexcept {}
+// @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
+__attribute__((weak)) bool hal::platform_trace_listening() noexcept { return true; }
 
 // Weak default: a platform without interrupt counters reports no drivers.
 __attribute__((weak)) void hal::platform_runtime_stats(stats::PlatformStats& out) noexcept {
@@ -181,7 +199,9 @@ void status_service() noexcept {
     // Next deadline on the period grid; after a long stall, skip the missed ones.
     g_status_due_us = (g_status_due_us != 0 && now_us - g_status_due_us < period_us)
                           ? g_status_due_us + period_us : now_us + period_us;
-    emit_status(now_us);
+    if (hal::platform_trace_listening()) {  // nobody reads: skip, do not count a discard
+        emit_status(now_us);
+    }
 }
 
 uint64_t status_deadline_us() noexcept {

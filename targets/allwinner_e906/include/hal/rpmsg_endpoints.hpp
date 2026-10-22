@@ -56,12 +56,18 @@ public:
     static constexpr uint32_t kEndpoint = 1025;
     explicit RpmsgTraceTransport(Rpmsg& rpmsg) noexcept : RpmsgEndpoint(rpmsg, kEndpoint, "abstractx-trace") {}
 
-    // Empty until Linux has said hello, or when only the TLP reserve is left.
+    // Empty unless a host said hello in the last 3 s, or when only the TLP reserve is left.
     std::span<uint8_t> acquire(size_t max_bytes) noexcept override;
     void commit(std::span<uint8_t> buffer, size_t used_bytes) noexcept override;
+    // @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
+    bool listening() const noexcept;
 
 private:
-    RpmsgTxBuffer cur_{};
+    void on_message(const RpmsgMessage& msg) noexcept override;
+
+    RpmsgTxBuffer     cur_{};
+    volatile uint64_t last_hello_ticks_{0};
+    bool              heard_{false};
 };
 
 // 64-byte TLPs, batched (payload / 64 per message, 7 for 496-byte payloads).

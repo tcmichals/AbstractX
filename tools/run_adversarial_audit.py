@@ -455,9 +455,25 @@ class InvariantAuditor:
             if CLIC_ENABLE.search(line):
                 self._e906_meie = True
 
+    def _e906_enables_on_disk(self) -> bool:
+        """A CLIC enable in any E906 source, reviewed or not (the rule is target-wide)."""
+        for top in E906_DIRS:
+            base = self.root_dir / top
+            if not base.is_dir():
+                continue
+            for path in base.rglob("*"):
+                if path.suffix in (".c", ".cpp", ".h", ".hpp") and path.is_file():
+                    try:
+                        if CLIC_ENABLE.search(path.read_text(encoding="utf-8", errors="replace")):
+                            return True
+                    except OSError:
+                        pass
+        return False
+
     def finish_interrupt_rules(self):
         """Whole-target rule: E906 interrupt handlers exist but no CLIC line is ever enabled."""
-        if self._e906_isr is not None and not self._e906_meie:
+        # @impl [SPEC-AUDIT-14] docs/SPECTRACE.md
+        if self._e906_isr is not None and not self._e906_meie and not self._e906_enables_on_disk():
             _, n, f, text = self._e906_isr
             self.log_issue("Stage 3 (ISR Boundary & Dispatch Safety)", f, n,
                            "E906-NO-CLIC-ENABLE: interrupt handlers are defined but no CLIC line is "

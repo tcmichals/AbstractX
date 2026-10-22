@@ -4,6 +4,7 @@
  */
 
 #include "hal/rpmsg_endpoints.hpp"
+#include "abstractx/trace/runtime_stats.hpp"
 
 
 namespace hal {
@@ -24,8 +25,23 @@ void RpmsgEndpoint::dispatch(const RpmsgMessage& msg, void* self) noexcept {
     ep->on_message(msg);
 }
 
+// A host that reads the trace endpoint renews this lease once a second ([SPEC-E906-IPC-05]).
+// @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
+// Lease on the runtime's cycle clock (mcycle on the E906); without a clock, a hello is enough.
+void RpmsgTraceTransport::on_message(const RpmsgMessage& msg) noexcept {
+    (void)msg;
+    last_hello_ticks_ = abstractx::stats::now_cycles();
+    heard_ = true;
+}
+
+bool RpmsgTraceTransport::listening() const noexcept {
+    const uint64_t lease = 3ULL * abstractx::stats::g_state.hz;
+    return heard_ && host_connected() &&
+           (lease == 0 || abstractx::stats::now_cycles() - last_hello_ticks_ < lease);
+}
+
 std::span<uint8_t> RpmsgTraceTransport::acquire(size_t max_bytes) noexcept {
-    if (!host_connected() || cur_) {
+    if (!listening() || cur_) {
         return {};
     }
     cur_ = rpmsg_.tx_acquire(kTlpReserve);

@@ -296,6 +296,9 @@ where its evidence goes. SpecTrace connects them: requirement → code
     `apps/e906_repl_app/src/`), outside comments. The E906 has a T-Head CLIC at `0xE0800000`.
   * `E906-NO-CLIC-ENABLE` (Stage 3): E906 code defines interrupt handlers but never enables a
     CLIC line (`clic::enable`, `irq::attach`); `mie` is ignored in CLIC mode ([SPEC-E906-IRQ-01]).
+    The rule is about the whole target, so before reporting it searches every E906 source on disk
+    for an enable, not only the files under review (2026-10-22: a diff touching only
+    `platform.cpp` was reported although `timer.cpp` and `rpmsg.cpp` enable their lines).
 * **Requirement**: a loop marked `pre-scheduler` on its line or the two lines above is
   tolerated (AGENTS §4 bring-up).
 * **Requirement**: known violations that cannot be fixed in the same change are listed in

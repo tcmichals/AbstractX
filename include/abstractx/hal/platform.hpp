@@ -80,6 +80,8 @@ struct EventBuffers {
 void platform_event_buffers(EventBuffers& out) noexcept;
 // Start interrupting at hz and calling events::sample(pc); 0 stops. Weak default: no sampler.
 void platform_profile_start(uint32_t hz) noexcept;
+// True while a host reads the trace transport ([SPEC-E906-IPC-05]); weak default: always.
+bool platform_trace_listening() noexcept;
 
 // Universal HAL Driver Accessors
 ISpi&         get_spi_driver() noexcept;

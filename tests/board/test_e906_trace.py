@@ -210,13 +210,17 @@ def test_profiler_and_timeline_when_idle():
     reports = _collect(4.5, raw=raw)
     prof, tl, samples, spans = _events(raw)
     assert prof and tl, f"profile packets {len(prof)}, timeline packets {len(tl)}"
-    assert prof[-1]["sample_hz"] == 1000 and tl[-1]["cycle_hz"] == 200_000_000
+    assert prof[-1]["sample_hz"] == 1000, prof[-1]["sample_hz"]
+    assert tl[-1]["cycle_hz"] == 200_000_000, tl[-1]["cycle_hz"]
     assert 3000 <= len(samples) <= 5000, f"{len(samples)} samples in 4.5 s at 1 kHz"
     idle = sum(1 for _, owner in samples if owner == es.OWNER_IDLE)
     assert idle > 0.9 * len(samples), f"idle board: {idle}/{len(samples)} samples idle"
     idle_spans = [sp for sp in spans if sp["kind"] == es.KIND_IDLE]
     assert idle_spans and len(idle_spans) < 50 * 4.5, f"{len(idle_spans)} idle spans: sample interrupts woke the loop"
-    assert prof[-1]["dropped"] == 0 and tl[-1]["dropped"] == 0
+    # Drop counters are cumulative since boot: compare across this window only.
+    d_samples = prof[-1]["dropped"] - prof[0]["dropped"]
+    d_spans = tl[-1]["dropped"] - tl[0]["dropped"]
+    assert d_samples == 0 and d_spans == 0, f"dropped while idle: samples {d_samples}, spans {d_spans}"
     r = rs.rates(reports[-2], reports[-1])
     assert r["busy_pct"] < 5.0, f"idle busy {r['busy_pct']:.2f}% with the profiler on"
     print(f"idle: {len(samples)} samples, {len(idle_spans)} idle spans, busy {r['busy_pct']:.2f}%")
@@ -238,5 +242,27 @@ def test_profiler_and_timeline_follow_the_script():
     twi = next(d["id"] for d in reports[-1]["drivers"] if d["name"] == "twi1")
     isr = [sp for sp in spans if sp["kind"] == es.KIND_ISR and sp["id"] == twi]
     assert isr, "no twi1 interrupt spans during the I2C loop"
+    d_samples = prof[-1]["dropped"] - prof[0]["dropped"]
+    d_spans = tl[-1]["dropped"] - tl[0]["dropped"]
     print(f"load: {in_repl}/{len(samples)} samples in repl_rx, {len(isr)} twi1 spans, "
-          f"dropped samples {prof[-1]['dropped']} spans {tl[-1]['dropped']}")
+          f"dropped in window: samples {d_samples}, spans {d_spans}")
+    assert d_samples < 0.05 * len(samples), f"{d_samples} samples dropped vs {len(samples)} received"
+
+
+def _no_recipient_lines():
+    out = subprocess.run(["dmesg"], capture_output=True, text=True).stdout
+    return sum(1 for line in out.splitlines() if "no recipient" in line or "callbacks suppressed" in line)
+
+
+def test_trace_quiet_after_reader_closes():
+    """[SPEC-E906-IPC-05]: once the reader closes and its 3 s lease runs out, the E906 sends nothing
+    more on the trace endpoint, so Linux logs no 'msg received with no recipient' (2026-10-22: the
+    first profiler firmware flooded the serial console and the board was rebooted twice)."""
+    _require()
+    reports = _collect(2.0)
+    assert reports, "no status while a reader listened"
+    time.sleep(4.0)                     # lease runs out
+    before = _no_recipient_lines()
+    time.sleep(3.0)
+    after = _no_recipient_lines()
+    assert after == before, f"{after - before} new 'no recipient' kernel lines after the reader closed"

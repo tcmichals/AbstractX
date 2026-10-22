@@ -128,7 +128,11 @@ class Plane:
     def read_messages(self, duration_s: float) -> list:
         msgs = []
         deadline = time.monotonic() + duration_s
+        next_hello = time.monotonic() + 1.0
         while time.monotonic() < deadline:
+            if time.monotonic() >= next_hello:  # renew the trace lease [SPEC-E906-IPC-05]
+                os.write(self.fd, HELLO)
+                next_hello = time.monotonic() + 1.0
             if select.select([self.fd], [], [], 0.05)[0]:
                 try:
                     msgs.append(os.read(self.fd, 4096))

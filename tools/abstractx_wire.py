@@ -42,6 +42,9 @@ def is_ctf_packet(data: bytes) -> bool:
 STATUS_STREAM_ID = 3       # [SPEC-TRACE-08] runtime status report
 STATUS_EVENT_ID = 0x20
 STATUS_HEADER_BYTES = 56
+# [SPEC-TRACE-09] profiler samples (stream 4) and [SPEC-TRACE-10] timeline spans (stream 5):
+# first byte of the body is the event id; decoded by tools/visualizer/event_streams.py.
+EVENT_STREAMS = {4: (0x30, 16, 8), 5: (0x31, 24, 16)}  # stream: (event id, header, record bytes)
 
 
 def _cstr(raw: bytes) -> str:
@@ -69,6 +72,11 @@ def decode_ctf_packet(data: bytes) -> dict:
         if len(body) < STATUS_HEADER_BYTES or body[0] != STATUS_EVENT_ID:
             raise ValueError(f"stream 3: {len(body)} bytes is not a runtime status report")
         return {**common, "events": [], "status": bytes(data)}
+    if stream_id in EVENT_STREAMS:
+        ev_id, hdr, rec = EVENT_STREAMS[stream_id]
+        if len(body) < hdr or body[0] != ev_id or (len(body) - hdr) % rec:
+            raise ValueError(f"stream {stream_id}: {len(body)} bytes is not a profile/timeline packet")
+        return {**common, "events": [], "records": bytes(data)}
     if stream_id != 0 or len(body) % CORO_EVENT.size:
         raise ValueError(f"stream {stream_id}: {len(body)} event bytes is not a whole number of "
                          f"{CORO_EVENT.size}-byte coroutine events")

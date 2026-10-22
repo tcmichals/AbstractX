@@ -151,9 +151,15 @@ def main() -> int:
     bridge = Bridge(args.mode, dev_fd, out, (args.udp_host, port), in_sock)
     bridge.hello()
     print(f"[bridge] {args.mode}: {dev} (endpoint {ep['addr']}) -> udp {args.udp_host}:{port}", file=sys.stderr)
+    # Renew the trace lease once a second; without it the E906 stops sending ([SPEC-E906-IPC-05]).
+    # @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
+    next_hello = time.monotonic() + 1.0
     try:
         while True:
-            bridge.pump(1.0)
+            bridge.pump(0.2)
+            if time.monotonic() >= next_hello:
+                bridge.hello()
+                next_hello = time.monotonic() + 1.0
     except KeyboardInterrupt:
         pass
     finally:
