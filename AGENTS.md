@@ -140,7 +140,7 @@ The AbstractX Visualizer architecture (`abstractx_studio.py` and `flight_display
 
 ### Invariant 2: AbstractX Studio is the Unified Engineering Workbench
 1. **Unified Observability Foundation**: AbstractX Studio occupies the main desktop workbench, housing all silicon, C++20 coroutine, SPU FPGA switch fabric, and transport diagnostics.
-2. **Tab-First by Default**: All diagnostic surfaces exist as standard tabs in `CoreStudioTabBar` (Coroutine Inspector, CPU Gauges & Topology, TLP Bus Debugger, System Event Log, Flow Integrity, Simple Trace, Timeline, Source Code & RTL, FPGA Peripherals, MemBrowse CI).
+2. **Tab-First by Default, One Copy Each**: diagnostic surfaces are tabs in `CoreStudioTabBar` (Coroutine Inspector, CPU Gauges & Topology, Flow Integrity, Simple Trace, Timeline, Source Code & RTL, FPGA Peripherals, MemBrowse CI, CLI). The TLP Bus Debugger and System Event Log are always-docked windows (bottom of the workbench, reopened from the View menu) and are **not** also tabs: no surface is shown twice.
 3. **Pop-to-Canvas Movable Windows**: Any diagnostic tab can be popped out onto the desktop canvas via `🗖 Pop to Canvas` to allow simultaneous multi-window comparison (e.g., inspecting coroutine suspensions alongside TLP packet hex streams and CPU load).
 4. **Anti-Clutter Single-Source State**: When a tool is popped out to the canvas, its Studio tab displays a placeholder pointing to the active floating window with a 1-click `🗗 Pop In (Dock to Studio)` button—preventing duplicate rendering, desync, or screen confusion.
 

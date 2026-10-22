@@ -28,6 +28,7 @@ Usage:
   python3 tools/visualizer/abstractx_studio.py [--port 9870] [--sim] [--tab flight|platform|memory]
 """
 
+import os
 import sys
 import math
 import time
@@ -276,12 +277,9 @@ class TelemetryState:
 
         # Dual-Plane Execution Swimlanes & Flow-Integrity Drill-Down State
         self.active_layout_preset = "balanced"
-        self.source_code_files = [
-            "apps/gps_imu_app/src/main.cpp",
-            "include/abstractx/drivers/imu/icm42688p.hpp",
-            "include/abstractx/fusion/attitude_filter.hpp",
-            "targets/allwinner_e906/src/io_processor.cpp"
-        ]
+        self.source_file_filter = ""
+        self.source_search = ""
+        self.source_scroll_to = 0
         self.selected_code_file_idx = 0
         self.timing_zoom = 1.0
         self.timing_pan_us = 0.0
@@ -1705,6 +1703,9 @@ def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct
     sub_w = len(sublabel) * 5.8
     dl.add_text(imgui.ImVec2(center_x - sub_w / 2.0, center_y + radius + 26.0), c_sub, sublabel)
 
+RUNTIME_GAUGE_ROW_H = 40.0 + 32.0 + 26.0 + 18.0 + 8.0
+
+
 def runtime_plot_y_max(values, autoscale=True):
     """Top of the busy % axis ([SPEC-STUDIO-15]): fixed 100, or the data peak plus headroom,
     rounded up to a 1-2-5 step so the axis does not jitter every second."""
@@ -1748,7 +1749,8 @@ def _render_live_runtime_status():
         col_w = imgui.get_column_width()
         pos = imgui.get_cursor_screen_pos()
         draw_radial_gauge(pos.x + col_w / 2.0, pos.y + 40.0, 32.0, value, label, sub)
-        imgui.dummy(imgui.ImVec2(col_w, 100.0))
+        # dial (40 + 32) + label lines at +12 and +26, each one text line tall ([SPEC-STUDIO-15])
+        imgui.dummy(imgui.ImVec2(col_w, RUNTIME_GAUGE_ROW_H))
         imgui.next_column()
     imgui.columns(1)
     imgui.text_colored(dim, f"Clock {hz / 1e6:.0f} MHz | step() {rates['steps_per_s']:.0f}/s | "
@@ -2968,48 +2970,6 @@ def _render_floating_canvas_windows():
         if not opened:
             g_state.canvas_windows["cpu"] = False
 
-    # 4. TLP Bus Debugger Floating Window
-    if g_state.canvas_windows.get("tlp", False):
-        imgui.set_next_window_size(imgui.ImVec2(1100, 540), imgui.Cond_.first_use_ever)
-        expanded, opened = imgui.begin("TLP Bus Debugger##CanvasWin", True)
-        if expanded:
-            imgui.begin_group()
-            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
-            imgui.same_line(0, 16)
-            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
-            if imgui.button("🗗 Pop In (Dock to Studio Tab)##tlp_popin"):
-                g_state.canvas_windows["tlp"] = False
-            imgui.pop_style_color()
-            imgui.same_line(0, 16)
-            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
-            imgui.end_group()
-            imgui.separator()
-            _render_tlp_debugger_window()
-        imgui.end()
-        if not opened:
-            g_state.canvas_windows["tlp"] = False
-
-    # 5. System Event Log Floating Window
-    if g_state.canvas_windows.get("log", False):
-        imgui.set_next_window_size(imgui.ImVec2(980, 500), imgui.Cond_.first_use_ever)
-        expanded, opened = imgui.begin("System Event Log##CanvasWin", True)
-        if expanded:
-            imgui.begin_group()
-            imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 MOVABLE CANVAS WINDOW")
-            imgui.same_line(0, 16)
-            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.65, 0.4, 0.9))
-            if imgui.button("🗗 Pop In (Dock to Studio Tab)##log_popin"):
-                g_state.canvas_windows["log"] = False
-            imgui.pop_style_color()
-            imgui.same_line(0, 16)
-            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "| Drag titlebar to move · Drag edges to resize")
-            imgui.end_group()
-            imgui.separator()
-            _render_event_log_window()
-        imgui.end()
-        if not opened:
-            g_state.canvas_windows["log"] = False
-
     # 6. Dual-Plane Coroutine Timeline Floating Window
     if g_state.canvas_windows.get("timeline", False):
         imgui.set_next_window_size(imgui.ImVec2(1200, 560), imgui.Cond_.first_use_ever)
@@ -3216,13 +3176,12 @@ def _render_core_studio_window():
     if imgui.button(f"{'🗕 Dock' if coro_p else '🗖 Pop'} Coro##hdr"):
         g_state.canvas_windows["coro"] = not coro_p
     imgui.same_line()
-    tlp_p = g_state.canvas_windows.get("tlp", False)
-    if imgui.button(f"{'🗕 Dock' if tlp_p else '🗖 Pop'} TLP##hdr"):
-        g_state.canvas_windows["tlp"] = not tlp_p
+    # TLP debugger and event log are docked windows, never tabs ([SPEC-STUDIO-02]); these re-show them.
+    if imgui.button("Show TLP##hdr"):
+        g_state.requested_studio_tab = "tlp"
     imgui.same_line()
-    log_p = g_state.canvas_windows.get("log", False)
-    if imgui.button(f"{'🗕 Dock' if log_p else '🗖 Pop'} Log##hdr"):
-        g_state.canvas_windows["log"] = not log_p
+    if imgui.button("Show Log##hdr"):
+        g_state.requested_studio_tab = "log"
     imgui.same_line()
     imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Unified engineering workspace")
     imgui.end_group()
@@ -3253,8 +3212,6 @@ def _render_core_studio_window():
     # Determine requested tab activation flags
     flag_coro    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "coro"     else 0
     flag_cpu     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "cpu"      else 0
-    flag_tlp     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "tlp"      else 0
-    flag_log     = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "log"      else 0
     flag_flow    = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "flow"     else 0
     flag_trace   = imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "trace"    else 0
     flag_timeline= imgui.TabItemFlags_.set_selected if g_state.requested_studio_tab == "timeline" else 0
@@ -3280,20 +3237,6 @@ def _render_core_studio_window():
                 _render_popped_tab_placeholder("CPU Gauges & Topology", "cpu", "Silicon Cores & CPU Gauges")
             else:
                 _render_core_cpu_and_topology()
-            imgui.end_tab_item()
-
-        if imgui.begin_tab_item("TLP Bus Debugger", None, flag_tlp)[0]:
-            if is_tool_rendered_externally("tlp"):
-                _render_popped_tab_placeholder("TLP Bus Debugger", "tlp", "TLP Bus Debugger")
-            else:
-                _render_tlp_debugger_window()
-            imgui.end_tab_item()
-
-        if imgui.begin_tab_item("System Event Log", None, flag_log)[0]:
-            if is_tool_rendered_externally("log"):
-                _render_popped_tab_placeholder("System Event Log", "log", "System Event Log")
-            else:
-                _render_event_log_window()
             imgui.end_tab_item()
 
         if imgui.begin_tab_item("Flow Integrity & Pacing Eye", None, flag_flow)[0]:
@@ -3382,9 +3325,6 @@ def _render_tlp_debugger_window():
     else:
         if imgui.button("⛶ Expand Window##tlp"):
             apply_docking_layout("fpga_focus")
-    imgui.same_line()
-    if imgui.button("🗖 Pop to Canvas##tlp"):
-        g_state.canvas_windows["tlp"] = True
     imgui.same_line()
     imgui.text(f"| Captured: {len(g_state.recent_tlp_packets)} | Total: {g_state.packet_count:,}")
     tag_names = {1: "IMU", 2: "GPS", 3: "MAG", 4: "AHRS", 5: "ATT"}
@@ -3507,9 +3447,6 @@ def _render_event_log_window():
     if imgui.button("Clear Log##btn"):
         with g_state.lock:
             g_state.logs.clear()
-    imgui.same_line(0, 10)
-    if imgui.button("🗖 Pop to Canvas##log"):
-        g_state.canvas_windows["log"] = True
 
     # Row 2: Search filter input
     imgui.text("Search Filter:")
@@ -3555,243 +3492,140 @@ def _render_event_log_window():
 
     imgui.end_child()
 
+SOURCE_ROOTS = {"CPP": ("apps", "targets", "include", "src"), "RTL": ("rtl",)}
+SOURCE_EXTS = {"CPP": (".cpp", ".hpp", ".h", ".c", ".S", ".s", ".ld"), "RTL": (".sv", ".v", ".svh")}
+_source_file_cache = {}
+_source_text_cache = {}
+
+
+def list_source_files(mode: str = "CPP", root: Path = REPO_ROOT) -> list:
+    """Repository files the source browser offers ([SPEC-STUDIO-11]), relative to `root`."""
+    # @impl [SPEC-STUDIO-11] tools/visualizer/SPECIFICATION.md
+    key = (mode, str(root))
+    if key not in _source_file_cache:
+        found = []
+        for top in SOURCE_ROOTS.get(mode, ()):
+            for dirpath, dirnames, filenames in os.walk(root / top):
+                dirnames[:] = sorted(d for d in dirnames if not d.startswith((".", "build")) and d != "third_party")
+                found += [str(Path(dirpath, f).relative_to(root)) for f in filenames if f.endswith(SOURCE_EXTS[mode])]
+        _source_file_cache[key] = sorted(found)
+    return _source_file_cache[key]
+
+
+def load_source_lines(rel_path: str, root: Path = REPO_ROOT) -> list:
+    path = root / rel_path
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+    cached = _source_text_cache.get(path)
+    if not cached or cached[0] != mtime:
+        text = path.read_text(errors="replace").expandtabs(4).splitlines()
+        cached = _source_text_cache[path] = (mtime, text)
+    return cached[1]
+
+
+def live_source_badges(lines: list, rates) -> dict:
+    """{line index: badge text} for lines naming a live task or driver as a string literal ([SPEC-STUDIO-11])."""
+    # @impl [SPEC-STUDIO-11] tools/visualizer/SPECIFICATION.md
+    if not rates:
+        return {}
+    named = {}
+    for t in rates["tasks"]:
+        named[f'"{t["name"]}"'] = f"task {t['name']}: {t['cpu_pct']:.1f}% CPU, {t['resumes_per_s']:.0f} resumes/s"
+    for d in rates["drivers"]:
+        us = f", {d['isr_pct'] * 1e4 / d['irq_per_s']:.2f} µs/IRQ" if d["irq_per_s"] else ""
+        named[f'"{d["name"]}"'] = f"driver {d['name']}: {d['irq_per_s']:.0f} IRQ/s{us}, errors {d['errors']}"
+    badges = {}
+    for i, line in enumerate(lines):
+        hits = [txt for lit, txt in named.items() if lit in line]
+        if hits:
+            badges[i] = " | ".join(hits)
+    return badges
+
+
 def _render_source_inspector_window():
     """
     # @impl [SPEC-STUDIO-11] tools/visualizer/abstractx_studio.py
-    Renders Window 5: Cross-Language Source Code & SystemVerilog RTL Hotspot Inspector.
+    Source Code & RTL browser: real repository files, search, live task/driver annotations.
     """
-    if _no_live_data("Source & RTL Profiling", "trace events with source locations and timings (not decoded yet)"):
-        return
-    g_state.update_rates()
-    imgui.begin_group()
-
-    # View Mode: C++ Firmware vs FPGA RTL
-    if not g_state.has_fpga:
+    if g_state.has_fpga:
+        for mode, lbl in (("CPP", "C/C++##src_mode"), ("RTL", "SystemVerilog RTL##src_mode")):
+            if imgui.radio_button(lbl, g_state.source_view_mode == mode):
+                g_state.source_view_mode = mode
+            imgui.same_line()
+    else:
         g_state.source_view_mode = "CPP"
-    else:
-        is_cpp = (g_state.source_view_mode == "CPP")
-        if is_cpp:
-            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.9, 1.0))
-        if imgui.button("C++ Firmware##src_mode"):
-            g_state.source_view_mode = "CPP"
-        if is_cpp:
-            imgui.pop_style_color()
-
-        imgui.same_line()
-        is_rtl = (g_state.source_view_mode == "RTL")
-        if is_rtl:
-            imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.8, 0.4, 1.0, 1.0))
-        if imgui.button("FPGA SystemVerilog RTL##src_mode"):
-            g_state.source_view_mode = "RTL"
-        if is_rtl:
-            imgui.pop_style_color()
-
-        imgui.same_line(0, 15)
-
-    if g_state.source_view_mode == "CPP":
-        files = g_state.source_code_files
-        g_state.selected_code_file_idx = min(g_state.selected_code_file_idx, len(files) - 1)
-        curr_f = files[g_state.selected_code_file_idx]
-        imgui.set_next_item_width(320)
-        if imgui.begin_combo("C++ Source File", curr_f.split("/")[-1]):
-            for idx, fpath in enumerate(files):
-                is_sel = (idx == g_state.selected_code_file_idx)
-                if imgui.selectable(fpath, is_sel)[0]:
-                    g_state.selected_code_file_idx = idx
-                    g_state.selected_source_file = fpath
-                if is_sel:
-                    imgui.set_item_default_focus()
-            imgui.end_combo()
-
-        imgui.same_line(0, 15)
-        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.25, 0.25, 0.9))
-        if imgui.button("🚨 Jump to Overrun Hotspot (main.cpp:42)"):
-            g_state.selected_code_file_idx = 0
-            g_state.selected_source_file = "apps/gps_imu_app/src/main.cpp"
-            g_state.selected_source_line = 42
-            g_state.selected_span_id = "imu_overrun"
-            g_state.selected_event_name = "imu_pipeline [OVERRUN]"
-        imgui.pop_style_color()
-    else:
-        files = g_state.rtl_code_files
-        g_state.selected_rtl_file_idx = min(g_state.selected_rtl_file_idx, len(files) - 1)
-        curr_f = files[g_state.selected_rtl_file_idx]
-        imgui.set_next_item_width(320)
-        if imgui.begin_combo("Verilog RTL Module", curr_f.split("/")[-1]):
-            for idx, fpath in enumerate(files):
-                is_sel = (idx == g_state.selected_rtl_file_idx)
-                if imgui.selectable(fpath, is_sel)[0]:
-                    g_state.selected_rtl_file_idx = idx
-                    g_state.selected_rtl_file = fpath
-                if is_sel:
-                    imgui.set_item_default_focus()
-            imgui.end_combo()
-
-        imgui.same_line(0, 15)
-        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.85, 0.4, 0.2, 0.9))
-        if imgui.button("⚡ Jump to Auto-DMA Engine (Line 112)"):
-            g_state.selected_rtl_file_idx = 1
-            g_state.selected_rtl_file = "rtl/imu/asp_imu_auto_dma.sv"
-            g_state.selected_rtl_line = 112
-        imgui.pop_style_color()
-
-    imgui.same_line(0, 10)
-    if imgui.button("⛶ Expand Window##source"):
-        apply_docking_layout("source_focus")
-    imgui.same_line(0, 6)
+    mode = g_state.source_view_mode
+    files = list_source_files(mode)
+    imgui.set_next_item_width(220)
+    _, g_state.source_file_filter = imgui.input_text_with_hint("##src_filter", "filter files", g_state.source_file_filter)
+    imgui.same_line()
+    imgui.set_next_item_width(220)
+    entered, g_state.source_search = imgui.input_text_with_hint(
+        "##src_search", "search in file (Enter = next)", g_state.source_search, imgui.InputTextFlags_.enter_returns_true)
+    imgui.same_line()
+    find_next = imgui.button("Next##src_find") or entered
+    imgui.same_line(0, 12)
     if imgui.button("🗖 Pop to Canvas##source"):
         g_state.canvas_windows["source"] = True
-
-    imgui.end_group()
     imgui.separator()
 
-    # Code Listing with Line-by-Line Profiling Badges
-    imgui.begin_child("SourceCodeLinesChild", imgui.ImVec2(-1, -1), True)
-
-    code_snippets = {
-        "apps/gps_imu_app/src/main.cpp": [
-            (35, "int main(int argc, char* argv[]) {", None),
-            (36, "    // Initialize dual-core hardware and lock-free SPSC rings", None),
-            (37, "    abstractx::init(g_platform_config);", None),
-            (38, "    g_dispatcher.spawn(boot_async());", None),
-            (39, "", None),
-            (40, "    // Primary-Paced Coroutine Ingestion Loop (8 kHz IMU Clock)", None),
-            (41, "    while (g_running) {", None),
-            (42, "        auto sample = co_await g_sensor_ring.pop();", {"lat": 23.4, "budget": 15.0, "overrun": True, "token": "co_await g_sensor_ring.pop()", "diag": "Head pointer contention during concurrent DMA latch (+8.4 µs late)"}),
-            (43, "        attitude_ekf.update(sample.gyro, sample.accel);", {"lat": 18.2, "budget": 20.0, "overrun": False, "token": "attitude_ekf.update()", "diag": "Mahony kinematics quaternion integration"}),
-            (44, "        quad_mixer.compute_demands(tau);", {"lat": 2.8, "budget": 25.0, "overrun": False, "token": "quad_mixer.compute_demands()", "diag": "Cascaded rate PID calculations"}),
-            (45, "        while (g_mag_channel.try_pop(mag)) { /* aux */ }", {"lat": 6.5, "budget": 10.0, "overrun": False, "token": "g_mag_channel.try_pop()", "diag": "Auxiliary sensor non-blocking drain"}),
-            (46, "        co_await g_telemetry_ring.push_async(tlp);", {"lat": 1.2, "budget": 5.0, "overrun": False, "token": "g_telemetry_ring.push_async()", "diag": "64-byte TLP egress push"}),
-            (47, "    }", None),
-            (48, "    return 0;", None),
-            (49, "}", None),
-        ],
-        "include/abstractx/drivers/imu/icm42688p.hpp": [
-            (50, "template <typename SpiBus>", None),
-            (51, "class Icm42688pDriver {", None),
-            (52, "public:", None),
-            (53, "    coro::Task<bool> read_burst_async(ImuSample& out) {", None),
-            (54, "        co_await spi_bus_.transfer_dma_async(tx_buf, rx_buf, 14);", {"lat": 8.5, "budget": 10.0, "overrun": False, "token": "spi_bus_.transfer_dma_async()", "diag": "Hardware SPI Auto-DMA burst @ 10 MHz"}),
-            (55, "        out.accel = parse_accel(rx_buf);", None),
-            (56, "        out.gyro  = parse_gyro(rx_buf);", None),
-            (57, "        co_return true;", None),
-            (58, "    }", None),
-            (59, "};", None),
-        ],
-        "include/abstractx/fusion/attitude_filter.hpp": [
-            (85, "class AttitudeFilter {", None),
-            (86, "public:", None),
-            (87, "    void update(const Vector3f& gyro, const Vector3f& accel) {", None),
-            (88, "        // Mahony quaternion filter integration (zero heap)", {"lat": 18.2, "budget": 20.0, "overrun": False, "token": "attitude_ekf.update()", "diag": "Mahony kinematics quaternion integration"}),
-            (89, "        integrate_kinematics(gyro, dt_);", None),
-            (90, "    }", None),
-            (91, "};", None),
-        ],
-        "targets/allwinner_e906/src/io_processor.cpp": [
-            (45, "void handle_msgbox_irq() {", None),
-            (46, "    // Signal Doorbell to Core 1 coroutine engine", None),
-            (47, "    e906_signal_doorbell(DOORBELL_CH_IMU);", {"lat": 1.1, "budget": 5.0, "overrun": False, "token": "sun6i_msgbox()", "diag": "Inter-Core RPC Doorbell"}),
-            (48, "}", None),
-        ],
-        "rtl/asp_router.sv": [
-            (60, "module asp_router #(parameter CHANNELS = 4) (", None),
-            (61, "    input  logic clk, rst_n,", None),
-            (62, "    input  logic [CHANNELS-1:0] s_axis_tvalid,", None),
-            (63, "    output logic [CHANNELS-1:0] s_axis_tready,", None),
-            (64, "    // 64-byte TLP AXI-Stream Crossbar Switch Routing Logic", {"lat": 0.02, "budget": 0.05, "overrun": False, "token": "asp_router.sv Crossbar", "diag": "64-byte TLP non-blocking AXI-Stream switch"}),
-            (65, "    input  logic [CHANNELS-1:0][511:0] s_axis_tdata", None),
-            (66, ");", None),
-        ],
-        "rtl/imu/asp_imu_auto_dma.sv": [
-            (110, "always_ff @(posedge clk or negedge rst_n) begin", None),
-            (111, "    if (!rst_n) state <= IDLE;", None),
-            (112, "    else if (drdy_edge) state <= TRIGGER_BURST;", {"lat": 0.01, "budget": 0.02, "overrun": False, "token": "asp_imu_auto_dma.sv", "diag": "Hardware SPI Auto-DMA burst engine triggered by DRDY pin"}),
-            (113, "end", None),
-        ],
-        "rtl/dshot/asp_dshot_core.sv": [
-            (85, "module asp_dshot_core (", None),
-            (86, "    input  logic clk,", None),
-            (87, "    input  logic [10:0] throttle_m1, throttle_m2, throttle_m3, throttle_m4,", None),
-            (88, "    output logic [3:0]  dshot_pwm_out", {"lat": 0.01, "budget": 0.03, "overrun": False, "token": "asp_dshot_core.sv", "diag": "4-CH DShot600 bitstream PWM generator"}),
-            (89, ");", None),
-        ]
-    }
-
-    fallback_file = "apps/gps_imu_app/src/main.cpp" if g_state.source_view_mode == "CPP" else "rtl/asp_router.sv"
-    curr_lines = code_snippets.get(curr_f, code_snippets[fallback_file])
-
-    imgui.columns(3, "code_inspect_cols", True)
-    imgui.set_column_width(0, 50)
-    imgui.set_column_width(1, 460)
-    imgui.text("Line")
-    imgui.next_column()
-    imgui.text("Source Code Context (Click to Select Line)")
-    imgui.next_column()
-    imgui.text("Execution Metrics & Profiling Badges")
-    imgui.next_column()
-    imgui.separator()
-
-    sel_line = g_state.selected_source_line if g_state.source_view_mode == "CPP" else g_state.selected_rtl_line
-
-    for line_no, code_txt, prof in curr_lines:
-        is_sel_line = (line_no == sel_line)
-        
-        # Line number column
-        num_str = f"{line_no:4d}"
-        if prof and prof.get("overrun", False):
-            imgui.text_colored(imgui.ImVec4(1.0, 0.3, 0.3, 1.0), f"🚨{num_str}")
-        elif is_sel_line:
-            imgui.text_colored(imgui.ImVec4(1.0, 0.9, 0.2, 1.0), f"👉{num_str}")
-        else:
-            imgui.text_colored(imgui.ImVec4(0.4, 0.5, 0.6, 1.0), num_str)
-        imgui.next_column()
-
-        # Code text column - safely selectable line!
-        clicked_line, _ = imgui.selectable(f"{code_txt}##line_{line_no}", is_sel_line, imgui.SelectableFlags_.span_all_columns)
-        if clicked_line:
-            with g_state.lock:
-                if g_state.source_view_mode == "CPP":
-                    g_state.selected_source_line = line_no
-                    g_state.selected_source_file = curr_f
-                else:
-                    g_state.selected_rtl_line = line_no
-                    g_state.selected_rtl_file = curr_f
-                if prof and "token" in prof:
-                    g_state.selected_token = prof["token"]
-                else:
-                    g_state.selected_token = code_txt.strip()
-        imgui.next_column()
-
-        # Profiling badges column
-        if prof is not None:
-            if prof.get("overrun", False):
-                imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.9, 0.2, 0.2, 0.9))
-                badge_lbl = f"⚠️ {prof['lat']:.1f} µs [OVERRUN +{prof['lat'] - prof['budget']:.1f} µs]"
-            else:
-                imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.6, 0.3, 0.8))
-                badge_lbl = f"✓ {prof['lat']:.1f} µs [Limit: {prof['budget']:.1f} µs]"
-
-            if imgui.button(f"{badge_lbl}##btn_{line_no}"):
-                with g_state.lock:
-                    if g_state.source_view_mode == "CPP":
-                        g_state.selected_source_line = line_no
-                        g_state.selected_source_file = curr_f
-                    else:
-                        g_state.selected_rtl_line = line_no
-                        g_state.selected_rtl_file = curr_f
-                    g_state.selected_token = prof["token"]
-                    if prof.get("overrun", False):
-                        g_state.selected_span_id = "imu_overrun"
-                        g_state.selected_event_name = "imu_pipeline [OVERRUN]"
-            imgui.pop_style_color()
-            imgui.same_line()
-            imgui.text_colored(imgui.ImVec4(0.7, 0.7, 0.7, 0.9), prof["diag"])
-        else:
-            imgui.text("")
-        imgui.next_column()
-
-    imgui.columns(1)
+    # File list (left)
+    flt = g_state.source_file_filter.lower()
+    shown = [f for f in files if flt in f.lower()]
+    cur = g_state.selected_source_file if mode == "CPP" else g_state.selected_rtl_file
+    if cur not in files and files:
+        cur = next((f for f in files if f.endswith("main.cpp")), files[0])
+    imgui.begin_child("SrcFileList", imgui.ImVec2(280, -1), True)
+    for f in shown:
+        if imgui.selectable(f"{f}##srcf", f == cur)[0]:
+            cur = f
+            g_state.source_scroll_to = 0
     imgui.end_child()
+    if mode == "CPP":
+        g_state.selected_source_file = cur
+    else:
+        g_state.selected_rtl_file = cur
+    imgui.same_line()
+
+    # Code (right)
+    lines = load_source_lines(cur) if cur else []
+    sel_attr = "selected_source_line" if mode == "CPP" else "selected_rtl_line"
+    sel = getattr(g_state, sel_attr)
+    if find_next and g_state.source_search:
+        needle = g_state.source_search.lower()
+        n = len(lines)
+        hit = next(((sel + k) % n for k in range(1, n + 1) if needle in lines[(sel + k - 1) % n].lower()), None) if n else None
+        if hit is not None:
+            sel = hit if hit else n
+            setattr(g_state, sel_attr, sel)
+            g_state.source_scroll_to = sel
+    with g_state.lock:
+        rates = g_state.runtime_rates
+    badges = live_source_badges(lines, rates)
+    imgui.begin_child("SrcCode", imgui.ImVec2(-1, -1), True, imgui.WindowFlags_.horizontal_scrollbar)
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0),
+                       f"{cur}  ({len(lines)} lines, {len(badges)} with live data)" if cur else "no source files found")
+    line_h = imgui.get_text_line_height_with_spacing()
+    if g_state.source_scroll_to:
+        imgui.set_scroll_y(max(0.0, (g_state.source_scroll_to - 5) * line_h))
+        g_state.source_scroll_to = 0
+    c_num, c_badge = imgui.ImVec4(0.4, 0.5, 0.6, 1.0), imgui.ImVec4(0.35, 0.9, 0.5, 1.0)
+    clipper = imgui.ListClipper()
+    clipper.begin(len(lines))
+    while clipper.step():
+        for i in range(clipper.display_start, clipper.display_end):
+            imgui.text_colored(c_num, f"{i + 1:5d}")
+            imgui.same_line()
+            if imgui.selectable(f"{lines[i]}##L{i}", sel == i + 1)[0]:
+                setattr(g_state, sel_attr, i + 1)
+            if i in badges:
+                imgui.same_line()
+                imgui.text_colored(c_badge, f"  ◀ {badges[i]}")
+    clipper.end()
+    imgui.end_child()
+
 
 def _render_fpga_peripherals_window():
     """

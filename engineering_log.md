@@ -1711,3 +1711,33 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `tests/board/test_e906_trace.py`: reports once a second with named tasks; under load busy > 30 %, `repl_rx` > 20 %, twi1 > 50 irq/s, uart3 present, task + ISR time never above busy.
 * `tests/test_visualizer_sdk.py::test_studio_live_runtime_status_panel`, `tests/test_board_suite_local.py::test_ctf_decoder_takes_status_reports`.
 * Not done: the event timeline (switch-in/out and ISR enter/exit events, the Tracealyzer timeline), host (Linux) CPU, the FreeRTOS app filling the same packet, a frame's parent task for child coroutines (child frames show by address).
+
+## [2026-10-22] - Studio: canned source browser, duplicated TLP/log surfaces, gauge label overlap
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/visualizer/abstractx_studio.py`
+* **Symptoms** (reported by the user on the live board): the Source Code tab showed nothing;
+  the TLP Bus Debugger and System Event Log appeared twice (docked window + a tab that only
+  said "open elsewhere"); the clock / `step()` / host-CPU line was drawn over the gauge labels.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug**: the source inspector was hard-coded snippets of files with invented
+  timings. [SPEC-STUDIO-14] hid it in live mode behind "no live data", which was honest but
+  left no source browser at all. A browser of the real files needs no live data.
+* **process-gap**: AGENTS §8 demanded every surface as a tab *and* the layout docked TLP/log
+  windows by default, so both existed. Tests checked each surface rendered, never that one was
+  shown only once. Rule changed (AGENTS §8 item 2, [SPEC-STUDIO-02]).
+* **product-bug**: the gauge row reserved a fixed 100 px while the sublabel is drawn at
+  98 px + one text line. Nothing measured it; now a named constant checked against the font.
+
+### 3. Specification Update (SSOT Defense)
+* `tools/visualizer/SPECIFICATION.md`: [SPEC-STUDIO-02] (no tab/pop-out copies of docked
+  windows, Verified by added), [SPEC-STUDIO-11] rewritten (real files, search, live task/driver
+  badges), [SPEC-STUDIO-14] (source profiling removed from the placeholder list),
+  [SPEC-STUDIO-15] (gauge row clears its labels). `AGENTS.md` §8.
+
+### 4. Implementation & Regression Test
+* `tests/test_visualizer_sdk.py`: `test_studio_tlp_and_log_are_not_also_tabs`,
+  `test_studio_source_browser_reads_real_files_with_live_badges`,
+  `test_studio_gauge_row_clears_its_labels`: all three fail on the previous
+  `abstractx_studio.py` and pass now (pytest 23 passed).

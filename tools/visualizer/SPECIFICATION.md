@@ -34,7 +34,7 @@ flowchart TD
         direction TB
         subgraph TOP_DOCK["Top Viewport Split"]
             direction LR
-            WIN_CORE["<b>Window 1: AbstractX Core Studio</b><br/>LeftSpace (54% Width)<br/>10-Tab CoreStudioTabBar:<br/>• Coroutine Inspector<br/>• CPU Gauges & Topology<br/>• Dual-Plane Timeline<br/>• Flow Integrity & Pacing Eye<br/>• Simple Trace Viewer<br/>• TLP Bus Debugger<br/>• System Event Log<br/>• Source Code & RTL Inspector<br/>• FPGA Peripherals<br/>• MemBrowse Memory"]
+            WIN_CORE["<b>Window 1: AbstractX Core Studio</b><br/>LeftSpace (54% Width)<br/>CoreStudioTabBar:<br/>• Coroutine Inspector<br/>• CPU Gauges & Topology<br/>• Dual-Plane Timeline<br/>• Flow Integrity & Pacing Eye<br/>• Simple Trace Viewer<br/>• Source Code & RTL Inspector<br/>• FPGA Peripherals<br/>• MemBrowse Memory<br/>• CLI Console"]
             WIN_USER["<b>Window 2: User Domain Instruments</b><br/>MainDockSpace (46% Width)<br/>• Vector PFD Artificial Horizon<br/>• 3D Drone Wireframe Attitude<br/>• Quad-X Motor Demands (M1..M4)<br/>• 8 kHz IMU Oscilloscope (ImPlot)"]
         end
     end
@@ -116,7 +116,7 @@ The visualizer enforces a strict architectural boundary between the **AbstractX 
 ## 3. Window Functional Specifications
 
 ### 3.1 Window 1: AbstractX Core Studio (`LeftSpace`)
-The Core Studio window is a unified engineering workbench with a **10-tab `CoreStudioTabBar`**, providing complete hardware-software co-design observability:
+The Core Studio window is a unified engineering workbench with a `CoreStudioTabBar`, providing complete hardware-software co-design observability. The TLP Bus Debugger and System Event Log (6 and 7 below) are docked windows, not tabs ([SPEC-STUDIO-02]):
 
 1. **CPU Gauges & Topology**:
    - **Analog Radial Dial Gauges**: 240-degree sweep arcs, dynamic color-coding (Green < 50%, Amber < 80%, Coral Red ≥ 80%), needle indicators, and digital readouts for Core 0, Core 1, and SPU.
@@ -152,12 +152,9 @@ The Core Studio window is a unified engineering workbench with a **10-tab `CoreS
    - Real-time severity-filtered log (ALL, INFO, TLP, CORO, ISR, WARN, MEM).
    - Substring search, auto-scroll pinning, and clipboard copy.
 
-8. **Source Code & RTL Inspector**:
-   - **C++ / RTL toggle**: Switch between C++20 application/driver source (`CPP` mode) and SystemVerilog RTL (`RTL` mode) via `source_view_mode` state.
-   - **CPP mode** file list: `apps/gps_imu_app/src/main.cpp`, `include/abstractx/drivers/imu/icm42688p.hpp`, `include/abstractx/fusion/attitude_filter.hpp`, `targets/allwinner_e906/src/io_processor.cpp`.
-   - **RTL mode** file list: `rtl/asp_router.sv`, `rtl/imu/asp_imu_auto_dma.sv`, `rtl/dshot/asp_dshot_core.sv`.
-   - Line-by-line profiling annotations: execution duration (µs), deadline budget, overrun status badges (Green nominal, Coral Red overrun).
-   - Clickable `imgui.selectable()` rows: clicking any line sets `selected_source_line` / `selected_rtl_line` and `selected_token` safely, without risk of ImGui color-stack underflow.
+8. **Source Code & RTL Inspector** ([SPEC-STUDIO-11]):
+   - Browses the real repository files (`CPP`; `RTL` with an FPGA), with file filter, search and line numbers.
+   - Lines that name a live coroutine or driver show its live CPU % / IRQ rate.
 
 9. **FPGA & Hardware Peripherals**:
    - SPI0 Auto-DMA throughput, clock speed (10 MHz), transfer duration, and bus saturation %.
@@ -264,7 +261,8 @@ Every requirement below is verified in code with an `@impl` tag:
 The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting single-OS-window internal docking (`enable_viewports = False` by default), multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`, `studio_workbench`), window pop-out via `decouple_window()`, pop-in via `restore_default_layout()`, and layout reset via `runner_params.docking_params.layout_reset = True`.
 
 ### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified Engineering Workbench
-The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, and MemBrowse CI Report. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests.
+The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, MemBrowse CI Report and CLI Console. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests. The TLP Bus Debugger ([SPEC-STUDIO-04]) and System Event Log ([SPEC-STUDIO-05]) are docked windows and MUST NOT also appear as tabs or pop-out copies: each surface is drawn once. A jump request for `tlp` or `log` shows and focuses the docked window.
+* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
 
 ### `[SPEC-STUDIO-03]` User Domain Instruments Decoupled Canvas
 The visualizer MUST provide a dedicated primary canvas (`MainDockSpace`) hosting domain-specific user instruments (Vector Primary Flight Display artificial horizon, 3D attitude wireframe, quad-X motor demands, 8 kHz IMU real-time oscilloscope) decoupled from core framework execution.
@@ -296,7 +294,7 @@ The visualizer MUST support a standalone `--sim` mode generating realistic multi
 * **Requirement**: every synthetic value is created by `TelemetryState.enable_sim()`, called only
   for `--sim`. While it is on, the status bar shows a `SIMULATED DATA (--sim)` badge.
 * **Requirement**: a panel with no live source (CPU gauges, timeline, flow integrity, FPGA
-  peripherals, source profiling, coroutine inspector and trace with no packets yet) shows a
+  peripherals, coroutine inspector and trace with no packets yet) shows a
   "no live data" placeholder naming what would feed it, instead of placeholder numbers.
 * **Requirement**: CLI commands that need the target (`peek`, `poke`, `ping`, `tasks`, MicroPython
   mode) report that Studio has no REPL link to the target, instead of answering from simulated
@@ -319,14 +317,25 @@ The visualizer MUST support a standalone `--sim` mode generating realistic multi
   0.01 % and a loaded one at 90 % are both readable); an "Auto scale" checkbox switches to a fixed
   0-100 % axis. The X window is selectable (60 s / 5 min). The plot takes the height left over
   after the tables below it, with a 220 px minimum.
+* **Requirement**: the gauge labels and the clock / `step()` line below them never overlap (the
+  gauge row reserves the full height of the dial plus both label lines).
 * **Verified by**: `host-tests` (`tests/test_runtime_stats_decode.py`, `tests/test_visualizer_sdk.py`), `e906-board-selftest` (`tests/board/test_e906_trace.py`)
 * **Implementation Target**: `tools/visualizer/runtime_stats.py`, `tools/visualizer/abstractx_studio.py`
 
 ### `[SPEC-STUDIO-10]` MemBrowse Zero-Heap Static Budget Verification & CI Report
 The visualizer MUST ingest static section metrics (`.text`, `.rodata`, `.data`, `.bss`) from `memory_metrics.json` generated by continuous integration (`.github/workflows/membrowse.yml` and `tools/track_memory_membrowse.py`). It MUST display a multi-target comparison matrix, detailed RAM/Flash budget bars, zero-heap invariant verification badges (`0 B` dynamic heap), and provide a 1-click interactive action to execute local MemBrowse CI analysis and reload metrics.
 
-### `[SPEC-STUDIO-11]` Source Code & RTL Inspector with Cross-Language Toggle
-The visualizer MUST provide a Source Code & RTL Inspector tab (within `CoreStudioTabBar`) with a `CPP` / `RTL` mode toggle, allowing developers to view annotated C++20 application/driver source alongside SystemVerilog RTL (`rtl/asp_router.sv`, `rtl/imu/asp_imu_auto_dma.sv`, `rtl/dshot/asp_dshot_core.sv`). Clicking any line MUST safely update `selected_source_line` / `selected_rtl_line` via `imgui.selectable()` without risk of ImGui color-stack underflow. Overrun lines MUST display coral-red badges.
+### `[SPEC-STUDIO-11]` Source Code & RTL Browser with Live Annotations
+* **Requirement**: the Source Code & RTL tab browses the real files in the repository (C/C++/asm
+  under `apps/`, `targets/`, `include/`, `src/`; SystemVerilog under `rtl/` in `RTL` mode, which
+  is offered only with an FPGA), with a file-name filter, a text search that jumps to the next
+  match, line numbers and a selectable current line. Nothing in it is canned or simulated.
+* **Requirement**: a line that names a coroutine or driver from the live status report
+  ([SPEC-STUDIO-15]) as a string literal (`spawn(task, "repl_rx")`, `describe(line, "uart3")`)
+  shows that object's live numbers next to it (task CPU % and resumes/s; driver IRQ/s and
+  µs per IRQ), so a figure in the CPU tab leads straight to the code that owns it.
+* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
+* **Implementation Target**: `tools/visualizer/abstractx_studio.py`
 
 ### `[SPEC-STUDIO-12]` Real-Time Flow-Integrity, Pacing Eye Diagram & HoL Contention Matrix
 The visualizer MUST provide a Flow Integrity & Pacing Eye tab (within `CoreStudioTabBar`) rendering:

@@ -555,3 +555,77 @@ def test_studio_busy_plot_auto_scale():
     assert studio.runtime_plot_y_max([0.3], autoscale=False) == 100.0
     state = studio.TelemetryState()
     assert state.runtime_plot_autoscale and state.runtime_plot_window_s == 300
+
+
+def _run_frames(show, frames=2, size=(1400, 900)):
+    count = 0
+
+    def step_gui():
+        nonlocal count
+        count += 1
+        show()
+        if count >= frames:
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    runner = hello_imgui.RunnerParams()
+    runner.app_window_params.window_geometry.size = size
+    runner.callbacks.show_gui = step_gui
+    implot.create_context()
+    try:
+        immapp.run(runner)
+    finally:
+        implot.destroy_context()
+    return count
+
+
+def test_studio_tlp_and_log_are_not_also_tabs(monkeypatch):
+    """[SPEC-STUDIO-02]: TLP debugger and event log are docked windows only; no tab or pop-out copy."""
+    # @verifies [SPEC-STUDIO-02] tools/visualizer/SPECIFICATION.md
+    studio.g_state = studio.TelemetryState()
+    tabs = []
+    real = studio.imgui.begin_tab_item
+
+    def spy(label, *args):
+        tabs.append(label)
+        return real(label, *args)
+
+    monkeypatch.setattr(studio.imgui, "begin_tab_item", spy)
+    assert _run_frames(studio._render_core_studio_window) >= 2
+    assert "Coroutine Inspector" in tabs and "Source Code & RTL Inspector" in tabs
+    assert "TLP Bus Debugger" not in tabs and "System Event Log" not in tabs, sorted(set(tabs))
+    assert not studio.g_state.canvas_windows.get("tlp") and not studio.g_state.canvas_windows.get("log")
+
+
+def test_studio_source_browser_reads_real_files_with_live_badges():
+    """[SPEC-STUDIO-11]: real repository files, and lines naming a live task/driver carry its numbers."""
+    # @verifies [SPEC-STUDIO-11] tools/visualizer/SPECIFICATION.md
+    files = studio.list_source_files("CPP")
+    main = "apps/e906_repl_app/src/main.cpp"
+    assert main in files and "targets/allwinner_e906/src/irq_dispatcher.cpp" in files
+    assert not any(f.startswith("third_party") or "/build" in f for f in files)
+    assert any(f.endswith(".sv") for f in studio.list_source_files("RTL"))
+    lines = studio.load_source_lines(main)
+    assert lines and len(lines) == len((studio.REPO_ROOT / main).read_text().splitlines())
+    rates = {"tasks": [{"name": "repl_rx", "cpu_pct": 90.0, "resumes_per_s": 12.0}],
+             "drivers": [{"name": "uart3", "irq_per_s": 30.0, "isr_pct": 0.117, "errors": 0}]}
+    badges = studio.live_source_badges(lines, rates)
+    assert any("repl_rx: 90.0% CPU" in b and '"repl_rx"' in lines[i] for i, b in badges.items()), badges
+    periph = studio.load_source_lines("apps/e906_repl_app/src/e906_periph.cpp")
+    assert any("uart3: 30 IRQ/s, 39.00 µs/IRQ" in b for b in studio.live_source_badges(periph, rates).values())
+    assert studio.live_source_badges(lines, None) == {}
+
+    state = studio.TelemetryState()
+    studio.g_state = state
+    state.runtime_rates = rates
+    state.source_search = "spawn"
+    assert _run_frames(studio._render_source_inspector_window) >= 2
+    assert state.selected_source_file in files
+
+
+def test_studio_gauge_row_clears_its_labels():
+    """[SPEC-STUDIO-15]: the gauge row is tall enough for dial + two label lines (no overlap below)."""
+    # @verifies [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
+    heights = []
+    _run_frames(lambda: heights.append(studio.imgui.get_text_line_height()))
+    # draw_radial_gauge: centre at +40, radius 32, sublabel drawn at centre + radius + 26
+    assert studio.RUNTIME_GAUGE_ROW_H >= 40 + 32 + 26 + heights[-1]
