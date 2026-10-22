@@ -315,7 +315,11 @@ The visualizer MUST support a standalone `--sim` mode generating realistic multi
   longest resume in µs), a driver table (name, interrupts/s, ISR CPU %, errors) and the pools
   (frame pool used / high water / capacity, dispatcher queue, dropped resumes, trace discarded).
   Fields the target did not send (host CPU) say "not measured".
-* **Verified by**: `host-tests` (`tests/test_runtime_stats_decode.py`), `e906-board-selftest` (`tests/board/test_e906_trace.py`)
+* **Requirement**: the busy % history scales its Y axis to the data by default (an idle target at
+  0.01 % and a loaded one at 90 % are both readable); an "Auto scale" checkbox switches to a fixed
+  0-100 % axis. The X window is selectable (60 s / 5 min). The plot takes the height left over
+  after the tables below it, with a 220 px minimum.
+* **Verified by**: `host-tests` (`tests/test_runtime_stats_decode.py`, `tests/test_visualizer_sdk.py`), `e906-board-selftest` (`tests/board/test_e906_trace.py`)
 * **Implementation Target**: `tools/visualizer/runtime_stats.py`, `tools/visualizer/abstractx_studio.py`
 
 ### `[SPEC-STUDIO-10]` MemBrowse Zero-Heap Static Budget Verification & CI Report

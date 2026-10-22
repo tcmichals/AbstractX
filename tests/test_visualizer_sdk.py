@@ -542,3 +542,16 @@ def test_studio_live_runtime_status_panel():
         implot.destroy_context()
     assert frames >= 3
     assert state.tlp_view and state.tlp_tag_counts[2] == 80
+
+
+def test_studio_busy_plot_auto_scale():
+    """[SPEC-STUDIO-15]: the busy % axis follows the data (idle and loaded both readable), fixed 0-100 when off."""
+    # @verifies [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
+    assert studio.runtime_plot_y_max([0.01, 0.008]) == 0.02
+    assert studio.runtime_plot_y_max([0.31, 0.12]) == 0.5
+    assert studio.runtime_plot_y_max([3.0]) == 5.0
+    assert studio.runtime_plot_y_max([90.0, 0.3]) == 100.0
+    assert studio.runtime_plot_y_max([]) == 0.01
+    assert studio.runtime_plot_y_max([0.3], autoscale=False) == 100.0
+    state = studio.TelemetryState()
+    assert state.runtime_plot_autoscale and state.runtime_plot_window_s == 300

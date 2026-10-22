@@ -205,6 +205,8 @@ class TelemetryState:
         self.runtime_rates = None
         self.runtime_reports = 0
         self.runtime_busy_hist = []
+        self.runtime_plot_autoscale = True
+        self.runtime_plot_window_s = 300
         self.ctf_other_packets = 0
         self.log_filter_level = "ALL"
         self.log_search_text = ""
@@ -1703,6 +1705,22 @@ def draw_radial_gauge(center_x: float, center_y: float, radius: float, value_pct
     sub_w = len(sublabel) * 5.8
     dl.add_text(imgui.ImVec2(center_x - sub_w / 2.0, center_y + radius + 26.0), c_sub, sublabel)
 
+def runtime_plot_y_max(values, autoscale=True):
+    """Top of the busy % axis ([SPEC-STUDIO-15]): fixed 100, or the data peak plus headroom,
+    rounded up to a 1-2-5 step so the axis does not jitter every second."""
+    # @impl [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
+    if not autoscale:
+        return 100.0
+    peak = max(values, default=0.0) * 1.25
+    step = 0.01
+    while step < 100.0:
+        for m in (1.0, 2.0, 5.0):
+            if peak <= step * m:
+                return step * m
+        step *= 10.0
+    return 100.0
+
+
 def _render_live_runtime_status():
     """Live CPU, coroutine, driver and pool status from the target ([SPEC-STUDIO-15])."""
     # @impl [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
@@ -1737,14 +1755,26 @@ def _render_live_runtime_status():
                             f"reports {n} | host CPU: not measured")
     imgui.separator()
 
-    # Busy history
-    if len(hist) >= 2 and implot.begin_plot("Target CPU busy % (1 s reports)##rt_busy", imgui.ImVec2(-1, 160)):
+    # Busy history: auto-scaled Y by default, selectable window, fills the space the tables leave.
+    _, g_state.runtime_plot_autoscale = imgui.checkbox("Auto scale##rt_auto", g_state.runtime_plot_autoscale)
+    for secs, lbl in ((60, "60 s"), (300, "5 min")):
+        imgui.same_line()
+        if imgui.radio_button(f"{lbl}##rt_win", g_state.runtime_plot_window_s == secs):
+            g_state.runtime_plot_window_s = secs
+    window = g_state.runtime_plot_window_s
+    t_end = hist[-1][0] if hist else 0.0
+    hist = [h for h in hist if t_end - h[0] <= window]
+    n_rows = len(rates["tasks"]) + len(rates["drivers"]) + 3 + 3 * 3  # rows + titles/headers
+    plot_h = max(220.0, imgui.get_content_region_avail().y - n_rows * imgui.get_text_line_height_with_spacing() - 40.0)
+    if len(hist) >= 2 and implot.begin_plot("Target CPU busy % (1 s reports)##rt_busy", imgui.ImVec2(-1, plot_h)):
+        busy = np.array([h[1] for h in hist], dtype=np.float64)
+        isr = np.array([h[2] for h in hist], dtype=np.float64)
+        y_max = runtime_plot_y_max(np.concatenate((busy, isr)).tolist(), g_state.runtime_plot_autoscale)
         implot.setup_axes("seconds ago", "%", implot.AxisFlags_.none, implot.AxisFlags_.none)
-        implot.setup_axes_limits(-len(hist), 0, 0, 100, imgui.Cond_.always)
-        t_end = hist[-1][0]
+        implot.setup_axes_limits(-window, 0, 0, y_max, imgui.Cond_.always)
         t = np.array([h[0] - t_end for h in hist], dtype=np.float64)
-        implot.plot_line("busy %", t, np.array([h[1] for h in hist], dtype=np.float64))
-        implot.plot_line("ISR %", t, np.array([h[2] for h in hist], dtype=np.float64))
+        implot.plot_line("busy %", t, busy)
+        implot.plot_line("ISR %", t, isr)
         implot.end_plot()
 
     def table(title, cols, rows):
