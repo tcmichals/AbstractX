@@ -188,8 +188,21 @@ default_trap_entry:
     csrw mstatus, t0
     lw t0, 124(sp)
     /* An interrupt taken on the idle wfi returns past it, so work it posted is
-     * never slept through ([SPEC-ARCH-06], platform_idle_wait). */
+     * never slept through ([SPEC-ARCH-06], platform_idle_wait). A timer interrupt that
+     * only took a profiler sample returns to the wfi ([SPEC-E906-IRQ-06]); the flag is
+     * read and cleared on every trap return. t2/t3 are restored from the frame below. */
+    la t2, g_irq_sample_only
+    lw t3, 0(t2)
+    sw zero, 0(t2)
     la t1, e906_idle_wfi
+    beqz t3, 2f
+    /* Sample only: back to the wfi whether mepc is the wfi or (as on this E906) the one after. */
+    beq t0, t1, 1f
+    addi t2, t1, 4
+    bne t0, t2, 1f
+    mv t0, t1
+    j 1f
+2:
     bne t0, t1, 1f
     addi t0, t0, 4
 1:

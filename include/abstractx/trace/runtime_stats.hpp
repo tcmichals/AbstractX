@@ -85,6 +85,8 @@ struct PlatformStats {
 };
 
 using CycleClock = uint64_t (*)() noexcept;
+// Timeline span sink ([SPEC-TRACE-10]): kind (1 resume, 3 idle), id, start cycle, cycles.
+using SpanHook = void (*)(uint8_t kind, uint32_t id, uint64_t start, uint64_t cycles) noexcept;
 
 struct TaskSlot {
     uintptr_t   frame{0};
@@ -107,6 +109,8 @@ struct State {
     uint64_t   mark{0};
     uint32_t   isr_mark{0};
     bool       idle{false};
+    uint64_t   idle_start{0};
+    SpanHook   span_hook{nullptr};
 };
 
 inline State g_state{};
@@ -182,6 +186,8 @@ struct ResumeScope {
         const uint64_t wall = g_state.mark - start;
         if (wall > self->max_cycles) self->max_cycles = wall;
         g_state.owner = prev;
+        // @impl [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+        if (g_state.span_hook) g_state.span_hook(1, static_cast<uint32_t>(self->frame), start, wall);
     }
     ResumeScope(const ResumeScope&) = delete;
     ResumeScope& operator=(const ResumeScope&) = delete;
@@ -191,10 +197,13 @@ struct ResumeScope {
 inline void idle_begin() noexcept {
     account();
     g_state.idle = true;
+    g_state.idle_start = g_state.mark;
 }
 inline void idle_end() noexcept {
     account();
     g_state.idle = false;
+    // @impl [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+    if (g_state.span_hook) g_state.span_hook(3, 0, g_state.idle_start, g_state.mark - g_state.idle_start);
 }
 
 inline void count_step() noexcept { ++g_state.steps; }
@@ -202,7 +211,9 @@ inline void count_step() noexcept { ++g_state.steps; }
 inline void reset() noexcept {
     const CycleClock c = g_state.clock;
     const uint32_t hz = g_state.hz;
+    const SpanHook hook = g_state.span_hook;
     g_state = State{};
+    g_state.span_hook = hook;
     set_cycle_clock(c, hz);
 }
 

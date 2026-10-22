@@ -1,7 +1,12 @@
 #include "timer.hpp"
 #include "hal/clic.hpp"
 #include "abstractx/isr_dispatcher.hpp"
+#include "abstractx/trace/event_trace.hpp"
 #include <atomic>
+
+// Set by a timer interrupt that only took a profiler sample; startup.S reads and clears it
+// on trap return and, on the idle wfi, goes back to sleep ([SPEC-E906-IRQ-06]).
+extern "C" { volatile uint32_t g_irq_sample_only = 0; }
 
 namespace hal {
 
@@ -15,6 +20,9 @@ static std::atomic<std::coroutine_handle<>> g_timer_coroutine{nullptr};
 // Two deadlines share one comparator: a sleeping coroutine and a synchronous wake.
 static volatile uint64_t g_coro_target{kNever};
 static volatile uint64_t g_wake_target{kNever};
+// Third deadline: profiler samples ([SPEC-E906-IRQ-06], [SPEC-TRACE-09]).
+static volatile uint64_t g_sample_target{kNever};
+static volatile uint64_t g_sample_period{0};
 
 static void program_compare(uint64_t target) noexcept {
     auto *cmp_lo = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE);
@@ -29,7 +37,9 @@ static void program_compare(uint64_t target) noexcept {
 static void reprogram() noexcept {
     const uint64_t a = g_coro_target;
     const uint64_t b = g_wake_target;
-    program_compare(a < b ? a : b);
+    const uint64_t c = g_sample_target;
+    const uint64_t ab = a < b ? a : b;
+    program_compare(ab < c ? ab : c);
 }
 
 void Timer::init() noexcept {
@@ -89,7 +99,15 @@ void Timer::cancel_alarm() noexcept {
     abstractx::InterruptGuard guard;
     g_coro_target = kNever;
     g_wake_target = kNever;
-    program_compare(kNever);
+    reprogram();  // the profiler sample deadline stays
+}
+
+// @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
+void Timer::set_sample_period(uint64_t ticks) noexcept {
+    abstractx::InterruptGuard guard;
+    g_sample_period = ticks;
+    g_sample_target = ticks ? get_ticks() + ticks : kNever;
+    reprogram();
 }
 
 void Timer::arm_wake(uint64_t target_ticks) noexcept {
@@ -103,7 +121,15 @@ void Timer::arm_wake(uint64_t target_ticks) noexcept {
 // Line 7 is level while mtime >= mtimecmp: always leave the comparator in the future or parked.
 void Timer::handle_irq() noexcept {
     const uint64_t now = get_ticks();
+    bool other = false;
+    // @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
+    if (now >= g_sample_target) {
+        abstractx::events::sample(irq::trap_pc());
+        const uint64_t next = g_sample_target + g_sample_period;
+        g_sample_target = next > now ? next : now + g_sample_period;  // fell behind: skip
+    }
     if (now >= g_coro_target) {
+        other = true;
         g_coro_target = kNever;
         auto handle = g_timer_coroutine.exchange(nullptr, std::memory_order_acq_rel);
         if (handle) {
@@ -111,8 +137,10 @@ void Timer::handle_irq() noexcept {
         }
     }
     if (now >= g_wake_target) {
+        other = true;
         g_wake_target = kNever;  // the woken wfi loop re-checks its own deadline
     }
+    g_irq_sample_only = other ? 0u : 1u;
     reprogram();
 }
 

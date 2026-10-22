@@ -78,5 +78,8 @@ uint32_t spurious() noexcept;
 // driver owns (drops, timeouts); cycles spent in the line's handlers.
 void describe(uint32_t line, const char* name, const volatile uint32_t* errors = nullptr) noexcept;
 uint32_t cycles(uint32_t line) noexcept;
+// @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
+// mepc of the code the current interrupt stopped (valid inside a handler; interrupts do not nest).
+uint32_t trap_pc() noexcept;
 
 } // namespace hal::irq

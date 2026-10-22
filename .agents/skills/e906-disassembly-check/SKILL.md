@@ -17,7 +17,7 @@ riscv-none-elf-objdump -d build_e906/apps/gps_imu_app/platforms/allwinner_e906/e
 #   stack alloc:   addi sp, sp, -416
 #   fpu save:      fsw f0, 144(sp) ... fsw f31, 392(sp)   (single precision: the E906 has no D)
 #   branch:        lw t0, 128(sp); bltz t0
-#   idle skip:     la t1, e906_idle_wfi; bne t0, t1; addi t0, t0, 4   ([SPEC-E906-IRQ-01])
+#   idle skip:     lw/sw g_irq_sample_only; la t1, e906_idle_wfi; sample only and (t0 == t1 or t0 == t1+4): t0 = t1; else t0 == t1: addi t0, t0, 4   ([SPEC-E906-IRQ-01], [SPEC-E906-IRQ-06])
 #   fpu restore:   flw f0, 144(sp) ... flw f31, 392(sp)
 #   stack free:    addi sp, sp, 416
 # _start: csrw 0x7c1 with 0x1031; mtvec written as (default_trap_entry | 3), base 64-byte aligned

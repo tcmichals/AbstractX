@@ -28,6 +28,10 @@ public:
     // Make sure a timer interrupt fires at target_ticks (for wfi waits); does not resume anything.
     static void arm_wake(uint64_t target_ticks) noexcept;
 
+    // @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
+    // Profiler sample period (0 = off): handle_irq() records events::sample(trap pc) each period.
+    static void set_sample_period(uint64_t ticks) noexcept;
+
     // Top-half ISR called from riscv_trap_dispatcher on MTIP (mcause 7)
     static void handle_irq() noexcept;
 

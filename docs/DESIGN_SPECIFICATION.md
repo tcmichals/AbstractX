@@ -263,6 +263,55 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`sim/test_runtime_stats.cpp`, `tests/test_runtime_stats_decode.py`), `sanitizer-gate`, `e906-board-selftest` (`tests/board/test_e906_trace.py`)
 * **Implementation Target**: `include/abstractx/trace/runtime_stats.hpp`, `include/abstractx/domain_dispatcher.hpp`, `include/abstractx/trace/tracer.hpp`, `src/runtime.cpp`, `tools/visualizer/runtime_stats.py`
 
+### `[SPEC-TRACE-09]` Live Profiler: Sampled Program Counter per Coroutine
+* **Goal**: show, per source line and per function, where the target spends CPU time while it runs,
+  like `perf` / a sampling debugger, without instrumenting the code.
+* **Requirement**: the platform interrupts the core at `TraceConfig::profile_hz` (default 1000, 0 =
+  off) and records the interrupted program counter with the owner of the CPU at that moment: the
+  frame address of the coroutine being resumed, `1` while idle, `0` for loop code outside any
+  resume ([SPEC-TRACE-08] accounting). Recording is ISR-safe, allocation-free and never blocks; a
+  full ring drops the sample and counts it.
+* **Requirement (wire)**: `status_service()` sends the samples as CTF packets with `stream_id = 4`:
+  one `ProfileHeader` (event_id `0x30`) then `n` `ProfileSample`, packed little-endian, at most
+  `kMaxSamplesPerPacket` (55) per packet, when a packet is full or 100 ms after the first waiting
+  sample.
+
+  | Record | Bytes | Fields |
+  | :--- | :--- | :--- |
+  | `ProfileHeader` | 16 | u8 event_id `0x30`, u8 version 1, u16 n, u32 sample_hz, u32 dropped (cumulative), u32 reserved |
+  | `ProfileSample` | 8 | u32 pc, u32 owner (frame address, 1 = idle, 0 = no coroutine) |
+
+* **Verified by**: `host-tests` (`sim/test_event_trace.cpp`, `tests/test_event_streams_decode.py`), `sanitizer-gate`, `e906-board-selftest` (`tests/board/test_e906_trace.py`)
+* **Implementation Target**: `include/abstractx/trace/event_trace.hpp`, `src/runtime.cpp`, `tools/visualizer/event_streams.py`
+
+### `[SPEC-TRACE-10]` Timeline Events: Resume, Interrupt and Idle Spans
+* **Goal**: show what ran when (Tracealyzer's timeline): every coroutine resume, interrupt handler
+  and idle period as a span on a common cycle clock.
+* **Requirement**: when `TraceConfig::timeline` is on (default), the runtime records one span per
+  `Dispatcher` resume (id = frame address, from the [SPEC-TRACE-08] resume hook), one per idle
+  period and the platform one per interrupt handler (id = interrupt line). Recording is ISR-safe
+  (a short interrupt-masked append), allocation-free and never blocks; a full ring drops the span
+  and counts it.
+* **Requirement (wire)**: `status_service()` sends spans as CTF packets with `stream_id = 5`: one
+  `TimelineHeader` (event_id `0x31`) then `n` `TimelineEvent`, at most `kMaxEventsPerPacket` (27)
+  per packet, when a packet is full or 50 ms after the first waiting span. `start` holds the low
+  32 bits of the cycle counter; readers rebuild 64-bit times from `cycles_now` (starts are never
+  more than 2^32 cycles old when sent).
+
+  | Record | Bytes | Fields |
+  | :--- | :--- | :--- |
+  | `TimelineHeader` | 24 | u8 event_id `0x31`, u8 version 1, u16 n, u32 cycle_hz, u64 cycles_now, u32 dropped (cumulative), u32 reserved |
+  | `TimelineEvent` | 16 | u32 start, u32 duration (cycles), u32 id, u8 kind (1 resume, 2 interrupt, 3 idle), u8 pad[3] |
+
+* **Requirement (listener)**: both streams are sent only while `platform_trace_listening()` says a
+  host reads the trace transport; otherwise the rings are emptied without counting drops. Each
+  `status_service()` call sends up to 4 packets per stream so a busy target keeps up.
+* **Requirement (storage)**: the rings are provided by the platform (`platform_event_buffers()`);
+  the default is a 128-span timeline ring and no profiler. The E906 places a 256-sample and a
+  512-span ring in SRAM Space 1 ([SPEC-E906-MEM-01]).
+* **Verified by**: `host-tests` (`sim/test_event_trace.cpp`, `tests/test_event_streams_decode.py`), `sanitizer-gate`, `e906-board-selftest` (`tests/board/test_e906_trace.py`)
+* **Implementation Target**: `include/abstractx/trace/event_trace.hpp`, `include/abstractx/trace/runtime_stats.hpp`, `src/runtime.cpp`, `tools/visualizer/event_streams.py`
+
 ### `[SPEC-ILA-01]` Decoupled Hardware ILA Trace Memory Pool & Non-Blocking DMA Reader
 * **Requirement**: Hardware and software tracing must operate on a dedicated memory pool completely isolated from the primary 64-byte control TLP plane. The FPGA hardware ILA (`asp_ila_trace.sv`) MUST capture timestamped internal events into an on-chip dual-port Block RAM circular buffer without consuming TLP bus bandwidth. The egress DMA reader MUST stream accumulated ILA trace frames only when the primary control TLP egress channel is idle, or upon receiving an explicit host DMA pull request, guaranteeing 0 head-of-line blocking for flight-critical control packets.
 * **Verified by**: `rtl-lint`, `rtl-synth-check`

@@ -30,6 +30,11 @@ class ITraceTransport;
 namespace abstractx::stats {
 struct PlatformStats;
 }
+// @impl [SPEC-TRACE-09] [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+namespace abstractx::events {
+struct ProfileSample;
+struct TimelineEvent;
+}
 
 namespace abstractx::hal {
 
@@ -62,6 +67,19 @@ trace::ITraceTransport* platform_trace_transport() noexcept;
 // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
 // The core's weak default reports none.
 void platform_runtime_stats(stats::PlatformStats& out) noexcept;
+
+// Ring storage for profiler samples and timeline spans, and the sample timer.
+// @impl [SPEC-TRACE-09] [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+// Weak defaults: a 128-span timeline ring in .bss, no profiler.
+struct EventBuffers {
+    events::ProfileSample* samples{nullptr};
+    uint32_t               n_samples{0};   // power of two
+    events::TimelineEvent* spans{nullptr};
+    uint32_t               n_spans{0};     // power of two
+};
+void platform_event_buffers(EventBuffers& out) noexcept;
+// Start interrupting at hz and calling events::sample(pc); 0 stops. Weak default: no sampler.
+void platform_profile_start(uint32_t hz) noexcept;
 
 // Universal HAL Driver Accessors
 ISpi&         get_spi_driver() noexcept;

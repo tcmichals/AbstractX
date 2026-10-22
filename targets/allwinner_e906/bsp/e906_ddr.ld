@@ -47,6 +47,56 @@ SECTIONS
         *(.text.trap)
     } > SRAM_FAST
 
+    /* 3. Resource Table & trace0 first in SRAM_A3_2 (SRAM Space 1), at their fixed offsets */
+    .resource_table : ALIGN(1024)
+    {
+        __resource_table_start = .;
+        KEEP(*(.resource_table))
+        KEEP(*(.resource_table*))
+        __resource_table_end = .;
+    } > SRAM_A3_2
+
+    /* RemoteProc Trace Buffer in SRAM_A3_2 (Minimal 1KB for Crash / Liveness) */
+    .trace_buffer (NOLOAD) : ALIGN(4)
+    {
+        __trace_start = .;
+        KEEP(*(.trace_buffer))
+        KEEP(*(.trace_buffer.*))
+        . = ALIGN(4);
+        __trace_end = .;
+    } > SRAM_A3_2
+
+    /* Shared Application / IPC Memory in SRAM A3 Pool 1 */
+    .sram_c (NOLOAD) : ALIGN(4)
+    {
+        __sram_c_start = .;
+        *(.sram_c)
+        *(.sram_c.*)
+        *(.sram_c_loc1)
+        *(.sram_c_loc2)
+        *(.sram_ipc .sram_ipc.*)
+        *(.vring_ctrl)
+        . = ALIGN(4);
+        __sram_c_end = .;
+    } > SRAM_A3_2
+
+    /* Cold code in SRAM Space 1 lower half: MicroPython's compiler runs only while a script is
+     * compiled ([SPEC-E906-MEM-01]). Listed before .text so these input sections land here. */
+    .text_cold : ALIGN(4)
+    {
+        __text_cold_start = .;
+        *py/lexer.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
+        *py/parse.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
+        *py/compile.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
+        *py/emitbc.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
+        *py/emitglue.c.obj(.text .text.*)
+        *py/scope.c.obj(.text .text.* .rodata .rodata.*)
+        *py/parsenum.c.obj(.text .text.* .rodata .rodata.*)
+        *py/parsenumbase.c.obj(.text .text.*)
+        *py/mpz.c.obj(.text .text.* .rodata .rodata.*)
+        __text_cold_end = .;
+    } > SRAM_A3_2
+
     /* Standard application code in fast SRAM */
     .text : ALIGN(4)
     {
@@ -113,39 +163,6 @@ SECTIONS
         __stack_top = .;
         _sp = .;
     } > SRAM_FAST
-
-    /* 3. Resource Table & trace0 placed in SRAM_A3_2 (SRAM Space 1) */
-    .resource_table : ALIGN(1024)
-    {
-        __resource_table_start = .;
-        KEEP(*(.resource_table))
-        KEEP(*(.resource_table*))
-        __resource_table_end = .;
-    } > SRAM_A3_2
-
-    /* RemoteProc Trace Buffer in SRAM_A3_2 (Minimal 1KB for Crash / Liveness) */
-    .trace_buffer (NOLOAD) : ALIGN(4)
-    {
-        __trace_start = .;
-        KEEP(*(.trace_buffer))
-        KEEP(*(.trace_buffer.*))
-        . = ALIGN(4);
-        __trace_end = .;
-    } > SRAM_A3_2
-
-    /* Shared Application / IPC Memory in SRAM A3 Pool 1 */
-    .sram_c (NOLOAD) : ALIGN(4)
-    {
-        __sram_c_start = .;
-        *(.sram_c)
-        *(.sram_c.*)
-        *(.sram_c_loc1)
-        *(.sram_c_loc2)
-        *(.sram_ipc .sram_ipc.*)
-        *(.vring_ctrl)
-        . = ALIGN(4);
-        __sram_c_end = .;
-    } > SRAM_A3_2
 
     /* 4. DDR DRAM: Large DMA Packet Buffers */
     .dram_payload (NOLOAD) : ALIGN(4096)

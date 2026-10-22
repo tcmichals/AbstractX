@@ -74,7 +74,7 @@ sequenceDiagram
   | :--- | :--- | :--- | :--- | :--- |
   | SRAM Space 0 | `0x3FFC0000` | `0x07280000` | 256 KB | vectors, code, data, stack (linker `SRAM_FAST`, first 192 KB) |
   | Space 0 shared tail | `0x3FFF0000` | `0x072B0000` | 64 KB | host IPC: ping channel `+0x0000`, DRAM-SPSC control `+0x2000`, crash dump `+0xFF00` |
-  | SRAM Space 1, lower half | `0x40000000` | `0x072C0000` | 128 KB | resource table, trace0, firmware IPC state (`REMAP_CTRL_REG[1]=1`, set by remoteproc) |
+  | SRAM Space 1, lower half | `0x40000000` | `0x072C0000` | 128 KB | resource table, trace0, firmware IPC state, cold code (`.text_cold`) and profiler/timeline rings (`.sram_c`) (`REMAP_CTRL_REG[1]=1`, set by remoteproc) |
   | SRAM Space 1, upper half | `0x40020000` | `0x072E0000` | 128 KB | Linux RPMsg DMA pool: vrings + RPMsg buffers (`[SPEC-E906-IPC-04]`); firmware places nothing here |
   | DRAM carveout | `0x48100000` | `0x48100000` | 1 MB | not used by AbstractX (SRAM-only rule, `[SPEC-E906-CACHE-02]`); allowed by the layout check for legacy images |
 
@@ -100,6 +100,12 @@ sequenceDiagram
   Each 64-byte aligned ring shrinks from 4,224 B (`64 * 64 + 128`) to 640 B
   (`8 * 64 + 128`), saving 3,584 B per ring and freeing an additional 10,752 B
   of SRAM Space 0 `.bss` (from 50,752 B down to 40,000 B).
+* **Cold Code in SRAM Space 1 (2026-10-22)**: SRAM_FAST reached 99.3 % (1.3 KB free). Code that
+  runs only while a MicroPython script is being compiled (the lexer, parser, compiler, bytecode
+  emitter, scope and number parsing, `mpz`) is linked into `.text_cold` in the lower half of
+  Space 1: same on-chip SRAM, PMP RWX, loaded by remoteproc like the resource table. Hot paths
+  (interrupts, `Dispatcher`, the VM, RPMsg) stay in `SRAM_FAST`. Buffers that need no zeroing
+  (profiler sample ring, timeline event ring) go to `.sram_c` (NOLOAD, Space 1).
 * **Enforcement**: every E906 firmware target runs `tools/check_e906_layout.py`
   after linking; the build fails if a loadable segment is outside Space 0 (below
   the shared tail), the lower half of Space 1, or the DRAM carveout.
@@ -324,6 +330,22 @@ sequenceDiagram
 
 ## 5. Event-Driven Coroutines & ISR Binding (`SPEC-E906-CORO`)
 
+
+### `[SPEC-E906-IPC-05]` Trace Endpoint Sends Only While a Host Listens (3 s Hello Lease)
+* **Requirement**: the trace endpoint sends only while Linux has a reader on it: every message the
+  host sends to endpoint 1025 (the 4-byte hello) renews a 3 s lease; without a lease
+  `RpmsgTraceTransport::acquire()` returns no buffer. Hosts that read the trace endpoint
+  (`e906_rpmsg_bridge.py trace`, the board tests' `Plane`) send the hello when they open it and
+  then once a second. While no host listens, the runtime empties the profiler and timeline rings
+  without counting drops (`platform_trace_listening()`, [SPEC-TRACE-09], [SPEC-TRACE-10]).
+* **Rationale (2026-10-22)**: the first profiler firmware kept sending ~20 packets a second to the
+  host address it learned from an earlier hello after that reader had closed; Linux logged
+  `virtio_rpmsg_bus: msg received with no recipient` for each on the serial console
+  (`loglevel=8`), the console became unusable and the board was rebooted twice. The status report
+  had the same flaw at 1 packet a second.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_trace.py`: no new "no recipient"
+  lines once the reader has closed)
+* **Implementation Target**: `targets/allwinner_e906/src/rpmsg_endpoints.cpp`, `targets/allwinner_e906/src/platform.cpp`, `tools/e906_rpmsg_bridge.py`, `tests/board/e906_link.py`
 ### `[SPEC-E906-CORO-01]` Zero-Polling Asynchronous RPMsg Awaiter
 * **Requirement**: Tasks waiting for incoming RPMsg packets MUST NOT busy-wait
   in polling loops.
@@ -422,6 +444,27 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 
 ---
 
+
+### `[SPEC-E906-IRQ-06]` Profiler Sample Timer and Interrupt Spans
+* **Requirement**: the core timer comparator serves a third deadline, the profiler sample period
+  (`profile_hz`, [SPEC-TRACE-09]), beside the coroutine sleep and the wfi wake. On each sample the
+  timer handler records `mepc` of the interrupted code, which `riscv_trap_dispatcher` keeps for the
+  handler (interrupts do not nest, so it is the code that was running).
+* **Requirement**: a timer interrupt that only took a sample (no coroutine deadline, no wake
+  deadline) is invisible to the code it interrupted: if that was the idle `wfi`, the trap returns
+  to the `wfi` instead of past it (`g_irq_sample_only`, read and cleared in the trap return of
+  `startup.S`). "Was the idle `wfi`" means `mepc` is `e906_idle_wfi` **or `e906_idle_wfi + 4`**:
+  this E906 reports the instruction after the `wfi` (measured 2026-10-22: `mepc = 0x3FFD4AA2` with
+  the `wfi` at `0x3FFD4A9E`; the first build checked only `== e906_idle_wfi` and the idle loop still
+  woke ~1050 times a second), so the idle loop does not wake 1000 times a second, idle stays one span and busy %
+  does not include the profiler's loop wakes. It is not recorded as a timeline span (the profiler
+  shows it). Any other interrupt still ends the `wfi` as before ([SPEC-E906-IRQ-01]).
+* **Requirement**: `dispatch_clic_line` records an interrupt span (line, start cycle, cycles) for
+  [SPEC-TRACE-10] from the same measurement it charges to [SPEC-E906-IRQ-05].
+* **Requirement**: the sample ring (256 x 8 B) and timeline ring (512 x 16 B) live in `.sram_c`
+  (SRAM Space 1, [SPEC-E906-MEM-01]).
+* **Verified by**: `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_trace.py`)
+* **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `targets/allwinner_e906/src/platform.cpp`
 ### [SPEC-E906-CRASH-01] Trap Classification, FPU State Preservation & Crash Dump
 * **Requirement**:
   1. The trap entry (`bsp/startup.S`) MUST allocate a 416-byte stack frame (`CrashFrame`) and save all 31 integer GPRs (`x1`..`x31`), 4 CSRs (`mepc`, `mcause`, `mtval`, `mstatus`), all 32 hardware floating-point registers (`f0`..`f31`, single precision `fsw` into 8-byte slots: the E906 has no D, `ilp32f`), and `fcsr` BEFORE branching to or calling any C/C++ code.

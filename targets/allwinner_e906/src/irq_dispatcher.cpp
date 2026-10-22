@@ -1,6 +1,7 @@
 #include "hal/crash.hpp"
 #include "hal/clic.hpp"
 #include "abstractx/trace/runtime_stats.hpp"
+#include "abstractx/trace/event_trace.hpp"
 #include "abstractx/hal/platform.hpp"
 
 // @impl [SPEC-E906-IRQ-01] targets/allwinner_e906/SPECIFICATION.md
@@ -45,6 +46,7 @@ extern "C" {
 // [4] CLIC word line 17, [5] CLIC word line 7, [6] mie, [7] mstatus (both at the last idle),
 // [8] main loop passes, [11] trap entries, [12] raw mcause, [13] mepc of the last trap (startup.S).
 extern "C" { volatile uint32_t g_e906_diag[16] = {}; }
+extern "C" volatile uint32_t g_irq_sample_only;  // timer.cpp, [SPEC-E906-IRQ-06]
 
 namespace {
 
@@ -103,6 +105,12 @@ uint32_t cycles(uint32_t line) noexcept {
 }
 
 // @impl [SPEC-E906-IRQ-05] targets/allwinner_e906/SPECIFICATION.md
+namespace {
+uint32_t s_trap_pc = 0;
+}
+
+uint32_t trap_pc() noexcept { return s_trap_pc; }
+
 void describe(uint32_t line, const char* name, const volatile uint32_t* errors) noexcept {
     for (size_t i = 0; i < s_num_info; ++i) {
         if (s_info[i].line == line) {
@@ -131,6 +139,9 @@ static void dispatch_clic_line(uint32_t line) noexcept {
             const uint32_t c = mcycle_lo() - start;
             s_cycles[line] += c;
             abstractx::stats::add_isr_cycles(c);
+            // @impl [SPEC-TRACE-10] [SPEC-E906-IRQ-06]: one span per handler, except a timer
+            // interrupt that only sampled (the profiler shows those)
+            if (!g_irq_sample_only) abstractx::events::span(abstractx::events::kIsr, line, start, c);
         }
     } charge{line, start};
     switch (line) {
@@ -158,7 +169,7 @@ static void dispatch_clic_line(uint32_t line) noexcept {
 // -----------------------------------------------------------------------------
 extern "C" __attribute__((section(".fastcode")))
 void riscv_trap_dispatcher(uint32_t mcause, uint32_t mepc) noexcept {
-    (void)mepc;
+    hal::irq::s_trap_pc = mepc;  // [SPEC-E906-IRQ-06] for the profiler sample
     constexpr uint32_t INTERRUPT_FLAG = 0x80000000U;
     g_e906_diag[1] = mcause;
     g_e906_diag[2] = g_e906_diag[2] + 1u;

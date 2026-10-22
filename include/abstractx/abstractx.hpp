@@ -49,6 +49,9 @@ struct TraceConfig {
     uint32_t      flush_interval_ms{10};
     // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
     uint32_t      status_period_ms{1000};  // runtime status report, 0 = off
+    // @impl [SPEC-TRACE-09] [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+    uint32_t      profile_hz{1000};        // PC samples per second (if the platform samples), 0 = off
+    bool          timeline{true};          // resume / interrupt / idle spans
 };
 
 // Complete Master AbstractX Configuration

@@ -734,3 +734,43 @@ def test_studio_real_docking_layout_renders_every_tool(sim):
     finally:
         implot.destroy_context()
     assert frames >= 6
+
+
+def test_studio_live_profile_and_timeline_from_target_packets():
+    """[SPEC-STUDIO-11]/[SPEC-STUDIO-17]: stream 4/5 packets feed the source heat map and the timeline."""
+    # @verifies [SPEC-STUDIO-11] tools/visualizer/SPECIFICATION.md
+    # @verifies [SPEC-STUDIO-17] tools/visualizer/SPECIFICATION.md
+    import tools.visualizer.event_streams as es
+    import tools.visualizer.live_profile as lp
+    state = studio.TelemetryState()
+    studio.g_state = state
+    main_cpp = studio.REPO_ROOT / "apps/e906_repl_app/src/main.cpp"
+    table = {0x3FFC1000: ("main", f"{main_cpp}:100"), 0x3FFC2000: ("platform_idle_wait", "??:0")}
+    state.symbolizer = lp.Symbolizer("unused.elf", studio.REPO_ROOT, runner=lambda pcs: [table[p] for p in pcs])
+    frame = 0x3FFE9000
+    state.ingest_ctf(_status_packet(1_000_000, 0, 0, 0, 0, 0))  # names: frame -> task from the report
+    state.ingest_ctf(es.encode_profile([(0x3FFC1000, frame)] * 30 + [(0x3FFC2000, 1)] * 10, 1000, 0))
+    now = 5_000_000
+    state.ingest_ctf(es.encode_timeline([{"start": now - 4000, "duration": 1500, "id": frame, "kind": es.KIND_RESUME},
+                                         {"start": now - 2000, "duration": 300, "id": 23, "kind": es.KIND_ISR},
+                                         {"start": now - 1500, "duration": 1400, "id": 0, "kind": es.KIND_IDLE}],
+                                        200_000_000, now))
+    assert state.profile.packets == 1 and state.timeline.packets == 1 and state.ctf_other_packets == 0
+    state.profile_aggregate(0)
+    state.symbolizer.wait_idle()
+    agg = state.profile_aggregate(0)
+    assert agg["total"] == 40
+    assert agg["lines"][("apps/e906_repl_app/src/main.cpp", 100)]["n"] == 30
+    assert agg["owners"]["idle"] == 10
+    lanes = studio.timeline_lanes(state.timeline.window(10_000), {frame: "repl_rx"}, {23: "twi1"})
+    assert [name for _, name in lanes] == ["idle", "repl_rx", "irq twi1"]
+
+    state.selected_source_file = "apps/e906_repl_app/src/main.cpp"
+    state.timeline_window_ms = 1.0
+
+    def show():
+        studio._render_source_inspector_window()
+        studio._render_timeline_tab()
+    assert _run_frames(show) >= 2
+    studio._jump_to_source("src/runtime.cpp", 42)
+    assert state.selected_source_file == "src/runtime.cpp" and state.requested_studio_tab == "source"

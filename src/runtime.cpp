@@ -11,6 +11,7 @@
 #include "abstractx/trace/sink.hpp"
 #include "abstractx/trace/trace_dispatcher.hpp"
 #include "abstractx/trace/runtime_stats.hpp"
+#include "abstractx/trace/event_trace.hpp"
 #include <etl/vector.h>
 #include <cstdio>
 
@@ -103,7 +104,62 @@ void emit_status(uint64_t now_us) noexcept {
     }, now_us);
 }
 
+// Profiler samples ([SPEC-TRACE-09]) and timeline spans ([SPEC-TRACE-10]) into CTF packets:
+// when a packet is full, or `wait_us` after the first waiting item. A packet the transport
+// cannot take stays in the ring for the next call.
+// @impl [SPEC-TRACE-09] [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+template <typename T, typename Header>
+void drain_ring(events::Ring<T>& ring, uint8_t stream, size_t max_n, uint64_t wait_us,
+                Header hdr, uint64_t now_us) noexcept {
+    uint32_t n = ring.size();
+    if (n == 0) {
+        ring.first_wait_us = 0;
+        return;
+    }
+    if (ring.first_wait_us == 0) ring.first_wait_us = now_us;
+    if (n < max_n && now_us - ring.first_wait_us < wait_us) return;
+    if (n > max_n) n = static_cast<uint32_t>(max_n);
+    hdr.n = static_cast<uint16_t>(n);
+    hdr.dropped = ring.dropped.load(std::memory_order_relaxed);
+    const uint32_t t = ring.tail.load(std::memory_order_relaxed);
+    const bool sent = trace::g_tracer.emit_stream_packet(stream, sizeof(hdr) + n * sizeof(T), [&](uint8_t* dst) {
+        __builtin_memcpy(dst, &hdr, sizeof(hdr));
+        dst += sizeof(hdr);
+        for (uint32_t i = 0; i < n; ++i) {
+            __builtin_memcpy(dst + i * sizeof(T), &ring.items[(t + i) & ring.mask], sizeof(T));
+        }
+    }, now_us);
+    if (sent) {
+        ring.tail.store(t + n, std::memory_order_release);
+        ring.first_wait_us = ring.size() ? now_us : 0;
+    }
+}
+
+// @impl [SPEC-TRACE-09] [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+void events_service(uint64_t now_us) noexcept {
+    auto& ev = events::g_events;
+    if (ev.samples.items) {
+        events::ProfileHeader h{};
+        h.sample_hz = ev.sample_hz;
+        drain_ring(ev.samples, events::kProfileStream, events::kMaxSamplesPerPacket, events::kProfileFlushUs, h, now_us);
+    }
+    if (ev.timeline_on) {
+        events::TimelineHeader h{};
+        h.cycle_hz = stats::g_state.hz;
+        h.cycles_now = stats::now_cycles();
+        drain_ring(ev.spans, events::kTimelineStream, events::kMaxEventsPerPacket, events::kTimelineFlushUs, h, now_us);
+    }
+}
+
 } // anonymous namespace
+
+// Weak defaults ([SPEC-TRACE-10]): a small timeline ring, no profiler sampler.
+// @impl [SPEC-TRACE-09] [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+__attribute__((weak)) void hal::platform_event_buffers(hal::EventBuffers& out) noexcept {
+    static events::TimelineEvent spans[128];
+    out = hal::EventBuffers{nullptr, 0, spans, 128};
+}
+__attribute__((weak)) void hal::platform_profile_start(uint32_t /*hz*/) noexcept {}
 
 // Weak default: a platform without interrupt counters reports no drivers.
 __attribute__((weak)) void hal::platform_runtime_stats(stats::PlatformStats& out) noexcept {
@@ -112,12 +168,13 @@ __attribute__((weak)) void hal::platform_runtime_stats(stats::PlatformStats& out
 
 // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
 void status_service() noexcept {
-    const uint32_t period_ms = g_config.trace.status_period_ms;
-    if (period_ms == 0 || !g_initialized) {
+    if (!g_initialized) {
         return;
     }
     const uint64_t now_us = hal::get_timer_driver().get_time_us();
-    if (now_us < g_status_due_us) {
+    events_service(now_us);  // [SPEC-TRACE-09] [SPEC-TRACE-10]
+    const uint32_t period_ms = g_config.trace.status_period_ms;
+    if (period_ms == 0 || now_us < g_status_due_us) {
         return;
     }
     const uint64_t period_us = static_cast<uint64_t>(period_ms) * 1000u;
@@ -157,6 +214,15 @@ bool init(const Config& config) noexcept {
         trace::g_tracer.set_transport(transport);
     } else {
         trace::g_tracer.set_flush_handler(trace_flush_callback, nullptr);
+    }
+
+    // 2b. Profiler and timeline rings from the platform ([SPEC-TRACE-09], [SPEC-TRACE-10])
+    {
+        hal::EventBuffers buf{};
+        hal::platform_event_buffers(buf);
+        events::attach_timeline(buf.spans, buf.n_spans, g_config.trace.timeline);
+        events::attach_profile(buf.samples, buf.n_samples, g_config.trace.profile_hz);
+        hal::platform_profile_start(events::g_events.sample_hz);
     }
 
     // 3. Initialize and arm target ioProcessor

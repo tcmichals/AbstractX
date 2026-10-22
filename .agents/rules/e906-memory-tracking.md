@@ -9,7 +9,7 @@ This rule mandates memory footprint tracking and linker symbol analysis for all 
 1. **Pure On-Chip SRAM (Zero DDR)**:
    - Primary firmware execution pool is **SRAM Space 0 (`0x3FFC0000`, 192 KB `SRAM_FAST`)**.
    - Firmwares MUST NOT allocate `.text`, `.data`, `.bss`, or `.stack` in external DDR DRAM (`0x48000000+`).
-   - Secondary SRAM Space 1 (`0x40000000`, 256 KB) is reserved for VirtIO vrings, message buffers, and high-speed IPC.
+   - Secondary SRAM Space 1 (`0x40000000`, 256 KB): the upper half (`0x40020000`) is the Linux RPMsg pool (vrings, message buffers) and firmware places nothing there; the lower half holds the resource table, trace0, cold code (`.text_cold`: the MicroPython compiler) and NOLOAD buffers (`.sram_c`) ([SPEC-E906-MEM-01]).
    - MicroPython GC heap is quarantined in dormant Cadence HiFi4 DSP Local RAM (`0x00020000`, 128 KB).
 
 2. **Zero Dynamic Heap (`0 B malloc / new`)**:

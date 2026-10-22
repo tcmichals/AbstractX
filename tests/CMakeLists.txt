@@ -70,6 +70,13 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME py_test_runtime_stats_decode
              COMMAND ${CMAKE_COMMAND} -E env RUNTIME_STATS_EXE=$<TARGET_FILE:test_runtime_stats>
                      ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_runtime_stats_decode.py)
+    # [SPEC-TRACE-09] [SPEC-TRACE-10] profiler / timeline decoders, checked against the C++ packets
+    add_test(NAME py_test_event_streams_decode
+             COMMAND ${CMAKE_COMMAND} -E env EVENT_TRACE_EXE=$<TARGET_FILE:test_event_trace>
+                     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_event_streams_decode.py)
+    # [SPEC-STUDIO-11] [SPEC-STUDIO-17] live profiler / timeline state (no GUI)
+    add_test(NAME py_test_live_profile
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_live_profile.py)
     # [SPEC-STUDIO-*] Studio state, panels and live-vs---sim behaviour; needs pytest + imgui_bundle
     execute_process(COMMAND ${Python3_EXECUTABLE} -c "import pytest, imgui_bundle"
                     RESULT_VARIABLE _studio_deps OUTPUT_QUIET ERROR_QUIET)

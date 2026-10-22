@@ -20,6 +20,7 @@
 #include "resource_table.h"
 #include "abstractx/abstractx.hpp"
 #include "abstractx/trace/runtime_stats.hpp"
+#include "abstractx/trace/event_trace.hpp"
 
 extern "C" const struct rpmsg_resource_table global_resource_table;
 
@@ -290,6 +291,22 @@ void platform_poll_network() noexcept {
 volatile uint32_t g_telemetry_dropped{0};
 
 // @impl [SPEC-E906-IPC-04] [SPEC-TRACE-07] targets/allwinner_e906/SPECIFICATION.md
+// Profiler and timeline rings in SRAM Space 1 (.sram_c, NOLOAD: no zeroing needed, the rings
+// track their own fill) ([SPEC-E906-IRQ-06], [SPEC-E906-MEM-01]).
+// @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
+namespace {
+__attribute__((section(".sram_c"))) events::ProfileSample s_profile_ring[256];
+__attribute__((section(".sram_c"))) events::TimelineEvent s_timeline_ring[512];
+}
+
+void platform_event_buffers(EventBuffers& out) noexcept {
+    out = EventBuffers{s_profile_ring, 256, s_timeline_ring, 512};
+}
+
+void platform_profile_start(uint32_t hz) noexcept {
+    ::hal::Timer::set_sample_period(hz ? ::hal::Timer::CLOCK_FREQ_HZ / hz : 0);
+}
+
 trace::ITraceTransport* platform_trace_transport() noexcept {
     return &g_trace_transport;
 }

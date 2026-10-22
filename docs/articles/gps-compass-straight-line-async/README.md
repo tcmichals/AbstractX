@@ -35,12 +35,12 @@ that state machines are inherently wrong.
 *One application, two independent sensor paths, and a bounded handoff to the logic that uses each sample.*
 
 > **Scope:** This is an architectural walkthrough, not a ready-to-flash
-> standalone sample. The repository's [`gps_imu_app`](../../../apps/gps_imu_app/)
+> standalone sample. The repository's [`gps_imu_app`](https://github.com/tcmichals/AbstractX/blob/main/apps/gps_imu_app/)
 > already contains GPS/UART and magnetometer/I²C producer examples, but it is a
 > larger reference application that also requires an SPI IMU and associated
 > wiring. A minimal Pico 2 W GPS + I²C + LED app, its USB-console setup, and
 > end-to-end hardware validation are follow-up work. See the
-> [Pico 2 W target guide](../../../targets/pico2w_rp2350/HOWTO.md) for current
+> [Pico 2 W target guide](https://github.com/tcmichals/AbstractX/blob/main/targets/pico2w_rp2350/HOWTO.md) for current
 > target setup, and check its prerequisites before attempting a build.
 
 ## The example node
@@ -67,15 +67,13 @@ Use a Pico 2 W, a UART GPS receiver, a QMC5883L magnetometer, and an external
 LED with a current-limiting resistor. An external LED avoids confusion with
 the Pico 2 W's wireless-controller-driven onboard LED.
 
-| Device | AbstractX interface | Pico 2 W connection |
-| --- | --- | --- |
-| GPS TX → Pico RX | UART0 | GP1, physical pin 2 |
-| GPS RX ← Pico TX | UART0 | GP0, physical pin 1 |
-| QMC5883L SDA | I²C0 | GP4, physical pin 6 |
-| QMC5883L SCL | I²C0 | GP5, physical pin 7 |
-| GPS and compass power | — | Pico 3V3(OUT), physical pin 36; use 3.3 V-compatible boards |
-| Common ground | — | Connect both sensors and LED return to Pico GND |
-| External LED | GPIO | GP6, physical pin 9, through a suitable resistor |
+- **GPS TX → Pico RX**: UART0, GP1 (physical pin 2)
+- **GPS RX ← Pico TX**: UART0, GP0 (physical pin 1)
+- **QMC5883L SDA**: I²C0, GP4 (physical pin 6)
+- **QMC5883L SCL**: I²C0, GP5 (physical pin 7)
+- **GPS and compass power**: Pico 3V3(OUT), physical pin 36; use 3.3 V-compatible boards
+- **Common ground**: connect both sensors and the LED return to Pico GND
+- **External LED**: GPIO GP6 (physical pin 9), through a suitable resistor
 
 The GPS UART and human-readable console are separate channels. Keep GPS on
 UART0; configure a USB CDC console explicitly for logs in a runnable sample.
@@ -84,14 +82,14 @@ requirements and the sensor breakout's I²C pull-ups before connecting power.
 
 ![Pico 2 W wiring diagram for UART GPS, I2C QMC5883L, and an external status LED](assets/pico2w-wiring.svg)
 
-*The diagram shows GPIO numbers; use the pinout table above to find physical header pins. All devices must share ground.*
+*The diagram shows GPIO numbers; use the pin list above to find physical header pins. All devices must share ground.*
 
 The QMC5883L driver is in
-[`include/abstractx/drivers/mag/qmc5883l.hpp`](../../../include/abstractx/drivers/mag/qmc5883l.hpp),
+[`include/abstractx/drivers/mag/qmc5883l.hpp`](https://github.com/tcmichals/AbstractX/blob/main/include/abstractx/drivers/mag/qmc5883l.hpp),
 and the GPS parser/driver is in
-[`include/abstractx/drivers/gps/ublox_gps.hpp`](../../../include/abstractx/drivers/gps/ublox_gps.hpp).
+[`include/abstractx/drivers/gps/ublox_gps.hpp`](https://github.com/tcmichals/AbstractX/blob/main/include/abstractx/drivers/gps/ublox_gps.hpp).
 The Pico target's peripheral pin assignments are documented in its
-[hardware specification](../../../targets/pico2w_rp2350/SPECIFICATION.md).
+[hardware specification](https://github.com/tcmichals/AbstractX/blob/main/targets/pico2w_rp2350/SPECIFICATION.md).
 
 ## Protothreads: a useful previous generation
 
@@ -109,7 +107,7 @@ As control flow grows, developers need to track both the task's logical state
 and where execution will continue.
 
 For example, the repository's
-[`protothreads_walkthrough_async_serial.cpp`](../../../examples/protothreads_walkthrough_async_serial.cpp)
+[`protothreads_walkthrough_async_serial.cpp`](https://github.com/tcmichals/AbstractX/blob/main/examples/protothreads_walkthrough_async_serial.cpp)
 shows an interactive serial flow built around explicit asynchronous
 continuations. It is useful historical context—not a bad approach, just a
 different generation and tradeoff.
@@ -167,7 +165,7 @@ Task<void> mag_producer_task(Qmc5883l& mag, hal::ITimer& timer) {
 ```
 
 These examples are adapted from
-[`apps/gps_imu_app/src/main.cpp`](../../../apps/gps_imu_app/src/main.cpp). They
+[`apps/gps_imu_app/src/main.cpp`](https://github.com/tcmichals/AbstractX/blob/main/apps/gps_imu_app/src/main.cpp). They
 show the producer shape; they are not a complete, standalone app. In
 particular, bounded queue capacity forces an application to choose what to do
 when a queue is full. Production code should check each `try_push()` result
@@ -229,8 +227,53 @@ additional option for hardware routing and offload.
 
 The point is not “Linux versus AbstractX”: Linux stays in the system. The
 interesting story is how the host, coprocessor, and optional fabric cooperate.
-This article introduces that direction; target bring-up and measured
-performance belong in a dedicated A5E demonstration.
+A full A5E walkthrough belongs in its own article, but the same GPS + compass
+pair already runs on the A5E's E906 under MicroPython, and the next section
+shows what that looks like from Studio, including the CPU and interrupt cost
+measured on the board.
+
+## Why MicroPython, and why AbstractX underneath it
+
+**Why MicroPython on the E906.** Bringing up sensors on a coprocessor is
+mostly finding out what the hardware actually does. With MicroPython you
+change a script or type a line at the prompt instead of rebuilding and
+reloading firmware for each experiment. A concrete case: the A5E test board's
+compass turned out to be an HMC5883L, not the expected QMC5883L, which was
+found by reading its ID registers from Python. The `abstractx` module gives the
+script direct access to `peek` / `poke`, UART3, I²C1 and the TLP channel
+([`[SPEC-E906-REPL-06]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)).
+The cost is real and measured: the interpreter uses about 90 % of the E906
+for a 10 Hz compass + GPS loop (see §4 below). MicroPython is the tool for
+exploring and testing; the long-term real-time path is C++20 coroutines like the
+producers shown earlier.
+
+**Why AbstractX is the core.** MicroPython is not the firmware; it is a guest
+running as one coroutine (`repl_rx`) inside the AbstractX event loop
+([`[SPEC-E906-REPL-03]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)).
+Everything underneath it belongs to AbstractX:
+
+- **Interrupts and drivers.** The UART3 interrupt handler fills a receive ring
+  and the TWI1 handler runs the I²C transaction state machine. A blocking
+  Python call such as `i2c_read` or `sleep_ms` sleeps in `wfi` until an
+  interrupt completes it; it never spins on a register.
+- **Scheduling.** The MicroPython bytecode loop calls back into AbstractX
+  (`MICROPY_VM_HOOK_LOOP`), which drains pending interrupt work and keeps the
+  status reports going while a script runs, so a long Python loop does not
+  stop the rest of the system.
+- **Memory.** The firmware runs without a heap in the E906's on-chip SRAM. The
+  MicroPython garbage-collected heap is kept separately in the otherwise unused
+  HiFi4 DSP RAM, so Python allocation and garbage collection cannot fragment
+  or overwrite firmware memory
+  ([`[SPEC-E906-REPL-02]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)).
+- **Links to Linux.** Three separate RPMsg channels: REPL text, 64-byte TLP
+  data and binary CTF trace. They are never mixed on one channel.
+- **Measurement.** The CPU, coroutine and interrupt figures below come from
+  the AbstractX dispatcher and interrupt layer, not from the script. That is
+  why the cost of MicroPython itself can be measured.
+
+When a loop moves from Python to C++, the drivers, RPMsg channels, status
+report and Studio views stay the same. The script is the experiment;
+AbstractX is the part that stays.
 
 ## Observability in AbstractX Studio: The User Domain Navigation & Compass Plugin
 
@@ -239,29 +282,44 @@ operators need live, deterministic observability. AbstractX separates this
 cleanly across the silicon boundary:
 
 ### 1. Heterogeneous Division of Labor
-* **Silicon Co-Processor / MCU (E906 / Pico 2 W)**: Acts strictly as a lean,
-  hard real-time I/O pipe. It ingests raw 6-byte magnetometer readings from I²C
-  and raw serial byte chunks from UART into lock-free zero-copy ring buffers
-  (`g_telemetry_ring` or VirtIO RPMsg). It performs **0 dynamic heap allocations,
-  no string formatting, no NMEA regex parsing, and no floating-point math**.
-* **AbstractX Studio User Plugin (`flight_plugin.py`)**: Runs on the Linux host
-  or development workstation. It ingests the raw telemetry stream, executes
-  the protocol parsers, computes magnetic calibration and coordinate projections,
-  and renders a 60 FPS vector flight instrument canvas.
+On the A5E the sensor side currently runs as a MicroPython script on the E906,
+not as C++ coroutines:
 
-### 2. The iNav Auto-Baudrate & UBX Pipeline
-Borrowing from the flight-proven architecture in `tcmichals/inav` (`src/drivers/gps/`):
-* **Auto-Baudrate FSM**: The plugin sweeps `[9600, 19200, 38400, 57600, 115200]`
-  baud to lock onto the receiver regardless of previous state.
-* **Simultaneous Maximization**:
-  1. Emits `UBX-CFG-PRT` to elevate the GPS port to **115,200 baud** (or 460,800
-     baud) and `UBX-CFG-RATE` for **10 Hz navigation fixes** (100 ms period),
-     while suppressing unneeded `$GxGSV` and `$GxGSA` sentences.
-  2. Simultaneously commands the QMC5883L compass to **200 Hz continuous ODR**
-     (`REG_CONTROL_1 = 0x1D`) over 400 kHz Fast-Mode I²C.
-* **Binary UBX-NAV-PVT State Machine**: Decodes 84/92-byte navigation packets
-  with Fletcher-16 CRC, extracting millimetric geodetic position, NED velocities,
-  and Course Over Ground (COG).
+* **E906 coprocessor**: the AbstractX firmware hosts MicroPython inside its
+  `repl_rx` coroutine. The script
+  [`raw_sensor_streamer.py`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/raw_sensor_streamer.py)
+  reads the 6 compass data registers over TWI1 (I²C1) and drains the GPS bytes
+  that the UART3 interrupt handler has buffered, every 100 ms. It does no NMEA
+  or UBX parsing and no floating-point math; it hex-encodes the raw bytes into a
+  `!RAW:` text line and sends it over RPMsg. Both buses are interrupt-driven:
+  a blocking MicroPython call sleeps in `wfi` until the ISR completes it rather
+  than spinning on a status register
+  ([`[SPEC-E906-REPL-16]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)).
+* **Linux on the A5E**: `board_studio_bridge.py` reads those lines, builds
+  64-byte TLPs and sends them to Studio on UDP port 9870. Building the frames on
+  Linux is a known gap: the requirement is for the script to build its own
+  frames so Linux only forwards them (`[SPEC-E906-REPL-17]`, not implemented yet).
+* **AbstractX Studio user plugin (`flight_plugin.py`)**: runs on the
+  development workstation. It decodes the compass bytes and the NMEA/UBX
+  stream, computes heading and track, and draws the instrument canvas.
+
+### 2. GPS and Compass Configuration
+The GPS setup borrows from the flight-proven drivers in `tcmichals/inav`
+(`src/drivers/gps/`). At start-up the E906 script:
+
+1. Opens UART3 at 9600 baud, sends `UBX-CFG-PRT` to move the u-blox port to
+   **115,200 baud**, then switches its own UART to match.
+2. Turns off the `$GxGSV` and `$GxGSA` sentences (`UBX-CFG-MSG`) and sets
+   **10 Hz navigation fixes** (`UBX-CFG-RATE`, 100 ms period).
+3. Starts the compass in continuous mode over 400 kHz I²C. The A5E test board
+   carries an HMC5883L at address `0x1E` (identified by its ID registers); a
+   QMC5883L at `0x0D` is configured for 200 Hz continuous output
+   (`REG_CONTROL_1 = 0x1D`). The raw bytes are tagged with the chip so the
+   host decodes them correctly.
+
+On the host, the plugin's binary UBX decoder handles 84/92-byte `UBX-NAV-PVT`
+packets with the Fletcher-16 checksum, extracting position, NED velocities and
+Course Over Ground (COG).
 
 ### 3. Vector-Rendered Compass Rose & HSI Instrument
 
@@ -283,27 +341,115 @@ Borrowing from the flight-proven architecture in `tcmichals/inav` (`src/drivers/
 
 The user domain canvas renders a vector **Horizontal Situation Indicator (HSI)**:
 * **Rotating 360° Compass Rose**: Anti-aliased dial face rotating smoothly with
-  magnetic heading $\psi$, with 10° ticks, 30° major labels, and cardinal points.
+  magnetic heading ψ, with 10° ticks, 30° major labels, and cardinal points.
 * **Fixed Reticle & Top Lubber Line**: Aircraft nose reference marker.
 * **Magenta GPS Track Bug (COG)**: Displays true course over ground. Under crosswinds,
   the separation between the top lubber line and the track bug immediately reveals
-  the aerodynamic crab angle ($\delta = \text{COG} - \psi$).
+  the aerodynamic crab angle (δ = COG − ψ).
 * **Live Sensor Placards**: Digital heading, cardinal direction, ground speed
-  (knots & m/s), MSL altitude (m & ft), raw magnetic field components ($X, Y, Z$)
-  in $\mu\text{T}$, and GPS fix status.
+  (knots & m/s), MSL altitude (m & ft), raw magnetic field components (X, Y, Z)
+  in µT, and GPS fix status.
 
-The contract is formally codified in [`USER_PLUGIN_SPECIFICATION.md`](../../../tools/visualizer/USER_PLUGIN_SPECIFICATION.md)
+The contract is formally codified in [`USER_PLUGIN_SPECIFICATION.md`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/USER_PLUGIN_SPECIFICATION.md)
 (`[SPEC-USER-PLUGIN-01]` through `[SPEC-USER-PLUGIN-07]`).
+
+### 4. What the E906 Spends Its Time On
+The instruments show the sensor data; the engineering question is what reading
+it costs. Because every coroutine resume goes through one call site
+(`Dispatcher::process()`), the runtime can keep RTOS-style run-time statistics
+without the application asking for them. By default the E906 firmware sends a
+runtime status report once a second as CTF stream 3
+([`[SPEC-TRACE-08]`](https://github.com/tcmichals/AbstractX/blob/main/docs/DESIGN_SPECIFICATION.md)): busy %, per-coroutine CPU %,
+resumes per second and longest single resume, per-interrupt-line interrupt rate
+and handler time, and the health of the coroutine frame pool and dispatcher
+queue. Idle time is measured around the `wfi` instruction, minus interrupt time
+taken during the sleep.
+
+Measured on the Cubie A5E on 2026-10-21/22, with the MicroPython compass + GPS
+loop running:
+
+```text
+Source                                   Interrupts/s   Time per IRQ          CPU
+TWI1 compass (I2C 400 kHz, 6-byte reads) ~2,200-2,600   1.43 us               0.31-0.36 %
+UART3 GPS at 115,200 baud                30             38.9 us (byte-wise    0.117 %
+                                                        FIFO reads)
+Timer                                    1-50           0.66 us               < 0.01 %
+repl_rx coroutine running the script     -              -                     ~90 %
+Idle board, no script                    -              -                     0.01 % busy
+```
+
+Two things stand out. First, the MicroPython interpreter, not the drivers, is
+where the time goes: the script's coroutine accounts for about 90 % and the
+interrupt handlers for well under 1 %. Second, the UART handler is the most
+expensive single interrupt because it reads the receive FIFO one byte at a time.
+Moving UART3 to DMA would therefore mainly shorten interrupt latency and
+jitter for everything else; it would not noticeably reduce CPU load.
+
+Studio's **CPU** tab shows the same report live: a busy % history whose Y axis
+scales to the data (so 0.01 % and 90 % are both readable), with a 60 s or
+5 min window, and tables of tasks, drivers and pools underneath
+([`[SPEC-STUDIO-15]`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/SPECIFICATION.md)).
+
+### 5. A Python Prompt Beside the Stream
+Studio's **CLI** tab runs Python on the E906's MicroPython while the sensor
+stream keeps running
+([`[SPEC-STUDIO-13]`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/SPECIFICATION.md),
+[`[SPEC-E906-REPL-19]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)), so
+you can, for example, call `abstractx.peek()` on a register without stopping
+the compass and GPS readings:
+
+```text
+Studio CLI ──ssh──> board_studio_bridge.py stdin:  CLI <id> <hex>
+                    └─> streamer script on E906:     EXEC <id> <hex>
+                        └─> output back:             !CLI:<id>:BEGIN ... !CLI:<id>:END:OK | END:ERR:<repr>
+```
+
+The command is hex-encoded so no control byte (such as Ctrl-C) can appear in
+it, and it runs in a namespace that persists between commands, with
+`abstractx` already imported. An exception is reported and the stream carries
+on. A round trip takes about 55 ms, because the script checks for commands
+between its 100 ms sensor reads. One constraint worth knowing: the board's
+MicroPython is built at the minimum ROM level, so `bytes.decode` and
+`bytes.fromhex` do not exist; the script uses `int(.., 16)` and
+`str(b, "ascii")` instead.
+
+The same link carries the heartbeat: Studio's bridge sends `PING` at least once
+a second, and the script stops on its own after 3 s without one, so a crashed
+or closed Studio does not leave the E906 streaming to nobody
+([`[SPEC-E906-REPL-14]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)).
+
+### 6. Only Tabs That Have Data
+Studio's tabs were audited against its specification on 2026-10-22, and the
+rule now is that a tab appears only where something can feed it
+([`[SPEC-STUDIO-16]`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/SPECIFICATION.md)). The
+Coroutine Inspector and Flow Integrity tabs have no live source on this board,
+so they appear only in `--sim` mode or with an FPGA. The TLP Bus Debugger and
+System Event Log are docked windows and are not duplicated as tabs. The source
+tab browses the real repository files rather than canned snippets.
+
+Two further views are built and pass host tests but are **still being brought
+up on the board**, so treat them as not yet working on hardware:
+
+* a 1 kHz program-counter sampling profiler, shown per source line in Studio's
+  source view (CTF stream 4, `[SPEC-TRACE-09]`, `[SPEC-STUDIO-11]`);
+* a timeline of coroutine resumes, interrupt handlers and idle periods as
+  swimlanes (CTF stream 5, `[SPEC-TRACE-10]`, `[SPEC-STUDIO-17]`).
 
 
 ## A balanced comparison
 
-| Approach | What it contributes | What the example should make visible |
-| --- | --- | --- |
-| Protothreads | A compact cooperative model suited to constrained systems, with explicit continuation points | How state and resumption are represented and managed |
-| C++20 coroutines | Language-supported suspension and resumption expressed with `co_await` | How peripheral awaits and normal control flow read together |
-| AbstractX | Its HAL, runtime, and bounded sensor handoff around cooperative tasks | How independent device activity is connected into one application |
-| Pigweed | A broader embedded development framework that also includes coroutine facilities | A relevant peer with different scope and design priorities, not a foil |
+- **Protothreads** contribute a compact cooperative model suited to constrained
+  systems, with explicit continuation points. The example should make visible
+  how state and resumption are represented and managed.
+- **C++20 coroutines** contribute language-supported suspension and resumption
+  expressed with `co_await`. The example should make visible how peripheral
+  awaits and normal control flow read together.
+- **AbstractX** contributes its HAL, runtime, and bounded sensor handoff around
+  cooperative tasks. The example should make visible how independent device
+  activity is connected into one application.
+- **Pigweed** is a broader embedded development framework that also includes
+  coroutine facilities: a relevant peer with different scope and design
+  priorities, not a foil.
 
 The point is not that the older approach is wrong or that the newer syntax
 wins every comparison. Protothreads help explain the design constraints
@@ -318,7 +464,7 @@ The focused GPS + compass walkthrough is **not yet a standalone firmware
 target**. The existing `gps_imu_app` is a larger reference application: it also
 initializes an SPI IMU and its hardware run therefore needs the additional IMU
 connections listed in the
-[Pico 2 W deployment guide](../../../apps/gps_imu_app/platforms/pico2w/HOWTO.md).
+[Pico 2 W deployment guide](https://github.com/tcmichals/AbstractX/blob/main/apps/gps_imu_app/platforms/pico2w/HOWTO.md).
 The commands below build and exercise that reference; they do not claim that
 the GPS + compass-only node is ready to flash.
 
@@ -375,16 +521,18 @@ cmake --build build_pico2w_debug --target gps_imu_app -j$(nproc)
 Connect an RP2350-compatible SWD probe, then use the repository's VS Code
 **Pico 2 W: SWD Debug (Cortex-Debug)** launch configuration and press `F5`.
 Set breakpoints in
-[`apps/gps_imu_app/src/main.cpp`](../../../apps/gps_imu_app/src/main.cpp),
+[`apps/gps_imu_app/src/main.cpp`](https://github.com/tcmichals/AbstractX/blob/main/apps/gps_imu_app/src/main.cpp),
 especially in the GPS producer, magnetometer producer, and fusion task. Inspect
 whether each awaited operation completes before stepping past its
 `co_await`. The full flashing, probe wiring, Wi-Fi setup, and troubleshooting
-steps are in the [Pico deployment and debugging guide](../../../apps/gps_imu_app/platforms/pico2w/HOWTO.md).
+steps are in the [Pico deployment and debugging guide](https://github.com/tcmichals/AbstractX/blob/main/apps/gps_imu_app/platforms/pico2w/HOWTO.md).
 
 ## Where to go next
 
-- [GPS and IMU reference application](../../../apps/gps_imu_app/README.md)
-- [GPS and IMU application specification](../../../apps/gps_imu_app/SPECIFICATION.md)
-- [Pico 2 W development guide](../../../targets/pico2w_rp2350/HOWTO.md)
-- [Pico 2 W target specification](../../../targets/pico2w_rp2350/SPECIFICATION.md)
-- [AbstractX's system invariants](../../tier1_vision/SYSTEM_INVARIANTS.md)
+- [GPS and IMU reference application](https://github.com/tcmichals/AbstractX/blob/main/apps/gps_imu_app/README.md)
+- [GPS and IMU application specification](https://github.com/tcmichals/AbstractX/blob/main/apps/gps_imu_app/SPECIFICATION.md)
+- [Pico 2 W development guide](https://github.com/tcmichals/AbstractX/blob/main/targets/pico2w_rp2350/HOWTO.md)
+- [Pico 2 W target specification](https://github.com/tcmichals/AbstractX/blob/main/targets/pico2w_rp2350/SPECIFICATION.md)
+- [AbstractX's system invariants](https://github.com/tcmichals/AbstractX/blob/main/docs/tier1_vision/SYSTEM_INVARIANTS.md)
+- [E906 MicroPython application specification](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)
+- [AbstractX Studio specification](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/SPECIFICATION.md)

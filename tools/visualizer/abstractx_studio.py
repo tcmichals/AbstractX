@@ -56,8 +56,14 @@ except ImportError:
     from tools.visualizer.flight_plugin import FlightVisualizerPlugin
 try:
     import runtime_stats
+    import event_streams
+    import live_profile
 except ImportError:
-    from tools.visualizer import runtime_stats
+    from tools.visualizer import runtime_stats, event_streams, live_profile
+
+# Firmware ELF the profiler symbolizes against ([SPEC-STUDIO-11]); --elf overrides.
+DEFAULT_ELF = REPO_ROOT / "build_e906_irq" / "apps" / "e906_repl_app" / "e906_repl_app"
+BOARD_FIRMWARE = "/lib/firmware/e906_repl_app.elf"
 
 # Live mode ([SPEC-STUDIO-14]): commands that would need a REPL link to the target.
 NO_TARGET_LINK_MSG = ("no live link: connect the board (menu: Connect) and the CLI runs on its "
@@ -209,6 +215,18 @@ class TelemetryState:
         self.runtime_plot_autoscale = True
         self.runtime_plot_window_s = 300
         self.ctf_other_packets = 0
+        # Live profiler and timeline ([SPEC-STUDIO-11], [SPEC-STUDIO-17])
+        self.profile = live_profile.ProfileWindow()
+        self.timeline = live_profile.TimelineWindow()
+        self.symbolizer = None
+        self.elf_path = str(DEFAULT_ELF)
+        self.elf_status = "not checked"
+        self.profile_agg = None
+        self.profile_agg_t = 0.0
+        self.source_hot_only = False
+        self.timeline_window_ms = 100.0
+        self.timeline_paused = False
+        self.timeline_frozen_end = 0
         self.log_filter_level = "ALL"
         self.log_search_text = ""
         self.log_auto_scroll = True
@@ -602,6 +620,22 @@ class TelemetryState:
     def ingest_ctf(self, data: bytes):
         """A CTF packet from the target's trace endpoint ([SPEC-STUDIO-15])."""
         # @impl [SPEC-STUDIO-15] tools/visualizer/SPECIFICATION.md
+        stream = data[4] if len(data) > 4 else None
+        # @impl [SPEC-STUDIO-11] [SPEC-STUDIO-17] tools/visualizer/SPECIFICATION.md
+        if stream == event_streams.PROFILE_STREAM:
+            pkt = event_streams.decode_profile(data)
+            if pkt:
+                with self.lock:
+                    self.profile.add(pkt)
+                if self.symbolizer is None:
+                    self.start_symbolizer()
+            return
+        if stream == event_streams.TIMELINE_STREAM:
+            pkt = event_streams.decode_timeline(data)
+            if pkt:
+                with self.lock:
+                    self.timeline.add(pkt)
+            return
         report = runtime_stats.decode(data)
         if report is None:
             with self.lock:
@@ -638,6 +672,44 @@ class TelemetryState:
             self.add_log("WARN", "trace", f"trace events discarded: {report['trace_discarded']}")
         if prev and report["pool_high_water"] > prev["pool_high_water"]:
             self.add_log("CORO", "frame_pool", f"high water {report['pool_high_water']} / {report['pool_capacity']} B")
+
+    def start_symbolizer(self):
+        """Symbolize profiler PCs with the firmware ELF; check it is what the board runs."""
+        # @impl [SPEC-STUDIO-11] tools/visualizer/SPECIFICATION.md
+        self.symbolizer = live_profile.Symbolizer(self.elf_path, REPO_ROOT)
+        if self.symbolizer.error:
+            self.elf_status = self.symbolizer.error
+            self.add_log("WARN", "profile", self.symbolizer.error)
+            return
+        self.elf_status = "checking against the board..."
+
+        def check():
+            import hashlib
+            try:
+                local = hashlib.md5(open(self.elf_path, "rb").read()).hexdigest()
+                out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
+                                      f"root@{getattr(self, 'board_ip', '192.168.3.3')}", "md5sum", BOARD_FIRMWARE],
+                                     capture_output=True, text=True, timeout=10).stdout.split()
+                remote = out[0] if out else ""
+                self.elf_status = ("matches the board" if remote == local else
+                                   f"DIFFERS from {BOARD_FIRMWARE} on the board: lines may be wrong")
+            except Exception as e:  # noqa: BLE001 - shown in the source pane
+                self.elf_status = f"could not compare with the board: {e}"
+            self.add_log("INFO" if self.elf_status == "matches the board" else "WARN", "profile",
+                         f"ELF {self.elf_path}: {self.elf_status}")
+        threading.Thread(target=check, daemon=True).start()
+
+    def owner_names(self) -> dict:
+        report = self.runtime_report
+        return {t["frame"]: t["name"] for t in report["tasks"]} if report else {}
+
+    def profile_aggregate(self, max_age_s: float = 0.5):
+        """Profile over the window, recomputed at most every max_age_s ([SPEC-STUDIO-11])."""
+        now = time.time()
+        if self.profile_agg is None or now - self.profile_agg_t >= max_age_s:
+            self.profile_agg = self.profile.aggregate(self.symbolizer, self.owner_names(), now)
+            self.profile_agg_t = now
+        return self.profile_agg
 
     def add_cli_line(self, line_type: str, text: str):
         # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
@@ -2184,9 +2256,113 @@ def _render_timeline_tab():
     _render_live_timeline()
 
 
+def timeline_lanes(spans, task_names: dict, driver_names: dict):
+    """Lane order and labels for the live timeline ([SPEC-STUDIO-17]): idle, coroutines, interrupt lines."""
+    # @impl [SPEC-STUDIO-17] tools/visualizer/SPECIFICATION.md
+    keys = {(kind, sid) for _, _, sid, kind in spans}
+    lanes = []
+    if any(k == event_streams.KIND_IDLE for k, _ in keys):
+        lanes.append(((event_streams.KIND_IDLE, 0), "idle"))
+    tasks = sorted((sid for k, sid in keys if k == event_streams.KIND_RESUME),
+                   key=lambda f: task_names.get(f, f"~{f:08x}"))
+    lanes += [((event_streams.KIND_RESUME, f), task_names.get(f, f"coro 0x{f:08x}")) for f in tasks]
+    irqs = sorted(sid for k, sid in keys if k == event_streams.KIND_ISR)
+    lanes += [((event_streams.KIND_ISR, n), f"irq {driver_names.get(n, n)}") for n in irqs]
+    return lanes
+
+
 def _render_live_timeline():
-    imgui.text_colored(imgui.ImVec4(0.9, 0.75, 0.3, 1.0), "Timeline: waiting for timeline events")
-    imgui.text_wrapped("Needs: timeline events (CTF stream 5) from the target.")
+    """Swimlanes of resume / interrupt / idle spans from the target ([SPEC-STUDIO-17])."""
+    # @impl [SPEC-STUDIO-17] tools/visualizer/SPECIFICATION.md
+    tl = g_state.timeline
+    if tl.packets == 0 or not tl.cycle_hz:
+        imgui.text_colored(imgui.ImVec4(0.9, 0.75, 0.3, 1.0), "Timeline: waiting for timeline events")
+        imgui.text_wrapped("Needs: timeline events (CTF stream 5) from the target.")
+        return
+    imgui.text("Window:")
+    for ms in (1.0, 10.0, 100.0, 1000.0):
+        imgui.same_line()
+        if imgui.radio_button(f"{ms:g} ms##tl_win", g_state.timeline_window_ms == ms):
+            g_state.timeline_window_ms = ms
+    imgui.same_line(0, 16)
+    changed, g_state.timeline_paused = imgui.checkbox("Pause##tl_pause", g_state.timeline_paused)
+    if changed and g_state.timeline_paused:
+        g_state.timeline_frozen_end = tl.cycles_now
+    imgui.same_line(0, 16)
+    imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0),
+                       f"{len(tl.spans)} spans kept | {tl.packets} packets | dropped on target {tl.dropped}")
+
+    hz = tl.cycle_hz
+    length = int(g_state.timeline_window_ms * hz / 1000)
+    end = g_state.timeline_frozen_end if g_state.timeline_paused else tl.cycles_now
+    begin = end - length
+    with g_state.lock:
+        spans = tl.window(length, end)
+    report = g_state.runtime_report
+    driver_names = {d["id"]: d["name"] for d in report["drivers"]} if report else {}
+    lanes = timeline_lanes(spans, g_state.owner_names(), driver_names)
+
+    label_w, lane_h = 130.0, 22.0
+    avail = imgui.get_content_region_avail()
+    width = max(100.0, avail.x - label_w)
+    origin = imgui.get_cursor_screen_pos()
+    height = lane_h * max(1, len(lanes)) + 20.0
+    dl = imgui.get_window_draw_list()
+    colors = {event_streams.KIND_IDLE: imgui.ImVec4(0.35, 0.40, 0.45, 1.0),
+              event_streams.KIND_RESUME: imgui.ImVec4(0.30, 0.75, 0.95, 1.0),
+              event_streams.KIND_ISR: imgui.ImVec4(0.95, 0.55, 0.25, 1.0)}
+    row = {key: i for i, (key, _) in enumerate(lanes)}
+    for i, (_, name) in enumerate(lanes):
+        dl.add_text(imgui.ImVec2(origin.x, origin.y + i * lane_h + 3), imgui.get_color_u32(imgui.ImVec4(0.85, 0.85, 0.9, 1)), name)
+    x0 = origin.x + label_w
+    scale = width / length
+    last_px = {}
+    for start, stop, sid, kind in spans:
+        r = row.get((kind, sid))
+        if r is None:
+            continue
+        a = x0 + max(0, start - begin) * scale
+        b = x0 + min(length, stop - begin) * scale
+        b = max(b, a + 1.0)
+        if last_px.get(r, -1.0) >= b:  # sub-pixel span already covered
+            continue
+        last_px[r] = b
+        y = origin.y + r * lane_h
+        dl.add_rect_filled(imgui.ImVec2(a, y + 2), imgui.ImVec2(b, y + lane_h - 3), imgui.get_color_u32(colors[kind]))
+    axis_y = origin.y + len(lanes) * lane_h + 4
+    for k in range(5):
+        x = x0 + width * k / 4
+        dl.add_text(imgui.ImVec2(x - 10, axis_y), imgui.get_color_u32(imgui.ImVec4(0.6, 0.6, 0.6, 1)),
+                    f"-{g_state.timeline_window_ms * (4 - k) / 4:g} ms")
+    imgui.dummy(imgui.ImVec2(label_w + width, height))
+    if imgui.is_item_hovered():
+        m = imgui.get_mouse_pos()
+        r = int((m.y - origin.y) // lane_h)
+        t = begin + (m.x - x0) / scale
+        if 0 <= r < len(lanes) and m.x >= x0:
+            key, name = lanes[r]
+            hit = next((s for s in reversed(spans) if (s[3], s[2]) == key and s[0] <= t <= s[1] + 2 / scale), None)
+            if hit:
+                imgui.set_tooltip(f"{name}: {(hit[1] - hit[0]) * 1e6 / hz:.2f} us, "
+                                  f"{(end - hit[0]) * 1e3 / hz:.3f} ms ago")
+
+    if imgui.collapsing_header("Recent spans##tl_recent"):
+        imgui.columns(4, "tl_recent_cols", True)
+        for h in ("Ago (ms)", "Kind", "Name", "Duration (us)"):
+            imgui.text(h)
+            imgui.next_column()
+        imgui.separator()
+        names = dict(lanes)
+        for start, stop, sid, kind in list(reversed(spans))[:40]:
+            imgui.text(f"{(end - start) * 1e3 / hz:.3f}")
+            imgui.next_column()
+            imgui.text(event_streams.KIND_NAMES.get(kind, str(kind)))
+            imgui.next_column()
+            imgui.text(names.get((kind, sid), str(sid)))
+            imgui.next_column()
+            imgui.text(f"{(stop - start) * 1e6 / hz:.2f}")
+            imgui.next_column()
+        imgui.columns(1)
 
 
 def _render_core_timeline():
@@ -3345,10 +3521,61 @@ def live_source_badges(lines: list, rates) -> dict:
     return badges
 
 
+def _jump_to_source(file: str, line: int):
+    """Open file at line in the source tab ([SPEC-STUDIO-11])."""
+    g_state.selected_source_file = file
+    g_state.selected_source_line = line
+    g_state.source_scroll_to = line
+    g_state.source_view_mode = "RTL" if file.endswith((".sv", ".v")) else "CPP"
+    g_state.requested_studio_tab = "source"
+
+
+def _heat_color(frac: float):
+    return imgui.ImVec4(1.0, 0.85 - 0.55 * frac, 0.25, 0.35 + 0.65 * frac)
+
+
+def _render_profile_summary(agg):
+    """Profile status, owner split and hot functions ([SPEC-STUDIO-11])."""
+    # @impl [SPEC-STUDIO-11] tools/visualizer/SPECIFICATION.md
+    dim = imgui.ImVec4(0.6, 0.7, 0.8, 1.0)
+    prof = g_state.profile
+    if not agg or agg["total"] == 0:
+        imgui.text_colored(imgui.ImVec4(0.9, 0.75, 0.3, 1.0),
+                           "Live profile: waiting for PC samples (CTF stream 4 from the target)")
+        return
+    owners = ", ".join(f"{k} {100.0 * v / agg['total']:.1f}%" for k, v in agg["owners"].most_common(5))
+    imgui.text_colored(dim, f"Live profile: {prof.sample_hz} Hz, last {prof.window_s:.0f} s, {agg['total']} samples "
+                            f"| {owners} | dropped {prof.dropped}"
+                            + (f" | resolving {agg['unresolved']}" if agg["unresolved"] else ""))
+    imgui.text_colored(dim, f"ELF: {g_state.elf_path} ({g_state.elf_status})")
+    if imgui.collapsing_header("Hot functions##src_hot", imgui.TreeNodeFlags_.default_open):
+        imgui.columns(3, "src_hot_cols", True)
+        imgui.set_column_width(0, 70)
+        imgui.text("CPU %")
+        imgui.next_column()
+        imgui.text("Function")
+        imgui.next_column()
+        imgui.text("Where (click to open)")
+        imgui.next_column()
+        imgui.separator()
+        for func, n, file, line in agg["funcs"][:12]:
+            imgui.text(f"{100.0 * n / agg['total']:5.1f}")
+            imgui.next_column()
+            imgui.text(func[:60])
+            imgui.next_column()
+            if file and imgui.selectable(f"{file}:{line}##hot_{func}", False)[0]:
+                _jump_to_source(file, line)
+            elif not file:
+                imgui.text("-")
+            imgui.next_column()
+        imgui.columns(1)
+
+
 def _render_source_inspector_window():
     """
     # @impl [SPEC-STUDIO-11] tools/visualizer/abstractx_studio.py
-    Source Code & RTL browser: real repository files, search, live task/driver annotations.
+    Source Code & RTL browser: real repository files, search, live per-line CPU from PC samples,
+    hot functions, and live task/driver annotations.
     """
     if g_state.has_fpga:
         for mode, lbl in (("CPP", "C/C++##src_mode"), ("RTL", "SystemVerilog RTL##src_mode")):
@@ -3359,7 +3586,11 @@ def _render_source_inspector_window():
         g_state.source_view_mode = "CPP"
     mode = g_state.source_view_mode
     files = list_source_files(mode)
-    imgui.set_next_item_width(220)
+    agg = g_state.profile_aggregate()
+    total = agg["total"] if agg else 0
+    file_pct = {f: 100.0 * n / total for f, n in agg["files"].items()} if total else {}
+
+    imgui.set_next_item_width(200)
     _, g_state.source_file_filter = imgui.input_text_with_hint("##src_filter", "filter files", g_state.source_file_filter)
     imgui.same_line()
     imgui.set_next_item_width(220)
@@ -3367,17 +3598,24 @@ def _render_source_inspector_window():
         "##src_search", "search in file (Enter = next)", g_state.source_search, imgui.InputTextFlags_.enter_returns_true)
     imgui.same_line()
     find_next = imgui.button("Next##src_find") or entered
+    imgui.same_line()
+    _, g_state.source_hot_only = imgui.checkbox("Only files with samples##src_hot_only", g_state.source_hot_only)
+    _render_profile_summary(agg)
     imgui.separator()
 
-    # File list (left)
+    # File list (left): CPU % per file from the profile
     flt = g_state.source_file_filter.lower()
-    shown = [f for f in files if flt in f.lower()]
+    shown = [f for f in files if flt in f.lower() and (not g_state.source_hot_only or f in file_pct)]
+    if g_state.source_hot_only:
+        shown.sort(key=lambda f: -file_pct.get(f, 0.0))
     cur = g_state.selected_source_file if mode == "CPP" else g_state.selected_rtl_file
     if cur not in files and files:
         cur = next((f for f in files if f.endswith("main.cpp")), files[0])
-    imgui.begin_child("SrcFileList", imgui.ImVec2(280, -1), True)
+    imgui.begin_child("SrcFileList", imgui.ImVec2(300, -1), True)
     for f in shown:
-        if imgui.selectable(f"{f}##srcf", f == cur)[0]:
+        pct = file_pct.get(f)
+        label = f"{pct:5.1f}%  {f}" if pct is not None else f"        {f}"
+        if imgui.selectable(f"{label}##srcf", f == cur)[0]:
             cur = f
             g_state.source_scroll_to = 0
     imgui.end_child()
@@ -3387,7 +3625,7 @@ def _render_source_inspector_window():
         g_state.selected_rtl_file = cur
     imgui.same_line()
 
-    # Code (right)
+    # Code (right): line number, CPU % of the line, code, live annotations
     lines = load_source_lines(cur) if cur else []
     sel_attr = "selected_source_line" if mode == "CPP" else "selected_rtl_line"
     sel = getattr(g_state, sel_attr)
@@ -3402,22 +3640,35 @@ def _render_source_inspector_window():
     with g_state.lock:
         rates = g_state.runtime_rates
     badges = live_source_badges(lines, rates)
+    line_prof = {ln: e for (f, ln), e in agg["lines"].items() if f == cur} if total else {}
+    peak = max((e["n"] for e in line_prof.values()), default=0)
     imgui.begin_child("SrcCode", imgui.ImVec2(-1, -1), True, imgui.WindowFlags_.horizontal_scrollbar)
+    file_note = f", {file_pct[cur]:.1f}% of CPU" if cur in file_pct else ""
     imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0),
-                       f"{cur}  ({len(lines)} lines, {len(badges)} with live data)" if cur else "no source files found")
+                       f"{cur}  ({len(lines)} lines{file_note}, {len(line_prof)} sampled, {len(badges)} with live data)"
+                       if cur else "no source files found")
     line_h = imgui.get_text_line_height_with_spacing()
     if g_state.source_scroll_to:
         imgui.set_scroll_y(max(0.0, (g_state.source_scroll_to - 5) * line_h))
         g_state.source_scroll_to = 0
-    c_num, c_badge = imgui.ImVec4(0.4, 0.5, 0.6, 1.0), imgui.ImVec4(0.35, 0.9, 0.5, 1.0)
+    c_num, c_badge, c_owner = imgui.ImVec4(0.4, 0.5, 0.6, 1.0), imgui.ImVec4(0.35, 0.9, 0.5, 1.0), imgui.ImVec4(0.75, 0.75, 0.85, 1.0)
     clipper = imgui.ListClipper()
     clipper.begin(len(lines))
     while clipper.step():
         for i in range(clipper.display_start, clipper.display_end):
             imgui.text_colored(c_num, f"{i + 1:5d}")
             imgui.same_line()
+            e = line_prof.get(i + 1)
+            if e:
+                imgui.text_colored(_heat_color(e["n"] / peak), f"{100.0 * e['n'] / total:5.1f}%")
+            else:
+                imgui.text("      ")
+            imgui.same_line()
             if imgui.selectable(f"{lines[i]}##L{i}", sel == i + 1)[0]:
                 setattr(g_state, sel_attr, i + 1)
+            if e:
+                imgui.same_line()
+                imgui.text_colored(c_owner, "  ◀ " + ", ".join(f"{k} {v}" for k, v in e["owners"].most_common(3)))
             if i in badges:
                 imgui.same_line()
                 imgui.text_colored(c_badge, f"  ◀ {badges[i]}")
@@ -3532,6 +3783,8 @@ def main():
                         help="Initial tab to display in single-window mode")
     parser.add_argument("--viewports", action="store_true", default=False,
                         help="Enable experimental multi-viewport secondary OS windows")
+    parser.add_argument("--elf", type=str, default=str(DEFAULT_ELF),
+                        help="Firmware ELF for the live profiler's source lines (default: the e906_repl_app build)")
     parser.add_argument("--auto-connect", action="store_true", default=False,
                         help="Auto-start live telemetry bridge to physical board on launch")
     args = parser.parse_args()
@@ -3540,6 +3793,7 @@ def main():
     if args.sim:
         g_state.enable_sim()
     g_state.board_ip = args.board_ip
+    g_state.elf_path = args.elf
     g_state.host_ip = args.host_ip
     g_state.udp_port = args.port
 

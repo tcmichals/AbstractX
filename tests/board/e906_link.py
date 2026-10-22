@@ -56,9 +56,12 @@ def _write_all(fd: int, data: bytes) -> None:
             time.sleep(0.005)
 
 
-def _drain(fd: int, quiet_s: float = 0.1) -> bytes:
+def _drain(fd: int, quiet_s: float = 0.1, max_s: float = 1.0) -> bytes:
+    """Read until quiet_s passes with nothing new, or max_s in total: the trace endpoint is
+    never quiet now that profiler samples stream continuously ([SPEC-TRACE-09])."""
     out = b""
-    while select.select([fd], [], [], quiet_s)[0]:
+    deadline = time.monotonic() + max_s
+    while time.monotonic() < deadline and select.select([fd], [], [], quiet_s)[0]:
         try:
             chunk = os.read(fd, 2048)
         except BlockingIOError:

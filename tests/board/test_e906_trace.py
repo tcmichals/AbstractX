@@ -11,6 +11,9 @@ Firmware without the status report sends nothing on the endpoint and these tests
 # @verifies [SPEC-E906-IRQ-05] targets/allwinner_e906/SPECIFICATION.md
 # @verifies [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
 # @verifies [SPEC-E906-REPL-19] apps/e906_repl_app/SPECIFICATION.md
+# @verifies [SPEC-TRACE-09] docs/DESIGN_SPECIFICATION.md
+# @verifies [SPEC-TRACE-10] docs/DESIGN_SPECIFICATION.md
+# @verifies [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
 
 import os
 import socket
@@ -27,8 +30,9 @@ from e906_link import on_e906_board, repl_exec  # noqa: E402
 
 try:
     import runtime_stats as rs  # noqa: E402
+    import event_streams as es  # noqa: E402
 except ImportError:
-    rs = None
+    rs = es = None
 
 BRIDGE = os.path.join(HERE, "e906_rpmsg_bridge.py")
 
@@ -37,11 +41,12 @@ def _require():
     if not on_e906_board():
         skip("not an E906 board (no remoteproc0)")
     if rs is None or not os.path.exists(BRIDGE):
-        skip("copy tools/visualizer/runtime_stats.py and tools/e906_rpmsg_bridge.py next to this file")
+        skip("copy tools/visualizer/runtime_stats.py, event_streams.py and tools/e906_rpmsg_bridge.py next to this file")
 
 
-def _collect(seconds: float, during=None):
-    """Status reports received for `seconds`, optionally while `during()` runs in a thread."""
+def _collect(seconds: float, during=None, raw=None):
+    """Status reports received for `seconds`, optionally while `during()` runs in a thread.
+    Every datagram is also appended to `raw` when given."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind(("127.0.0.1", 0))
     sock.settimeout(0.5)
@@ -66,6 +71,8 @@ def _collect(seconds: float, during=None):
                 data, _ = sock.recvfrom(2048)
             except socket.timeout:
                 continue
+            if raw is not None:
+                raw.append(data)
             r = rs.decode(data)
             if r:
                 reports.append(r)
@@ -186,3 +193,50 @@ def test_cli_runs_beside_the_sensor_stream():
         proc.terminate()
         proc.wait(timeout=5)
         sink.close()
+
+
+def _events(raw):
+    prof = [p for p in map(es.decode_profile, raw) if p]
+    tl = [t for t in map(es.decode_timeline, raw) if t]
+    samples = [smp for p in prof for smp in p["samples"]]
+    spans = [sp for t in tl for sp in t["spans"]]
+    return prof, tl, samples, spans
+
+
+def test_profiler_and_timeline_when_idle():
+    """[SPEC-TRACE-09]/[SPEC-TRACE-10]/[SPEC-E906-IRQ-06]: ~1 kHz samples, idle stays whole, busy % low."""
+    _require()
+    raw = []
+    reports = _collect(4.5, raw=raw)
+    prof, tl, samples, spans = _events(raw)
+    assert prof and tl, f"profile packets {len(prof)}, timeline packets {len(tl)}"
+    assert prof[-1]["sample_hz"] == 1000 and tl[-1]["cycle_hz"] == 200_000_000
+    assert 3000 <= len(samples) <= 5000, f"{len(samples)} samples in 4.5 s at 1 kHz"
+    idle = sum(1 for _, owner in samples if owner == es.OWNER_IDLE)
+    assert idle > 0.9 * len(samples), f"idle board: {idle}/{len(samples)} samples idle"
+    idle_spans = [sp for sp in spans if sp["kind"] == es.KIND_IDLE]
+    assert idle_spans and len(idle_spans) < 50 * 4.5, f"{len(idle_spans)} idle spans: sample interrupts woke the loop"
+    assert prof[-1]["dropped"] == 0 and tl[-1]["dropped"] == 0
+    r = rs.rates(reports[-2], reports[-1])
+    assert r["busy_pct"] < 5.0, f"idle busy {r['busy_pct']:.2f}% with the profiler on"
+    print(f"idle: {len(samples)} samples, {len(idle_spans)} idle spans, busy {r['busy_pct']:.2f}%")
+
+
+def test_profiler_and_timeline_follow_the_script():
+    """[SPEC-TRACE-09]/[SPEC-TRACE-10]: under load, samples and resume spans belong to repl_rx; twi1 spans appear."""
+    _require()
+    raw, out = [], []
+    reports = _collect(5.0, during=lambda: out.append(repl_exec(LOAD, 15.0)), raw=raw)
+    assert out and "LOOPS" in out[0][0], f"load script output: {out}"
+    prof, tl, samples, spans = _events(raw)
+    frames = {t["frame"]: t["name"] for t in reports[-1]["tasks"]}
+    repl = next(f for f, n in frames.items() if n == "repl_rx")
+    in_repl = sum(1 for _, owner in samples if owner == repl)
+    assert in_repl > 0.3 * len(samples), f"{in_repl}/{len(samples)} samples owned by repl_rx while the script spins"
+    assert all(0x3FFC0000 <= pc < 0x3FFF0000 or 0x40000000 <= pc < 0x40020000 for pc, _ in samples), "PC outside firmware"
+    assert any(sp["kind"] == es.KIND_RESUME and sp["id"] == repl for sp in spans)
+    twi = next(d["id"] for d in reports[-1]["drivers"] if d["name"] == "twi1")
+    isr = [sp for sp in spans if sp["kind"] == es.KIND_ISR and sp["id"] == twi]
+    assert isr, "no twi1 interrupt spans during the I2C loop"
+    print(f"load: {in_repl}/{len(samples)} samples in repl_rx, {len(isr)} twi1 spans, "
+          f"dropped samples {prof[-1]['dropped']} spans {tl[-1]['dropped']}")

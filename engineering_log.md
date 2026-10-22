@@ -1772,3 +1772,35 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `tests/test_visualizer_sdk.py`: CLI replay of board output, plugin routing, live tab set,
   real docking layout. Board suite 27 passed, 0 failed, 2 skipped.
 * Still open from the audit: TLP CRC, heap badge, event-log filters, timeline + profiler.
+
+## [2026-10-22] - Live profiler, timeline events and cold code in SRAM Space 1
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/abstractx/trace/`, `src/runtime.cpp`, `targets/allwinner_e906/`, `tools/visualizer/`
+* **Symptoms**: user: the source view should work "like a live debugger showing execution time";
+  the Timeline tabs had no live source; SRAM_FAST was at 99.3 % (1.3 KB free), too full for it.
+
+### 2. Root Cause & Lesson Learned
+* **hardware-fact**: a 1 kHz sample timer on a wfi idle loop wakes the loop every millisecond: idle
+  splits into 1000 spans/s and the loop's own wake-up cost shows as busy %. The trap return already
+  advances past the idle `wfi`; a sample-only interrupt now returns *to* it (`g_irq_sample_only`),
+  so profiling is invisible to idle accounting. Looping inside `platform_idle_wait` instead would
+  have broken `wait_step()`, which relies on any interrupt (an I2C completion flag) ending the wait.
+* **process-gap**: CMake does not relink when only the linker script changes; the first
+  `.text_cold` build reported the old sizes. Delete the ELF (or add LINK_DEPENDS) before measuring.
+* **false-alarm** (mine): three test failures while writing `sim/test_event_trace.cpp` were the
+  test, not the code: the flush wait starts when `status_service()` first sees a waiting item.
+
+### 3. Specification Update (SSOT Defense)
+* `docs/DESIGN_SPECIFICATION.md`: [SPEC-TRACE-09] (profile samples, stream 4), [SPEC-TRACE-10]
+  (timeline spans, stream 5).
+* `targets/allwinner_e906/SPECIFICATION.md`: [SPEC-E906-IRQ-06] (sample timer, sample-only wfi
+  return, interrupt spans, rings in `.sram_c`); [SPEC-E906-MEM-01] cold code in Space 1.
+* `tools/visualizer/SPECIFICATION.md`: [SPEC-STUDIO-11] live per-line CPU, [SPEC-STUDIO-17].
+
+### 4. Implementation & Regression Test
+* `sim/test_event_trace.cpp`: 1001 resume spans, idle span, 72 drops counted, samples with owners;
+  fails with the resume hook removed ("resume 0"), passes with it. `tests/test_event_streams_decode.py`
+  decodes the C++ packets. `tests/test_live_profile.py`, Studio render test.
+* Memory: SRAM_FAST 99.3 % -> 85.0 % (compiler code to `.text_cold`), 88.4 % with the profiler
+  and timeline code; rings (10 KB) in `.sram_c`. Host ctest 51/51, ASan 50/50, TSan 50/50.
