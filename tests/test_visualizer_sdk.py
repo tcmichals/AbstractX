@@ -123,7 +123,8 @@ def test_studio_gui_render_memory_tab():
 
 
 def test_studio_docking_workbench_configuration():
-    """Verifies that create_docking_runner_params sets up the 6-window dynamic workbench."""
+    """create_docking_runner_params sets up the 4-window workbench; presets select tabs, never copies ([SPEC-STUDIO-16])."""
+    # @verifies [SPEC-STUDIO-16] tools/visualizer/SPECIFICATION.md
     runner = studio.create_docking_runner_params()
     assert runner is not None
     assert runner.app_window_params.window_title == "AbstractX Studio & User Domain Workbench"
@@ -131,9 +132,8 @@ def test_studio_docking_workbench_configuration():
     runner_multi = studio.create_docking_runner_params(enable_viewports=True)
     assert runner_multi.imgui_window_params.enable_viewports is True, "Multi-viewport enabled when requested"
 
-    # Check 6 dockable windows
     windows = runner.docking_params.dockable_windows
-    assert len(windows) == 6, f"Expected 6 dockable windows, found {len(windows)}"
+    assert len(windows) == 4, f"Expected 4 dockable windows, found {len(windows)}"
     labels = {w.label: w.dock_space_name for w in windows}
     assert "AbstractX Core Studio" in labels
     assert labels["AbstractX Core Studio"] == "LeftSpace"
@@ -143,10 +143,6 @@ def test_studio_docking_workbench_configuration():
     assert labels["TLP Bus Debugger"] == "BottomSpace"
     assert "System Event Log" in labels
     assert labels["System Event Log"] == "BottomRightSpace"
-    assert "Source Code & Performance Inspector" in labels
-    assert labels["Source Code & Performance Inspector"] == "MainDockSpace"
-    assert "FPGA & Hardware Peripherals" in labels
-    assert labels["FPGA & Hardware Peripherals"] == "BottomSpace"
 
     # Check 3 docking split ratios
     splits = runner.docking_params.docking_splits
@@ -162,15 +158,14 @@ def test_studio_docking_workbench_configuration():
     assert log_win.is_visible is True
 
     # Test dynamic layout switching
+    studio.g_state = studio.TelemetryState()
     studio.apply_docking_layout("source_focus")
     assert studio.g_state.active_layout_preset == "source_focus"
-    assert studio.g_dockable_windows["source"].is_visible is True
+    assert studio.g_state.requested_studio_tab == "source"  # selects the tab, no second window
     assert studio.g_dockable_windows["user"].is_visible is False
 
-    studio.apply_docking_layout("fpga_focus")
-    assert studio.g_state.active_layout_preset == "fpga_focus"
-    assert studio.g_dockable_windows["fpga"].is_visible is True
-    assert studio.g_dockable_windows["user"].is_visible is False
+    studio.apply_docking_layout("fpga_focus")  # no FPGA: ignored, and it never turns one on
+    assert studio.g_state.active_layout_preset == "source_focus" and not studio.g_state.has_fpga
 
     studio.apply_docking_layout("user_focus")
     assert studio.g_state.active_layout_preset == "user_focus"
@@ -579,8 +574,9 @@ def _run_frames(show, frames=2, size=(1400, 900)):
 
 
 def test_studio_tlp_and_log_are_not_also_tabs(monkeypatch):
-    """[SPEC-STUDIO-02]: TLP debugger and event log are docked windows only; no tab or pop-out copy."""
+    """[SPEC-STUDIO-02]/[SPEC-STUDIO-16]: no tab or pop-out copy of docked windows; tabs follow availability."""
     # @verifies [SPEC-STUDIO-02] tools/visualizer/SPECIFICATION.md
+    # @verifies [SPEC-STUDIO-16] tools/visualizer/SPECIFICATION.md
     studio.g_state = studio.TelemetryState()
     tabs = []
     real = studio.imgui.begin_tab_item
@@ -591,9 +587,21 @@ def test_studio_tlp_and_log_are_not_also_tabs(monkeypatch):
 
     monkeypatch.setattr(studio.imgui, "begin_tab_item", spy)
     assert _run_frames(studio._render_core_studio_window) >= 2
-    assert "Coroutine Inspector" in tabs and "Source Code & RTL Inspector" in tabs
-    assert "TLP Bus Debugger" not in tabs and "System Event Log" not in tabs, sorted(set(tabs))
+    live = set(tabs)
+    assert live == {"CPU Gauges & Topology", "Timeline", "Source Code & RTL Inspector",
+                    "MemBrowse CI Report", "CLI Console & REPL"}, sorted(live)
     assert not studio.g_state.canvas_windows.get("tlp") and not studio.g_state.canvas_windows.get("log")
+
+    # [SPEC-STUDIO-16]: --sim adds the demo-only tools; an FPGA adds its tools, nothing else.
+    studio.g_state = studio.TelemetryState()
+    studio.g_state.enable_sim()
+    tabs.clear()
+    _run_frames(studio._render_core_studio_window)
+    assert {"Coroutine Inspector", "Flow Integrity & Pacing Eye"} <= set(tabs)
+    assert "FPGA Peripherals" not in tabs and "Simple Trace Viewer" not in tabs
+    studio.g_state = studio.TelemetryState()
+    studio.g_state.has_fpga = True
+    assert [t[0] for t in studio.available_tools()] == ["cpu", "timeline", "source", "memory", "cli", "flow", "fpga"]
 
 
 def test_studio_source_browser_reads_real_files_with_live_badges():
@@ -629,3 +637,34 @@ def test_studio_gauge_row_clears_its_labels():
     _run_frames(lambda: heights.append(studio.imgui.get_text_line_height()))
     # draw_radial_gauge: centre at +40, radius 32, sublabel drawn at centre + radius + 26
     assert studio.RUNTIME_GAUGE_ROW_H >= 40 + 32 + 26 + heights[-1]
+
+
+@pytest.mark.parametrize("sim", [False, True])
+def test_studio_real_docking_layout_renders_every_tool(sim):
+    """[SPEC-STUDIO-16]: the production docking layout renders, tabs and every available tool as a canvas."""
+    # @verifies [SPEC-STUDIO-16] tools/visualizer/SPECIFICATION.md
+    state = studio.TelemetryState()
+    if sim:
+        state.enable_sim()
+    studio.g_state = state
+    runner = studio.create_docking_runner_params()
+    runner.app_window_params.restore_previous_geometry = False
+    runner.ini_filename = ""
+    frames = 0
+
+    def count():
+        nonlocal frames
+        frames += 1
+        if frames == 3:
+            for key, *_ in studio.available_tools():
+                state.canvas_windows[key] = True  # every tool once as a floating canvas
+        if frames >= 6:
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    runner.callbacks.pre_new_frame = count
+    implot.create_context()
+    try:
+        immapp.run(runner)
+    finally:
+        implot.destroy_context()
+    assert frames >= 6
