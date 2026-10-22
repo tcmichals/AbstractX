@@ -356,6 +356,25 @@ flowchart TD
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
 * **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/src/mphalport.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
 
+### `[SPEC-E906-REPL-19]` Live CLI: Python Runs Beside the Sensor Stream
+* **Requirement**: while `raw_sensor_streamer.py` runs, a console line `EXEC <id> <hex>` (the
+  command's UTF-8 bytes hex-encoded, so no control byte such as Ctrl-C can appear in it) runs
+  that code in one namespace kept across commands (`abstractx` pre-imported): first as an
+  expression (its `repr` is printed), on `SyntaxError` as statements. Output is framed
+  `!CLI:<id>:BEGIN`, the printed lines, then `!CLI:<id>:END:OK` or `!CLI:<id>:END:ERR:<repr>`.
+  An exception never stops the stream; the heartbeat restarts after each command.
+* **Requirement**: console input is split into lines; a partial line waits for the rest, and a
+  line longer than 1 KB is dropped. `PING` / `STOP` / Ctrl-C keep their meaning.
+* **Requirement**: `board_studio_bridge.py` reads its stdin as lines: `CLI <id> <hex>` is forwarded
+  as `EXEC <id> <hex>` (writes to the runner are serialised with the heartbeat), and the framed
+  output is printed to its stdout unchanged, where Studio reads it ([SPEC-STUDIO-13]). EOF still
+  stops the bridge when `EXIT_ON_STDIN_EOF=1`.
+* **Constraint**: the board's MicroPython is built at the minimum ROM level: no `bytes.decode` and
+  no `bytes.fromhex` (probed 2026-10-22); the streamer decodes hex with `int(.., 16)` and makes
+  text with `str(b, "ascii")`.
+* **Verified by**: `host-tests` (`tests/test_board_suite_local.py`), `e906-board-selftest` (`tests/board/test_e906_trace.py`)
+* **Implementation Target**: `apps/e906_repl_app/raw_sensor_streamer.py`, `tools/board_studio_bridge.py`
+
 ### `[SPEC-E906-REPL-18]` Status and Trace Reach Studio by Default
 * **Requirement**: the app names its coroutines at spawn (`rpmsg_rx`, `repl_rx`, `repl_tx`); a
   MicroPython script runs inside `repl_rx`, so its load shows there. UART3 and TWI1 describe their

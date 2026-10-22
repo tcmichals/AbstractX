@@ -1741,3 +1741,34 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   `test_studio_source_browser_reads_real_files_with_live_badges`,
   `test_studio_gauge_row_clears_its_labels`: all three fail on the previous
   `abstractx_studio.py` and pass now (pytest 23 passed).
+
+## [2026-10-22] - Studio vs spec audit; CLI connected to the board's MicroPython
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/visualizer/`, `apps/e906_repl_app/raw_sensor_streamer.py`, `tools/board_studio_bridge.py`
+* **Symptoms**: user: "seems the studio and spec are not matching". Audit found: the CLI never
+  reached the target (live: every command errored; `--sim`: local `eval` on fake registers); the
+  TLP CRC column always said ok (trailers are the constant `deadbeef`); live decoding ignored the
+  CTF schema the spec said drove it; tabs with no possible live source; duplicated surfaces; the
+  CLI's "peek MTIME" quick action used 0x07090000 (mtime is 0xE000BFF8, `timer.cpp`).
+
+### 2. Root Cause & Lesson Learned
+* **process-gap**: the Studio spec described intended features as if they existed, and tests
+  checked that panels render, not that their numbers come from the target. An audit row per tab
+  ("live source / shown when") is now in the spec (3.1), so a tab without a source is visible.
+* **product-bug**: CLI had no transport. Now `CLI <id> <hex>` on the sensor bridge's stdin ->
+  `EXEC` in the streamer -> framed `!CLI:` output back on the bridge's stdout.
+* **hardware-fact**: the E906 MicroPython (ROM level minimum) has no `bytes.decode` and no
+  `bytes.fromhex`; `str(b, "ascii")`, `int(h, 16)`, `eval`/`exec` with a dict work. `exec` of a
+  one-line compound statement needs a trailing newline (else `SyntaxError`). Probed on the board.
+
+### 3. Specification Update (SSOT Defense)
+* `tools/visualizer/SPECIFICATION.md`: STUDIO-04/05/07/08/12/13 rewritten, STUDIO-16/17 added.
+* `apps/e906_repl_app/SPECIFICATION.md`: [SPEC-E906-REPL-19] (EXEC framing, limits, constraints).
+
+### 4. Implementation & Regression Test
+* `tests/board/test_e906_trace.py::test_cli_runs_beside_the_sensor_stream`: fails with the old
+  streamer/bridge ("no reply"), passes now (5 commands in 100 ms, stream continued).
+* `tests/test_visualizer_sdk.py`: CLI replay of board output, plugin routing, live tab set,
+  real docking layout. Board suite 27 passed, 0 failed, 2 skipped.
+* Still open from the audit: TLP CRC, heap badge, event-log filters, timeline + profiler.

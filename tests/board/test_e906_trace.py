@@ -10,6 +10,7 @@ Firmware without the status report sends nothing on the endpoint and these tests
 # @verifies [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
 # @verifies [SPEC-E906-IRQ-05] targets/allwinner_e906/SPECIFICATION.md
 # @verifies [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
+# @verifies [SPEC-E906-REPL-19] apps/e906_repl_app/SPECIFICATION.md
 
 import os
 import socket
@@ -130,3 +131,58 @@ def test_status_shows_script_load_and_driver_interrupts():
     drivers = {d["name"]: d for d in peak["drivers"]}
     assert drivers.get("twi1", {}).get("irq_per_s", 0) > 50, f"twi1 interrupts {drivers.get('twi1')}"
     assert "uart3" in drivers, f"uart3 missing from drivers {list(drivers)}"
+
+
+STUDIO_BRIDGE = os.path.join(HERE, "board_studio_bridge.py")
+
+
+def test_cli_runs_beside_the_sensor_stream():
+    """[SPEC-E906-REPL-19]: CLI commands run on the E906 while the sensor stream keeps going."""
+    _require()
+    need = ("board_studio_bridge.py", "run_e906_script.py", "raw_sensor_streamer.py", "sensor_contract.py")
+    if not all(os.path.exists(os.path.join(HERE, f)) for f in need):
+        skip("copy " + ", ".join(need) + " next to this file")
+    sink = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sink.bind(("127.0.0.1", 0))
+    env = dict(os.environ, STUDIO_HOST_IP="127.0.0.1", STUDIO_PORT=str(sink.getsockname()[1]),
+               STREAM_DURATION="20")
+    proc = subprocess.Popen([sys.executable, "-u", STUDIO_BRIDGE], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+    lines = []
+    threading.Thread(target=lambda: [lines.append(l.rstrip()) for l in proc.stdout], daemon=True).start()
+
+    def wait(pred, secs):
+        end = time.monotonic() + secs
+        while time.monotonic() < end:
+            if any(pred(l) for l in list(lines)):
+                return True
+            time.sleep(0.05)
+        return False
+
+    def forwarded():
+        return sum(1 for l in list(lines) if "Forwarded #" in l)
+
+    try:
+        assert wait(lambda l: "Forwarded #" in l, 12), f"stream did not start: {lines[-5:]}"
+        cmds = {"1": "1+2", "2": "x = abstractx.ticks_ms()", "3": "x > 0", "4": "1/0",
+                "5": "for i in range(3): print('line', i)"}
+        t0 = time.monotonic()
+        for cid, code in cmds.items():
+            proc.stdin.write(f"CLI {cid} {code.encode().hex()}\n")
+        proc.stdin.flush()
+        assert wait(lambda l: l.startswith("!CLI:5:END"), 6), f"no reply: {[l for l in lines if '!CLI' in l]}"
+        rtt = time.monotonic() - t0
+        before = forwarded()
+        cli = [l for l in lines if l.startswith("!CLI:")]
+        assert "!CLI:1:OUT:3" in cli and "!CLI:1:END:OK" in cli
+        assert "!CLI:3:OUT:True" in cli
+        assert any(l.startswith("!CLI:4:END:ERR:ZeroDivisionError") for l in cli), cli
+        assert [l for l in cli if l.startswith("!CLI:5:OUT:")] == [
+            "!CLI:5:OUT:line 0", "!CLI:5:OUT:line 1", "!CLI:5:OUT:line 2"], cli
+        assert "!CLI:5:END:OK" in cli
+        assert wait(lambda l: False, 1.5) is False and forwarded() > before, "stream stopped after the CLI"
+        print(f"CLI: 5 commands answered in {rtt * 1000:.0f} ms; stream continued")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+        sink.close()

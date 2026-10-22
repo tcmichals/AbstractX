@@ -460,18 +460,84 @@ def test_studio_starts_live_without_demo_data():
 
 
 def test_studio_cli_without_target_link_does_not_invent_answers():
-    """[SPEC-STUDIO-14] Target commands say there is no REPL link instead of answering from fake state."""
+    """[SPEC-STUDIO-14] Without a link, target commands say so instead of answering from fake state."""
     state = studio.TelemetryState()
-    for cmd in ("peek 0x07090000", "poke 0x07130000 0x1", "ping", "tasks"):
+    for cmd in ("peek 0x07090000", "poke 0x07130000 0x1", "ping 1", "tasks"):
         state.execute_cli_command(cmd)
     text = "\n".join(line[1] for line in state.cli_history)
     assert "bench_a" not in text and "0x18FA" not in text
-    errs = [line for line in state.cli_history if line[0] == "ERR" and "no REPL link" in line[1]]
-    assert len(errs) == 4, text
+    errs = [line for line in state.cli_history if line[0] == "ERR" and "no live link" in line[1]]
+    assert len(errs) == 3, text
+    assert "no runtime status report yet" in state.cli_history[-1][1]
     state.execute_cli_command("mode micropython")
     state.execute_cli_command("2 + 2")
     assert not any(line[1] == "4" for line in state.cli_history), "local eval() is not the E906 REPL"
-    assert "no REPL link" in state.cli_history[-1][1]
+    assert "no live link" in state.cli_history[-1][1]
+    assert not state.cli_pending
+
+
+def test_studio_cli_runs_on_board_through_bridge():
+    """[SPEC-STUDIO-13]: commands go to the bridge as (id, hex); framed board output lands in the console.
+    The replayed lines are what board_studio_bridge.py printed on the board on 2026-10-22."""
+    # @verifies [SPEC-STUDIO-13] tools/visualizer/SPECIFICATION.md
+    state = studio.TelemetryState()
+    sent = []
+    state.cli_sender = lambda cid, hx: sent.append((cid, bytes.fromhex(hx).decode())) or True
+    state.execute_cli_command("1+2")                  # unknown AbstractX command -> Python on the board
+    state.execute_cli_command("peek 0x3FFC0000")
+    state.execute_cli_command("mode micropython")
+    state.execute_cli_command("1/0")
+    state.execute_cli_command("ping 1")               # MicroPython mode: 'ping' is Python too
+    assert sent == [("1", "1+2"), ("2", "abstractx.peek_hex(0x3FFC0000)"), ("3", "1/0"), ("4", "ping 1")]
+    for line in ("!CLI:1:BEGIN", "!CLI:1:OUT:3", "!CLI:1:END:OK",
+                 "!CLI:2:BEGIN", "!CLI:2:OUT:'0xc0067125'", "!CLI:2:END:OK",
+                 "!CLI:3:BEGIN", "!CLI:3:END:ERR:ZeroDivisionError('divide by zero',)"):
+        state.on_cli_line(line)
+    hist = state.cli_history
+    assert ("PY_RES", "3") in hist and ("OK", "'0xc0067125'") in hist
+    assert ("ERR", "ZeroDivisionError('divide by zero',)") in hist
+    assert set(state.cli_pending) == {"4"}
+    # ping: AbstractX-mode ping measures the round trip and prints no payload
+    state.execute_cli_command("exit")
+    state.execute_cli_command("ping 1")
+    assert sent[-1] == ("5", "None")
+    state.on_cli_line("!CLI:5:BEGIN")
+    state.on_cli_line("!CLI:5:END:OK")
+    assert "round trip" in hist[-1][1]
+    # too long for the streamer's line limit: refused before sending
+    n = len(sent)
+    state.execute_cli_command("x = '" + "a" * 500 + "'")
+    assert len(sent) == n and "too long" in hist[-1][1]
+
+
+def test_flight_plugin_routes_cli_lines_and_sends_commands():
+    """[SPEC-STUDIO-13]: '!CLI' lines from the bridge go to Studio; send_cli writes 'CLI <id> <hex>'."""
+    # @verifies [SPEC-STUDIO-13] tools/visualizer/SPECIFICATION.md
+    import io
+    import tools.visualizer.flight_plugin as fp
+    got = []
+    fp.g_cli_handler = got.append
+
+    class Proc:
+        stdout = io.StringIO("[BRIDGE] up\n!CLI:7:BEGIN\n!CLI:7:OUT:42\n!CLI:7:END:OK\n")
+        stdin = io.StringIO()
+
+        def poll(self):
+            return None
+    proc = Proc()
+    fp._drain_bridge_output(proc)
+    assert got == ["!CLI:7:BEGIN", "!CLI:7:OUT:42", "!CLI:7:END:OK"]
+    assert fp.g_bridge_log[-1] == "[BRIDGE] up"
+    saved = fp.g_bridge_proc
+    try:
+        fp.g_bridge_proc = proc
+        assert fp.send_cli("8", "312b32")
+        assert proc.stdin.getvalue() == "CLI 8 312b32\n"
+        fp.g_bridge_proc = None
+        assert not fp.send_cli("9", "00")
+    finally:
+        fp.g_bridge_proc = saved
+        fp.g_cli_handler = None
 
 
 def test_studio_enable_sim_seeds_demo_data():

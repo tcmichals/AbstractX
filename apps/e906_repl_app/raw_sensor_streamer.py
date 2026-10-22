@@ -99,20 +99,66 @@ def to_hex(raw_b):
         return "none"
     return "".join(["%02x" % b for b in raw_b])
 
+# Live CLI beside the stream: EXEC <id> <hex> runs Python in one kept namespace.
+# @impl [SPEC-E906-REPL-19] apps/e906_repl_app/SPECIFICATION.md
+_cli_env = {"abstractx": abstractx}
+
+
+def unhex(h):
+    return bytes(int(h[i:i + 2], 16) for i in range(0, len(h), 2))
+
+
+def cli_exec(cid, code):
+    print("!CLI:" + cid + ":BEGIN")
+    try:
+        try:
+            r = eval(code, _cli_env)
+            if r is not None:
+                print(repr(r))
+        except SyntaxError:
+            exec(code + "\n", _cli_env)  # a compound statement needs the newline
+        print("!CLI:" + cid + ":END:OK")
+    except Exception as e:  # never stops the stream
+        print("!CLI:" + cid + ":END:ERR:" + repr(e))
+
+
 # Streaming execution loop with Heartbeat Watchdog & Clean Teardown
 # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
 last_heartbeat_ms = abstractx.ticks_ms()
 WATCHDOG_TIMEOUT_MS = 3000
 
 # Until stopped (STOP / Ctrl-C) or the host stops pinging; no fixed tick count.
-while True:
-    # Check for host ping or stop commands over RPMsg
+console_buf = b""
+stop = False
+while not stop:
+    # Host commands over RPMsg, one per line: PING, STOP, EXEC <id> <hex>
     cmd = abstractx.console_read(64)
+    while cmd and len(cmd) % 64 == 0 and len(cmd) < 1024:  # drain what is waiting
+        more = abstractx.console_read(64)
+        if not more:
+            break
+        cmd += more
     if cmd:
-        if b"PING" in cmd or b"HEARTBEAT" in cmd:
-            last_heartbeat_ms = abstractx.ticks_ms()
-        elif b"STOP" in cmd or b"CLOSE" in cmd or b"\x03" in cmd:
+        if b"\x03" in cmd:
             print("[E906_STOP_REQUESTED]")
+            break
+        console_buf += cmd
+        if len(console_buf) > 1024 and b"\n" not in console_buf:
+            console_buf = b""  # an over-long line is dropped
+        while b"\n" in console_buf:
+            line, console_buf = console_buf.split(b"\n", 1)
+            if line.startswith(b"EXEC "):
+                parts = line.split(b" ")
+                if len(parts) == 3:
+                    cli_exec(str(parts[1], "ascii"), str(unhex(str(parts[2], "ascii")), "ascii"))
+                last_heartbeat_ms = abstractx.ticks_ms()
+            elif b"PING" in line or b"HEARTBEAT" in line:
+                last_heartbeat_ms = abstractx.ticks_ms()
+            elif b"STOP" in line or b"CLOSE" in line:
+                print("[E906_STOP_REQUESTED]")
+                stop = True
+                break
+        if stop:
             break
 
     # Watchdog protection: shutdown if host disconnects or stops pinging

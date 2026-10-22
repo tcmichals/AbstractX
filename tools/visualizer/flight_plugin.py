@@ -62,9 +62,31 @@ g_bridge_proc = None
 g_bridge_log = collections.deque(maxlen=200)
 
 
+# Studio's handler for '!CLI:...' lines from the sensor bridge ([SPEC-STUDIO-13]).
+g_cli_handler = None
+
+
 def _drain_bridge_output(proc) -> None:
     for line in proc.stdout:
-        g_bridge_log.append(line.rstrip())
+        line = line.rstrip()
+        if line.startswith("!CLI:") and g_cli_handler is not None:
+            g_cli_handler(line)
+        else:
+            g_bridge_log.append(line)
+
+
+def send_cli(cid: str, code_hex: str) -> bool:
+    """Send one CLI command to the board's MicroPython through the sensor bridge's stdin."""
+    # @impl [SPEC-STUDIO-13] tools/visualizer/SPECIFICATION.md
+    proc = g_bridge_proc
+    if proc is None or proc.poll() is not None or proc.stdin is None:
+        return False
+    try:
+        proc.stdin.write(f"CLI {cid} {code_hex}\n")
+        proc.stdin.flush()
+        return True
+    except (BrokenPipeError, OSError, ValueError):
+        return False
 
 g_trace_bridge_proc = None
 

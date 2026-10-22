@@ -60,9 +60,9 @@ except ImportError:
     from tools.visualizer import runtime_stats
 
 # Live mode ([SPEC-STUDIO-14]): commands that would need a REPL link to the target.
-TARGET_CLI_COMMANDS = ("peek", "poke", "ping", "tasks", "tlp")
-NO_TARGET_LINK_MSG = ("no REPL link to the target: Studio cannot run this on hardware yet "
-                      "(use run_e906_script.py / e906_workbench.py, or --sim for demo data)")
+NO_TARGET_LINK_MSG = ("no live link: connect the board (menu: Connect) and the CLI runs on its "
+                      "MicroPython; --sim has demo answers")
+CLI_MAX_CODE = 450  # bytes; the hex-encoded line stays under the streamer's 1 KB line limit
 
 # CTF Constants & Defaults
 CTF_MAGIC = 0xC1FC1FC1
@@ -255,9 +255,12 @@ class TelemetryState:
 
         # CLI Console & MicroPython Hardware REPL State
         # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
+        self.cli_pending = {}      # id -> (sent time, kind) of live CLI commands
+        self.cli_next_id = 1
+        self.cli_sender = None     # (id, hex) -> bool; flight_plugin.send_cli when connected
         self.cli_history = [
             ("INFO", "AbstractX Interactive CLI."),
-            ("WARN", "Live mode: Studio has no REPL link to the target yet; target commands are unavailable."),
+            ("INFO", "Commands run on the board's MicroPython while the live link is up."),
             ("INFO", "Type 'help' for command list or switch modes above."),
         ]
         self.cli_command_history = []
@@ -326,7 +329,7 @@ class TelemetryState:
         # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
         self.sim_mode = True
         self.logs.clear()
-        self.cli_history = [h for h in self.cli_history if "no REPL link" not in h[1]]
+        self.cli_history = [h for h in self.cli_history if "board's MicroPython" not in h[1]]
         self.cli_history.insert(1, ("WARN", "SIMULATED DATA (--sim): nothing here comes from a target."))
         self._seed_sim_data()
         self.load_membrowse_metrics()
@@ -654,19 +657,113 @@ class TelemetryState:
             prompt_prefix = "abstractx> " if self.cli_mode == "AbstractX" else ">>> "
             self.cli_history.append(("PROMPT", f"{prompt_prefix}{cmd}"))
 
-        if self.cli_mode == "MicroPython":
-            self._execute_micropython_command(cmd)
+        if self.cli_mode == "MicroPython" and cmd.lower() in ("exit", "quit", "mode abstractx"):
+            self.cli_mode = "AbstractX"
+            self.add_cli_line("INFO", "Switched to AbstractX Native CLI mode.")
+        elif self.sim_mode:
+            # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
+            if self.cli_mode == "MicroPython":
+                self._execute_micropython_command(cmd)
+            else:
+                self._execute_abstractx_command(cmd)
+        elif self.cli_mode == "MicroPython":
+            self.cli_send(cmd)
         else:
-            self._execute_abstractx_command(cmd)
+            self._execute_live_command(cmd)
+
+    # Live CLI: commands run on the board's MicroPython via the sensor bridge ([SPEC-STUDIO-13])
+    def cli_send(self, code: str, kind: str = "py") -> bool:
+        """Send Python to the board; output arrives through on_cli_line(). False if not sent."""
+        # @impl [SPEC-STUDIO-13] tools/visualizer/SPECIFICATION.md
+        data = code.encode()
+        if len(data) > CLI_MAX_CODE:
+            self.add_cli_line("ERR", f"command too long ({len(data)} B, max {CLI_MAX_CODE})")
+            return False
+        with self.lock:
+            cid = str(self.cli_next_id)
+            self.cli_next_id += 1
+            self.cli_pending[cid] = (time.time(), kind)
+        if self.cli_sender is None or not self.cli_sender(cid, data.hex()):
+            with self.lock:
+                self.cli_pending.pop(cid, None)
+            self.add_cli_line("ERR", NO_TARGET_LINK_MSG)
+            return False
+        return True
+
+    def on_cli_line(self, line: str):
+        """One '!CLI:<id>:...' line from the bridge ([SPEC-E906-REPL-19])."""
+        # @impl [SPEC-STUDIO-13] tools/visualizer/SPECIFICATION.md
+        fields = line.split(":", 3)
+        if len(fields) < 3 or fields[0] != "!CLI":
+            return
+        cid, what = fields[1], fields[2]
+        rest = fields[3] if len(fields) > 3 else ""
+        with self.lock:
+            sent, kind = self.cli_pending.get(cid, (None, "py"))
+        if what == "OUT":
+            if kind != "ping":
+                self.add_cli_line("PY_RES" if kind == "py" else "OK", rest)
+        elif what == "END":
+            with self.lock:
+                self.cli_pending.pop(cid, None)
+            if rest.startswith("ERR:"):
+                self.add_cli_line("ERR", rest[4:])
+            elif kind == "ping" and sent is not None:
+                self.add_cli_line("OK", f"reply from E906 MicroPython: {(time.time() - sent) * 1000:.1f} ms round trip")
+
+    def _execute_live_command(self, cmd: str):
+        # @impl [SPEC-STUDIO-13] tools/visualizer/SPECIFICATION.md
+        parts = cmd.split()
+        op = parts[0].lower()
+        rates = self.runtime_rates
+        if op in ("help", "?"):
+            for txt in ("help, ?              - this list",
+                        "ps, tasks, coro      - coroutines from the latest status report",
+                        "drivers              - interrupt lines from the latest status report",
+                        "peek <addr>          - abstractx.peek_hex(addr) on the board",
+                        "poke <addr> <val>    - abstractx.poke(addr, val) on the board",
+                        "ping [n]             - CLI round trip to the board's MicroPython",
+                        "mode micropython     - every line runs as Python on the board",
+                        "clear                - clear this console",
+                        "anything else        - run on the board as Python"):
+                self.add_cli_line("OUT", "  " + txt)
+        elif op in ("ps", "tasks", "coro", "drivers"):
+            if not rates:
+                self.add_cli_line("ERR", "no runtime status report yet")
+            elif op == "drivers":
+                self.add_cli_line("HEADER", f"{'Driver':<14} {'IRQ/s':>8} {'ISR %':>8} {'Errors':>8}")
+                for d in rates["drivers"]:
+                    self.add_cli_line("TASK", f"{d['name'] + ' (' + str(d['id']) + ')':<14} {d['irq_per_s']:>8.0f} "
+                                              f"{d['isr_pct']:>8.3f} {d['errors']:>8}")
+            else:
+                self.add_cli_line("HEADER", f"{'Task':<12} {'CPU %':>7} {'Resumes/s':>10} {'Longest':>10}")
+                for t in rates["tasks"]:
+                    self.add_cli_line("CORO", f"{t['name']:<12} {t['cpu_pct']:>7.1f} {t['resumes_per_s']:>10.1f} "
+                                              f"{t['max_us']:>8.1f}us")
+                self.add_cli_line("OUT", f"busy {rates['busy_pct']:.1f}%  ISR {rates['isr_pct']:.2f}%  "
+                                         f"pool {rates['pool_used']}/{rates['pool_capacity']} B")
+        elif op == "peek" and len(parts) == 2:
+            self.cli_send(f"abstractx.peek_hex({parts[1]})", "reg")
+        elif op == "poke" and len(parts) == 3:
+            self.cli_send(f"abstractx.poke({parts[1]}, {parts[2]})", "reg")
+        elif op == "ping":
+            n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 3
+            for _ in range(min(n, 10)):
+                self.cli_send("None", "ping")
+        elif op in ("clear", "cls"):
+            with self.lock:
+                self.cli_history.clear()
+        elif op == "mode":
+            self.cli_mode = "MicroPython" if len(parts) > 1 and parts[1].lower() in ("python", "micropython") else "AbstractX"
+            self.add_cli_line("INFO", f"Switched to {self.cli_mode} mode.")
+        else:
+            self.cli_send(cmd)
 
     def _execute_abstractx_command(self, cmd: str):
+        """--sim demo answers ([SPEC-STUDIO-14])."""
         # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
         parts = cmd.split()
         op = parts[0].lower()
-        # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
-        if op in TARGET_CLI_COMMANDS and not self.sim_mode:
-            self.add_cli_line("ERR", NO_TARGET_LINK_MSG)
-            return
         if op in ("help", "?"):
             self.add_cli_line("OUT", "Available AbstractX CLI Commands:")
             self.add_cli_line("OUT", "  help, ?              - Show this command reference")
@@ -746,15 +843,8 @@ class TelemetryState:
             self.add_cli_line("WARN", f"Unknown command: '{op}'. Type 'help' for command list.")
 
     def _execute_micropython_command(self, cmd: str):
+        """--sim demo interpreter (local eval on fake registers) ([SPEC-STUDIO-14])."""
         # @impl [SPEC-STUDIO-13] tools/visualizer/abstractx_studio.py
-        if cmd.lower() in ("exit", "quit", "mode abstractx"):
-            self.cli_mode = "AbstractX"
-            self.add_cli_line("INFO", "Switched to AbstractX Native CLI mode.")
-            return
-        # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
-        if not self.sim_mode:
-            self.add_cli_line("ERR", NO_TARGET_LINK_MSG)
-            return
 
         state_ref = self
         class MachineMem:
@@ -2309,21 +2399,12 @@ def _render_cli_console():
     imgui.begin_group()
     imgui.text("Quick Actions:")
     imgui.same_line()
-    if imgui.button("ps##cli_ps"):
-        g_state.execute_cli_command("ps")
-    imgui.same_line()
-    if imgui.button("ping##cli_png"):
-        g_state.execute_cli_command("ping 3")
-    imgui.same_line()
-    if imgui.button("tasks##cli_tsk"):
-        g_state.execute_cli_command("tasks")
-    imgui.same_line()
-    if imgui.button("peek MTIME##cli_mtime"):
-        g_state.execute_cli_command("peek 0x07090000")
-    imgui.same_line()
-    if imgui.button("stats##cli_stat"):
-        g_state.execute_cli_command("stats")
-    imgui.same_line()
+    # @impl [SPEC-STUDIO-13] tools/visualizer/SPECIFICATION.md
+    for lbl, cmd in (("ps", "ps"), ("drivers", "drivers"), ("ping", "ping 3"),
+                     ("peek mtime", "peek 0xE000BFF8"), ("uart_status", "abstractx.uart_status()")):
+        if imgui.button(f"{lbl}##cli_q_{lbl}"):
+            g_state.execute_cli_command(cmd)
+        imgui.same_line()
     if imgui.button("Clear##cli_clr"):
         g_state.execute_cli_command("clear")
     imgui.same_line(0, 16)
@@ -3464,9 +3545,13 @@ def main():
 
     import atexit
     try:
-        from flight_plugin import start_board_bridge, stop_board_bridge
+        import flight_plugin as fp
     except ImportError:
-        from tools.visualizer.flight_plugin import start_board_bridge, stop_board_bridge
+        import tools.visualizer.flight_plugin as fp
+    start_board_bridge, stop_board_bridge = fp.start_board_bridge, fp.stop_board_bridge
+    # CLI runs on the board through the sensor bridge ([SPEC-STUDIO-13])
+    g_state.cli_sender = fp.send_cli
+    fp.g_cli_handler = g_state.on_cli_line
 
     atexit.register(stop_board_bridge)
 

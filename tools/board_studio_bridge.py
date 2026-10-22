@@ -17,6 +17,7 @@ import struct
 import math
 import subprocess
 import signal
+import threading
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [_HERE, os.path.join(_HERE, "..", "apps", "e906_repl_app")]
@@ -66,7 +67,7 @@ def main():
     # Launch E906 raw sensor streamer via verified RPMsg runner
     # Pass the duration through: run_e906_script.py defaults to 15 s, which ended every
     # live Studio session after 15 s. 0 = until stopped. @impl [SPEC-E906-REPL-14]
-    cmd = ["python3", "-u", "/root/run_e906_script.py", "/root/raw_sensor_streamer.py",
+    cmd = ["python3", "-u", os.path.join(_HERE, "run_e906_script.py"), os.path.join(_HERE, "raw_sensor_streamer.py"),
            str(DURATION_S + 5.0 if DURATION_S > 0 else 0)]
     proc = subprocess.Popen(
         cmd,
@@ -111,16 +112,32 @@ def main():
     signal.signal(signal.SIGINT, handle_sig)
     signal.signal(signal.SIGTERM, handle_sig)
 
+    # One writer at a time to the runner: heartbeat (main loop) and CLI commands (stdin thread).
+    runner_lock = threading.Lock()
+
+    def send_runner(text):
+        with runner_lock:
+            if proc.stdin:
+                proc.stdin.write(text)
+                proc.stdin.flush()
+
+    # Studio's stdin: "CLI <id> <hex>" lines are forwarded to the streamer as EXEC commands.
+    # @impl [SPEC-E906-REPL-19] apps/e906_repl_app/SPECIFICATION.md
     # Started by Studio over ssh with a stdin pipe: when Studio exits, the session closes,
     # stdin hits EOF and the bridge stops cleanly instead of holding the REPL forever.
     # @impl [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
-    if os.environ.get("EXIT_ON_STDIN_EOF") == "1":
-        import threading
-
-        def _watch_stdin():
-            sys.stdin.buffer.read()
+    def _read_stdin():
+        for raw in sys.stdin:
+            parts = raw.split()
+            if len(parts) == 3 and parts[0] == "CLI":
+                try:
+                    send_runner(f"EXEC {parts[1]} {parts[2]}\n")
+                except Exception:
+                    pass
+        if os.environ.get("EXIT_ON_STDIN_EOF") == "1":
             os.kill(os.getpid(), signal.SIGTERM)
-        threading.Thread(target=_watch_stdin, daemon=True).start()
+    threading.Thread(target=_read_stdin, daemon=True).start()
+    cli_open = None  # id of the CLI command whose output is arriving
 
     print("[BRIDGE] E906 raw_sensor_streamer running on XuanTie E906. Streaming to Studio...")
 
@@ -143,9 +160,7 @@ def main():
             if time.time() - last_ping_time >= 1.0:
                 last_ping_time = time.time()
                 try:
-                    if proc.stdin:
-                        proc.stdin.write("PING\n")
-                        proc.stdin.flush()
+                    send_runner("PING\n")
                 except Exception:
                     pass
 
@@ -157,6 +172,17 @@ def main():
                 continue
 
             line = line.strip()
+            # CLI output framed by the streamer: passed to Studio on stdout ([SPEC-E906-REPL-19]).
+            cli_at = line.find("!CLI:")
+            if cli_at >= 0:
+                line = line[cli_at:]
+                fields = line.split(":")
+                cli_open = fields[1] if len(fields) > 2 and fields[2] == "BEGIN" else None
+                print(line, flush=True)
+                continue
+            if cli_open is not None:
+                print(f"!CLI:{cli_open}:OUT:{line}", flush=True)
+                continue
             if "!RAW:M=" in line:
                 raw_idx = line.find("!RAW:M=")
                 line = line[raw_idx:]
