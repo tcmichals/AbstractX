@@ -1,6 +1,10 @@
 # Bus Transaction Model: Choosing Between the Merged API and the Review Handoff
 
-**Status:** decision needed (2026-10-23). Nothing here is implemented beyond what section 2 lists.
+**Status:** decided 2026-10-23: **option C**, with the step outcomes `Continue / Repeat / Finish /
+Fail` (section 4). Written into SPEC-HAL-08..10 and the new SPEC-HAL-12 (step callbacks), HAL-13
+(triggered reads) and HAL-14 (bus lock) in `docs/DESIGN_SPECIFICATION.md`; API in
+`include/abstractx/hal/`, host-tested in `sim/test_bus_protocols.cpp`. No target driver implements
+it yet (next: E906).
 **Why now:** no target implements the new bus calls yet. The model has to be settled before the
 first driver (E906) is written, or drivers get written twice.
 
@@ -78,7 +82,10 @@ target can refuse it:
 ```cpp
 // (1) A step callback on a segment / message: runs at interrupt level when that step completes,
 //     sees the bytes just received, and decides what happens next. Bounded, never resumes.
-enum class Step : uint8_t { Continue, Repeat, Abort };
+// As built: BusStep { Continue, Repeat, Finish, Fail } (bus_step.hpp). Finish = end early with Ok
+// (e.g. FIFO empty); Fail = end with Aborted (bad header, bad SMBus count). Repeat is limited by the
+// hook's max_repeats; one more ends the transaction with Timeout. Every early end releases the bus.
+enum class Step : uint8_t { Continue, Repeat, Finish, Fail };
 using StepFn = Step (*)(void* ctx, std::span<const uint8_t> rx) noexcept;
 struct SpiSegment { /* ... as now ... */ StepFn on_done{}; void* ctx{}; };
 struct I2cMsg     { /* ... as now ... */ StepFn on_done{}; void* ctx{}; };

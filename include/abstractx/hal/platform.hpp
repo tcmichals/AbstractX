@@ -87,6 +87,9 @@ bool platform_trace_listening() noexcept;
 ISpi&         get_spi_driver() noexcept;
 II2c&         get_i2c_driver() noexcept;
 IUart&        get_uart_driver() noexcept;
+// @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
+// Port `index`, or null when the target has none; port 0 = get_uart_driver(). Weak default: port 0 only.
+IUart*        get_uart_port(uint8_t index) noexcept;
 ITimer&       get_timer_driver() noexcept;
 IGpio&        get_gpio_driver() noexcept;
 IIoProcessor& get_target_io_processor() noexcept;

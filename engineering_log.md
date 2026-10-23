@@ -2007,3 +2007,41 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   and checks pool high water, dropped resumes and queue depth.
 * **Not checked**: no cross-compiled target build, no hardware, no real driver implements the
   new APIs.
+
+## [2026-10-23] - Trigger Ring: A Late Wakeup Resumed the Reader With Nothing to Read
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug`
+* **Target / Subsystem**: `include/abstractx/hal/bus_trigger.hpp` (new, design option C)
+* **Governing Requirements**: `[SPEC-HAL-13]`
+* **Symptoms**: `sim/test_bus_protocols` passed in the plain and TSan builds but hung under
+  ASan/UBSan every time (4 runs, cut off after 30-300 s). A progress print showed the reader's
+  count far past the 20,000 events sent, the same sequence number repeated, and the ring depth
+  `wr - rd` wrapped to about 4.29e9: the read counter had overtaken the write counter.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: the producer published a slot and then woke the waiter. In between, the reader
+  could take that slot without waiting, release it and wait again; the late wakeup then resumed
+  the new wait, and `await_resume` took a slot that was never written, moving `rd` past `wr`.
+  From then on `wr != rd` was always true and the reader spun inside `Dispatcher::process()`.
+* **Why the plain and TSan runs passed**: their timing never hit the window; ASan's slower code
+  did. TSan reports data races, not lost or spurious wakeups between correctly ordered atomics.
+* **Lesson**: a lock-free "publish, then wake" handoff can wake a waiter that has nothing to
+  read. The waker has to check again after taking the waiter and put it back if there is
+  nothing to read; a consumer must never assume "resumed = data available".
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/DESIGN_SPECIFICATION.md` `[SPEC-HAL-13]` (the ring contract already
+  says one producer, one consumer, resumed through the Dispatcher; the fix keeps it).
+
+### 4. Implementation & Regression Test
+* **Fix**: `TriggerRingBase::wake_from_isr()` re-checks after taking the waiter and puts it back
+  when there is nothing to read; `cancel()` sets `cancel_req_`, so a cancel that races with the
+  put-back is still delivered (by the producer, or by the next `pop()`); `available()` reads the
+  consumer's counter with acquire ordering.
+* **Regression Test**: `sim/test_bus_protocols.cpp`, threaded producer section (20,000 events,
+  every one received or counted as dropped, order checked). Hung under ASan before the fix; 3/3
+  runs pass in each of the plain, ASan and TSan builds after it.
+* **Open, same pattern**: `UartRxRingBase` (`[SPEC-HAL-10]`) also wakes without re-checking after
+  taking the waiter. There a late wake returns a view with fewer bytes than `min_bytes` rather
+  than reading unwritten memory. Not fixed in this change; to fix with the E906 UART DMA work.

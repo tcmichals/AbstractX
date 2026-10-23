@@ -178,6 +178,10 @@ __attribute__((weak)) void hal::platform_event_buffers(hal::EventBuffers& out) n
 __attribute__((weak)) void hal::platform_profile_start(uint32_t /*hz*/) noexcept {}
 // @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
 __attribute__((weak)) bool hal::platform_trace_listening() noexcept { return true; }
+// @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
+__attribute__((weak)) hal::IUart* hal::get_uart_port(uint8_t index) noexcept {
+    return index == 0 ? &hal::get_uart_driver() : nullptr;
+}
 
 // Weak default: a platform without interrupt counters reports no drivers.
 __attribute__((weak)) void hal::platform_runtime_stats(stats::PlatformStats& out) noexcept {

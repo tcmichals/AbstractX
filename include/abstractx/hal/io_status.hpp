@@ -31,6 +31,7 @@ enum class IoStatus : uint8_t {
     Framing,
     Parity,
     Break,
+    Aborted,   // [SPEC-HAL-12]: a step callback returned Fail
 };
 
 // The completion a cancelled request receives: its bus's Cancelled status ([SPEC-HAL-07]).

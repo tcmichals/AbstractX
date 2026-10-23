@@ -63,6 +63,17 @@ public:
         deadline_ctx_ = ctx;
     }
 
+    // [SPEC-HAL-10] Byte handler: called by the producer, at interrupt level, with the bytes just
+    // written (second span after the wrap point), before the reader is woken. Bounded, never
+    // resumes; the bytes stay in the ring. Set it before the producer starts.
+    // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
+    using DataFn = void (*)(void* ctx, std::span<const uint8_t> first, std::span<const uint8_t> second) noexcept;
+
+    void set_data_hook(DataFn fn, void* ctx) noexcept {
+        data_fn_ = fn;
+        data_ctx_ = ctx;
+    }
+
     // The contiguous buffers the DMA descriptor chain points at (buffer i = bytes [i*B, (i+1)*B)).
     std::span<uint8_t> dma_region() noexcept { return storage_; }
     uint32_t buffer_bytes() const noexcept { return buf_; }
@@ -74,7 +85,15 @@ public:
 
     // The hardware wrote `n` more bytes after the previous call; end_of_frame = RX timeout.
     void produced_from_isr(size_t n, bool end_of_frame) noexcept {
-        const uint32_t w = wr_.load(std::memory_order_relaxed) + static_cast<uint32_t>(n);
+        const uint32_t w0 = wr_.load(std::memory_order_relaxed);
+        if (data_fn_ != nullptr && n != 0U) {
+            const uint32_t pos = w0 % cap_;
+            const uint32_t len = static_cast<uint32_t>(n < cap_ ? n : cap_);
+            const uint32_t n1 = len < cap_ - pos ? len : cap_ - pos;
+            data_fn_(data_ctx_, std::span<const uint8_t>(storage_.data() + pos, n1),
+                     std::span<const uint8_t>(storage_.data(), len - n1));
+        }
+        const uint32_t w = w0 + static_cast<uint32_t>(n);
         wr_.store(w, std::memory_order_release);
         if (end_of_frame) {
             eof_wr_.store(w, std::memory_order_release);
@@ -278,6 +297,8 @@ private:
     uint32_t cap_;
     DeadlineFn deadline_fn_{nullptr};
     void* deadline_ctx_{nullptr};
+    DataFn data_fn_{nullptr};
+    void* data_ctx_{nullptr};
 
     std::atomic<uint32_t> wr_{0};       // bytes produced (monotonic, producer-owned)
     std::atomic<uint32_t> eof_wr_{0};   // wr_ at the last end of frame

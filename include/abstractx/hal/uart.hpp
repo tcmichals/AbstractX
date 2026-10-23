@@ -34,6 +34,12 @@ struct UartConfig {
     UartParity parity{UartParity::None};
     UartFlow   flow{UartFlow::None};
     uint32_t   tx_gap_us{0};  // idle time after every byte's stop bit (hardware gap only)
+    // [SPEC-HAL-10] line options
+    bool       invert_rx{false};
+    bool       invert_tx{false};
+    bool       half_duplex{false};          // one wire; the driver turns the line around
+    int16_t    rs485_de_pin{-1};            // RS-485 driver enable, -1 = none
+    bool       rs485_de_active_high{true};
 };
 
 // What the hardware behind a driver can do; a field is set only when verified for that chip.
@@ -50,6 +56,11 @@ struct UartCapabilities {
     uint32_t max_tx_gap_us{0};          // 0 = no hardware inter-byte gap
     uint32_t tx_gap_step_ns{0};         // gap resolution
     bool     tx_done_at_line_idle{false};  // write completes when the last stop bit has left
+    bool     invert{false};                // [SPEC-HAL-10] RX/TX level inversion
+    bool     half_duplex{false};
+    bool     rs485_de{false};
+    bool     send_break{false};
+    uint32_t max_break_us{0};
 };
 
 // Pure check of a request against capabilities ([SPEC-HAL-06]); Ok or NotSupported.
@@ -60,6 +71,10 @@ constexpr UartStatus check_uart_config(const UartCapabilities& caps, const UartC
     if (cfg.parity != UartParity::None && !caps.parity) return UartStatus::NotSupported;
     if (cfg.flow != UartFlow::None && !caps.rts_cts) return UartStatus::NotSupported;
     if (cfg.tx_gap_us > caps.max_tx_gap_us) return UartStatus::NotSupported;
+    // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
+    if ((cfg.invert_rx || cfg.invert_tx) && !caps.invert) return UartStatus::NotSupported;
+    if (cfg.half_duplex && !caps.half_duplex) return UartStatus::NotSupported;
+    if (cfg.rs485_de_pin >= 0 && !caps.rs485_de) return UartStatus::NotSupported;
     return UartStatus::Ok;
 }
 
@@ -77,6 +92,7 @@ struct UartResult {
  */
 struct UartTxRequest : public AsyncTransactionMeta<UartResult> {
     std::span<const uint8_t> data{};
+    uint32_t                 break_us{0};   // [SPEC-HAL-10] non-zero: send a break, no data
 };
 
 /*
@@ -218,6 +234,44 @@ public:
     AsyncByteWriteAwaiter write_byte_async(uint8_t b) noexcept {
         return AsyncByteWriteAwaiter(*this, b);
     }
+
+    /*
+     * [SPEC-HAL-10] Break: TX held low for `us`, queued in order with writes. Refusals never suspend.
+     */
+    // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
+    struct AsyncBreakAwaiter {
+        AsyncUartDriver& driver;
+        uint32_t         us;
+        UartTxRequest    request{};
+        UartResult       result{};
+
+        bool await_ready() noexcept {
+            const UartCapabilities caps = driver.capabilities();
+            if (us == 0) {
+                result.status = UartStatus::InvalidArgument;
+            } else if (!caps.send_break || us > caps.max_break_us) {
+                result.status = UartStatus::NotSupported;
+            } else {
+                return false;
+            }
+            return true;
+        }
+
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
+            request.break_us = us;
+            request.coro_handle = handle;
+            request.result_slot = &result;
+            if (!driver.submit_request(request)) {
+                result.status = UartStatus::QueueFull;
+                return false; // resume immediately; never resume inline
+            }
+            return true;
+        }
+
+        UartResult await_resume() noexcept { return result; }
+    };
+
+    AsyncBreakAwaiter send_break_async(uint32_t us) noexcept { return AsyncBreakAwaiter{*this, us}; }
 };
 
 using IUart = AsyncUartDriver<32>;

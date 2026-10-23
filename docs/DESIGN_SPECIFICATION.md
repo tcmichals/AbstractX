@@ -188,6 +188,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   | `DmaError` | DMA engine fault | `DmaError` | - | - | `-EIO` |
   | `Crc` | link CRC mismatch | `CrcError` | - | - | `-EBADMSG` |
   | `Overrun` / `Framing` / `Parity` / `Break` | UART line errors | - | - | `OverrunError` / `FramingError` / `ParityError` / `BreakError` | `TIOCGICOUNT` / `UART_RX_STOPPED` reason |
+  | `Aborted` | a step callback ended the transaction with `Fail` ([SPEC-HAL-12]) | `Aborted` | `Aborted` | - | `-ECANCELED` (Betaflight `BUS_ABORT`) |
 
 * **Requirement (cancel)**: `AsyncDriverBase::cancel_pending()` completes every queued (not yet
   started) request with its bus's `Cancelled` status through the normal completion path: the
@@ -233,6 +234,23 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   active high, LSB first) completes with `SpiStatus::NotSupported` without suspending and without
   touching the hardware. A driver that reports nothing (`max_segments == 0`, every target driver
   today) refuses every device transaction; the legacy single-buffer API keeps working unchanged.
+* **Requirement (device timing and wiring, 2026-10-23)**: `SpiDevice` also carries the fill byte
+  clocked out by read-only segments (`fill`, default `0xFF`), CS setup and hold times and the gap
+  between words (`cs_setup_ns`, `cs_hold_ns`, `word_gap_ns`, 0 = controller minimum), 3-wire
+  operation (`three_wire`: one bidirectional data line, half duplex) and an optional data/command
+  pin (`dc_pin`, -1 = none) for displays. Non-zero timings, `three_wire` and `dc_pin` need
+  `SpiCapabilities::cs_timing` (and `max_cs_delay_ns`), `three_wire` and `dc_pin`; otherwise
+  `NotSupported`. A 3-wire device's segments are half duplex (`InvalidArgument` otherwise).
+* **Requirement (segment attributes, 2026-10-23)**: a `SpiSegment` also carries the word size
+  (`word_bits`, default 8; Linux `bits_per_word`), a clock for this segment only (`hz`, 0 = the
+  device's `max_hz`; Linux `speed_hz`), dummy clock cycles sent before the segment's data
+  (`dummy_cycles`, on the segment's lanes; SPI NOR fast read in dual/quad modes; Zephyr/Linux
+  `dummy` in the op), and the level the data/command pin takes for the segment (`dc_level`, -1 =
+  leave). Words of 9-16 bits occupy 2 bytes and of 17-32 bits 4 bytes, little-endian in the
+  buffer; a buffer whose length is not a whole number of words is `InvalidArgument`.
+  `SpiCapabilities::word_bits` (bit n-1 set = n-bit words), `per_segment_hz`, `max_dummy_cycles`
+  and `dc_pin` gate them; an unsupported value is `NotSupported`. Defaults reproduce the
+  2026-10-22 behaviour exactly, so existing requests are unchanged.
 * **Requirement (DMA)**: device drivers never choose DMA. The bus driver applies its target rule per
   segment (E906: [SPEC-E906-HAL-01], larger than the FIFO = DMA, else FIFO + one completion
   interrupt). `SpiCapabilities::dma` and `fifo_bytes` are informative only.
@@ -247,7 +265,8 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   * SPI NOR fast read: dual output `{0x3B, A23..A0, dummy}` on 1 lane, then N bytes on 2 lanes;
     quad output `0x6B` with 4 lanes.
   * IMU register burst: `read_regs_async(imu, 0x1D, out)` (Mode 0, 24 MHz).
-* **Verified by**: `host-tests` (`sim/test_spi_transactions.cpp`), `sanitizer-gate`
+* **Verified by**: `host-tests` (`sim/test_spi_transactions.cpp`, `sim/test_bus_protocols.cpp`:
+  word sizes, timing, 3-wire, D/C pin, dummy cycles accepted or refused by capability), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/hal/spi.hpp`
 
 ### `[SPEC-HAL-09]` I2C Message Transfers, Distinct Errors, Timeout and Bus Recovery
@@ -279,7 +298,27 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement (recovery)**: `co_await i2c.recover_bus_async()` clocks SCL until the slave releases
   SDA (up to 9 pulses) and sends STOP; `Ok` when SDA is high afterwards, `BusError` otherwise,
   `NotSupported` when the driver cannot drive the pins.
-* **Verified by**: `host-tests` (`sim/test_i2c_messages.cpp`), `sanitizer-gate`
+* **Requirement (devices and per-device speed, 2026-10-23)**: `I2cDevice` (address + `max_hz`) is the
+  I2C counterpart of `SpiDevice`; `transfer_async(const I2cDevice&, msgs, timeout_us)` runs the
+  transfer at the device's clock (0 = the bus clock), so a 100 kHz and a 400 kHz device share a
+  bus. A non-zero `max_hz` needs `I2cCapabilities::per_device_hz` and must not exceed `max_hz`
+  of the controller; otherwise `NotSupported`.
+* **Requirement (protocol flags, 2026-10-23)**: `I2cFlag::IgnoreNack` (Linux `I2C_M_IGNORE_NAK`):
+  a NACK on this message is not an error; `I2cFlag::RecvLen` (Linux `I2C_M_RECV_LEN`, SMBus block
+  read): on a read message the first byte received is a count N (1..32) and the driver reads N
+  more bytes; the rx span must hold 33 bytes; the result's `transferred_bytes` reports 1 + N. A
+  count of 0 or above 32 ends the transfer with `BusError` after STOP. Gated by
+  `I2cCapabilities::ignore_nack` and `recv_len`.
+* **Requirement (16-bit register addresses, 2026-10-23)**: `read_regs16_async(addr, reg16, out)` and
+  `write_regs16_async(addr, reg16, in)` send the register address high byte first (EEPROMs,
+  many camera and power chips), with the same message layout and limits as the 8-bit helpers.
+* **Requirement (SMBus PEC, 2026-10-23)**: `smbus_pec(crc, bytes)` computes the SMBus packet error
+  code (CRC-8, polynomial 0x07, initial 0) over the address byte(s) and data, so a device driver
+  appends or checks it without driver support.
+* **Not covered (2026-10-23)**: I2C target (slave) mode, general-call handling beyond a write to
+  address 0, mux channel selection (a device-driver concern, built from these transfers).
+* **Verified by**: `host-tests` (`sim/test_i2c_messages.cpp`, `sim/test_bus_protocols.cpp`: per-device
+  speed, IgnoreNack/RecvLen gating, 16-bit register layout, PEC against a known vector), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/hal/i2c.hpp`
 
 ### `[SPEC-HAL-10]` UART Receive: Driver-Owned Ring, Zero-Copy Spans, Drop and Line-Error Counters
@@ -310,9 +349,109 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   bytes were accepted by the driver.
 * **Requirement (default)**: a driver without a ring (`rx_ring()` returns null, every target driver
   today) answers `read_async` with `NotSupported`.
+* **Requirement (line options, 2026-10-23)**: `UartConfig` also selects inverted RX and TX levels
+  (`invert_rx`, `invert_tx`: SBUS, some ESC telemetry), single-wire half duplex (`half_duplex`:
+  SmartPort, ESC telemetry; the driver turns the line around after each write) and an RS-485
+  driver-enable pin (`rs485_de_pin`, -1 = none, `rs485_de_active_high`; asserted from the first
+  start bit to the last stop bit). Each is gated by `UartCapabilities::invert`, `half_duplex`,
+  `rs485_de`; otherwise `configure()` returns `NotSupported`.
+* **Requirement (break, 2026-10-23)**: `co_await uart.send_break_async(us)` holds TX low for `us`
+  microseconds, queued in order with writes (LIN, DMX512, some bootloaders). Needs
+  `UartCapabilities::send_break` and `us <= max_break_us`; `us == 0` is `InvalidArgument`.
+  Refusals never suspend.
+* **Requirement (byte handler, 2026-10-23)**: `UartRxRingBase::set_data_hook(fn, ctx)` registers a
+  handler the producer calls at interrupt level with the bytes just written (one or two spans),
+  before the reader is woken. It is for protocols that must react per byte or per frame inside the
+  interrupt (RC receivers: CRSF, SBUS, IBUS). It is bounded, never resumes a coroutine, never
+  blocks; the bytes stay in the ring for the reader ("beside, not instead of").
+* **Requirement (several ports, 2026-10-23)**: `get_uart_port(index)` returns the driver for port
+  `index`, or null when the target has no such port; port 0 is `get_uart_driver()`. A target lists
+  its ports in its own specification.
+* **Not covered (2026-10-23)**: receive-until-delimiter (the reader scans the spans), timestamp of
+  the first byte of a frame, 9-bit / multidrop addressing, XON/XOFF, an async drain before a baud
+  change.
 * **Verified by**: `host-tests` (`sim/test_uart_rx_ring.cpp`: wrap, partial frame, timeout, cancel,
-  overrun, 1000-frame steady state, a producer thread for TSan), `sanitizer-gate`, `thread-sanitizer`
-* **Implementation Target**: `include/abstractx/hal/uart_rx.hpp`, `include/abstractx/hal/uart.hpp`
+  overrun, 1000-frame steady state, a producer thread for TSan; `sim/test_bus_protocols.cpp`: line
+  options and break gated by capability, the data hook sees every byte once across a wrap),
+  `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `include/abstractx/hal/uart_rx.hpp`, `include/abstractx/hal/uart.hpp`, `include/abstractx/hal/platform.hpp`
+
+### `[SPEC-HAL-12]` Step Callbacks: Decisions Inside a Transaction (Continue, Repeat, Finish, Fail)
+* **Goal (project owner, 2026-10-23, design option C in `docs/design/bus-transaction-model.md`)**:
+  protocols that decide what to do from bytes received mid-transaction (poll a flash status
+  register until ready, SMBus block read whose length is the first byte, skip a payload when a
+  FIFO-level byte says 0, stop on a bad frame header) run as one transaction on the existing
+  segment / message model, as in Betaflight `busSegment_t` callbacks.
+* **Requirement (hook)**: a `SpiSegment` or `I2cMsg` may carry a `BusStepHook` (function, context,
+  `max_repeats`). When that step completes, the driver calls the function at interrupt level with
+  the step index and the bytes the step received; it returns:
+  * `Continue`: run the next step (end normally after the last);
+  * `Repeat`: run the same step again, at most `max_repeats` times; one more `Repeat` ends the
+    transaction with `Timeout`, so a dead device never holds the bus;
+  * `Finish`: end now with `Ok`, the steps done so far counted in the result;
+  * `Fail`: end now with `Aborted`; the reason is the hook's to record in its context.
+  Every early end leaves the bus idle: STOP on I2C, CS released on SPI. I2C transfers also keep
+  their overall `timeout_us`, which covers all repeats.
+* **Requirement (changing later steps)**: the hook may shorten the length of a later step through
+  its context (it owns the segment / message storage); it may not lengthen it or change its lanes
+  or direction. The driver reads each step's descriptor only when it starts that step.
+* **Requirement (hook rules)**: bounded time, no blocking, no bus calls, never resumes a coroutine
+  (AGENTS §3). A step without a hook behaves as `Continue`.
+* **Requirement (shared logic)**: drivers use `BusStepSequencer` (`include/abstractx/hal/bus_step.hpp`)
+  to decide the next step, so the four outcomes and the repeat limit behave the same on every
+  target. `SpiResult::segments_done` and `I2cResult::msgs_done` report completed steps.
+* **Requirement (capability)**: `SpiCapabilities::step_hooks` / `I2cCapabilities::step_hooks`; a
+  hooked request to a driver without it is refused with `NotSupported` before the hardware.
+  Targets whose transfer is one kernel call (Linux spidev, `I2C_RDWR`) leave it false.
+* **Verified by**: `host-tests` (`sim/test_bus_protocols.cpp`: flash busy poll, repeat limit ->
+  Timeout, SMBus count shortens the next message, Finish and Fail with bus released, 1000-round
+  steady state), `sanitizer-gate`
+* **Implementation Target**: `include/abstractx/hal/bus_step.hpp`, `include/abstractx/hal/spi.hpp`, `include/abstractx/hal/i2c.hpp`
+
+### `[SPEC-HAL-13]` Triggered Reads: A Pin or Timer Starts a Prepared Read, Results in a Zero-Copy Ring
+* **Goal**: an 8 kHz IMU read on its data-ready pin (or a fixed-rate sensor on a timer) runs from
+  the interrupt without a coroutine in between, and the application still reads it with
+  `co_await` in the primary-paced pattern (AGENTS §5).
+* **Requirement (arming)**: `spi.arm_triggered_read(dev, cmd, rx_lanes, source, ring)` and
+  `i2c.arm_triggered_read(device, reg_bytes, source, ring)` prepare one read (command / register
+  bytes, then `ring.slot_bytes()` bytes in) and run it on every event of `source`
+  (`TriggerSource`: rising, falling or both edges of a pin, or a period in microseconds).
+  `disarm_triggered_read()` stops it; a read in flight completes first. Arming is configuration,
+  not I/O, and returns at once: `Ok`, `NotSupported` (kind not in the capability's
+  `trigger_kinds`, or the driver has no triggers) or `InvalidArgument` (empty slot, CS or address
+  out of range, already armed). The command bytes and the ring are static or outlive the
+  disarm (AGENTS §10.3).
+* **Requirement (ring)**: `TriggerRing<SlotBytes, N>` (`include/abstractx/hal/bus_trigger.hpp`) owns N
+  slots. For each event the driver takes a free slot (`acquire_from_isr`), the hardware reads
+  straight into it (no copy, [SPEC-ARCH-08]) and the driver publishes it with its status and the
+  event timestamp (`commit_from_isr`). When all slots are full the event is skipped and counted in
+  `dropped`; the bus is not touched. The consumer `co_await ring.pop()` gets a `TriggerSample`
+  (status, span into the slot, timestamp, drops since the last sample) and calls `release()` when
+  done. One producer, one consumer; the consumer is resumed through the `Dispatcher`, never from
+  the interrupt.
+* **Verified by**: `host-tests` (`sim/test_bus_protocols.cpp`: arm refusals, samples in order with
+  timestamps, overflow counted and the bus untouched, a producer thread for TSan, 1000 samples
+  steady state), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `include/abstractx/hal/bus_trigger.hpp`, `include/abstractx/hal/spi.hpp`, `include/abstractx/hal/i2c.hpp`
+
+### `[SPEC-HAL-14]` Bus Lock: Several Transactions With No Other Device In Between
+* **Goal**: sequences that must not be interleaved with other devices' transactions (flash
+  write-enable, program, poll; a sensor's multi-transfer calibration; an I2C mux channel select
+  followed by the device access) without a second driver or a global flag.
+* **Requirement**: `co_await bus.lock_async()` returns a `BusLockGuard` once no other guard holds
+  the bus. While it is held, device transactions (`transfer_async(dev, ...)` and the register
+  helpers of [SPEC-HAL-08] / [SPEC-HAL-09]) made with `.under(guard)` run normally; the same
+  transactions from anyone else wait, in order, and are submitted when the guard is released
+  (destroyed or `release()`d). Waiting lock requests are granted in the same first-come order.
+  Requests already submitted before the lock was taken run first.
+* **Requirement (cancel)**: `bus.cancel_lock_waiters()` completes waiting transactions with
+  `Cancelled` and waiting lock requests with an empty guard, through the `Dispatcher`
+  ([SPEC-HAL-07]).
+* **Requirement (scope)**: the lock is loop-context state (no interrupt touches it). The deprecated
+  single-buffer calls ([SPEC-HAL-11]) do not observe it.
+* **Verified by**: `host-tests` (`sim/test_bus_protocols.cpp`: another device's transaction waits until
+  release and then runs, FIFO order of waiters, cancel, 1000 cycles steady state), `sanitizer-gate`
+* **Implementation Target**: `include/abstractx/hal/bus_lock.hpp`, `include/abstractx/hal/spi.hpp`, `include/abstractx/hal/i2c.hpp`
 
 ### `[SPEC-HAL-11]` Deprecated Single-Buffer Bus APIs and Their Replacements
 * **Requirement**: the APIs below stay compiling and behave as before, so existing drivers and
@@ -335,8 +474,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### Bus API status per target (2026-10-22)
 
-No target driver implements [SPEC-HAL-08], [SPEC-HAL-09], [SPEC-HAL-10] or an `abort_active_from_isr`
-yet; each reports no capabilities and so refuses the new calls with `NotSupported`. Cancel of queued
+No target driver implements [SPEC-HAL-08], [SPEC-HAL-09], [SPEC-HAL-10], [SPEC-HAL-12], [SPEC-HAL-13]
+or an `abort_active_from_isr` yet; each reports no capabilities and so refuses the new calls with
+`NotSupported`. The bus lock ([SPEC-HAL-14]) works on every target because it lives in the shared
+awaiters. Cancel of queued
 requests ([SPEC-HAL-07]) works on every target because it lives in the shared driver base.
 
 | Target | SPI transactions | I2C messages / recovery | UART receive ring | Abort in-flight |
