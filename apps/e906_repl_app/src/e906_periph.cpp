@@ -13,6 +13,7 @@
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/interrupt_lock.hpp"
 #include "hal/clic.hpp"
+#include "hal/dma.hpp"
 #include "hal/rpmsg.hpp"
 #include "hal/timer.hpp"
 #include "spsc_tlp_ring.hpp"
@@ -381,6 +382,80 @@ void e906_sleep_ms(uint32_t ms) {
     while (hal::Timer::get_ticks() < deadline) {
         wait_step(deadline);
     }
+}
+
+// ---------------------------------------------------------------------------
+// DMA bring-up measurement ([SPEC-E906-HAL-01]): SRAM Space 0 -> Space 1 copy on an E906
+// channel, completion on CLIC line 88, timed against a CPU copy.
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+// ---------------------------------------------------------------------------
+namespace {
+uint8_t s_dma_src[1024];                                       // .bss, SRAM Space 0
+__attribute__((section(".sram_c"))) uint8_t s_dma_dst[1024];   // SRAM Space 1
+__attribute__((section(".sram_c"))) hal::DmaLli s_dma_lli;
+volatile bool s_dma_done = false;
+volatile bool s_dma_ok = false;
+volatile uint32_t s_dma_end = 0;
+int s_dma_chan = -1;
+
+uint32_t mcycle32() noexcept {
+    uint32_t v = 0;
+#if defined(__riscv)
+    asm volatile("csrr %0, mcycle" : "=r"(v));
+#endif
+    return v;
+}
+
+void dma_bench_done(uint8_t, bool ok) noexcept {
+    s_dma_end = mcycle32();
+    s_dma_ok = ok;
+    s_dma_done = true;
+}
+} // namespace
+
+// Returns 1 when the DMA copy completed and the data matches, 0 on mismatch, -1 on timeout,
+// -2 when no channel is free.
+int e906_dma_bench(uint32_t n, uint32_t port, uint32_t* dma_cycles, uint32_t* cpu_cycles) {
+    if (n == 0 || n > sizeof(s_dma_src)) return 0;
+    if (s_dma_chan < 0) {
+        hal::DmaController::init();
+        s_dma_chan = hal::DmaController::allocate_channel();
+        if (s_dma_chan < 0) return -2;
+    }
+    for (uint32_t i = 0; i < n; ++i) {
+        s_dma_src[i] = static_cast<uint8_t>(i * 7U + 3U);
+        s_dma_dst[i] = 0;
+    }
+    const uint8_t mem = static_cast<uint8_t>(port & 0x3FU);
+    s_dma_lli.cfg = hal::DmaController::build_cfg(mem, hal::DMA_BURST_8, hal::DMA_WIDTH_32, hal::DMA_MODE_LINEAR,
+                                                  mem, hal::DMA_BURST_8, hal::DMA_WIDTH_32, hal::DMA_MODE_LINEAR);
+    s_dma_lli.src = hal::DmaController::pa(s_dma_src);
+    s_dma_lli.dst = hal::DmaController::pa(s_dma_dst);
+    s_dma_lli.len = n;
+    s_dma_lli.para = 0;
+    s_dma_lli.p_lli_next = hal::LLI_LAST_ITEM;
+    s_dma_done = false;
+    s_dma_ok = false;
+    const uint32_t start = mcycle32();
+    hal::DmaController::start_transfer(static_cast<uint8_t>(s_dma_chan), &s_dma_lli,
+                                       hal::DmaController::CompletionCallback::create<dma_bench_done>());
+    const uint64_t deadline = hal::Timer::get_ticks() + 20ULL * hal::Timer::TICKS_PER_MS;
+    while (!s_dma_done && hal::Timer::get_ticks() < deadline) {
+        wait_step(deadline);
+    }
+    if (!s_dma_done) {
+        hal::DmaController::stop_transfer(static_cast<uint8_t>(s_dma_chan));
+        return -1;
+    }
+    *dma_cycles = s_dma_end - start;
+    int ok = s_dma_ok ? 1 : 0;
+    for (uint32_t i = 0; i < n && ok; ++i) {
+        if (s_dma_dst[i] != s_dma_src[i]) ok = 0;
+    }
+    const uint32_t c0 = mcycle32();
+    __builtin_memcpy(s_dma_dst, s_dma_src, n);
+    *cpu_cycles = mcycle32() - c0;
+    return ok;
 }
 
 } // extern "C"

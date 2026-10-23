@@ -20,7 +20,7 @@ sys.path.insert(0, HERE)
 from board_common import skip  # noqa: E402
 from e906_link import on_e906_board, repl_exec  # noqa: E402
 
-LINE_TIMER, LINE_MSGBOX, LINE_UART3, LINE_TWI1 = 7, 17, 90, 91
+LINE_TIMER, LINE_MSGBOX, LINE_UART3, LINE_TWI1, LINE_DMA = 7, 17, 90, 91, 88
 COMPASS_ADDRS = (0x0D, 0x1E)
 
 
@@ -112,3 +112,24 @@ def test_no_spurious_interrupts():
     _require_board()
     st = _stats()
     assert st["spurious"] == 0, f"{st['spurious']} interrupts on lines nobody owns: {st}"
+
+
+def test_dma_copy_completes_by_interrupt():
+    """[SPEC-E906-HAL-01]: an E906 DMA channel copies SRAM Space 0 -> Space 1 by physical address,
+    completes on CLIC line 88, and the controller routes channels 8..15 to the E906 only."""
+    # @verifies [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+    _require_board()
+    before = _stats().get(LINE_DMA, 0)
+    out = _run("import abstractx\n"
+               "for port in (1, 0):\n"
+               "    for n in (4, 64, 1024):\n"
+               "        print('BENCH', port, n, abstractx.dma_bench(n, port))\n"
+               "print('EN', abstractx.peek_hex(0x03002034), abstractx.peek_hex(0x03002038))", 20.0)
+    rows = [ln.split(" ", 3) for ln in out.splitlines() if ln.startswith("BENCH ")]
+    assert len(rows) == 6, f"dma_bench missing (old firmware?): {out.strip()[-200:]}"
+    for _, port, n, res in rows:
+        ok, dma, cpu = eval(res, {"__builtins__": {}})
+        assert ok == 1, f"port {port}, {n} B: dma_bench returned {ok} (1 = data matches, -1 = no interrupt)"
+        assert 0 < dma < 200_000, f"port {port}, {n} B: {dma} cycles"
+    assert "EN 0x000000ff 0x0000ff00" in out, f"DMAC IRQ routing not set: {out.strip()[-120:]}"
+    assert _stats().get(LINE_DMA, 0) - before >= 6, "line 88 did not fire once per transfer"

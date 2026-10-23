@@ -8,7 +8,7 @@
  */
 
 #include "hal/dma.hpp"
-#include "hal/ccu.hpp"
+#include "hal/clic.hpp"
 #include "abstractx/interrupt_lock.hpp"
 
 #include <array>
@@ -19,6 +19,7 @@ namespace {
 
 struct DmaChannelState {
     bool allocated{false};
+    bool cyclic{false};
     DmaController::CompletionCallback callback{};
 };
 
@@ -28,17 +29,21 @@ static std::array<DmaChannelState, DmaController::NUM_CHANNELS> g_channels{};
 
 // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 void DmaController::init() noexcept {
-    // Enable DMA bus gating and deassert reset in CCU
-    Ccu::enable_module(Ccu::BusModule::McuDma);
-
-    // Channels 0..7 belong to Linux (sun6i-dma on the same controller): touch only
-    // the E906's channels 8..15, i.e. register 1 ([SPEC-E906-HAL-01]).
+    // The main DMAC's clock and reset belong to Linux (it keeps the controller clocked); the
+    // E906 never touches them ([SPEC-E906-HAL-01]). Channels 0..7 are Linux's (overlay
+    // dma-channels = <8>); only register 1 (channels 8..15) is written here.
     DMA_IRQ_EN_REG1 = 0;
     DMA_IRQ_STAT_REG1 = 0xFFFFFFFFU;
+    // Route 8..15 to the E906 and away from Linux before any of them can interrupt: Linux's one
+    // DMA interrupt covers all 16 channels and its handler only clears register 0.
+    DMA_IRQ_CPU_EN_REG = DMA_IRQ_CPU_EN_REG & 0x00FFU;
+    DMA_IRQ_MCU_EN_REG = 0xFF00U;
+    clic::enable(clic::kLineDma);
 
     // Reset channel states
     for (auto& ch : g_channels) {
         ch.allocated = false;
+        ch.cyclic = false;
         ch.callback = {};
     }
 }
@@ -61,6 +66,7 @@ void DmaController::release_channel(uint8_t channel) noexcept {
 
     abstractx::InterruptGuard guard;
     g_channels[channel].allocated = false;
+    g_channels[channel].cyclic = false;
     g_channels[channel].callback = {};
 }
 
@@ -68,21 +74,25 @@ void DmaController::release_channel(uint8_t channel) noexcept {
 bool DmaController::start_transfer(
     uint8_t channel,
     const DmaLli* lli_desc,
-    CompletionCallback callback
+    CompletionCallback callback,
+    uint8_t irq_type,
+    bool cyclic
 ) noexcept {
     if (channel < DMA_START_CHANNEL || channel >= NUM_CHANNELS || !lli_desc) return false;
 
     abstractx::InterruptGuard guard;
     g_channels[channel].callback = callback;
+    g_channels[channel].cyclic = cyclic;
 
     // Per-channel nibble: bit0 half package, bit1 package end, bit2 queue end.
-    // Interrupt on queue end (the whole LLI chain is done).
     const uint8_t ch_idx = channel - 8;
     DMA_IRQ_STAT_REG1 = (0x0FU << (ch_idx * 4));
-    DMA_IRQ_EN_REG1 |= (0x04U << (ch_idx * 4));
+    DMA_IRQ_EN_REG1 = (DMA_IRQ_EN_REG1 & ~(0x0FU << (ch_idx * 4))) |
+                      (static_cast<uint32_t>(irq_type & 0x07U) << (ch_idx * 4));
 
-    // Load LLI descriptor physical address and start channel
-    DMA_CHAN_LLI_ADDR_REG(channel) = reinterpret_cast<uint32_t>(lli_desc);
+    // The DMAC fetches the descriptor by physical address ([SPEC-E906-HAL-01]).
+    DMA_CHAN_MODE_REG(channel) = 0;  // wait mode both sides, as Linux leaves it
+    DMA_CHAN_LLI_ADDR_REG(channel) = pa(lli_desc);
     DMA_CHAN_ENABLE_REG(channel) = 1;
 
     return true;
@@ -118,8 +128,10 @@ void DmaController::handle_irq() noexcept {
         if (ch_stat != 0) {
             const bool success = (ch_stat & 0x02) != 0 || (ch_stat & 0x04) != 0;  // package / queue end
             auto cb = g_channels[ch].callback;
-            g_channels[ch].callback = {};
-            DMA_CHAN_ENABLE_REG(ch) = 0;
+            if (!g_channels[ch].cyclic) {  // a ring keeps running and keeps its callback
+                g_channels[ch].callback = {};
+                DMA_CHAN_ENABLE_REG(ch) = 0;
+            }
             if (cb.is_valid()) {
                 cb(ch, success);
             }

@@ -61,6 +61,7 @@ extern uint32_t e906_rpmsg_doorbells(void);
 extern uint32_t e906_uart3_rx_dropped(void);
 extern uint32_t e906_twi1_timeouts(void);
 extern uint32_t e906_mtvec(void);
+extern int e906_dma_bench(uint32_t n, uint32_t port, uint32_t *dma_cycles, uint32_t *cpu_cycles);
 extern void e906_sleep_ms(uint32_t ms);
 
 // abstractx.uart_init(baud=9600) -> bool
@@ -268,6 +269,17 @@ static mp_obj_t mod_abstractx_trace(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_trace_obj, 1, 3, mod_abstractx_trace);
 
+// abstractx.dma_bench(n, port=1) -> (ok, dma_cycles, cpu_cycles)  [SPEC-E906-HAL-01]
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+static mp_obj_t mod_abstractx_dma_bench(size_t n_args, const mp_obj_t *args) {
+    uint32_t dma = 0, cpu = 0;
+    uint32_t port = n_args > 1 ? (uint32_t)mp_obj_get_int(args[1]) : 1U;
+    int ok = e906_dma_bench((uint32_t)mp_obj_get_int(args[0]), port, &dma, &cpu);
+    mp_obj_t t[3] = { mp_obj_new_int(ok), mp_obj_new_int_from_uint(dma), mp_obj_new_int_from_uint(cpu) };
+    return mp_obj_new_tuple(3, t);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_dma_bench_obj, 1, 2, mod_abstractx_dma_bench);
+
 static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_abstractx) },
     { MP_ROM_QSTR(MP_QSTR_peek), MP_ROM_PTR(&mod_abstractx_peek_obj) },
@@ -292,6 +304,7 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_tlp_dropped), MP_ROM_PTR(&mod_abstractx_tlp_dropped_obj) },
     { MP_ROM_QSTR(MP_QSTR_trace), MP_ROM_PTR(&mod_abstractx_trace_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq_stats), MP_ROM_PTR(&mod_abstractx_irq_stats_obj) },
+    { MP_ROM_QSTR(MP_QSTR_dma_bench), MP_ROM_PTR(&mod_abstractx_dma_bench_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_abstractx_globals, mp_module_abstractx_globals_table);

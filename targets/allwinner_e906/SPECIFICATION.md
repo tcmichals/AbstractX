@@ -517,7 +517,16 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   channel interrupts too; the E906 must detect a lost enable (status set, no interrupt) rather
   than assume it. Descriptors and buffers are handed to the DMAC as physical
   addresses (SRAM space 0 DA `0x3FFC0000` = PA `0x07280000`, space 1 DA `0x40000000` = PA `0x072C0000`).
-* **Not implemented yet**: `dma_bench`, `da_to_pa`
+* **Requirement (addresses)**: the DMAC sees physical addresses. SRAM Space 0 and Space 1 share
+  one offset: PA = DA - `0x38D40000` (DA `0x3FFC0000` = PA `0x07280000`, DA `0x40000000` = PA
+  `0x072C0000`); `DmaController::pa()` converts every descriptor field and the descriptor address
+  itself. Peripheral registers have the same address on both sides.
+* **Requirement (bring-up measurement)**: `abstractx.dma_bench(n, port=1)` copies `n` bytes
+  (<= 1024) from SRAM Space 0 to Space 1 on an E906 channel, waits for the line-88 completion
+  interrupt and returns `(ok, dma_cycles, cpu_cycles)` (mcycle at 200 MHz; dma = start to
+  completion seen by the waiting code, cpu = `memcpy` of the same bytes). `port` is the memory DRQ
+  port for both sides (1 = "DRAM/SDRAM" as Linux uses for all memory, 0 = "SRAM" in the manual
+  table); which one works for SRAM is measured, not assumed.
 * **Rationale**: the previous thresholds (SPI/I2C 4 B, UART 32 B) were never measured; the DMA
   driver passed E906 addresses to the DMAC and never routed its interrupt; Linux owns all 16
   channels of the same controller.

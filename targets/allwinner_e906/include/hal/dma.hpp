@@ -6,7 +6,7 @@
  * -------------------------------------------------------------
  * Strict 100% ISR and DMA Invariant:
  * - Direct LLI descriptor hardware execution
- * - Completion signaled via PLIC IRQ 64 (irq_id::DMA_E906)
+ * - Completion signaled on CLIC line 88 (DMAC_IRQ1_NS), channels 8..15 ([SPEC-E906-HAL-01])
  * - ZERO POLLING / ZERO BUSY-WAIT LOOPS
  */
 
@@ -31,6 +31,8 @@ namespace hal {
 #define DMA_IRQ_STAT_REG1           (*(volatile uint32_t *)(SUNXI_DMA_BASE + 0x0014))
 #define DMA_STAT_REG                (*(volatile uint32_t *)(SUNXI_DMA_BASE + 0x0030))
 #define DMA_GATE_REG                (*(volatile uint32_t *)(SUNXI_DMA_BASE + 0x0028))
+#define DMA_IRQ_CPU_EN_REG          (*(volatile uint32_t *)(SUNXI_DMA_BASE + 0x0034))  // channel IRQ -> Linux
+#define DMA_IRQ_MCU_EN_REG          (*(volatile uint32_t *)(SUNXI_DMA_BASE + 0x0038))  // channel IRQ -> E906
 
 #define DMA_CHAN_BASE(ch)           (SUNXI_DMA_BASE + 0x0100 + ((ch) * 0x0040))
 #define DMA_CHAN_ENABLE_REG(ch)     (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0000))
@@ -41,9 +43,13 @@ namespace hal {
 #define DMA_CHAN_CUR_DST_REG(ch)    (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0014))
 #define DMA_CHAN_CUR_CNT_REG(ch)    (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0018))
 #define DMA_CHAN_CUR_PARA_REG(ch)   (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x001C))
+#define DMA_CHAN_MODE_REG(ch)       (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0028))
+#define DMA_CHAN_PKG_NUM_REG(ch)    (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0030))
 
-/* DRQ Endpoint Ports (Allwinner A523 / T527) */
-constexpr uint8_t DRQ_SDRAM = 1;
+/* DRQ Endpoint Ports (T527 manual V0.94 Table 2-12) */
+constexpr uint8_t DRQ_SRAM  = 0;
+constexpr uint8_t DRQ_SDRAM = 1;  // "DRAM"; Linux sun6i-dma uses it for every memory side
+constexpr uint8_t DRQ_UART3 = 17;
 constexpr uint8_t DRQ_UART0 = 14;
 constexpr uint8_t DRQ_UART2 = 16;
 constexpr uint8_t DRQ_SPI0  = 22;
@@ -79,8 +85,21 @@ struct alignas(4) DmaLli {
     uint32_t p_lli_next; // Physical address of next LLI (or LLI_LAST_ITEM)
 };
 
+// Per-channel interrupt types (DMAC_IRQ_EN nibble)
+constexpr uint8_t DMA_IRQ_HALF  = 0x1;
+constexpr uint8_t DMA_IRQ_PKG   = 0x2;  // each descriptor done (cyclic rings)
+constexpr uint8_t DMA_IRQ_QUEUE = 0x4;  // whole chain done
+
 class DmaController {
 public:
+    // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+    // E906 address -> DMAC (physical) address: SRAM Space 0 and 1 share one offset.
+    static constexpr uint32_t pa(uintptr_t da) noexcept {
+        return (da >= 0x3FFC0000U && da < 0x40040000U) ? static_cast<uint32_t>(da - 0x38D40000U)
+                                                       : static_cast<uint32_t>(da);
+    }
+    static uint32_t pa(const volatile void* p) noexcept { return pa(reinterpret_cast<uintptr_t>(p)); }
+
     static constexpr size_t NUM_CHANNELS = 16;
     static constexpr size_t DMA_START_CHANNEL = 8; // Channels 8..15 dedicated to MCU/co-processor
     using CompletionCallback = etl::delegate<void(uint8_t channel, bool success)>;
@@ -106,17 +125,22 @@ public:
                (static_cast<uint32_t>(dst_width & 0x03) << 25);
     }
 
-    // Start asynchronous non-blocking DMA transfer
+    // Start asynchronous non-blocking DMA transfer. The descriptor's fields must already hold
+    // physical addresses (pa()); the descriptor address itself is converted here. irq_type:
+    // DMA_IRQ_QUEUE (one callback at the end, channel stops) or DMA_IRQ_PKG with cyclic = true
+    // (callback per descriptor, channel keeps running round its ring).
     static bool start_transfer(
         uint8_t channel,
         const DmaLli* lli_desc,
-        CompletionCallback callback = {}
+        CompletionCallback callback = {},
+        uint8_t irq_type = DMA_IRQ_QUEUE,
+        bool cyclic = false
     ) noexcept;
 
     static void stop_transfer(uint8_t channel) noexcept;
     static bool is_busy(uint8_t channel) noexcept;
 
-    // Top-half ISR called from PLIC IRQ 64 (irq_id::DMA_E906)
+    // Top-half ISR on CLIC line 88
     static void handle_irq() noexcept;
 };
 
