@@ -148,14 +148,11 @@ private:
         result.status = TimerStatus::Ok;
         result.timestamp_us = self->get_time_us();
 
+        // @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
+        // set_hardware_idle_from_isr() already starts the next request; never pop a second one.
         TimerRequest req = self->active_req_;
         self->push_completion_from_isr(req, result);
         self->set_hardware_idle_from_isr();
-
-        TimerRequest next_req{};
-        if (self->pop_next_request_from_isr(next_req)) {
-            self->start_hardware_transfer_from_isr(next_req);
-        }
         return 0;
     }
 
@@ -206,13 +203,14 @@ private:
     I2cRequest active_req_{};
     volatile bool busy_{false};
     
-    // Async IRQ state tracking
-    volatile size_t tx_idx_{0};
-    volatile size_t rx_idx_{0};
+    // Async IRQ state tracking ([SPEC-PICO-HAL-01]); written only by the start path and I2C0_IRQ
+    volatile size_t cmd_idx_{0};   // IC_DATA_CMD words queued (tx bytes, then read commands)
+    volatile size_t rx_idx_{0};    // bytes drained into active_req_.rx_data
 
 public:
 #ifdef PICO_ON_DEVICE
     static void i2c0_irq_handler();
+    void on_irq_from_isr() noexcept;
 #endif
 };
 

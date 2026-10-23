@@ -1906,3 +1906,32 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   a missing device (simulated path) and a stopped worker; 1000-round steady state. Before the fix:
   10 checks failed (1000/1000 transfers `Ok`/0 bytes, refused submits never resumed). After: pass,
   also under ASan/UBSan and TSan (50 repeats).
+
+## [2026-10-22] - Pico 2 W: double start after completion, SPI mode ignored, async I2C IRQ was a stub
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/pico2w_rp2350/src/hal_{spi,i2c}.cpp`, `include/abstractx_pico.hpp`
+* **Symptoms** (review F-5, found by reading, not on hardware): SPI DMA completion, the I2C IRQ and
+  the timer alarm called `set_hardware_idle_from_isr()` (which starts the next request) and then
+  popped and started *another* one, overwriting `active_req_` and losing a completion. SPI was
+  always CPOL1/CPHA1 although ICM-42688 asks for Mode0. The async I2C IRQ handler had only
+  comments, so every async I2C awaiter hung unless the transfer aborted.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug** (all three). The base-class contract "set_hardware_idle_from_isr starts the next
+  request" was not written in a spec, so each driver re-implemented the hand-off.
+* **process-gap**: Pico HAL code has no host test harness and no board run in the loop; only a
+  cross-build checks it, which cannot see a lost completion or a wrong SPI mode.
+
+### 3. Specification Update (SSOT Defense)
+* New `[SPEC-PICO-HAL-01]` (`targets/pico2w_rp2350/SPECIFICATION.md`): one start per completion,
+  CPOL/CPHA from `SpiConfig::mode`, `lsb_first` refused (PL022 is MSB first), the I2C interrupt
+  state machine (register use taken from the Pico SDK `i2c.c` blocking functions).
+
+### 4. Implementation & Regression Test
+* Second pop removed in SPI, I2C and timer; `spi_set_format` from the mode; I2C `I2C0_IRQ`
+  installed once in `init`, handler queues `IC_DATA_CMD` words (RESTART on first read after a
+  write, STOP on the last word, at most 16 reads in flight), drains RX, completes on `STOP_DET` /
+  `TX_ABRT` with NackAddress / NackData / BusError.
+* Evidence: Pico cross-build only (`cmake --build build_pico2w`, 0 errors). No host test, no board
+  run: not verified on hardware. Known gap: no I2C bus timeout.
