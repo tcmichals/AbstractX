@@ -302,8 +302,16 @@ The visualizer MUST ingest static section metrics (`.text`, `.rodata`, `.data`, 
   ([SPEC-STUDIO-15]) as a string literal (`spawn(task, "repl_rx")`, `describe(line, "uart3")`)
   shows that object's live numbers next to it (task CPU % and resumes/s; driver IRQ/s and
   µs per IRQ), so a figure in the CPU tab leads straight to the code that owns it.
-* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
-* **Implementation Target**: `tools/visualizer/abstractx_studio.py`
+* **Requirement (profile labels, 2026-10-23)**: a PC sample ([SPEC-TRACE-09]) is credited to the
+  outermost function that contains the address (the symbol the code lives in, as `perf` does),
+  with that function's source line, not to a function inlined at that address. The symbolizer
+  resolves the whole inline chain (`addr2line -i`) and keeps its last entry.
+* **Rationale**: a sample taken in the idle `wfi` records the next instruction (the core saves
+  `wfi + 4`); on the E906 that address is code inlined from `now_cycles()`, so idle time (92 % of
+  samples) was listed under `now_cycles()` instead of `platform_idle_wait()`.
+* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`, `tests/test_live_profile.py`:
+  inline chains resolve to the outermost function; against the real E906 ELF when it is built)
+* **Implementation Target**: `tools/visualizer/abstractx_studio.py`, `tools/visualizer/live_profile.py`
 
 ### `[SPEC-STUDIO-12]` Real-Time Flow-Integrity, Pacing Eye Diagram & HoL Contention Matrix
 The visualizer MUST provide a Flow Integrity & Pacing Eye tab (within `CoreStudioTabBar`, shown only with an FPGA or in `--sim`, [SPEC-STUDIO-16]) rendering:

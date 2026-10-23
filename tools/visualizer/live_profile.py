@@ -50,6 +50,17 @@ def parse_location(text):
         return "", 0
 
 
+def outermost_frame(lines):
+    """addr2line -i output for one address (function, location, function, location, ...,
+    innermost first) -> (function, location) of the outermost function ([SPEC-STUDIO-11])."""
+    pairs = [(lines[i], lines[i + 1]) for i in range(0, len(lines) - 1, 2)]
+    return pairs[-1] if pairs else ("??", "??:0")
+
+
+# Queried after each real address so the variable-length -i answer has a known end.
+_SENTINEL = 0
+
+
 class Symbolizer:
     """PC -> (function, file, line), cached; unknown PCs are resolved in the background."""
 
@@ -74,17 +85,34 @@ class Symbolizer:
             threading.Thread(target=self._worker, daemon=True).start()
 
     def _make_addr2line(self, tool):
-        proc = subprocess.Popen([tool, "-f", "-C", "-e", self.elf_path], stdin=subprocess.PIPE,
+        # -a prints each queried address first; -i the whole inline chain, innermost first.
+        proc = subprocess.Popen([tool, "-a", "-f", "-C", "-i", "-e", self.elf_path], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+
+        def is_address(line, value):
+            try:
+                return line.startswith("0x") and int(line, 16) == value
+            except ValueError:
+                return False
 
         def run(pcs):
             out = []
             for pc in pcs:
-                proc.stdin.write(f"0x{pc:x}\n")
+                proc.stdin.write(f"0x{pc:x}\n0x{_SENTINEL:x}\n")
                 proc.stdin.flush()
-                func = proc.stdout.readline().strip()
-                loc = proc.stdout.readline().strip()
-                out.append((func, loc))
+                proc.stdout.readline()                      # the address echo
+                lines = []
+                while True:
+                    line = proc.stdout.readline()
+                    if not line:
+                        raise RuntimeError("addr2line exited")
+                    line = line.strip()
+                    if is_address(line, _SENTINEL):
+                        break
+                    lines.append(line)
+                proc.stdout.readline()                      # sentinel's function
+                proc.stdout.readline()                      # sentinel's location
+                out.append(outermost_frame(lines))
             return out
         return run
 

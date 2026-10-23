@@ -29,6 +29,47 @@ def test_paths_and_locations():
     assert lp.parse_location("??:?") == ("", 0)
 
 
+def test_inline_chain_resolves_to_outermost_function():
+    # The idle wfi sample on the E906: wfi + 4 is code inlined from now_cycles().
+    chain = ["abstractx::stats::now_cycles()", "/repo/include/abstractx/trace/runtime_stats.hpp:119",
+             "abstractx::stats::idle_end()", "/repo/include/abstractx/trace/runtime_stats.hpp:203",
+             "abstractx::hal::platform_idle_wait()", "/repo/targets/allwinner_e906/src/platform.cpp:272"]
+    assert lp.outermost_frame(chain) == ("abstractx::hal::platform_idle_wait()",
+                                         "/repo/targets/allwinner_e906/src/platform.cpp:272")
+    assert lp.outermost_frame(chain[:2]) == (chain[0], chain[1])     # no inlining
+    assert lp.outermost_frame([]) == ("??", "??:0")
+
+
+def test_real_elf_idle_sample_is_platform_idle_wait():
+    """Against the built E906 firmware, when it and the toolchain exist (skipped otherwise)."""
+    repo = os.path.normpath(os.path.join(HERE, ".."))
+    elf = os.path.join(repo, "build_e906_irq", "apps", "e906_repl_app", "e906_repl_app")
+    tool = lp.find_addr2line()
+    if not tool or not os.path.exists(elf):
+        print("skip: E906 ELF or riscv-none-elf-addr2line not present")
+        return
+    import subprocess
+    nm = tool.replace("addr2line", "nm")
+    if not os.path.exists(nm):
+        print("skip: nm not present")
+        return
+    sym = lp.Symbolizer(elf, repo, addr2line=tool)
+    # e906_idle_wfi labels the idle wfi (the profiler's wfi + 4 check uses the same symbol).
+    idle_wfi = None
+    for line in subprocess.run([nm, elf], capture_output=True, text=True, check=True).stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[2] == "e906_idle_wfi":
+            idle_wfi = int(parts[0], 16)
+    assert idle_wfi is not None, "no e906_idle_wfi symbol"
+    for pc in (idle_wfi, idle_wfi + 4):          # the sample records wfi + 4
+        sym.lookup(pc)
+    assert sym.wait_idle()
+    for pc in (idle_wfi, idle_wfi + 4):
+        func, path, line = sym.lookup(pc)
+        assert func == "abstractx::hal::platform_idle_wait()", (hex(pc), func)
+        assert path == "targets/allwinner_e906/src/platform.cpp" and line > 0
+
+
 def test_symbolizer_resolves_in_background_and_caches():
     s = lp.Symbolizer("unused.elf", ROOT, runner=fake_runner)
     assert s.lookup(0x100) is None          # queued
