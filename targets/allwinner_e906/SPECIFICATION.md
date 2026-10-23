@@ -493,11 +493,15 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   * The thresholds (`kDmaCopyMinBytes`, the per-peripheral byte limit) are measured on the board
     by `abstractx.dma_bench()` (DMA setup + completion interrupt vs. CPU copy) and recorded with
     the commit; until measured they are marked "not measured" and drivers use ISR + FIFO.
-* **Requirement (SPI, decided 2026-10-22)**: SPI0 has 64-byte TX and RX FIFOs (T527 manual
-  §8.16.1). A transfer of **up to 32 bytes** is done through the FIFO: load `SPI_TXD` with 32-bit
-  writes (4 bytes per access), start, wake on the transfer-complete interrupt, drain `SPI_RXD`
-  with 32-bit reads; no busy-wait, no DMA setup. A transfer of **more than 32 bytes** uses DMA.
-  The previous 4-byte threshold (`DMA_THRESHOLD = 4`) is replaced.
+* **Requirement (the rule, decided 2026-10-22)**: **a transfer larger than the peripheral's hardware
+  FIFO uses DMA; a transfer that fits the FIFO uses the FIFO and one completion interrupt.** One
+  driver per bus applies the rule per transfer (per segment), so device drivers (IMU, flash, GPS)
+  never choose. FIFO sizes (T527 manual V0.94): SPI0/SPI2 64 B TX + 64 B RX (§8.16.1); UART1-7
+  128 B, UART0 / S_UART 64 B (§8.19.1); TWI driver mode: send/receive FIFO (§8.14, depth to be
+  read from the manual). A UART receive stream counts as larger than the FIFO when more than a
+  FIFO of data can arrive before the reader takes it, which is always the case for continuous
+  streams. FIFO transfers use the widest access the register allows (SPI: 32-bit, 4 bytes per
+  access) and never busy-wait. Replaces the unmeasured thresholds (SPI 4 B, the 32 B draft).
 * **Requirement**: the E906 owns DMAC channels 8..15 at `0x03002000`, routed to CLIC line 88 by
   `DMA_MCU_IRQ_CTRL` (`+0x38` = `0xFF00`); the E906 overlay limits Linux's `sun6i-dma` to channels
   0..7 (`dma-channels = <8>`). Descriptors and buffers are handed to the DMAC as physical
