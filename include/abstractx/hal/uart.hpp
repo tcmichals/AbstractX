@@ -17,17 +17,10 @@
 #include <coroutine>
 
 #include "async_driver.hpp"
+#include "uart_status.hpp"
+#include "uart_rx.hpp"
 
 namespace abstractx::hal {
-
-enum class UartStatus : uint8_t {
-    Ok = 0,
-    Timeout = 1,
-    FramingError = 2,
-    OverrunError = 3,
-    QueueFull = 4,
-    NotSupported = 5   // [SPEC-HAL-06]: the request is outside the driver's capabilities
-};
 
 // Line format, flow control and inter-byte gap ([SPEC-HAL-06]).
 // @impl [SPEC-HAL-06] docs/DESIGN_SPECIFICATION.md
@@ -89,6 +82,8 @@ struct UartTxRequest : public AsyncTransactionMeta<UartResult> {
 /*
  * UART RX Request Descriptor (Input Queue element)
  */
+// @impl [SPEC-HAL-11] docs/DESIGN_SPECIFICATION.md
+// Deprecated [SPEC-HAL-11]: never used by a driver; receive is read_async() ([SPEC-HAL-10]).
 struct UartRxRequest : public AsyncTransactionMeta<UartResult> {
     std::span<uint8_t> destination_buffer{};
     size_t             min_bytes{1};
@@ -106,6 +101,7 @@ public:
     virtual void write_byte(uint8_t ch) = 0;
     virtual void puts(const char* str) = 0;
     virtual size_t write(std::span<const uint8_t> buffer) = 0;
+    // read_byte()/read(): polling, pre-scheduler bring-up only; coroutines use read_async ([SPEC-HAL-11]).
     virtual bool read_byte(uint8_t& ch) = 0;
     virtual size_t read(std::span<uint8_t> buffer) = 0;
     virtual void flush() = 0;
@@ -113,6 +109,31 @@ public:
 
     // [SPEC-HAL-06] What this driver's hardware supports; the default is plain 8N1, no gap.
     virtual UartCapabilities capabilities() const noexcept { return {}; }
+
+    // [SPEC-HAL-10] The driver's receive ring; null (the default) = read_async is NotSupported.
+    // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
+    virtual UartRxRingBase* rx_ring() noexcept { return nullptr; }
+
+    // Resume when >= min_bytes are buffered, an end of frame delivered data, timeout_us elapsed
+    // (0 = no deadline) or cancel_read(); the view's spans point into the ring (no copy).
+    UartRxRingBase::ReadAwaiter read_async(size_t min_bytes = 1, uint32_t timeout_us = 0) noexcept {
+        return UartRxRingBase::ReadAwaiter{rx_ring(), min_bytes, timeout_us};
+    }
+
+    // Give back n parsed bytes of the last view; OverrunError if they were overwritten meanwhile.
+    UartStatus release_rx(size_t n) noexcept {
+        UartRxRingBase* r = rx_ring();
+        return r != nullptr ? r->release(n) : UartStatus::NotSupported;
+    }
+
+    void cancel_read() noexcept {
+        if (UartRxRingBase* r = rx_ring()) r->cancel_read();
+    }
+
+    UartRxStats rx_stats() noexcept {
+        UartRxRingBase* r = rx_ring();
+        return r != nullptr ? r->stats() : UartRxStats{};
+    }
 
     // [SPEC-HAL-06] Check against capabilities(), then apply (configuration, not I/O: no waiting).
     UartStatus configure(const UartConfig& cfg) noexcept {

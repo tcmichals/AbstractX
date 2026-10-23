@@ -1871,3 +1871,42 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   median/max 50 -> 31.4/31.8 us, mean 39 -> 24.8 us, CPU 0.115 -> 0.071 %.
   TWI1 compass loop (baseline, unchanged): 16,496 irq/s, 1.40 us each, 2.3 % CPU.
 * Board suite on this firmware: 30 passed, 0 failed, 2 skipped.
+
+## [2026-10-23] - Bus APIs: SPI transactions, I2C messages, UART receive ring, cancel
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/abstractx/hal/{async_driver,spi,i2c,uart}.hpp`
+* **Symptoms** (HAL review 2026-10-22): `reset_queues()` cleared the request queue and left every
+  queued coroutine suspended forever; SPI had no per-device settings, no CS-held multi-segment
+  transaction and no lane width (the "dual" API meant two links); I2C had an 8-bit address, one
+  write + one read, no timeout, no recovery; UART had no asynchronous receive; register-read
+  helpers returned only the byte, so a failure read as data 0.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug**: `reset_queues()` discarded requests without completing them. Fixed: queued
+  requests complete with `Cancelled` through the Dispatcher; the in-flight one is aborted only
+  if the driver can, otherwise it completes normally (no DMA into a resumed frame).
+* **process-gap**: SPEC-HAL-02/03 said "single and dual channel" and "RX streaming" without
+  transaction shapes, errors or cancellation, so their mock-based tests could not fail on any
+  of this. Each new requirement names its shapes, refusals and a test that exercises them.
+* **process-gap**: no test showed the cancel bug; `sim/test_hal_cancel.cpp` fails on the old
+  `reset_queues()` body (assertion at line 125: queued coroutine never resumed) and passes on
+  the new one.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/DESIGN_SPECIFICATION.md`
+* **Requirement Tags Added**: `[SPEC-HAL-07]` (shared `IoStatus` + cancel), `[SPEC-HAL-08]` (SPI
+  device + segments + capabilities), `[SPEC-HAL-09]` (I2C messages, errors, timeout, recovery),
+  `[SPEC-HAL-10]` (UART receive ring), `[SPEC-HAL-11]` (deprecated single-buffer APIs), plus the
+  per-target status table (no target driver implements the new calls yet; all refuse with
+  `NotSupported`).
+
+### 4. Implementation & Regression Test
+* **Code Changes**: `io_status.hpp`, `uart_status.hpp`, `uart_rx.hpp` (new); additive changes to
+  `async_driver.hpp`, `spi.hpp`, `i2c.hpp`, `uart.hpp`; target drivers unchanged.
+* **Regression Tests**: `sim/test_hal_cancel.cpp`, `sim/test_spi_transactions.cpp` (IMU, FPGA
+  Dual-SPI link, dual/quad flash fast read on one fake bus), `sim/test_i2c_messages.cpp`,
+  `sim/test_uart_rx_ring.cpp` (includes a producer thread for TSan); each runs 1000+ iterations
+  and checks pool high water, dropped resumes and queue depth.
+* **Not checked**: no cross-compiled target build, no hardware, no real driver implements the
+  new APIs.
