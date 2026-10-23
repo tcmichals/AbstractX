@@ -72,3 +72,9 @@ examples/dual_processor_io_and_processing
 .pytest_cache/
 *.ini
 !pytest.ini
+
+# Generated, never committed (repository audit 2026-10-23)
+tools/visualizer/pr_comment.md
+targets/*/include/generated_io_config.hpp
+# Claude Code agent worktrees (local only)
+.claude/worktrees/

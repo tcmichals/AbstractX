@@ -136,6 +136,9 @@ add_cocotb_test(sim-test-my-filter asp_my_filter test_asp_my_filter_cocotb)
 
 ## Part 2: End-to-End (E2E) Integration Testing
 
+> **Replaced (2026-10-23).** `sim/cocotb/asp_e2e_vip.py` (`AbstractX_VIP`) and its testbench `test_asp_top_cocotb.py` drove a single-lane `spi_mosi` pin that `asp_top` no longer has after the Dual-SPI change; they failed and were removed. End-to-end coverage is now `sim/cocotb/test_asp_tlp_64b_cocotb.py` (ctest `sim-test-tlp64-top`), which drives 64-byte TLPs over Dual-SPI into `asp_top`. The text below describes the removed flow and is kept for history.
+
+
 ### When to Use
 Once your isolated module passes the AXIS torture test, it must be wired into `asp_top.sv` (or your project's top-level integrator) and tested through the **AbstractX Verification IP (VIP)**. This proves the module functions correctly when actual host traffic is tunneled through the complete SPI → RegBank → Router → Wishbone pipeline.
 

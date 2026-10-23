@@ -79,7 +79,6 @@ add_cocotb_test(sim-test-sys-regs     asp_sys_regs           test_asp_sys_regs_c
 add_cocotb_test(sim-test-wb-master    asp_wishbone_master    test_asp_wishbone_master_cocotb)
 add_cocotb_test(sim-test-tlp64-top    asp_top                test_asp_tlp_64b_cocotb)
 add_cocotb_test(sim-test-imu-auto-dma asp_imu_auto_dma       test_asp_imu_auto_dma_cocotb)
-# not-in-ctest: sim/cocotb/test_asp_top_cocotb.py FAILS: drives spi_mosi, which asp_top lost with Dual-SPI; superseded by test_asp_tlp_64b_cocotb (engineering_log 2026-10-21)
 add_cocotb_test(sim-test-axi-lite     asp_axi_lite_bridge    test_asp_axi_lite_bridge_cocotb)
 # Protocol timing at each board clock ([SPEC-FPGA-CLK-01]): 27 MHz Tang, 12 MHz CYC1000, 50 MHz default
 add_cocotb_test(sim-test-dshot-27m    asp_dshot_core    test_asp_dshot_core_cocotb    "SIM_PARAMS=-GNUM_CHANNELS=1 -GCLK_FREQ_HZ=27000000")
@@ -103,3 +102,4 @@ add_abstractx_sim(test_i2c_messages       test_i2c_messages.cpp)
 add_abstractx_sim(test_hal_cancel         test_hal_cancel.cpp)
 add_abstractx_sim(test_uart_rx_ring       test_uart_rx_ring.cpp)
 add_abstractx_sim(test_bus_protocols      test_bus_protocols.cpp)
+add_abstractx_sim(test_coro_combinators   test_coro_combinators.cpp)

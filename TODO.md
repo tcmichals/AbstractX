@@ -113,7 +113,7 @@ Remaining:
 - [x] Linux `LinuxIoProcessor` keeps a single `pending_spi_tag_` / `bridge_rx_buf_`; fixed with in-flight descriptor pool `[SPEC-LINUX-SPI-01]` (2026-10-17).
 - [x] Removed synchronous SPI HAL fallbacks (`transfer_sync`, `transfer_byte`) and `Icm42688p::init()` across all platforms (2026-10-17).
 - [ ] README: remove or substantiate unmeasured claims ("formally verified", 15-cycle switch, <100 B frames, sub-16 KB), and shorten it.
-- [ ] Move `docs/tier1_vision/GEMINI_*_PROMPT.md` to `docs/prompts/`; rename `hw/zynq7000/buildroot_external/REAMME`; consolidate `cmake/toolchain-*.cmake` vs `cmake/toolchains/`.
+- [x] Move `docs/tier1_vision/GEMINI_*_PROMPT.md` to `docs/prompts/`; remove the empty `hw/zynq7000/buildroot_external/REAMME`; remove the old `cmake/toolchain-*.cmake` (use `cmake/toolchains/`). Done 2026-10-23 (`docs/design/repo-file-audit.md`).
 - [ ] Fix `-Wall -Wextra` warnings (examples, `sim/sitl_coro_sim.cpp`, `targets/linux/include/i2c_worker.hpp:182`).
 - [x] **Linux-target data races (ThreadSanitizer)** fixed 2026-10-15: hosted `InterruptLock` is a real recursive lock; dispatcher/driver use locked queue calls on hosted builds; test-side races fixed. TSan 30/30.
 - [x] **Zero-copy trace transport ([SPEC-TRACE-07])** implemented and host-verified (2026-10-17):
@@ -171,7 +171,7 @@ Target execution follows a 3-stage validation progression:
 * [ ] Wire ICM-42688-P (SPI1 GP10-GP13, DRDY GP20) and U-Blox GPS (UART0 GP0/GP1).
 * [ ] Build target:
   ```bash
-  cmake -B build-pico2w -S . -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-pico2w.cmake -DABSTRACTX_TARGET=pico2w -DPICO_PLATFORM=rp2350-arm-s -DPICO_BOARD=pico2_w -DWIFI_SSID="YourNetwork" -DWIFI_PASSWORD="YourPassword"
+  cmake -B build-pico2w -S . -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-none-eabi.cmake -DABSTRACTX_TARGET=pico2w -DPICO_PLATFORM=rp2350-arm-s -DPICO_BOARD=pico2_w -DWIFI_SSID="YourNetwork" -DWIFI_PASSWORD="YourPassword"
   cmake --build build-pico2w --target gps_imu_app -j$(nproc)
   ```
 * [ ] Flash `gps_imu_app.uf2` via USB BOOTSEL or SWD probe.

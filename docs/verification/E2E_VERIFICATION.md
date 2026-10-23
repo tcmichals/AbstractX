@@ -1,5 +1,8 @@
 # AbstractX E2E Verification Architecture
 
+> **Replaced (2026-10-23).** `sim/cocotb/asp_e2e_vip.py` (`AbstractX_VIP`) and its testbench `test_asp_top_cocotb.py` drove a single-lane `spi_mosi` pin that `asp_top` no longer has after the Dual-SPI change; they failed and were removed. End-to-end coverage is now `sim/cocotb/test_asp_tlp_64b_cocotb.py` (ctest `sim-test-tlp64-top`), which drives 64-byte TLPs over Dual-SPI into `asp_top`. The text below describes the removed flow and is kept for history.
+
+
 To guarantee that the isolated IP cores actually function safely when compiled into a bitstream, developers MUST use the **AbstractX E2E Verification IP (VIP)** to construct integration tests. 
 
 This philosophy is heavily inspired by **Vivado's AXI Verification IP (AXI VIP)**, where standard hardware behavior is validated by executing fully instrumented host-level bus agents instead of writing manual state machine toggles.

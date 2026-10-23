@@ -112,7 +112,7 @@ Documents specific silicon targets, hardware pinouts, auto-DMA cores, and errata
 5. **[`verification/ASP_REQUIREMENTS.md`](verification/ASP_REQUIREMENTS.md)**: Quality gates and definition of done.
 6. **[`verification/ASP_RELEASE_PROCESS.md`](verification/ASP_RELEASE_PROCESS.md)**: Release tagging checklist.
 7. **[`verification/BUILD.md`](verification/BUILD.md)**: Detailed multi-target build manual.
-8. **[`verification/ENGINEERING_LOG.md`](verification/ENGINEERING_LOG.md)**: Chronological commit history and bitstream revisions.
+8. **[`../engineering_log.md`](../engineering_log.md)**: The engineering log: every bug, root cause and lesson, with its category (AGENTS.md §0).
 9. **[`verification/evidence/`](verification/evidence/)**: Empirical test logs, JSON summaries, and waveforms.
 
 ---

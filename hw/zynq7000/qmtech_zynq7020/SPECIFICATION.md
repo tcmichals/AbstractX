@@ -213,7 +213,7 @@ configuration:
   * `0x4000_010C` (`IMU_REG_WDATA`): Data word to shift out over MOSI during manual register write.
 * **Refines**: `[SPEC-ARCH-01]`
 * **Method**: `Test`
-* **Verified by**: `cocotb-regression` (`test_asp_top_cocotb`)
+* **Verified by**: `cocotb-regression` (`test_asp_tlp_64b_cocotb`, which replaced `test_asp_top_cocotb` after the Dual-SPI change)
   * `0x4000_0110` (`IMU_REG_RDATA`): Captured data word from MISO during manual register read.
   * `0x4000_0114 - 0x4000_0118`: 64-bit nanosecond timestamp latched at the start of the last SPI transfer (high word then low word).
   * `0x4000_011C` (`IMU_REG_STATUS`): Bit 0 direct-transfer busy, bit 1 direct-transfer done (write-one-to-clear), bit 2 Auto-DMA enabled, bit 3 SPI engine busy.

@@ -31,8 +31,9 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-ARCH-04]` Heterogeneous Co-Processor Interconnect & Single-Core MPSC (E906 + Linux)
 * **Requirement**: Allwinner XuanTie E906 operates as a dedicated I/O coprocessor servicing 8 kHz SPI DMA and GPS UART, delivering timestamped 64B TLPs into shared SRAM Space 0 (`0x3FFC8100`) for Linux `remoteproc` consumers.
-* **Concurrency Model**: Single-core preemption. Multiple hardware PLIC ISRs (SPI DMA, UART RX, Timer, Mailbox Doorbell) and cooperative Coroutine tasks push into a unified wait-free Multi-Producer Single-Consumer (`MpscIsrQueue`) work queue.
-* **Implementation Target**: `targets/allwinner_e906/`, `include/mpsc_isr_queue.hpp`, `apps/gps_imu_app/`
+* **Concurrency Model**: Single-core preemption. Hardware interrupt handlers (CLIC on the E906: SPI DMA, UART RX, Timer, Mailbox Doorbell) hand coroutine handles to the event loop through the Dispatcher's ISR-safe queue (`IsrSafeCoroutineQueue`, `etl::queue_spsc_isr` with interrupt masking, `include/abstractx/domain_dispatcher.hpp`); several handlers may post because each post masks interrupts on the single core.
+* **Correction (2026-10-23)**: this requirement used to name `MpscIsrQueue` in `include/mpsc_isr_queue.hpp`; no code ever used it (repository audit, `docs/design/repo-file-audit.md`), and the header was removed.
+* **Implementation Target**: `targets/allwinner_e906/`, `include/abstractx/domain_dispatcher.hpp`, `apps/gps_imu_app/`
 
 ### `[SPEC-ARCH-05]` Dual-Core Asymmetric Multiprocessing (Pico 2 W / RP2350)
 * **Requirement**: RP2350 separates I/O & wireless networking from flight coroutines across dual Cortex-M33 cores:
@@ -72,6 +73,23 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`sim/test_coro_failures.cpp`), `memory-footprint` (no `_Unwind_*` / `__cxa_rethrow` symbols in the E906 and Pico 2 W ELFs)
 * **Implementation Target**: `include/asp_coro.hpp`
 
+### `[SPEC-ARCH-11]` Combinators: when_all Joins, when_any Detaches the Loser
+* **Requirement (when_all)**: `co_await when_all(t...)` starts every task, resumes the caller exactly
+  once after the last one completes, in any completion order, and returns their results as a tuple.
+* **Requirement (when_any)**: `co_await when_any(a, b)` resumes the caller exactly once, when the first
+  task completes, with that task's result. The other task is **detached**: it keeps its frame, runs on
+  to its own end when its pending completion arrives (a timer fires, data arrives), and then frees its
+  frame itself; its result is discarded and it never resumes the caller. A loser that waits on
+  something that never happens keeps its frame (and any request it has pending) until it does: to
+  stop it early, cancel its I/O (`[SPEC-HAL-07]`).
+* **Rationale (2026-10-23)**: the loser used to be destroyed with the `when_any` awaiter while it was
+  still suspended; its pending completion later resumed the freed frame (segfault in the plain
+  build, ASan SEGV), the race/watchdog pattern taught in `examples/generic_protothread_replacements.cpp`.
+  Found when the never-built `sim/test_coro_combinators.cpp` was rewritten to really call the combinators.
+* **Verified by**: `host-tests` (`sim/test_coro_combinators.cpp`: out-of-order completion, single
+  resume, loser completing after the caller moved on, 1000 rounds flat), `sanitizer-gate`
+* **Implementation Target**: `include/asp_coro.hpp`
+
 ### `[SPEC-ARCH-10]` Wake Primitives Never Resume Inline
 * **Requirement**: `AsyncQueue::try_push` / `try_pop`, `Event::set` and `Semaphore::release` MUST NOT call
   `.resume()`. They hand the waiting handle to `Dispatcher::push()`; the waiter runs on the next
@@ -103,9 +121,9 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Implementation Target**: `include/pcie_bar_map.hpp`
 
 ### `[SPEC-TLP-03]` Lock-Free SPSC & Wait-Free MPSC Ring Transport
-* **Requirement**: Inter-core and inter-domain FIFO queues must operate lock-free via single-producer single-consumer rings (`SpscTlpRing<64>`) with atomic head/tail pointers. Intra-core and single-core coprocessor event queues must operate wait-free via multi-producer single-consumer queues (`MpscIsrQueue<T, Capacity>`) with hardware IRQ masking (`csrrci` on RV32 / `cpsid i` on Cortex-M).
+* **Requirement**: Inter-core and inter-domain FIFO queues must operate lock-free via single-producer single-consumer rings (`SpscTlpRing<64>`) with atomic head/tail pointers. Interrupt-to-loop handoff on a single core uses the Dispatcher's ISR-safe queue (`etl::queue_spsc_isr` guarded by `InterruptLock`: `csrrci` on RV32 / `cpsid i` on Cortex-M), which makes posts from several interrupt handlers safe ([SPEC-ARCH-04]; `MpscIsrQueue` was never used and was removed 2026-10-23).
 * **Verified by**: `host-tests` (`sim/test_spsc_channel_array.cpp`), `thread-sanitizer` (`sim/test_baremetal_isr_spsc.cpp`)
-* **Implementation Target**: `include/spsc_tlp_ring.hpp`, `include/mpsc_isr_queue.hpp`
+* **Implementation Target**: `include/spsc_tlp_ring.hpp`, `include/abstractx/domain_dispatcher.hpp`
 
 ### `[SPEC-TLP-04]` Multi-Register Burst Memory Operations
 * **Requirement**: The TLP memory interface MUST support packed multi-register burst writes (`MemWrBurst`) and burst reads (`MemRdBurst`) packing up to 9 consecutive 32-bit registers (36 bytes payload) into a single 64-byte TLP with `length_dw = N (1..9)`. The receiving gateway (`asp_wishbone_master.sv`) MUST sequentially write/read consecutive memory-mapped Wishbone addresses starting at `target_address` without issuing separate 64-byte control frames.

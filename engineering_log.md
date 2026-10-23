@@ -2066,3 +2066,44 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Code Implementation**: Tagged with `// @impl SPEC-STUDIO-01`
 * **Regression Test**: `tests/test_visualizer_sdk.py::test_viewport_popouts_become_os_windows` (pytest; fails on 627d1b5, passes on c61e444)
 * **On-screen check (2026-10-23, Ubuntu 24.04.5 LTS, X11)**: with viewports on by default (21ff36d), Float Canvas opens a separate OS window and Pop In docks it back (reported by Tim). Not yet checked: second monitor, size presets, tab Pop to Canvas, tab drag-out, `--no-viewports`, Wayland, Windows.
+
+## [2026-10-23] - when_any Destroyed the Losing Task While It Was Still Waiting; Its Only Test Never Ran
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug`, `process-gap`
+* **Target / Subsystem**: `include/asp_coro.hpp` (`WhenAnyAwaiter`), `sim/test_coro_combinators.cpp`
+* **Governing Requirements**: `[SPEC-ARCH-11]` (new), `[SPEC-APP-01]`
+* **Symptoms**: the repository audit (`docs/design/repo-file-audit.md`) found
+  `sim/test_coro_combinators.cpp` was never in `sim/CMakeLists.txt`. Registered as it was, it
+  passed and printed "when_all verified", but it never called `when_all` or `when_any`: it resumed
+  two tasks by hand (the `.resume()` pattern AGENTS §10.6 forbids). Rewritten to really call them,
+  `when_any` crashed: segfault in the plain build, ASan SEGV in `Dispatcher::process()`, at the
+  point where the losing task's completion arrived after the winner had resumed the caller.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: the `when_any` awaiter owned both tasks. When the caller resumed and the `co_await`
+  expression ended, the awaiter was destroyed and destroyed the loser's frame while the loser was
+  still suspended; whatever held its handle (a timer, a driver, here a gate) later resumed freed
+  memory. This is the race/watchdog pattern `examples/generic_protothread_replacements.cpp` teaches.
+* **Why nothing caught it**: the only test of the combinators was never built, and it would not have
+  exercised them if it had been. Tag presence (`@verifies`-style claims, "verified" prints) is not
+  verification (AGENTS §10).
+* **Lesson**: a combinator that abandons a child must either wait for it or hand it a safe life of its
+  own; never destroy a suspended coroutine someone else can still resume. And a test that never
+  calls the code under test is worse than none: it reads as coverage.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/DESIGN_SPECIFICATION.md`
+* **Requirement Tag Added**: `[SPEC-ARCH-11]` Combinators: when_all joins, when_any detaches the loser
+  (runs on to its end and frees its own frame; its result is discarded; cancel its I/O to stop it early).
+
+### 4. Implementation & Regression Test
+* **Fix**: `Task::detach()` (both `Task<T>` and `Task<void>`): a task that has not finished gets
+  `detached_`, and its final suspend destroys the frame itself; `WhenAnyAwaiter::await_resume`
+  detaches the loser.
+* **Regression Test**: `sim/test_coro_combinators.cpp` rewritten and registered: out-of-order
+  `when_all`, already-done `when_all`, `when_any` with the loser completing after the caller moved
+  on, 1000 rounds of each with the coroutine pool flat. Old code: segfault (plain) / ASan SEGV.
+  New code: passes in the plain, ASan and TSan builds.
+* **Not covered**: a `when_any` awaiter destroyed while the caller itself is still suspended (both
+  children pending) still destroys suspended children; no code does that today.

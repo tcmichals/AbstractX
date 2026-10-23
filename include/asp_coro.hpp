@@ -183,6 +183,7 @@ public:
         std::optional<T> result_{};
         std::coroutine_handle<> continuation_{nullptr};
         detail::CompletionHook on_complete_{};
+        bool detached_{false};   // [SPEC-ARCH-11] owner let go: free the frame at final suspend
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
@@ -197,6 +198,10 @@ public:
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
             std::coroutine_handle<> await_suspend(handle_type h) noexcept {
+                if (h.promise().detached_) {   // [SPEC-ARCH-11] nobody owns or awaits it any more
+                    h.destroy();
+                    return std::noop_coroutine();
+                }
                 h.promise().on_complete_();
                 auto continuation = h.promise().continuation_;
                 if (continuation) {
@@ -246,6 +251,22 @@ public:
 
     ~Task() {
         if (handle_) handle_.destroy();
+    }
+
+    // [SPEC-ARCH-11] Give up ownership of a task that has not finished: it runs on to its end
+    // and frees its own frame; nobody is resumed and its result is discarded. A finished task
+    // is destroyed now.
+    // @impl [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md
+    void detach() noexcept {
+        if (!handle_) return;
+        if (handle_.done()) {
+            handle_.destroy();
+        } else {
+            handle_.promise().detached_ = true;
+            handle_.promise().on_complete_ = {};
+            handle_.promise().continuation_ = nullptr;
+        }
+        handle_ = nullptr;
     }
 
     bool await_ready() const noexcept {
@@ -311,6 +332,7 @@ public:
     struct promise_type {
         std::coroutine_handle<> continuation_{nullptr};
         detail::CompletionHook on_complete_{};
+        bool detached_{false};   // [SPEC-ARCH-11] owner let go: free the frame at final suspend
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
@@ -325,6 +347,10 @@ public:
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
             std::coroutine_handle<> await_suspend(handle_type h) noexcept {
+                if (h.promise().detached_) {   // [SPEC-ARCH-11] nobody owns or awaits it any more
+                    h.destroy();
+                    return std::noop_coroutine();
+                }
                 h.promise().on_complete_();
                 auto continuation = h.promise().continuation_;
                 if (continuation) {
@@ -372,6 +398,22 @@ public:
 
     ~Task() {
         if (handle_) handle_.destroy();
+    }
+
+    // [SPEC-ARCH-11] Give up ownership of a task that has not finished: it runs on to its end
+    // and frees its own frame; nobody is resumed and its result is discarded. A finished task
+    // is destroyed now.
+    // @impl [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md
+    void detach() noexcept {
+        if (!handle_) return;
+        if (handle_.done()) {
+            handle_.destroy();
+        } else {
+            handle_.promise().detached_ = true;
+            handle_.promise().on_complete_ = {};
+            handle_.promise().continuation_ = nullptr;
+        }
+        handle_ = nullptr;
     }
 
     bool await_ready() const noexcept {
@@ -933,12 +975,16 @@ public:
         return true;
     }
 
+    // @impl [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md
     std::variant<T1, T2> await_resume() {
-        if (ready_index_ == 0 || t1_.done()) {
-            return std::variant<T1, T2>{std::in_place_index<0>, t1_.await_resume()};
-        } else {
-            return std::variant<T1, T2>{std::in_place_index<1>, t2_.await_resume()};
+        if (ready_index_ == 0 || (ready_index_ == -1 && t1_.done())) {
+            std::variant<T1, T2> r{std::in_place_index<0>, t1_.await_resume()};
+            t2_.detach();   // the loser runs on and frees itself; never destroyed while suspended
+            return r;
         }
+        std::variant<T1, T2> r{std::in_place_index<1>, t2_.await_resume()};
+        t1_.detach();
+        return r;
     }
 
 private:
