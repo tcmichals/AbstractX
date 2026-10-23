@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 640" role="img" aria-labelledby="title desc">
+  <title id="title">How a call reaches the hardware: abstractx.i2c_read on the E906</title>
+  <desc id="desc">A Python call abstractx.i2c_read(0x1E, 0x03, 6) runs inside the repl_rx coroutine. modabstractx.c unpacks the arguments and calls e906_twi1_xfer in e906_periph.cpp, which fills a static transfer record, marks it busy and tells TWI1 to send START. The caller then loops in wait_step: arm a timer wake at the 20 ms deadline, run the VM hook, sleep in wfi, service the status report. Each TWI1 bus step raises an interrupt on CLIC line 91; the dispatcher counts it, charges its cycles and records a timeline span, and twi1_isr advances the I2C state machine until STOP. When the record is done the bytes are copied out and the VM continues. The status report, idle accounting, profiler and timeline hooks are marked where they sit.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .main { fill:#f4f7ff; font-size:15px; font-weight:800; }
+      .sub { fill:#c0cbe0; font-size:12px; }
+      .mono { fill:#e6ecfa; font-size:12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .tag { font-size:11px; font-weight:800; letter-spacing:1px; }
+      .lbl { fill:#c0cbe0; font-size:11px; }
+      .hook { fill:#ffd479; font-size:12px; }
+    </style>
+  </defs>
+  <rect width="1000" height="640" rx="22" fill="#10192c"/>
+  <text x="28" y="40" fill="#49d9f4" class="tag">HOW A CALL REACHES THE HARDWARE • abstractx.i2c_read(0x1E, 0x03, 6)</text>
+
+  <!-- 1 Python -->
+  <rect x="24" y="60" width="556" height="66" rx="14" fill="#29213e" stroke="#b79cff" stroke-width="1.5"/>
+  <text x="42" y="84" fill="#d0bcff" class="tag">1 • PYTHON, RUNNING INSIDE THE repl_rx COROUTINE</text>
+  <text x="42" y="110" class="mono">data = abstractx.i2c_read(0x1E, 0x03, 6)</text>
+
+  <path d="M120 128 V146" stroke="#8ea7d8" stroke-width="2.5"/>
+  <path d="M120 154 L114 144 H126 Z" fill="#8ea7d8"/>
+
+  <!-- 2 modabstractx.c -->
+  <rect x="24" y="156" width="556" height="66" rx="14" fill="#192940" stroke="#8ea7d8" stroke-width="1.5"/>
+  <text x="42" y="180" fill="#c4d5ff" class="tag">2 • modabstractx.c • mod_abstractx_i2c_read()</text>
+  <text x="42" y="206" class="mono">e906_twi1_xfer(addr, reg, NULL, 0, buf, len)</text>
+
+  <path d="M120 224 V242" stroke="#42d8f5" stroke-width="2.5"/>
+  <path d="M120 250 L114 240 H126 Z" fill="#42d8f5"/>
+
+  <!-- 3 start -->
+  <rect x="24" y="252" width="556" height="84" rx="14" fill="#123244" stroke="#42d8f5" stroke-width="1.5"/>
+  <text x="42" y="276" fill="#73e5fb" class="tag">3 • e906_periph.cpp STARTS THE TRANSFER</text>
+  <text x="42" y="300" class="sub">Copies the request into a static record (s_twi), so a Ctrl-C cannot leave</text>
+  <text x="42" y="318" class="sub">the handler writing into a dead stack; state = Busy; TWI1 sends START</text>
+
+  <path d="M120 338 V356" stroke="#42d8f5" stroke-width="2.5"/>
+  <path d="M120 364 L114 354 H126 Z" fill="#42d8f5"/>
+
+  <!-- 4 wait -->
+  <rect x="24" y="366" width="556" height="156" rx="14" fill="#123244" stroke="#42d8f5" stroke-width="1.5"/>
+  <text x="42" y="390" fill="#73e5fb" class="tag">4 • WAIT: wait_step() UNTIL DONE OR THE 20 ms DEADLINE</text>
+  <text x="42" y="416" class="mono">Timer::arm_wake(deadline)</text>
+  <text x="300" y="416" class="sub">timer interrupt at the deadline</text>
+  <text x="42" y="440" class="mono">abstractx_repl_vm_hook()</text>
+  <text x="300" y="440" class="sub">dispatcher, RPMsg, Ctrl-C</text>
+  <text x="42" y="464" class="mono">platform_idle_wait()</text>
+  <text x="300" y="464" class="sub">wfi; this sleep counts as idle</text>
+  <text x="42" y="488" class="mono">status_service()</text>
+  <text x="300" y="488" class="sub">1 s status report keeps going</text>
+  <text x="42" y="510" class="lbl">loops while state == Busy; never reads a TWI register</text>
+
+  <path d="M120 524 V540" stroke="#58d39b" stroke-width="2.5"/>
+  <path d="M120 548 L114 538 H126 Z" fill="#58d39b"/>
+
+  <!-- 5 done -->
+  <rect x="24" y="550" width="556" height="70" rx="14" fill="#1d3a32" stroke="#58d39b" stroke-width="1.5"/>
+  <text x="42" y="574" fill="#8ff0c0" class="tag">5 • DONE: COPY s_twi.rbuf, RETURN n</text>
+  <text x="42" y="600" class="sub">mp_obj_new_bytes(buf, n): the VM continues with 6 bytes (b'' on NACK or timeout)</text>
+
+  <!-- start -> ISR, ISR -> wake -->
+  <path d="M584 294 H630" stroke="#58d39b" stroke-width="2.5"/>
+  <path d="M638 294 L628 288 V300 Z" fill="#58d39b"/>
+  <text x="610" y="284" text-anchor="middle" class="lbl">START</text>
+  <path d="M640 376 H592" stroke="#58d39b" stroke-width="2.5"/>
+  <path d="M584 376 L594 370 V382 Z" fill="#58d39b"/>
+  <text x="612" y="398" text-anchor="middle" class="lbl">wake</text>
+
+  <!-- ISR -->
+  <rect x="640" y="60" width="336" height="324" rx="14" fill="#1d3a32" stroke="#58d39b" stroke-width="1.5"/>
+  <text x="658" y="84" fill="#8ff0c0" class="tag">TWI1 INTERRUPT • CLIC LINE 91</text>
+  <text x="658" y="104" class="lbl">GIC 43 via the S_INTC group router</text>
+  <text x="658" y="130" class="mono">dispatch_clic_line(91)</text>
+  <text x="658" y="150" class="hook">count, handler cycles, timeline span</text>
+  <text x="658" y="176" class="mono">twi1_isr(): one bus step</text>
+  <text x="658" y="200" class="mono">0x08 started → addr+W</text>
+  <text x="658" y="220" class="mono">0x18 ACK     → register</text>
+  <text x="658" y="240" class="mono">0x28 ACK     → rep. START</text>
+  <text x="658" y="260" class="mono">0x10 restart → addr+R</text>
+  <text x="658" y="280" class="mono">0x40, 0x50   → next byte</text>
+  <text x="658" y="300" class="mono">0x58 last    → STOP, Done</text>
+  <text x="658" y="320" class="mono">NACK, error  → STOP, Error</text>
+  <text x="658" y="346" class="sub">Measured: ~9 interrupts per 6-byte</text>
+  <text x="658" y="364" class="sub">read, 1.40-1.43 µs each</text>
+
+  <!-- hooks -->
+  <rect x="640" y="400" width="336" height="220" rx="14" fill="#2c2716" stroke="#e0b44c" stroke-width="1.5"/>
+  <text x="658" y="424" fill="#ffd479" class="tag">WHERE THE MEASUREMENT HOOKS SIT</text>
+  <text x="658" y="450" class="sub">Status report: status_service() in every</text>
+  <text x="658" y="467" class="sub">wait and in the VM hook, plus idle loop</text>
+  <text x="658" y="492" class="sub">Idle %: mcycle around the wfi, minus</text>
+  <text x="658" y="509" class="sub">interrupt time taken during it</text>
+  <text x="658" y="534" class="sub">Profiler: core timer (line 7) samples</text>
+  <text x="658" y="551" class="sub">the interrupted PC (mepc) at 1 kHz</text>
+  <text x="658" y="576" class="sub">Timeline: one span per handler and</text>
+  <text x="658" y="593" class="sub">per coroutine resume (repl_rx)</text>
+</svg>

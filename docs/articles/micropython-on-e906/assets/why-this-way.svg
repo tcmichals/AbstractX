@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 520" role="img" aria-labelledby="title desc">
+  <title id="title">Why do it this way: explore in MicroPython, measure in Studio, keep the hot loop in C++20</title>
+  <desc id="desc">Step 1: explore the hardware from the MicroPython prompt, one line per try with no rebuild; this is how the compass was found to be an HMC5883L at 0x1E. Step 2: measure with AbstractX Studio: CPU tab, source view and timeline; the streaming script keeps repl_rx at about 90 percent of the E906 while the drivers take well under 1 percent. Step 3: move the hot loop to a C++20 coroutine with the micropython-to-cpp skill; not done yet for the compass and GPS pair. Underneath all three steps AbstractX owns interrupts, drivers, memory, RPMsg and measurement; MicroPython is one coroutine, repl_rx.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .main { fill:#f4f7ff; font-size:17px; font-weight:800; }
+      .sub { fill:#c0cbe0; font-size:12px; }
+      .mono { fill:#e6ecfa; font-size:12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .tag { font-size:11px; font-weight:800; letter-spacing:1px; }
+      .lbl { fill:#c0cbe0; font-size:11px; }
+      .find { fill:#ffd479; font-size:12px; }
+      .colh { fill:#f4f7ff; font-size:13px; font-weight:800; }
+    </style>
+  </defs>
+  <rect width="1000" height="520" rx="22" fill="#10192c"/>
+  <text x="28" y="40" fill="#49d9f4" class="tag">WHY DO IT THIS WAY • EXPLORE IN PYTHON, MEASURE, KEEP IN C++</text>
+
+  <!-- Step 1 -->
+  <rect x="24" y="64" width="290" height="236" rx="16" fill="#29213e" stroke="#b79cff" stroke-width="1.5"/>
+  <text x="42" y="92" fill="#d0bcff" class="tag">1 • EXPLORE</text>
+  <text x="42" y="120" class="main">MicroPython prompt</text>
+  <rect x="42" y="134" width="254" height="30" rx="8" fill="#1f1a31" stroke="#7c68b8"/>
+  <text x="54" y="154" class="mono">i2c_read(0x1E, 0x0A, 3)</text>
+  <text x="42" y="188" class="sub">One line per try: no rebuild,</text>
+  <text x="42" y="205" class="sub">no firmware reload</text>
+  <text x="42" y="232" class="find">Found this way: the compass is</text>
+  <text x="42" y="249" class="find">an HMC5883L at 0x1E (ID b'H43'),</text>
+  <text x="42" y="266" class="find">not a QMC5883L at 0x0D</text>
+
+  <!-- 1 -> 2 -->
+  <path d="M318 150 H346" stroke="#b79cff" stroke-width="2.5"/>
+  <path d="M354 150 L344 144 V156 Z" fill="#b79cff"/>
+
+  <!-- Step 2 -->
+  <rect x="356" y="64" width="290" height="236" rx="16" fill="#192940" stroke="#8ea7d8" stroke-width="1.5"/>
+  <text x="374" y="92" fill="#c4d5ff" class="tag">2 • MEASURE</text>
+  <text x="374" y="120" class="main">AbstractX Studio</text>
+  <text x="374" y="148" class="sub">CPU tab: busy %, time per</text>
+  <text x="374" y="165" class="sub">coroutine, interrupts per driver</text>
+  <text x="374" y="188" class="sub">Source view: CPU % per line</text>
+  <text x="374" y="211" class="sub">Timeline: resumes, IRQs, idle</text>
+  <text x="374" y="240" class="find">Found this way: repl_rx (the</text>
+  <text x="374" y="257" class="find">interpreter) ~90 % of the E906;</text>
+  <text x="374" y="274" class="find">the drivers well under 1 %</text>
+
+  <!-- 2 -> 3 -->
+  <path d="M650 150 H678" stroke="#58d39b" stroke-width="2.5"/>
+  <path d="M686 150 L676 144 V156 Z" fill="#58d39b"/>
+
+  <!-- Step 3 -->
+  <rect x="688" y="64" width="288" height="236" rx="16" fill="#1d3a32" stroke="#58d39b" stroke-width="1.5"/>
+  <text x="706" y="92" fill="#8ff0c0" class="tag">3 • KEEP</text>
+  <text x="706" y="120" class="main">C++20 coroutine</text>
+  <rect x="706" y="134" width="252" height="30" rx="8" fill="#17302a" stroke="#3f9c74"/>
+  <text x="718" y="154" class="mono">co_await, Task&lt;bool&gt;</text>
+  <text x="706" y="188" class="sub">Move the hot loop out of Python</text>
+  <text x="706" y="205" class="sub">(micropython-to-cpp skill)</text>
+  <text x="706" y="228" class="sub">Same event loop, interrupts,</text>
+  <text x="706" y="245" class="sub">RPMsg links and Studio views</text>
+  <text x="706" y="274" class="find">Not done yet for compass + GPS</text>
+
+  <!-- back loop 2 -> 1 -->
+  <path d="M500 304 V326 H170 V310" stroke="#8ea7d8" stroke-width="2" fill="none" stroke-dasharray="5 4"/>
+  <path d="M170 302 L164 312 H176 Z" fill="#8ea7d8"/>
+  <text x="335" y="344" text-anchor="middle" class="lbl">not what you expected: change the script, try again</text>
+
+  <!-- AbstractX band -->
+  <rect x="24" y="360" width="952" height="140" rx="16" fill="#123244" stroke="#42d8f5" stroke-width="1.5"/>
+  <text x="42" y="386" fill="#73e5fb" class="tag">ABSTRACTX UNDERNEATH ALL THREE STEPS • MICROPYTHON IS ONE COROUTINE (repl_rx)</text>
+
+  <text x="42" y="414" class="colh">Interrupts</text>
+  <text x="42" y="434" class="sub">CLIC lines, one handler</text>
+  <text x="42" y="451" class="sub">each; unowned lines are</text>
+  <text x="42" y="468" class="sub">disabled and counted</text>
+
+  <text x="232" y="414" class="colh">Drivers</text>
+  <text x="232" y="434" class="sub">UART3 ring, TWI1 state</text>
+  <text x="232" y="451" class="sub">machine; a wait is wfi,</text>
+  <text x="232" y="468" class="sub">never a register spin</text>
+
+  <text x="422" y="414" class="colh">Memory</text>
+  <text x="422" y="434" class="sub">No heap in the firmware;</text>
+  <text x="422" y="451" class="sub">Python heap in the unused</text>
+  <text x="422" y="468" class="sub">HiFi4 DSP RAM</text>
+
+  <text x="612" y="414" class="colh">RPMsg</text>
+  <text x="612" y="434" class="sub">1026 REPL text</text>
+  <text x="612" y="451" class="sub">1024 64-byte TLPs</text>
+  <text x="612" y="468" class="sub">1025 CTF trace</text>
+
+  <text x="802" y="414" class="colh">Measurement</text>
+  <text x="802" y="434" class="sub">Dispatcher and interrupt</text>
+  <text x="802" y="451" class="sub">layer: status, profiler,</text>
+  <text x="802" y="468" class="sub">timeline</text>
+</svg>
