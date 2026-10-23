@@ -518,7 +518,8 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
   | `TimelineEvent` | 16 | u32 start, u32 duration (cycles), u32 id, u8 kind (1 resume, 2 interrupt, 3 idle), u8 pad[3] |
 
 * **Requirement (listener)**: both streams are sent only while `platform_trace_listening()` says a
-  host reads the trace transport; otherwise the rings are emptied without counting drops. Each
+  host reads the trace transport; otherwise the rings are emptied without counting drops. Consequence (measured 2026-10-23): events from before the first hello after a reader connects
+  (up to about a second) are not in the timeline; a measurement must start after the reader is up. Each
   `status_service()` call sends up to 4 packets per stream so a busy target keeps up.
 * **Requirement (storage)**: the rings are provided by the platform (`platform_event_buffers()`);
   the default is a 128-span timeline ring and no profiler. The E906 places a 256-sample and a
