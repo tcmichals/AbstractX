@@ -119,7 +119,15 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ### `[SPEC-HAL-01]` DMA/ISR Split-Queue Driver Base
 * **Requirement**: `AsyncDriverBase<TReq, TRes, Depth>` must manage dual ETL `queue_spsc_isr` rings with nesting-aware `InterruptLock` masking.
-* **Verified by**: `host-tests` (`sim/test_baremetal_isr_spsc.cpp`), `thread-sanitizer`
+* **Requirement** (completion delivery, every target): a driver completes a request only through
+  `push_completion_from_isr(request, result)`, which writes `request.result_slot` (or the output
+  queue) before posting the coroutine handle. Calling `notify_completion` alone loses the result:
+  the awaiter then reads a default `Ok` with 0 bytes. A request the hardware or worker refuses is
+  completed at once with an error status (`QueueFull`), never dropped. A completion handler
+  completes the request that just finished and starts the next one exactly once
+  (`set_hardware_idle_from_isr` already pops and starts the next request).
+  Target detail: `[SPEC-LINUX-HAL-01]` (Linux, Zynq), `[SPEC-PICO-HAL-01]` (Pico 2 W).
+* **Verified by**: `host-tests` (`sim/test_baremetal_isr_spsc.cpp`, `sim/test_linux_hal_completion.cpp`), `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/async_driver.hpp`
 
 ### `[SPEC-HAL-02]` Asynchronous SPI / Dual-SPI DMA Interface

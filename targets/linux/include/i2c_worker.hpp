@@ -12,6 +12,7 @@
 #include "abstractx/hal/i2c.hpp"
 #include <etl/queue_spsc_isr.h>
 #include <etl/memory_model.h>
+#include <etl/delegate.h>
 
 #include <thread>
 #include <atomic>
@@ -29,7 +30,13 @@ class I2cWorker {
 public:
     using RequestQueue = etl::queue_spsc_isr<hal::I2cRequest, 16, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>;
 
+    // Driver hook that completes a request (AsyncDriverBase::push_completion_from_isr).
+    using CompletionSink = etl::delegate<void(const hal::I2cRequest&, const hal::I2cResult&)>;
+
     I2cWorker() noexcept : wakeup_eventfd_(false) {}
+
+    // Bind before start(); the worker thread reads it without a lock.
+    void set_completion_sink(CompletionSink sink) noexcept { sink_ = sink; }
 
     ~I2cWorker() noexcept {
         stop();
@@ -60,11 +67,17 @@ public:
         }
     }
 
+    // @impl [SPEC-LINUX-HAL-01] targets/linux/SPECIFICATION.md
+    // false = refused (worker not running or queue full); the caller completes the request.
     bool submit(const hal::I2cRequest& req) noexcept {
+        if (!running_.load(std::memory_order_acquire)) {
+            return false;
+        }
         if (!queue_.push(req)) {
             return false;
         }
-        return wakeup_eventfd_.notify(1);
+        (void)wakeup_eventfd_.notify(1);  // queued: never report it as refused
+        return true;
     }
 
     bool set_frequency(uint32_t freq_hz) noexcept {
@@ -184,11 +197,25 @@ private:
 
                 req.notify_rx_completion(res);
                 req.notify_tx_completion(res);
-                req.notify_completion(res);
+                complete(req, res);
             }
         }
     }
 
+    // @impl [SPEC-LINUX-HAL-01] targets/linux/SPECIFICATION.md
+    // The awaiter's result_slot must be written before its handle is posted.
+    void complete(const hal::I2cRequest& req, const hal::I2cResult& res) noexcept {
+        if (sink_.is_valid()) {
+            sink_(req, res);
+            return;
+        }
+        if (req.result_slot) {
+            *req.result_slot = res;
+        }
+        req.notify_completion(res);
+    }
+
+    CompletionSink       sink_{};
     int                  fd_{-1};
     uint32_t             speed_hz_{400'000};
     RequestQueue         queue_{};

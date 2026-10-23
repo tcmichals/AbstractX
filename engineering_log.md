@@ -1871,3 +1871,38 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   median/max 50 -> 31.4/31.8 us, mean 39 -> 24.8 us, CPU 0.115 -> 0.071 %.
   TWI1 compass loop (baseline, unchanged): 16,496 irq/s, 1.40 us each, 2.3 % CPU.
 * Board suite on this firmware: 30 passed, 0 failed, 2 skipped.
+
+## [2026-10-22] - Linux SPI/I2C: awaiters always saw Ok/0 bytes; a refused submit hung the coroutine
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/linux/include/{spi,i2c}_worker.hpp`, `targets/linux/src/hal_{spi,i2c}.cpp` (also built for Zynq)
+* **Symptoms** (review F-1, F-2 in the HAL API review): every `co_await transfer_async()` on Linux
+  returned `status = Ok, transferred_bytes = 0, timestamp_us = 0`, also when the spidev / i2c-dev
+  ioctl failed. A request the worker did not take (queue full, worker not started) was dropped and
+  its coroutine never resumed.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug**: the worker threads called `req.notify_completion(res)` directly. That only posts
+  the handle; `result_slot` is written only by `AsyncDriverBase::push_completion_from_isr`. The
+  drivers ignored the return of `worker_.submit()` and marked the hardware idle.
+* **process-gap**: `[SPEC-HAL-02]` was "verified" by `tests/test_sitl_imu.cpp`, whose mock driver
+  calls `push_completion_from_isr` itself, so no test ever ran the real Linux driver class. A check
+  that replaces the code under test with a mock cannot fail on that code. The driver classes lived
+  in `.cpp` files with a hard-coded device path, so a test could not reach them.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`): completion only through
+  `push_completion_from_isr`; refused requests complete with an error; one start per completion.
+* New `[SPEC-LINUX-HAL-01]` (`targets/linux/SPECIFICATION.md`): completion sink, ioctl failure is
+  an error, `submit` refuses when not running / full and the driver completes with `QueueFull`,
+  driver classes in headers with the device path as a constructor argument.
+
+### 4. Implementation & Regression Test
+* `SpiWorker` / `I2cWorker`: `set_completion_sink()`; `complete()` calls the sink, else writes
+  `result_slot` before `notify_completion`; `submit()` returns false when not running.
+* `LinuxSpiDriver` / `LinuxI2cDriver` moved to `targets/linux/include/linux_{spi,i2c}_driver.hpp`;
+  they bind the sink to `push_completion_from_isr` and complete a refused submit with `QueueFull`.
+* `sim/test_linux_hal_completion.cpp` runs the real drivers against `/dev/null` (ioctl fails),
+  a missing device (simulated path) and a stopped worker; 1000-round steady state. Before the fix:
+  10 checks failed (1000/1000 transfers `Ok`/0 bytes, refused submits never resumed). After: pass,
+  also under ASan/UBSan and TSan (50 repeats).

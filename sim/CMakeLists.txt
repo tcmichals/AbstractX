@@ -12,6 +12,8 @@ add_abstractx_sim(test_spsc_channel_array   test_spsc_channel_array.cpp)
 add_abstractx_sim(test_halo_worker_pool     test_halo_worker_pool.cpp)
 add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
 add_abstractx_sim(test_io_processor        test_io_processor.cpp)
+# [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results
+add_abstractx_sim(test_linux_hal_completion test_linux_hal_completion.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
 add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)
 add_abstractx_sim(test_coro_failures       test_coro_failures.cpp)
