@@ -1871,3 +1871,100 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   median/max 50 -> 31.4/31.8 us, mean 39 -> 24.8 us, CPU 0.115 -> 0.071 %.
   TWI1 compass loop (baseline, unchanged): 16,496 irq/s, 1.40 us each, 2.3 % CPU.
 * Board suite on this firmware: 30 passed, 0 failed, 2 skipped.
+
+## [2026-10-22] - Linux SPI/I2C: awaiters always saw Ok/0 bytes; a refused submit hung the coroutine
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/linux/include/{spi,i2c}_worker.hpp`, `targets/linux/src/hal_{spi,i2c}.cpp` (also built for Zynq)
+* **Symptoms** (review F-1, F-2 in the HAL API review): every `co_await transfer_async()` on Linux
+  returned `status = Ok, transferred_bytes = 0, timestamp_us = 0`, also when the spidev / i2c-dev
+  ioctl failed. A request the worker did not take (queue full, worker not started) was dropped and
+  its coroutine never resumed.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug**: the worker threads called `req.notify_completion(res)` directly. That only posts
+  the handle; `result_slot` is written only by `AsyncDriverBase::push_completion_from_isr`. The
+  drivers ignored the return of `worker_.submit()` and marked the hardware idle.
+* **process-gap**: `[SPEC-HAL-02]` was "verified" by `tests/test_sitl_imu.cpp`, whose mock driver
+  calls `push_completion_from_isr` itself, so no test ever ran the real Linux driver class. A check
+  that replaces the code under test with a mock cannot fail on that code. The driver classes lived
+  in `.cpp` files with a hard-coded device path, so a test could not reach them.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`): completion only through
+  `push_completion_from_isr`; refused requests complete with an error; one start per completion.
+* New `[SPEC-LINUX-HAL-01]` (`targets/linux/SPECIFICATION.md`): completion sink, ioctl failure is
+  an error, `submit` refuses when not running / full and the driver completes with `QueueFull`,
+  driver classes in headers with the device path as a constructor argument.
+
+### 4. Implementation & Regression Test
+* `SpiWorker` / `I2cWorker`: `set_completion_sink()`; `complete()` calls the sink, else writes
+  `result_slot` before `notify_completion`; `submit()` returns false when not running.
+* `LinuxSpiDriver` / `LinuxI2cDriver` moved to `targets/linux/include/linux_{spi,i2c}_driver.hpp`;
+  they bind the sink to `push_completion_from_isr` and complete a refused submit with `QueueFull`.
+* `sim/test_linux_hal_completion.cpp` runs the real drivers against `/dev/null` (ioctl fails),
+  a missing device (simulated path) and a stopped worker; 1000-round steady state. Before the fix:
+  10 checks failed (1000/1000 transfers `Ok`/0 bytes, refused submits never resumed). After: pass,
+  also under ASan/UBSan and TSan (50 repeats).
+
+## [2026-10-22] - Pico 2 W: double start after completion, SPI mode ignored, async I2C IRQ was a stub
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/pico2w_rp2350/src/hal_{spi,i2c}.cpp`, `include/abstractx_pico.hpp`
+* **Symptoms** (review F-5, found by reading, not on hardware): SPI DMA completion, the I2C IRQ and
+  the timer alarm called `set_hardware_idle_from_isr()` (which starts the next request) and then
+  popped and started *another* one, overwriting `active_req_` and losing a completion. SPI was
+  always CPOL1/CPHA1 although ICM-42688 asks for Mode0. The async I2C IRQ handler had only
+  comments, so every async I2C awaiter hung unless the transfer aborted.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug** (all three). The base-class contract "set_hardware_idle_from_isr starts the next
+  request" was not written in a spec, so each driver re-implemented the hand-off.
+* **process-gap**: Pico HAL code has no host test harness and no board run in the loop; only a
+  cross-build checks it, which cannot see a lost completion or a wrong SPI mode.
+
+### 3. Specification Update (SSOT Defense)
+* New `[SPEC-PICO-HAL-01]` (`targets/pico2w_rp2350/SPECIFICATION.md`): one start per completion,
+  CPOL/CPHA from `SpiConfig::mode`, `lsb_first` refused (PL022 is MSB first), the I2C interrupt
+  state machine (register use taken from the Pico SDK `i2c.c` blocking functions).
+
+### 4. Implementation & Regression Test
+* Second pop removed in SPI, I2C and timer; `spi_set_format` from the mode; I2C `I2C0_IRQ`
+  installed once in `init`, handler queues `IC_DATA_CMD` words (RESTART on first read after a
+  write, STOP on the last word, at most 16 reads in flight), drains RX, completes on `STOP_DET` /
+  `TX_ABRT` with NackAddress / NackData / BusError.
+* Evidence: Pico cross-build only (`cmake --build build_pico2w`, 0 errors). No host test, no board
+  run: not verified on hardware. Known gap: no I2C bus timeout.
+
+## [2026-10-22] - TSan SEGV in Rpmsg::enable_rx_kick: asserts compiled out, stale vring pointers
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `sim/test_e906_rpmsg_flow_control.cpp`, `targets/allwinner_e906/src/rpmsg.cpp`
+* **Symptoms**: `sim_test_e906_rpmsg_flow_control` crashed on some TSan runs (SEGV writing e.g.
+  `0x40f7d000` at rpmsg.cpp:393, called from test line 357); 6th run of `--repeat until-fail`.
+
+### 2. Root Cause & Lesson Learned
+* **process-gap** (test bug): the host builds are `RelWithDebInfo` (`-DNDEBUG`), and the test did
+  not `#undef NDEBUG`. Every `assert(rpmsg.is_driver_ready())` was removed, so the vrings of the
+  new FakeHost were never mapped. Block 9 then wrote through `s_rx_vq.used` left from block 8,
+  whose memory was already `munmap`ed. Debug print: block 8 mapped `0x41fdd000`, block 9 got
+  `0x40f23000`, kick wrote `used=0x41fe2000` (block 8's ring). It "passed" whenever mmap reused
+  the same address. Every check in the test was a no-op in these builds.
+* **product-bug**: `Rpmsg::init()` / `RpmsgLiteMetal::init()` reset the ready flag but kept the
+  old `s_*_vq` layouts, and `enable_rx_kick()` wrote through them without checking readiness. On
+  the board this is a write into the previous resource table's vring after a re-init.
+* **process-gap**: 12 more host tests use `assert` without `#undef NDEBUG` (test_gps_imu_coro_pool,
+  test_coro_failures, test_coro_combinators, test_io_processor, test_pico_zero_copy_trace,
+  test_trace_zero_copy, test_baremetal_isr_spsc, test_tlp_msg, test_halo_worker_pool,
+  test_abstractx_runtime, test_spsc_channel_array, and test_e906_rpmsg_endpoints, fixed here).
+  Their checks do not run in the default build. Not fixed in this change.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-E906-IPC-02]`: "Re-init never keeps old vrings"; `Verified by` notes the tests must
+  `#undef NDEBUG` and adds `thread-sanitizer`.
+
+### 4. Implementation & Regression Test
+* `init()` clears both layouts (Rpmsg and RpmsgLiteMetal); `enable_rx_kick()` writes only when
+  `is_driver_ready()`.
+* Test block 11 keeps host A mapped, re-inits on host B and checks A's ring is not written:
+  fails on the old driver (assert at line 414), passes on the new. TSan: 200/200 consecutive passes.

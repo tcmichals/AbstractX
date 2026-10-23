@@ -13,6 +13,11 @@
  *   - VirtIO kick suppression (VRING_USED_F_NO_NOTIFY)
  */
 
+// The checks below have side effects (is_driver_ready() maps the vrings): they must run in
+// RelWithDebInfo / Release builds too. Without this, NDEBUG removed them and later blocks
+// wrote through vring pointers of an earlier, unmapped FakeHost ([SPEC-E906-IPC-02]).
+#undef NDEBUG
+
 #include "hal/rpmsg.hpp"
 #include "resource_table.h"
 
@@ -390,6 +395,35 @@ int main() {
         assert(lite.get_rx_count() == 1);
         assert(lite.get_tx_count() == 1);
         std::cout << "  -> RpmsgLiteMetalParity: PASS\n";
+    }
+
+    // 11. Re-init forgets the previous resource table's vrings ([SPEC-E906-IPC-02] / [SPEC-E906-IPC-03]).
+    //     Host A stays mapped so a stale write is caught by value, not by a lucky SEGV.
+    {
+        reset_fake_env();
+        FakeHost host_a;
+        FakeHost host_b;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host_a.rsc());
+        assert(rpmsg.is_driver_ready());
+        assert(host_a.tx().used->flags == 1);
+
+        rpmsg.init(host_b.rsc());         // e.g. remoteproc restart with new vrings
+        rpmsg.enable_rx_kick(true);       // before anything else touches the driver
+        assert(host_a.tx().used->flags == 1 && "Rpmsg wrote into the old resource table's vring");
+        assert(host_b.tx().used->flags == 0);
+
+        hal::RpmsgLiteMetal lite;
+        hal::Rpmsg::set_active_driver(&lite);
+        lite.init(host_a.rsc());
+        assert(lite.is_driver_ready());
+        host_a.tx().used->flags = 1;
+        lite.init(host_b.rsc());
+        lite.enable_rx_kick(true);
+        assert(host_a.tx().used->flags == 1 && "RpmsgLiteMetal wrote into the old resource table's vring");
+        assert(host_b.tx().used->flags == 0);
+        std::cout << "  -> ReinitForgetsOldVrings: PASS\n";
     }
 
     std::cout << "[ALL PASS] XuanTie E906 RPMsg Flow Control Verification complete!\n";

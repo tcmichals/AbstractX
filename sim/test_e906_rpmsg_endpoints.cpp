@@ -11,6 +11,8 @@
  * 4 GB because resource-table vring addresses are 32-bit.
  */
 
+#undef NDEBUG  // checks must run in RelWithDebInfo builds too ([SPEC-E906-IPC-02])
+
 #include "hal/rpmsg_endpoints.hpp"
 #include "resource_table.h"
 

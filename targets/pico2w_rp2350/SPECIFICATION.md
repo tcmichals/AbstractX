@@ -258,6 +258,38 @@ between the trace engine and the Wi-Fi driver.
 * **Verified by**: `host-tests` (`sim/test_pico_zero_copy_trace.cpp`: pointer identity and single-pbuf invariants), `memory-footprint` (0 `_Unwind_*` symbols in Pico ELF)
 * **Implementation Target**: `targets/pico2w_rp2350/include/hal/pico_trace_transport.hpp`, `targets/pico2w_rp2350/src/hal_platform.cpp`, `cmake/toolchains/arm-none-eabi.cmake`
 
+### [SPEC-PICO-HAL-01] SPI / I2C / Timer Completion, SPI Mode and Interrupt-Driven I2C
+The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
+* **Goal**: every async request on Pico 2 W completes exactly once, with its own result, and the
+  bus is configured the way the caller asked.
+* **Requirement (one start per completion)**: the SPI DMA completion, the I2C interrupt and the
+  timer alarm callback complete the finished request with `push_completion_from_isr(active_req_,
+  result)` and then call `set_hardware_idle_from_isr()` **only**. That call already pops and starts
+  the next queued request; popping and starting another one afterwards overwrites `active_req_`
+  and loses a completion.
+* **Requirement (SPI mode)**: `PicoSpi::init` programs CPOL/CPHA from `SpiConfig::mode`
+  (Mode0 = CPOL0/CPHA0 ... Mode3 = CPOL1/CPHA1) with `spi_set_format`. The RP2350 PL022 only
+  shifts MSB first (Pico SDK `spi_set_format` asserts `SPI_MSB_FIRST`), so `lsb_first = true` is
+  refused: `init` returns `false` without touching the bus.
+* **Requirement (I2C interrupt state machine)**: `PicoI2c` runs an async request entirely from the
+  `I2C0_IRQ` handler, which `init` installs once. Start: disable, program `IC_TAR`, enable, unmask
+  `TX_EMPTY`, `RX_FULL`, `STOP_DET`, `TX_ABRT` (`IC_TX_TL = IC_RX_TL = 0` from `i2c_init`). The
+  handler queues one `IC_DATA_CMD` word per byte: the `tx_data` bytes, then one read command per
+  `rx_data` byte (`RESTART` on the first read after a write, `STOP` on the last word), never more
+  read commands in flight than the 16-entry RX FIFO holds; it drains `IC_DATA_CMD` into `rx_data`
+  on `RX_FULL` and masks `TX_EMPTY` once every word is queued. The request completes on
+  `STOP_DET` (status `Ok`) or `TX_ABRT` (`ABRT_7B_ADDR_NOACK` -> `NackAddress`,
+  `ABRT_TXDATA_NOACK` -> `NackData`, anything else -> `BusError`, `transferred_bytes = 0`); the
+  handler then masks all I2C interrupts, clears `TX_ABRT` / `STOP_DET` and completes as above.
+  Register usage follows the Pico SDK `i2c_write_blocking_internal` /
+  `i2c_read_blocking_internal` (`src/rp2_common/hardware_i2c/i2c.c`).
+* **Not yet covered**: no bus timeout (a slave holding SCL low leaves the request pending); not
+  run on hardware.
+* **Refines**: `[SPEC-HAL-01]`, `[SPEC-HAL-02]`
+* **Method**: `Inspection` (cross-build only; no Pico host test harness or board run yet)
+* **Verified by**: `memory-footprint` (Pico cross-build `cmake --build build_pico2w`), `board-bringup` (not run)
+* **Implementation Target**: `targets/pico2w_rp2350/src/hal_spi.cpp`, `targets/pico2w_rp2350/src/hal_i2c.cpp`, `targets/pico2w_rp2350/include/abstractx_pico.hpp`
+
 ---
 
 ## 4. Execution Workflow & Step-by-Step Contract

@@ -112,6 +112,30 @@ The Linux target `LinuxIoProcessor` bridge SPI path forwards manual SPI transact
   - **Read Burst**: Single read message.
 * **Workstation Fallback**: If `/dev/i2c-*` is absent, automatically simulates barometer calibration/pressure bytes.
 
+### `[SPEC-LINUX-HAL-01]` Linux SPI / I2C Driver Completion Delivery and Refused Submits
+`LinuxSpiDriver` and `LinuxI2cDriver` (also built for Zynq) are the `ISpi` / `II2c` implementations
+on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs the ioctl.
+* **Goal**: an awaiter sees the real outcome of its own transfer (an ioctl failure is an error,
+  never `Ok` with 0 bytes), and a request the worker cannot take never leaves a coroutine waiting.
+* **Requirement**:
+  - The worker MUST deliver every completion through the owning driver's
+    `AsyncDriverBase::push_completion_from_isr` (a completion sink bound by the driver), which
+    writes `request.result_slot` before posting the coroutine handle. A worker without a bound
+    sink (the I/O processor bridge) MUST still write `result_slot` when it is set before calling
+    `notify_completion`.
+  - A failing `SPI_IOC_MESSAGE` / `I2C_RDWR` ioctl MUST complete with a non-`Ok` status
+    (`SpiStatus::DmaError`, `I2cStatus::NackAddress`) and `transferred_bytes = 0`.
+  - `SpiWorker::submit` / `I2cWorker::submit` MUST return `false` when the worker thread is not
+    running or its queue is full. The driver MUST then complete that request at once through
+    `push_completion_from_isr` with `SpiStatus::QueueFull` / `I2cStatus::QueueFull`.
+  - The device path is a constructor argument of the driver class (default `/dev/spidev1.0`,
+    `/dev/i2c-1`), and the classes live in `linux_spi_driver.hpp` / `linux_i2c_driver.hpp`, so a
+    host test can run the real driver against a device that fails (`/dev/null`).
+* **Refines**: `[SPEC-HAL-01]`, `[SPEC-HAL-02]`
+* **Method**: `Test`
+* **Verified by**: `host-tests` (`sim/test_linux_hal_completion.cpp`), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `targets/linux/include/spi_worker.hpp`, `targets/linux/include/i2c_worker.hpp`, `targets/linux/include/linux_spi_driver.hpp`, `targets/linux/include/linux_i2c_driver.hpp`
+
 ### 2.3 Serial / UART Subsystem (`termios2` with `ASYNC_LOW_LATENCY`)
 * **Interface**: `/dev/ttyX` (`/dev/ttyS*`, `/dev/ttyUSB*`, `/dev/ttyAMA*`).
 * **Arbitrary Baud Rates**: Uses `struct termios2` with the `BOTHER` flag (`<asm/termbits.h>`) to set any arbitrary custom speed (e.g., 921,600 or 1,500,000 baud) with 1-baud precision.

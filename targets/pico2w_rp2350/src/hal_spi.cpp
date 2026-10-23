@@ -18,6 +18,7 @@
 #include "hardware/irq.h"
 #include "hardware/spi.h"
 #include "hardware/gpio.h"
+#include "pico/time.h"
 #endif
 
 #include <cstring>
@@ -44,11 +45,18 @@ static void dma_spi_irq_handler() {
 }
 #endif
 
+// @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
 bool PicoSpi::init(const SpiConfig& config) {
+    if (config.lsb_first) {
+        return false;  // PL022 shifts MSB first only
+    }
 #ifdef PICO_ON_DEVICE
     // 1. Initialize SPI1 on GP10 (SCK), GP11 (TX/MOSI), GP12 (RX/MISO), GP13 (CS)
+    const uint8_t mode = static_cast<uint8_t>(config.mode);
+    const spi_cpol_t cpol = (mode & 0x2U) ? SPI_CPOL_1 : SPI_CPOL_0;
+    const spi_cpha_t cpha = (mode & 0x1U) ? SPI_CPHA_1 : SPI_CPHA_0;
     spi_init(spi1, config.frequency_hz);
-    spi_set_format(spi1, 8, SPI_CPOL_1, SPI_CPHA_1, SPI_MSB_FIRST);
+    spi_set_format(spi1, 8, cpol, cpha, SPI_MSB_FIRST);
 
     gpio_set_function(10, GPIO_FUNC_SPI); // SCK
     gpio_set_function(11, GPIO_FUNC_SPI); // TX / MOSI
@@ -148,20 +156,20 @@ void PicoSpi::start_hardware_transfer_from_isr(const SpiRequest& req) noexcept {
     start_dma_transfer_raw(req.tx_data.data(), req.rx_data.data(), len);
 }
 
+// @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
 void PicoSpi::on_dma_complete_from_isr() noexcept {
     busy_ = false;
     SpiResult result{};
     result.status = SpiStatus::Ok;
     result.transferred_bytes = active_req_.tx_data.empty() ? active_req_.rx_data.size() : active_req_.tx_data.size();
+#ifdef PICO_ON_DEVICE
+    result.timestamp_us = time_us_64();
+#endif
 
+    // Complete the finished request, then start the next one exactly once:
+    // set_hardware_idle_from_isr() pops and starts it (and overwrites active_req_).
     push_completion_from_isr(active_req_, result);
     set_hardware_idle_from_isr();
-
-    // Advance to next pending request if available
-    SpiRequest next_req{};
-    if (pop_next_request_from_isr(next_req)) {
-        start_hardware_transfer_from_isr(next_req);
-    }
 }
 
 } // namespace abstractx::hal
