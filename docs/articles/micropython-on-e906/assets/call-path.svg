@@ -83,7 +83,7 @@
   <text x="658" y="280" class="mono">0x40, 0x50   → next byte</text>
   <text x="658" y="300" class="mono">0x58 last    → STOP, Done</text>
   <text x="658" y="320" class="mono">NACK, error  → STOP, Error</text>
-  <text x="658" y="346" class="sub">Measured: ~9 interrupts per 6-byte</text>
+  <text x="658" y="346" class="sub">11 interrupts per 6-byte register</text>
   <text x="658" y="364" class="sub">read, 1.40-1.43 µs each</text>
 
   <!-- hooks -->

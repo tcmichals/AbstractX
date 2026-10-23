@@ -1,27 +1,59 @@
-# MicroPython on the E906, With AbstractX Underneath
+# Python on a Hidden RISC-V Core: MicroPython on the Allwinner T527's E906, With AbstractX Underneath
 
-## Scripting a real-time coprocessor on the Radxa Cubie A5E, with Linux beside it and Studio on the PC
+## Part 5 of *Bringing Up Heterogeneous RISC-V on Allwinner SoCs* (Radxa Cubie A5E)
 
-The Allwinner T527 on the Radxa Cubie A5E has Cortex-A55 cores that run Linux
-and a XuanTie E906 RISC-V core that Linux does not use. AbstractX runs on that
-E906 as bare-metal firmware, and that firmware hosts a MicroPython prompt. You
-can type `abstractx.i2c_read(0x1E, 0x0A, 3)` and get an answer from a compass
-on the 40-pin header without rebuilding anything, while Linux carries on and
-Studio on your PC shows what the E906 is doing with its time.
+Inside the Allwinner T527 on the Radxa Cubie A5E there is a second processor
+that Linux never uses: a 200 MHz XuanTie E906 RISC-V core with 192 KB of fast
+on-chip SRAM. In this article you type a line of Python on your PC, and that
+core reads a compass over I²C and answers in about 55 ms, while a GPS stream
+keeps flowing through it, Linux carries on on the ARM cores, and a live
+profiler on your screen shows which source line the E906 is spending its time
+on.
 
-This article describes that setup: what runs where, why the work is split this
-way, how a script reaches the hardware, where everything sits in memory, how to
-get a prompt, a step-by-step session from first command to Studio, what was
-measured on the board, and what does not work yet.
+![AbstractX Studio's CPU tab, live: busy percentage, the coroutine table and per-interrupt costs updating once a second from the E906](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cpu.gif)
 
-> **The one-line takeaway:** the script is the experiment; AbstractX is the part that stays.
+*Live from the board: once a second the E906 reports how busy it is, which coroutine used the time, and what each interrupt line costs.*
+
+### In short
+
+If you have not read the earlier parts, here is the whole picture in six lines:
+
+1. **The chip has two worlds.** Eight ARM Cortex-A55 cores run Linux. A small
+   RISC-V core (the E906) sits beside them and is free for real-time work:
+   reading sensors, timing, motor control.
+2. **Linux starts the RISC-V core** (`remoteproc`, Part 2) and talks to it
+   through shared memory and a hardware mailbox (`RPMsg`, Part 3).
+3. **AbstractX is the firmware on that core**: an event loop built on C++20
+   coroutines, with interrupt-driven drivers and no heap (Part 4).
+4. **MicroPython runs inside AbstractX as one coroutine**, so you can poke
+   real hardware from a prompt in seconds instead of rebuilding firmware.
+5. **AbstractX Studio on your PC** shows what the core is doing: CPU per
+   coroutine, cost per interrupt, a per-line profiler and a timeline, plus a
+   Python prompt that runs on the board.
+6. **The point:** explore and measure in Python, then move only the hot loop
+   to C++ on the same drivers. The script is the experiment; AbstractX is the
+   part that stays.
+
+### Where this fits in the series
+
+| Part | Topic | Where |
+|---|---|---|
+| 1 | The T527's hidden RISC-V core: architecture, boot, memory map | [Hackster](https://www.hackster.io/MichalsTC/unlocking-the-xuantie-risc-v-core-on-allwinner-t527-part-1-976063) |
+| 2 | The Linux `remoteproc` driver that loads and starts the E906, and a hardware test suite | [Hackster](https://www.hackster.io/MichalsTC/bringing-up-heterogeneous-risc-v-on-allwinner-socs-part-2-53deb8) |
+| 3 | Linux ↔ RISC-V messaging: shared SRAM, the mailbox and RPMsg | [GitHub](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part3_baremetal_firmware_ipc_and_coroutines_intro.md) |
+| 4 | C++20 coroutines vs FreeRTOS on the bare-metal E906 | [GitHub](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md) |
+| **5** | **This article: MicroPython on AbstractX, Studio, profiling and DMA** | |
+| related | Device-tree overlays: how the board hands UART3, I²C1 and DMA channels to the E906 | [GitHub](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md) |
+| related | AbstractX from Python `asyncio` to freestanding C++20 | [GitHub](https://github.com/tcmichals/AbstractX/blob/main/docs/articles/INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md) |
+| related | The same GPS + compass as straight-line async C++ on a Pico 2 W | [GitHub](https://github.com/tcmichals/AbstractX/blob/main/docs/articles/gps-compass-straight-line-async/README.md) |
+| related | Bare metal vs FreeRTOS under AbstractX on the E906 | [GitHub](https://github.com/tcmichals/AbstractX/blob/main/docs/articles/BAREMETAL_VS_FREERTOS_E906.md) |
+
+This part reuses the RPMsg channels from Part 3 (three of them, one each for
+the Python prompt, sensor packets and trace data) and the overlay mechanism
+from the overlay article; it does not repeat how they were built.
 
 <!-- PHOTO: the Cubie A5E test bench (u-blox GPS on UART3, HMC5883L compass on TWI1, wiring to the
-40-pin header). Upload to Hackster and place it here, or add assets/bench.jpg and link it with an
-absolute raw URL like the diagrams below. -->
-
-<!-- SCREENSHOT: AbstractX Studio connected to the board (CPU tab with busy %, tasks and drivers;
-or the source view with per-line CPU %). Place it here, after the photo. -->
+40-pin header). Upload to Hackster and place it here. -->
 
 ![What runs where: Studio on the PC, bridges on Linux, the AbstractX event loop with MicroPython as one coroutine on the E906](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/what-runs-where.png)
 
@@ -640,7 +672,7 @@ on.
 
 ![Studio's CLI tab running Python on the E906 while the compass and GPS stream continues](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cli.png)
 
-*Look at the prompt lines: AbstractX commands (`ps`, `drivers`) answer from the status report, everything else is executed by MicroPython on the E906.*
+*Captured from the live board: `ps` and `drivers` answer from the E906's status report (here `repl_rx` at 7.6 % while the 100 ms sensor streamer runs), and `abstractx.version()` and `i2c_read(0x1E, 0x0A, 3)` were executed by MicroPython on the E906; `[72, 52, 51]` is `b"H43"`, the HMC5883L's ID.*
 
 ### Step 8: Watch the result in Studio
 
@@ -652,7 +684,7 @@ timeouts); the pool rows show the coroutine frame pool and dispatcher queue.
 
 ![Studio's CPU tab: busy percentage over time, the coroutine table with repl_rx, the driver table with uart3 and twi1, and pool usage](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cpu.png)
 
-*Compare the `repl_rx` row with the `uart3` and `twi1` rows: the interpreter, not the drivers, is where the time goes.*
+*Captured from the live board with the sensor streamer running: the E906 is about 8 % busy; the timer line takes about 1,000 interrupts a second (the profiler's samples), UART3 costs about 25 µs per interrupt and TWI1 about 1.5 µs. UART3's error count is GPS bytes dropped while no script was reading the port, a known gap that the UART DMA receive ring is meant to close.*
 
 Then open the **Source** view. It shows CPU time per source line and per
 function from the 1 kHz profiler, symbolised with the firmware ELF; Studio
@@ -662,7 +694,7 @@ that object's live numbers.
 
 ![Studio's source view with per-line CPU percentages from the profiler next to the E906 firmware source](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-source.png)
 
-*Look at the percentages in the margin: they are profiler samples landing on that line, so the hottest lines are where a C++ rewrite would pay off first.*
+*Captured from the live board: the hot-function table from 5 seconds of 1 kHz samples. The top line (92 %) is the E906 sleeping in its idle `wfi`; it is listed under `now_cycles()` because the symbol lookup names the innermost inlined function at that address, which is a labelling bug still to fix. The rest is MicroPython's interpreter (`qstr_find_strn`, `gc_alloc`, `mp_execute_bytecode`), each line clickable to its source.*
 
 This is step 2 of the workflow in [Why do it this way](#why-do-it-this-way):
 what the CPU tab and the source view show decides what moves to C++.
@@ -716,9 +748,11 @@ one per interrupt line, one for idle. The per-interrupt costs in the next
 section were measured from these spans
 ([`measure_isr.py`](https://github.com/tcmichals/AbstractX/blob/main/tests/board/measure_isr.py)).
 
+![Studio's timeline, animated: swimlanes for idle and each interrupt line on the E906 cycle clock, 100 ms window](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.gif)
+
 ![Studio's timeline: swimlanes for coroutine resumes, each interrupt line and idle, on the E906 cycle clock](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.png)
 
-*Look at the lanes: one per coroutine (`repl_rx` carries the script), one per interrupt line (90 UART3, 91 TWI1), and idle; span widths are the measured durations.*
+*Captured from the live board, last 100 ms: the long grey bar is the E906 idle, each tick is one interrupt (the timer and UART3 here); a coroutine gets its own lane when it runs inside the window, and lanes are named from the status report.*
 
 The profiler (256 samples) and timeline (512 spans) rings live in Space 1
 (`.sram_c`). Under load, the first version sent one packet per stream per
@@ -737,7 +771,7 @@ messages for those dates.
 | Idle-loop wakes with the profiler on | ~1 per second (was ~1,050 per second before the `wfi + 4` fix) |
 | MicroPython compass + GPS streaming script | `repl_rx` ~90 % of the CPU |
 | TWI1 (compass), per interrupt | 1.40-1.43 µs |
-| TWI1, tight compass read loop | ~16,500 interrupts/s (~9 per 6-byte read), 2.3 % CPU |
+| TWI1, tight compass read loop | ~16,500 interrupts/s, 2.3 % CPU; 11 bus steps (interrupts) per 6-byte register read by the code (the measured ~9 per read is diluted by status windows that were partly idle) |
 | UART3 GPS at 115,200 baud, before the FIFO fix | 29 interrupts/s, median and max 50 µs per interrupt |
 | UART3 after (128-byte FIFO, one level read) | median 31.4 µs, max 31.8 µs, 0.071 % CPU |
 | One UART register read from the E906 | ~0.29 µs (derived from the fix: 64 fewer `LSR` reads saved 18.6 µs) |
@@ -851,9 +885,10 @@ recorded in the [engineering log](https://github.com/tcmichals/AbstractX/blob/ma
 - **UART speed.** `APB1_CLK_REG` reads 0 on the board: APB1 runs from the
   24 MHz oscillator, so UART1-7 top out at 1.5 Mbit/s. Faster serial needs
   Linux to change the clock of the whole APB1 bus.
-- **MicroPython is expensive.** The streaming script keeps `repl_rx` at about
-  90 % of the E906. The interpreter is for bring-up and experiments; real-time
-  loops belong in C++ coroutines.
+- **MicroPython is expensive.** A tight compass and GPS loop keeps `repl_rx` at
+  about 90 % of the E906; the sensor streamer, which sleeps 100 ms per pass,
+  uses about 7.6 % (Studio's `ps`). The interpreter is for bring-up and
+  experiments; real-time loops belong in C++ coroutines.
 - **UART receive DMA is designed, not implemented.** UART3 receives by
   interrupt today. The DMA ring and its board test do not exist yet.
 - **SPI DMA.** The SPI driver still passes E906 addresses to the DMA controller
@@ -861,10 +896,9 @@ recorded in the [engineering log](https://github.com/tcmichals/AbstractX/blob/ma
 - **Script-built telemetry.** `[SPEC-E906-REPL-17]` is not implemented: Linux
   still builds the sensor TLPs, and TLPs sent with `tlp_send()` are not shown in
   Studio.
-- **Studio's profiler and timeline views.** The streams arrive on the board with
-  0 drops, and the decoders and views are tested on the host; the per-line
-  source view and the swimlanes have not been checked on screen against the
-  live board.
+- **Studio's profiler view labels idle wrongly.** The screenshots above are from
+  the live board; the hottest entry is the idle `wfi` shown under an inlined
+  helper's name. The per-line numbers themselves come from real samples.
 - **Not measured:** UART behaviour at high baud rates, overrun behaviour while
   interrupts are masked, how a lost DMA interrupt enable is detected in
   practice, and where inside the interpreter `repl_rx`'s 90 % goes.
@@ -876,5 +910,6 @@ recorded in the [engineering log](https://github.com/tcmichals/AbstractX/blob/ma
 - [E906 target specification](https://github.com/tcmichals/AbstractX/blob/main/targets/allwinner_e906/SPECIFICATION.md): memory, interrupts, RPMsg, DMA
 - [Design specification](https://github.com/tcmichals/AbstractX/blob/main/docs/DESIGN_SPECIFICATION.md): runtime status, profiler and timeline wire formats, UART configuration
 - [AbstractX Studio specification](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/SPECIFICATION.md)
+- Earlier parts: [Part 1](https://www.hackster.io/MichalsTC/unlocking-the-xuantie-risc-v-core-on-allwinner-t527-part-1-976063), [Part 2](https://www.hackster.io/MichalsTC/bringing-up-heterogeneous-risc-v-on-allwinner-socs-part-2-53deb8), [Part 3](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part3_baremetal_firmware_ipc_and_coroutines_intro.md), [Part 4](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md), [device-tree overlays](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md)
 - [Straight-Line Async: GPS + Compass with C++20 Coroutines](https://github.com/tcmichals/AbstractX/blob/main/docs/articles/gps-compass-straight-line-async/README.md)
 - [Bare Metal + AbstractX vs FreeRTOS + AbstractX on the XuanTie E906](https://github.com/tcmichals/AbstractX/blob/main/docs/articles/BAREMETAL_VS_FREERTOS_E906.md)
