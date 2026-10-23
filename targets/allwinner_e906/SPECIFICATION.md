@@ -512,7 +512,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   disable the shared DMA interrupt line. The E906 never touches the main DMAC's clock gate or
   reset (Linux owns them); the earlier `Ccu::enable_module(McuDma)` call gated the separate
   MCU_DMAC (0x07121000), not this controller.
-* **Constraint**: Linux's `sun6i_kill_tasklet()` writes 0 to both IRQ-enable registers when the
+* **Constraint**: Linux's sun6i_kill_tasklet() (kernel drivers/dma/sun6i-dma.c) writes 0 to both IRQ-enable registers when the
   driver is removed or fails to probe (`drivers/dma/sun6i-dma.c`), which disables the E906's
   channel interrupts too; the E906 must detect a lost enable (status set, no interrupt) rather
   than assume it. Descriptors and buffers are handed to the DMAC as physical
