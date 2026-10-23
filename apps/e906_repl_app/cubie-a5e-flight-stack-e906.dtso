@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: (GPL-2.0-only OR MIT)
-// @impl [SPEC-E906-ARCH-02] [SPEC-E906-IPC-04] [SPEC-GPS-01] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-ARCH-02] [SPEC-E906-IPC-04] [SPEC-GPS-01] [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 /dts-v1/;
 /plugin/;
 
@@ -244,6 +244,15 @@
         compatible = "aic,aic8800";
         status = "okay";
     };
+};
+
+/*
+ * Main DMAC (0x03002000): Linux keeps channels 0..7, the E906 owns 8..15 ([SPEC-E906-HAL-01]).
+ * The E906 routes 8..15 to itself (DMAC_IRQ_MCU_EN = 0xFF00) and away from Linux
+ * (DMAC_IRQ_CPU_EN = 0x00FF) before enabling any of their interrupts.
+ */
+&dma {
+	dma-channels = <8>;
 };
 
 &msgbox {

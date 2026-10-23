@@ -502,9 +502,20 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   FIFO of data can arrive before the reader takes it, which is always the case for continuous
   streams. FIFO transfers use the widest access the register allows (SPI: 32-bit, 4 bytes per
   access) and never busy-wait. Replaces the unmeasured thresholds (SPI 4 B, the 32 B draft).
-* **Requirement**: the E906 owns DMAC channels 8..15 at `0x03002000`, routed to CLIC line 88 by
-  `DMA_MCU_IRQ_CTRL` (`+0x38` = `0xFF00`); the E906 overlay limits Linux's `sun6i-dma` to channels
-  0..7 (`dma-channels = <8>`). Descriptors and buffers are handed to the DMAC as physical
+* **Requirement**: the E906 owns DMAC channels 8..15 at `0x03002000`; the E906 overlay limits
+  Linux's `sun6i-dma` to channels 0..7 (`dma-channels = <8>`). Interrupt routing (T527 manual
+  §2.8.6.8-9; reset value of both is `0xFFFF`, measured on the board 2026-10-22, and Linux never
+  writes them): the E906 sets `DMAC_IRQ_MCU_EN_REG` (+0x38) = `0xFF00` and clears bits 8..15 of
+  `DMAC_IRQ_CPU_EN_REG` (+0x34, i.e. `0x00FF`) **before** enabling any channel interrupt. If
+  channels 8..15 still reached the Linux CPU, `sun6i-dma`'s handler (which reads only status
+  register 0 when it has 8 channels) would see an interrupt it cannot clear and Linux could
+  disable the shared DMA interrupt line. The E906 never touches the main DMAC's clock gate or
+  reset (Linux owns them); the earlier `Ccu::enable_module(McuDma)` call gated the separate
+  MCU_DMAC (0x07121000), not this controller.
+* **Constraint**: Linux's `sun6i_kill_tasklet()` writes 0 to both IRQ-enable registers when the
+  driver is removed or fails to probe (`drivers/dma/sun6i-dma.c`), which disables the E906's
+  channel interrupts too; the E906 must detect a lost enable (status set, no interrupt) rather
+  than assume it. Descriptors and buffers are handed to the DMAC as physical
   addresses (SRAM space 0 DA `0x3FFC0000` = PA `0x07280000`, space 1 DA `0x40000000` = PA `0x072C0000`).
 * **Not implemented yet**: `dma_bench`, `da_to_pa`
 * **Rationale**: the previous thresholds (SPI/I2C 4 B, UART 32 B) were never measured; the DMA
