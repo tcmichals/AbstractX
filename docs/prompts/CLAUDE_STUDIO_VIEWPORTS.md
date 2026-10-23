@@ -26,7 +26,8 @@ AI trailers, and push `main`.
 - Test: `tests/test_visualizer_sdk.py::test_viewport_popouts_become_os_windows`.
 - Python suite: `python3 -m pytest -q tests --ignore=tests/board` -> 107 passed, 4 skipped.
 
-**Not verified yet: nobody has watched a pop-out on screen.** That is tonight's job.
+**On screen (2026-10-23, X11, Tim):** pop-out to a separate OS window and Pop In both work (3a, 3d).
+Still to check: 3b, 3c, 3e, 3f, 3g.
 
 ## Steps
 

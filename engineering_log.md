@@ -2065,3 +2065,4 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 ### 4. Implementation & Verification
 * **Code Implementation**: Tagged with `// @impl SPEC-STUDIO-01`
 * **Regression Test**: Verified via CTest / Cocotb simulation
+* **On-screen check (2026-10-23, X11)**: with viewports on by default (21ff36d), Float Canvas opens a separate OS window and Pop In docks it back (reported by Tim). Not yet checked: second monitor, size presets, tab Pop to Canvas, tab drag-out, `--no-viewports`, Wayland, Windows.
