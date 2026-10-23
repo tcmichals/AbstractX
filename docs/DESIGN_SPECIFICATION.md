@@ -90,6 +90,21 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   resume, loser completing after the caller moved on, 1000 rounds flat), `sanitizer-gate`
 * **Implementation Target**: `include/asp_coro.hpp`
 
+### `[SPEC-ARCH-12]` Repository Layout: Generic Core, Device Drivers, Applications
+* **Requirement**: `include/abstractx/` holds only target- and device-independent framework code
+  (coroutines, dispatcher, HAL interfaces, trace). Drivers for specific chips live in `drivers/`
+  (CMake target `abstractx_drivers`, headers under `drivers/include/abstractx/drivers/<kind>/`, so
+  the include path `abstractx/drivers/...` is unchanged); application logic (fusion, control) lives
+  in its app under `apps/`. Only targets that use a driver link `abstractx_drivers`.
+* **Requirement**: `drivers/` follows the same freestanding rules as `include/` (AGENTS.md §2).
+* **Rationale (2026-10-23)**: the repository audit (`docs/design/repo-file-audit.md`) found the
+  u-blox GPS, ICM-42688-P and QMC5883L drivers and the gps_imu_app attitude filter inside the
+  generic core, so every user of the framework compiled against specific sensors.
+* **Verified by**: `host-tests` (the drivers' users still build and pass: `tests/test_sitl_imu.cpp`,
+  `tests/test_sitl_gps.cpp`, `tests/test_sitl_fusion.cpp`, `sim/test_tlp_msg.cpp`,
+  `sim/test_gps_imu_coro_pool.cpp`, `examples/gps_imu_flight_node.cpp`), `spec-change-review`
+* **Implementation Target**: `drivers/CMakeLists.txt`, `CMakeLists.txt`
+
 ### `[SPEC-ARCH-10]` Wake Primitives Never Resume Inline
 * **Requirement**: `AsyncQueue::try_push` / `try_pop`, `Event::set` and `Semaphore::release` MUST NOT call
   `.resume()`. They hand the waiting handle to `Dispatcher::push()`; the waiter runs on the next
@@ -523,23 +538,23 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 * **Requirement**: Read 15-byte burst (`Temp[1..2]`, `Accel_XYZ[3..8]`, `Gyro_XYZ[9..14]`) on `DRDY` edge, convert to engineering units, and format into a 23-byte CTF `ImuSamplePayload` encapsulated in `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_IMU, payload)`.
 * **ODR & Scaling**: Gyro $\pm 2000\ \text{dps}$ ($16.4\ \text{LSB/dps}$), Accel $\pm 16g$ ($2048\ \text{LSB/g}$).
 * **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_imu_auto_dma_cocotb.py`)
-* **Implementation Target**: `include/abstractx/drivers/imu/icm42688p.hpp`
+* **Implementation Target**: `drivers/include/abstractx/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-IMU-02]` ICM-42688-P Coroutine Awaiter
 * **Requirement**: `co_await imu.next_sample_async()` suspends the calling task with zero CPU polling until the SPI DMA completes.
 * **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `sanitizer-gate`
-* **Implementation Target**: `include/abstractx/drivers/imu/icm42688p.hpp`
+* **Implementation Target**: `drivers/include/abstractx/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-GPS-01]` U-Blox UBX-NAV-PVT Binary Parser & CTF TLP Emission
 * **Requirement**: Zero-allocation streaming byte parser for UBX Class `0x01`, ID `0x07` (92-byte payload) with Fletcher-8 checksum verification, emitting a 35-byte CTF `GpsFixPayload` inside `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_GPS, payload)`.
 * **Extracted Fields**: `lat_1e7`, `lon_1e7`, `alt_msl_mm`, `ground_speed_mm_s`, `heading_1e5`, `satellites`, `fix_type`, `itow_ms`.
 * **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `sanitizer-gate`
-* **Implementation Target**: `include/abstractx/drivers/gps/ublox_gps.hpp`
+* **Implementation Target**: `drivers/include/abstractx/drivers/gps/ublox_gps.hpp`
 
 ### `[SPEC-GPS-02]` U-Blox GPS Coroutine Awaiter & TLP Emission
 * **Requirement**: `co_await gps.next_fix_async()` yields until a verified 3D fix frame is parsed, emitting `Tlp64` containing the full CTF navigation payload.
 * **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `sanitizer-gate`
-* **Implementation Target**: `include/abstractx/drivers/gps/ublox_gps.hpp`
+* **Implementation Target**: `drivers/include/abstractx/drivers/gps/ublox_gps.hpp`
 
 ---
 

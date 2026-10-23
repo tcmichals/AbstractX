@@ -121,7 +121,7 @@ Total boot time is bounded by $\max(T_{\text{imu}}, T_{\text{gps}}, T_{\text{mag
 
 ## 4. Multi-Target Silicon Execution Invariants
 
-The application code in `src/main.cpp` and `include/abstractx/fusion/attitude_filter.hpp` satisfies the following strict hardware invariants across all target platforms:
+The application code in `src/main.cpp` and `include/attitude_filter.hpp` satisfies the following strict hardware invariants across all target platforms:
 
 | Silicon Target | Architecture | Core Allocation | FPU Execution | Memory Footprint |
 | :--- | :--- | :--- | :--- | :--- |

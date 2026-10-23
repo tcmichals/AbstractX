@@ -46,6 +46,12 @@ add_abstractx_cpputest(test_sitl_fusion
     test_main.cpp
     test_sitl_fusion.cpp
 )
+target_include_directories(test_sitl_fusion PRIVATE ${CMAKE_SOURCE_DIR}/apps/gps_imu_app/include)
+
+# Chip drivers live outside the core ([SPEC-ARCH-12])
+foreach(t test_sitl_imu test_sitl_gps test_sitl_fusion)
+    target_link_libraries(${t} PRIVATE abstractx_drivers)
+endforeach()
 
 add_abstractx_cpputest(test_sitl_serial_loopback
     test_main.cpp

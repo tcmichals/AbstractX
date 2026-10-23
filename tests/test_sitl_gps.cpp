@@ -1,4 +1,4 @@
-// @verifies [SPEC-HAL-03] [SPEC-GPS-01] [SPEC-GPS-02] include/abstractx/drivers/gps/ublox_gps.hpp
+// @verifies [SPEC-HAL-03] [SPEC-GPS-01] [SPEC-GPS-02] drivers/include/abstractx/drivers/gps/ublox_gps.hpp
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later

@@ -2107,3 +2107,31 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   New code: passes in the plain, ASan and TSan builds.
 * **Not covered**: a `when_any` awaiter destroyed while the caller itself is still suspended (both
   children pending) still destroys suspended children; no code does that today.
+
+## [2026-10-23] - Traceability Auditor Did Not Scan drivers/ or src/
+
+### 1. Mistake / Bug Identification
+* **Category**: `tool-bug`
+* **Target / Subsystem**: `tools/audit_specs.py`
+* **Governing Requirements**: `[SPEC-ARCH-12]`, AGENTS.md §1.4
+* **Symptoms**: after moving the chip drivers from `include/abstractx/drivers/` to
+  `drivers/include/abstractx/drivers/`, `tests/test_spec_traceability.py` failed (45 of 46
+  requirements tagged): `[SPEC-ARCH-12]`'s tag is in `drivers/CMakeLists.txt`. The moved IMU and
+  GPS driver tags had also vanished from the report; `[SPEC-IMU-*]`/`[SPEC-GPS-*]` still showed as
+  tagged only because `apps/gps_imu_app/include/gps_imu_tasks.hpp` carries the same tags.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: `audit_specs.py` walks a fixed list of folders (`include`, `targets`, `apps`, ...) and
+  file extensions; `src/` (which has `@impl` tags in `runtime.cpp`) was never on it, and CMake files
+  were never read. A new folder silently drops out of the audit.
+* **Lesson**: a check with its own hard-coded file list goes quietly blind when the layout changes;
+  `spectrace_matrix.py` lists `git ls-files` instead and did not have this problem.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/DESIGN_SPECIFICATION.md` `[SPEC-ARCH-12]` (repository layout).
+
+### 4. Implementation & Regression Test
+* **Fix**: scan `src/` and `drivers/` too, and read `CMakeLists.txt` / `*.cmake`.
+* **Regression Test**: `tests/test_spec_traceability.py` failed with the old scan list (45 == 46)
+  and passes with the new one; the report now lists the driver headers for `[SPEC-IMU-02]` /
+  `[SPEC-GPS-02]` again.

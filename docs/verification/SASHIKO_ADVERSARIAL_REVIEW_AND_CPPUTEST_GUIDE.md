@@ -177,7 +177,7 @@ TEST(Bmp388DriverGroup, InitAsyncConfiguresRegisters) {
 ```
 
 ### Step 3: Implement the Async Driver
-Implement the driver in `include/abstractx/drivers/baro/bmp388.hpp`. Use the reference template established in `include/abstractx/drivers/imu/icm42688p.hpp`:
+Implement the driver in `drivers/include/abstractx/drivers/baro/bmp388.hpp`. Use the reference template established in `include/abstractx/drivers/imu/icm42688p.hpp`:
 - Only accept `hal::ISpi&` or `hal::II2c&` in constructor.
 - Provide `read_reg_async()` and `write_reg_async()`.
 - Implement `init_async()` returning `coro::Task<bool>`.

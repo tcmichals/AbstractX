@@ -44,11 +44,14 @@ def run_traceability_audit(spec_file=None, root_dir=None):
                 }
 
     # 2. Scan codebase for @impl tags
-    scan_dirs = ["include", "targets", "apps", "examples", "sim", "tools", "rtl", "hw", "trace"]
+    # drivers/ and src/ were missing until 2026-10-23: tags in them were silently not counted
+    # (engineering_log.md 2026-10-23, [SPEC-ARCH-12]).
+    scan_dirs = ["include", "src", "drivers", "targets", "apps", "examples", "sim", "tools", "rtl", "hw", "trace"]
     valid_exts = {
         ".hpp", ".cpp", ".h", ".c", ".S", ".s", ".sv", ".py", ".xdc",
-        ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml",
+        ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml", ".cmake",
     }
+    valid_names = {"CMakeLists.txt"}
     skip_dirs = {"build", "bld", ".git", "dl", "venv", ".system_generated"}
 
     for s_dir in scan_dirs:
@@ -60,7 +63,7 @@ def run_traceability_audit(spec_file=None, root_dir=None):
             dirs[:] = [d for d in dirs if d not in skip_dirs]
             for file_name in files:
                 file_path = Path(root) / file_name
-                if file_path.suffix not in valid_exts:
+                if file_path.suffix not in valid_exts and file_name not in valid_names:
                     continue
                 rel_path = file_path.relative_to(root_dir)
                 try:

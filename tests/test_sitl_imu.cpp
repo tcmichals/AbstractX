@@ -18,7 +18,7 @@
 using namespace abstractx;
 using namespace abstractx::drivers::imu;
 
-// @verifies [SPEC-HAL-02] [SPEC-IMU-01] [SPEC-IMU-02] include/abstractx/drivers/imu/icm42688p.hpp
+// @verifies [SPEC-HAL-02] [SPEC-IMU-01] [SPEC-IMU-02] drivers/include/abstractx/drivers/imu/icm42688p.hpp
 class MockSpi : public hal::ISpi {
 public:
     bool init(const hal::SpiConfig& config) override {

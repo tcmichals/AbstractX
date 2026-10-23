@@ -11,7 +11,7 @@
 
 #undef new
 #undef delete
-#include "abstractx/fusion/attitude_filter.hpp"
+#include "attitude_filter.hpp"
 #include "CppUTest/MemoryLeakDetectorNewMacros.h"
 
 using namespace abstractx;

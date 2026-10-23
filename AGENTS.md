@@ -48,7 +48,7 @@ the tools that check it, are getting better. Details:
 ---
 
 ## 2. Freestanding C++20 Invariants (Zero Heap & No STL Containers)
-All code under `include/`, `apps/`, and `targets/` must remain freestanding-compatible for bare-metal dual-core MCUs:
+All code under `include/`, `drivers/`, `apps/`, and `targets/` must remain freestanding-compatible for bare-metal dual-core MCUs:
 * **Strictly Prohibited Headers & Calls**:
   - `<iostream>`, `<mutex>`, `<thread>`, `<condition_variable>`, `<vector>`, `<list>`, `<map>`, `<queue>`, `<string>`.
   - `operator new`, `operator delete`, `malloc()`, `free()`.

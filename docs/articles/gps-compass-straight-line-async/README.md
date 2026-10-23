@@ -85,9 +85,9 @@ requirements and the sensor breakout's I²C pull-ups before connecting power.
 *The diagram shows GPIO numbers; use the pin list above to find physical header pins. All devices must share ground.*
 
 The QMC5883L driver is in
-[`include/abstractx/drivers/mag/qmc5883l.hpp`](https://github.com/tcmichals/AbstractX/blob/main/include/abstractx/drivers/mag/qmc5883l.hpp),
+[`drivers/include/abstractx/drivers/mag/qmc5883l.hpp`](https://github.com/tcmichals/AbstractX/blob/main/drivers/include/abstractx/drivers/mag/qmc5883l.hpp),
 and the GPS parser/driver is in
-[`include/abstractx/drivers/gps/ublox_gps.hpp`](https://github.com/tcmichals/AbstractX/blob/main/include/abstractx/drivers/gps/ublox_gps.hpp).
+[`drivers/include/abstractx/drivers/gps/ublox_gps.hpp`](https://github.com/tcmichals/AbstractX/blob/main/drivers/include/abstractx/drivers/gps/ublox_gps.hpp).
 The Pico target's peripheral pin assignments are documented in its
 [hardware specification](https://github.com/tcmichals/AbstractX/blob/main/targets/pico2w_rp2350/SPECIFICATION.md).
 

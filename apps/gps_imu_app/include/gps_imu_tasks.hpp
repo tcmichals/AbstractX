@@ -15,7 +15,7 @@
 #include "abstractx/drivers/imu/icm42688p.hpp"
 #include "abstractx/drivers/gps/ublox_gps.hpp"
 #include "abstractx/drivers/mag/qmc5883l.hpp"
-#include "abstractx/fusion/attitude_filter.hpp"
+#include "attitude_filter.hpp"
 #include <cstdio>
 
 using namespace abstractx;

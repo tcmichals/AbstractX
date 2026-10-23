@@ -61,6 +61,10 @@ endif()
 # 3. Hardware Abstraction Layer & Target BSPs
 add_subdirectory(targets)
 
+# Chip drivers outside the generic core ([SPEC-ARCH-12])
+# @impl [SPEC-ARCH-12] docs/DESIGN_SPECIFICATION.md
+add_subdirectory(drivers)
+
 
 # 3. Applications & Deployable Binaries
 add_subdirectory(apps)

@@ -11,6 +11,7 @@ add_abstractx_sim(test_baremetal_isr_spsc   test_baremetal_isr_spsc.cpp)
 add_abstractx_sim(test_spsc_channel_array   test_spsc_channel_array.cpp)
 add_abstractx_sim(test_halo_worker_pool     test_halo_worker_pool.cpp)
 add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
+target_link_libraries(test_tlp_msg PRIVATE abstractx_drivers)
 add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 # [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results
 add_abstractx_sim(test_linux_hal_completion test_linux_hal_completion.cpp)
@@ -22,6 +23,7 @@ add_abstractx_sim(test_runtime_stats      test_runtime_stats.cpp)
 add_abstractx_sim(test_event_trace        test_event_trace.cpp)
 add_abstractx_sim(test_gps_imu_coro_pool   test_gps_imu_coro_pool.cpp)
 target_include_directories(test_gps_imu_coro_pool PRIVATE ${PROJECT_SOURCE_DIR}/apps/gps_imu_app/include)
+target_link_libraries(test_gps_imu_coro_pool PRIVATE abstractx_drivers)
 
 # E906 RPMsg core and trace transport, run on the host against fake vrings
 # and a fake message box ([SPEC-E906-IPC-04]).

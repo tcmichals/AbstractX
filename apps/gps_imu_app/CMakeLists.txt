@@ -15,6 +15,7 @@ target_include_directories(gps_imu_app PRIVATE
 
 target_link_libraries(gps_imu_app PRIVATE
     abstractx_core
+    abstractx_drivers
     etl
 )
 

@@ -529,12 +529,12 @@ class TelemetryState:
     def _seed_initial_trace_events(self):
         seeds = [
             (12.4, "Core 0", "boot_async()", "main()", "ARM64 supervisor boot: SPSC rings ready", 0.0, "apps/gps_imu_app/src/main.cpp", 34),
-            (24.8, "Core 1", "init_async()", "ublox_gps.init()", "UART0 DMA receiver registered @ 115200", 12.5, "include/abstractx/drivers/gps/ublox_gps.hpp", 55),
+            (24.8, "Core 1", "init_async()", "ublox_gps.init()", "UART0 DMA receiver registered @ 115200", 12.5, "drivers/include/abstractx/drivers/gps/ublox_gps.hpp", 55),
             (36.1, "SPU", "CONFIG_DMA", "asp_router.sv", "AXI-Stream TLP switch crossbar mapped to 0x40000100", 0.8, "sim/cocotb/test_asp_sys_regs_cocotb.py", 80),
             (48.2, "Core 1", "when_all()", "coro::when_all()", "Parallel peripheral boot complete (105 ms)", 0.4, "apps/gps_imu_app/src/main.cpp", 167),
-            (62.5, "ISR", "DMA_DONE", "spi0_dma_isr()", "14B ICM-42688-P burst latched -> g_sensor_ring", 0.8, "include/abstractx/drivers/imu/icm42688p.hpp", 54),
+            (62.5, "ISR", "DMA_DONE", "spi0_dma_isr()", "14B ICM-42688-P burst latched -> g_sensor_ring", 0.8, "drivers/include/abstractx/drivers/imu/icm42688p.hpp", 54),
             (74.0, "Core 1", "co_await", "imu_pipeline()", "co_await g_sensor_ring.pop() -> resumed", 1.2, "apps/gps_imu_app/src/main.cpp", 42),
-            (88.3, "Core 1", "resume()", "attitude_ekf()", "Mahony quaternion kinematics updated", 4.5, "include/abstractx/fusion/attitude_filter.hpp", 88),
+            (88.3, "Core 1", "resume()", "attitude_ekf()", "Mahony quaternion kinematics updated", 4.5, "apps/gps_imu_app/include/attitude_filter.hpp", 88),
             (99.1, "Core 1", "yield", "flight_control()", "Quad-X motor demands dispatched", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
             (112.0, "Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e906/main.cpp", 47),
             (125.4, "Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
@@ -1267,9 +1267,9 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                 us_now = float((time.time() % 1000) * 1e4)
                 trace_pool = [
                     ("Core 1", "co_await", "imu_pipeline()", "co_await g_sensor_ring.pop()", 1.2, "apps/gps_imu_app/src/main.cpp", 42),
-                    ("Core 1", "resume()", "attitude_ekf()", "attitude_ekf.update(gyro, accel)", 4.5, "include/abstractx/fusion/attitude_filter.hpp", 88),
+                    ("Core 1", "resume()", "attitude_ekf()", "attitude_ekf.update(gyro, accel)", 4.5, "apps/gps_imu_app/include/attitude_filter.hpp", 88),
                     ("Core 1", "yield", "flight_control()", "quad_mixer.compute_demands(tau)", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
-                    ("SPU", "DMA_BURST", "spi_dma_burst()", "Burst 14B from ICM42688P (SPI0)", 0.8, "include/abstractx/drivers/imu/icm42688p.hpp", 54),
+                    ("SPU", "DMA_BURST", "spi_dma_burst()", "Burst 14B from ICM42688P (SPI0)", 0.8, "drivers/include/abstractx/drivers/imu/icm42688p.hpp", 54),
                     ("Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e906/main.cpp", 47),
                     ("Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
                 ]
