@@ -515,6 +515,37 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 
 ---
 
+
+### `[SPEC-E906-HAL-02]` UART Receive Is Always Circular DMA into 4 Buffers
+* **Decision (project owner, 2026-10-22)**: every UART receive uses DMA at every baud rate; there is
+  no interrupt-per-FIFO receive path in production (a receive stream is always larger than the
+  FIFO, [SPEC-E906-HAL-01]). Rationale with board numbers: one UART register read costs ~0.29 us,
+  so interrupt receive costs ~0.5 us per byte (~5 % CPU at 1 Mbit/s, ~25 % at 5 Mbit/s,
+  estimated) and leaves under 1 ms before an overrun above 1 Mbit/s.
+* **Requirement (ring)**: 4 receive buffers in SRAM Space 1 (`.sram_c`), linked as a circular DMA
+  descriptor chain (descriptor 3 links to descriptor 0) on one E906 DMAC channel (8..15),
+  source = the UART's RX DRQ (UART3: port 17), destination = memory, byte-wide. Buffer size is
+  set when the port is opened; **default 64 B** (256 B ring: 2,340 wakes/s and 1.7 ms of slack at
+  1.5 Mbit/s, today's maximum with APB1 = 24 MHz); 512 B for multi-Mbit/s links (5 Mbit/s: ~980
+  wakes/s, 4 ms). Each buffer's "package end" interrupt hands the full buffer to the reader.
+* **Requirement (end of frame)**: the UART runs in DMA1 mode with `UART_DMA_REQ_EN` = RX + DMA
+  timeout (bit 2), so bytes left in the FIFO at the end of a frame are moved by DMA; the RX-timeout
+  interrupt then reads `DMAC_CUR_DEST_REG` (+0x114 + N*0x40) and hands the partly filled buffer's
+  new bytes to the reader. A frame is delivered within 4 character times plus the interrupt,
+  whatever the buffer size.
+* **Requirement (overrun)**: if the DMA laps a buffer the reader has not released (detected with
+  `DMAC_PKG_NUM_REG`, +0x130 + N*0x40), the overwritten bytes are counted as dropped, never
+  delivered as data. UART line errors (overrun, framing, parity, break) are taken from the
+  line-status interrupt and counted per port.
+* **Requirement (reader)**: the reader is a coroutine that awaits "bytes available" and gets spans
+  into the ring (no copy), then releases them; MicroPython's `uart_read` copies from the same spans.
+  For measurement only, `abstractx.uart_dma(False)` switches a port back to the interrupt receive
+  path, so DMA and interrupt receive can be compared on the same stream.
+* **Depends on**: E906 DMA working ([SPEC-E906-HAL-01]: physical addresses, CLIC line 88 via
+  `DMAC_IRQ_MCU_EN_REG` (+0x38), channels 8..15 owned by the E906 through the overlay).
+* **Verified by**: `e906-board-selftest` (GPS stream on UART3: no drops, per-wake cost from the
+  timeline, DMA vs interrupt comparison)
+* **Implementation Target**: `targets/allwinner_e906/src/dma.cpp`, `targets/allwinner_e906/src/uart.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`
 ## 7. Binary Telemetry & Observability (`SPEC-E906-TRACE`)
 
 
