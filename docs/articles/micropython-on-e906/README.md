@@ -9,9 +9,10 @@ can type `abstractx.i2c_read(0x1E, 0x0A, 3)` and get an answer from a compass
 on the 40-pin header without rebuilding anything, while Linux carries on and
 Studio on your PC shows what the E906 is doing with its time.
 
-This article describes that setup: what runs where, how a script reaches the
-hardware, where everything sits in memory, how to get a prompt, what Studio
-shows, what was measured on the board, and what does not work yet.
+This article describes that setup: what runs where, why the work is split this
+way, how a script reaches the hardware, where everything sits in memory, how to
+get a prompt, a step-by-step session from first command to Studio, what was
+measured on the board, and what does not work yet.
 
 > **The one-line takeaway:** the script is the experiment; AbstractX is the part that stays.
 
@@ -58,7 +59,32 @@ The [E906 app README](https://github.com/tcmichals/AbstractX/blob/main/apps/e906
 (§2 and §6) covers the overlays and how to switch between the Linux and E906
 profiles.
 
-## Why MicroPython, and why AbstractX underneath it
+## Why do it this way
+
+![The workflow: explore the hardware at the MicroPython prompt, measure with AbstractX Studio, then keep the hot loop as a C++20 coroutine, with AbstractX owning interrupts, drivers, memory, RPMsg and measurement underneath all three steps](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/why-this-way.png)
+
+*Read it left to right: Python finds out what the hardware does, Studio shows what it costs, C++ keeps what is worth keeping. The bottom band is what never changes.*
+
+The workflow has three steps, and the firmware underneath them does not change
+between them:
+
+1. **Explore at the prompt.** Type a line, see what the hardware answers, type
+   the next one. There is no rebuild and no remoteproc reload between tries.
+   This is how the test board's compass was identified (below).
+2. **Measure with Studio.** The runtime status report, the 1 kHz profiler and
+   the timeline come from the AbstractX dispatcher and interrupt layer, not from
+   the script, so they measure whatever runs on top, the interpreter included.
+   That is how the cost of the streaming script was found: `repl_rx` at about
+   90 % of the E906, the UART3 and TWI1 handlers well under 1 %.
+3. **Keep the hot loop in C++.** Once the register sequence is known and Studio
+   shows where the time goes, the loop moves to a C++20 coroutine on the same
+   event loop, interrupt layer and RPMsg channels. The
+   [app README](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/README.md)
+   (§4) describes this path, and the
+   [`micropython-to-cpp`](https://github.com/tcmichals/AbstractX/blob/main/.agents/skills/micropython-to-cpp/SKILL.md)
+   skill maps Python constructs onto `co_await`, `Task<>` and `AsyncQueue`.
+   For the compass + GPS pair on the E906 this step has not been done yet; the
+   script below is still the code that runs.
 
 **Why MicroPython.** Bringing up sensors on a coprocessor is mostly finding out
 what the hardware actually does. With MicroPython you change a script or type a
@@ -212,6 +238,74 @@ There is no filesystem either: `open()` is not defined, and scripts arrive over
 RPMsg and are compiled in memory
 ([`[SPEC-E906-REPL-12]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)).
 
+## How a call reaches the hardware
+
+![The path of abstractx.i2c_read(0x1E, 0x03, 6): Python in repl_rx, modabstractx.c, e906_periph.cpp starting the TWI1 transfer, a wfi wait loop, one TWI1 interrupt on CLIC line 91 per bus step, and the measurement hooks along the way](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/call-path.png)
+
+*Follow the left column top to bottom; the green box on the right is what happens between the `wfi` and the wake. The amber box shows where Studio's numbers come from.*
+
+Take one compass read, `abstractx.i2c_read(0x1E, 0x03, 6)`, and follow it
+through the code:
+
+1. **Python, inside `repl_rx`.** The bytecode calls a built-in C function.
+   Whatever the script does from here on runs inside the `repl_rx` coroutine's
+   resume, which is why its CPU time is reported under that name.
+2. **[`modabstractx.c`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/modabstractx.c).**
+   `mod_abstractx_i2c_read()` converts the three arguments, caps the length at
+   256 bytes and calls `e906_twi1_xfer(addr, reg, NULL, 0, buf, len)` with a
+   buffer on its own C stack.
+3. **[`e906_periph.cpp`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/e906_periph.cpp)
+   starts the transfer.** If an earlier call was cut short by Ctrl-C and left
+   the transfer busy, it is aborted first. The request is copied into a static
+   record, `s_twi`, not the caller's stack: a Ctrl-C can unwind the caller in
+   the middle of a transfer, and the interrupt handler must never write into a
+   dead stack frame. The record is marked busy and TWI1 is told to send START.
+4. **The wait.** The caller loops in `wait_step()` until the record is no
+   longer busy or the 20 ms deadline passes. Each pass arms a timer wake at the
+   deadline, runs the VM hook (`abstractx_repl_vm_hook()`), sleeps in
+   `platform_idle_wait()` and services the status report. The sleep is the same
+   function the idle loop uses: with interrupts masked it checks that no
+   coroutine resume or RPMsg doorbell is pending, then executes `wfi` with
+   `mcycle` idle accounting around it. The loop never reads a TWI1 register.
+5. **The interrupt.** Each bus step raises TWI1's interrupt, GIC 43, which the
+   S_INTC group router delivers on CLIC line 91. `dispatch_clic_line()` counts
+   it, charges its cycles to the line and records a timeline span, then calls
+   `twi1_isr()`. The handler checks its own `INT_FLG` (the CLIC line is shared),
+   reads the status code and takes exactly one step: send the address, send the
+   register byte, send a repeated START, send the address with the read bit,
+   store a byte, or send STOP and mark the record done (or failed, on a NACK).
+6. **Back in Python.** The wait loop sees the record finished, copies the bytes
+   out and returns the count; `modabstractx.c` wraps them in a `bytes` object
+   and the bytecode carries on. On a timeout the driver sends STOP, adds one to
+   the `twi1` timeout counter and returns an error, which Python sees as `b''`.
+   That counter is the one `irq_stats()` reports as `i2c_timeouts` and the
+   status report shows as the `twi1` driver's error count.
+
+`uart_read()` is simpler: it never waits. It takes bytes from the ring that the
+UART3 handler (CLIC line 90) has already filled and returns what is there.
+`sleep_ms()` is the wait loop with no transfer: `wait_step()` until the
+deadline.
+
+**Where Studio's numbers come from** (amber box). None of these hooks is in the
+script or in `modabstractx.c`:
+
+- **Status report:** `status_service()` runs from `abstractx::step()`, from
+  every `wait_step()` and from the VM hook, so a report goes out every second
+  whether the E906 is idle, running bytecode or waiting for the bus
+  ([`[SPEC-E906-REPL-18]`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/SPECIFICATION.md)).
+- **Interrupt counts, cycles and timeline spans:** in `dispatch_clic_line()`,
+  for every line, on every return path
+  ([`[SPEC-E906-IRQ-05]`](https://github.com/tcmichals/AbstractX/blob/main/targets/allwinner_e906/SPECIFICATION.md)).
+  `e906_twi1_init()` calls `hal::irq::describe()` for line 91 with the name
+  `twi1` and the timeout counter, which is how the line gets its name and error
+  column in Studio.
+- **Profiler samples:** the core timer interrupt (CLIC line 7) records the
+  interrupted program counter at 1 kHz, wherever the E906 was: in the
+  interpreter, a handler or the `wfi`.
+- **Coroutine spans:** the dispatcher records one span per resume. A script
+  runs inside a `repl_rx` resume, so on the timeline it shows up as `repl_rx`
+  spans, with the TWI1 and UART3 interrupt spans on their own lanes.
+
 ## Memory layout
 
 ![E906 memory: hot firmware in SRAM Space 0, cold compiler code and trace rings in the lower half of Space 1, Linux RPMsg pool in the upper half, MicroPython heap in DSP RAM](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/memory-layout.png)
@@ -330,6 +424,249 @@ then `python3 tools/visualizer/abstractx_studio.py --auto-connect` on the PC
 `e906_rpmsg_bridge.py trace` over ssh, and both exit when their ssh session
 closes.
 
+## Using MicroPython on the E906, step by step
+
+This is one session from an empty prompt to the compass and GPS in Studio. It
+assumes the wiring and the E906 overlay from the
+[app README](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/README.md)
+(§1, §6) and the firmware loaded as in the previous section. Every call below is
+in the module's globals table in
+[`modabstractx.c`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/modabstractx.c),
+with the argument order the C code expects.
+
+### Step 1: Get a prompt
+
+Check that the E906 is running, then open the REPL node:
+
+```bash
+# On the board
+cat /sys/class/remoteproc/remoteproc0/state          # expect: running
+grep -l abstractx-repl /sys/class/rpmsg/rpmsg*/name  # e.g. /sys/class/rpmsg/rpmsg0/name
+microcom -p /dev/rpmsg0                              # use the N from the line above
+```
+
+Or from the PC, over ssh, with no terminal program on the board:
+
+```bash
+python3 apps/e906_repl_app/linux/e906_workbench.py                  # interactive workbench
+python3 apps/e906_repl_app/linux/e906_workbench.py -c "import abstractx; print(abstractx.alive())"
+```
+
+Only one program can hold the REPL node. While Studio is connected, its
+sensor stream owns it; use Studio's CLI tab (step 7) instead of `microcom`.
+
+### Step 2: First commands
+
+```python
+>>> import abstractx
+>>> abstractx.version()        # the firmware's version string
+'AbstractX 1.0.0 (E906 MicroPython REPL)'
+>>> abstractx.alive()          # True: the module answers
+True
+>>> abstractx.irq_stats()      # interrupt lines that have fired, and how often
+```
+
+`irq_stats()` returns a dictionary. Its integer keys are CLIC line numbers that
+have fired at least once, with their counts: 7 is the core timer, 17 the
+message box that carries every RPMsg kick (so the line you just typed is in
+it), 90 UART3 and 91 TWI1 once those buses are in use. The named keys are
+`mtvec`, `spurious`, `doorbells`, `uart_dropped` and `i2c_timeouts`. Run it
+twice a few seconds apart and the difference is the interrupt rate.
+
+`abstractx.cycles()` reads `mcycle` (200 MHz) and `abstractx.ticks_ms()` is
+derived from it. For registers, `peek_hex(addr)` returns all 32 bits as a
+string; `peek(addr)` returns an integer with the top two bits cleared, so it
+cannot show bit 30 or 31.
+
+### Step 3: Find and identify the compass
+
+```python
+>>> abstractx.i2c_init(400000)                   # TWI1 at 400 kHz; True when the interrupt is attached
+>>> abstractx.i2c_scan()                         # addresses that ACK; 0x1E shows as 30
+>>> bytes(abstractx.i2c_read(0x1E, 0x0A, 3))     # prints the three ID bytes: b'H43' on an HMC5883L
+```
+
+`i2c_read(addr, reg, n)` returns `b''` on a NACK or after the 20 ms timeout,
+and `i2c_write(addr, reg, data)` takes `bytes` and returns the number of bytes
+written (0 on failure). Once the ID reads `H43`, set the chip to continuous
+mode with the same three writes that
+[`raw_sensor_streamer.py`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/raw_sensor_streamer.py)
+uses:
+
+```python
+abstractx.i2c_write(MAG_HMC, 0x00, b"\x70")  # CRA: 8-sample average, 15 Hz
+abstractx.i2c_write(MAG_HMC, 0x01, b"\x20")  # CRB: +-1.3 Ga
+abstractx.i2c_write(MAG_HMC, 0x02, b"\x00")  # MR: continuous
+```
+
+(`MAG_HMC` is `0x1E` in that script.) Then read the six data registers from
+`0x03`. The HMC5883L orders them X, Z, Y, each big-endian; the streamer's
+decoder is:
+
+```python
+def mag_xyz(addr, d):
+    """Signed X, Y, Z from mag_read() bytes (for headings computed on the E906)."""
+    if addr == MAG_HMC:
+        v = ((d[0] << 8) | d[1], (d[4] << 8) | d[5], (d[2] << 8) | d[3])
+    else:
+        v = (d[0] | (d[1] << 8), d[2] | (d[3] << 8), d[4] | (d[5] << 8))
+    return tuple(a - 65536 if a > 32767 else a for a in v)
+```
+
+```python
+>>> d = abstractx.i2c_read(0x1E, 0x03, 6)       # reading all six unlocks the next sample
+>>> mag_xyz(0x1E, d)                             # prints signed X, Y, Z; turn the board and repeat
+```
+
+Define `MAG_HMC = 0x1E` and the function first; a script (step 6) is the
+easiest way to do that.
+
+### Step 4: Read GPS bytes from UART3
+
+The u-blox powers up at 9600 baud. Open UART3 at that rate, let the interrupt
+handler fill its ring for half a second, and take what arrived:
+
+```python
+>>> abstractx.uart_init(9600)
+>>> abstractx.sleep_ms(500)                 # wfi; UART3 interrupts fill the ring meanwhile
+>>> raw = abstractx.uart_read(512)          # NMEA bytes; at most 512 per call
+>>> print(str(raw, "ascii"))                # bytes.decode does not exist in this build
+```
+
+`uart_read` never waits: it returns what the ring holds, possibly `b''`. To
+move the receiver to 115,200 baud, the streamer sends the u-blox a `UBX-CFG-PRT`
+message at 9600 baud and then changes its own divisor. Quoted from
+`raw_sensor_streamer.py`:
+
+```python
+abstractx.uart_init(9600)
+abstractx.sleep_ms(40)
+
+# UBX-CFG-PRT: Elevate UART to 115200 baud (0x0001C200)
+prt_cmd = bytes([
+    0xB5, 0x62, 0x06, 0x00, 0x14, 0x00,
+    0x01, 0x00, 0x00, 0x00,
+    0xD0, 0x08, 0x00, 0x00,
+    0x00, 0xC2, 0x01, 0x00,
+    0x07, 0x00, 0x03, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+    0x64, 0x7A
+])
+abstractx.uart_write(prt_cmd)
+abstractx.sleep_ms(50)
+
+# Switch XuanTie E906 UART3 divisor to 115200 baud
+abstractx.uart_init(115200)
+abstractx.sleep_ms(50)
+```
+
+At 115,200 baud the GPS can deliver more than 512 bytes between two reads, so
+the streamer drains the ring in a loop until a call returns less than 512
+bytes. An earlier version read at most 128 bytes per 100 ms tick, the ring
+overflowed and NMEA sentences arrived garbled (engineering log, 2026-10-21). Bytes the ring had no room for are
+counted in `irq_stats()['uart_dropped']`.
+
+### Step 5: Sleep and time things
+
+`abstractx.sleep_ms(ms)` sleeps in `wfi` until a timer interrupt at the
+deadline, running the VM hook on every wake, so RPMsg, Ctrl-C and the status
+report keep working while a script sleeps. To time a call from Python:
+
+```python
+>>> t0 = abstractx.cycles()
+>>> d = abstractx.i2c_read(0x1E, 0x03, 6)
+>>> abstractx.cycles() - t0                 # mcycle ticks at 200 MHz; divide by 200 for µs
+```
+
+That figure includes the interpreter's own work around the call. For the
+handlers alone, use Studio's timeline, which is where the 1.40-1.43 µs per TWI1
+interrupt in [Measured on the board](#measured-on-the-board) came from.
+
+### Step 6: Run a script file
+
+Typing gets slow after a few lines. Put the same calls in a file on the PC,
+for example `my_probe.py`:
+
+```python
+import abstractx
+
+MAG_HMC = 0x1E
+abstractx.i2c_init(400000)
+print(bytes(abstractx.i2c_read(MAG_HMC, 0x0A, 3)))
+abstractx.i2c_write(MAG_HMC, 0x02, b"\x00")      # continuous
+for i in range(20):
+    print(abstractx.i2c_read(MAG_HMC, 0x03, 6))
+    abstractx.sleep_ms(100)
+```
+
+Copy it to the board and run it with
+[`run_e906_script.py`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/run_e906_script.py),
+which sends it through raw REPL mode in 256-byte chunks and prints what the
+script prints:
+
+```bash
+# PC
+scp -O my_probe.py root@192.168.3.3:/root/
+# Board, in /root
+python3 run_e906_script.py my_probe.py 30    # stop after 30 s
+```
+
+The E906 has no filesystem, so the script is compiled from the text the runner
+sends; `import` of your own modules does not work. Ctrl-C in the runner stops
+the script on the E906 with a `KeyboardInterrupt`.
+
+### Step 7: Python beside the sensor stream, from Studio's CLI tab
+
+Connect Studio (`python3 tools/visualizer/abstractx_studio.py --auto-connect`
+on the PC, after the one-time setup in app README §8.1). The sensor stream
+starts, and the **CLI** tab talks to the same MicroPython that runs it. In its
+default AbstractX mode:
+
+| Type | What happens |
+| :--- | :--- |
+| `help` | The command list |
+| `ps` (or `tasks`) | Coroutine table from the latest status report: CPU %, resumes per second, longest resume |
+| `drivers` | Interrupt lines from the latest status report: interrupts per second, ISR %, errors |
+| `peek 0x02500C7C` | Runs `abstractx.peek_hex(0x02500C7C)` on the board (UART3's status register) |
+| `poke <addr> <val>` | Runs `abstractx.poke(addr, val)` on the board |
+| `ping` | CLI round trip to the board's MicroPython |
+| `mode micropython` | From here on every line runs as Python; `exit` switches back |
+| anything else | Runs on the board as Python, e.g. `abstractx.irq_stats()` |
+
+Python typed here runs in a namespace that is kept between commands, with
+`abstractx` already imported, so `d = abstractx.i2c_read(0x1E, 0x03, 6)` on one
+line and `d` on the next works. An exception is printed and the stream carries
+on.
+
+![Studio's CLI tab running Python on the E906 while the compass and GPS stream continues](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cli.png)
+
+*Look at the prompt lines: AbstractX commands (`ps`, `drivers`) answer from the status report, everything else is executed by MicroPython on the E906.*
+
+### Step 8: Watch the result in Studio
+
+Leave the stream running and open the **CPU** tab. The busy % plot is the
+whole E906. The coroutine table shows `repl_rx` (your script and the
+interpreter), `rpmsg_rx` and `repl_tx`; the driver table shows `uart3` and
+`twi1` with their interrupt rates and error counters (RX bytes dropped, I²C
+timeouts); the pool rows show the coroutine frame pool and dispatcher queue.
+
+![Studio's CPU tab: busy percentage over time, the coroutine table with repl_rx, the driver table with uart3 and twi1, and pool usage](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cpu.png)
+
+*Compare the `repl_rx` row with the `uart3` and `twi1` rows: the interpreter, not the drivers, is where the time goes.*
+
+Then open the **Source** view. It shows CPU time per source line and per
+function from the 1 kHz profiler, symbolised with the firmware ELF; Studio
+checks that the ELF is the one the board runs. Lines that name a coroutine or
+a driver, such as `spawn(task, "repl_rx")` or `describe(line, "uart3")`, carry
+that object's live numbers.
+
+![Studio's source view with per-line CPU percentages from the profiler next to the E906 firmware source](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-source.png)
+
+*Look at the percentages in the margin: they are profiler samples landing on that line, so the hottest lines are where a C++ rewrite would pay off first.*
+
+This is step 2 of the workflow in [Why do it this way](#why-do-it-this-way):
+what the CPU tab and the source view show decides what moves to C++.
+
 ## Observability: status, profiler, timeline
 
 Because every coroutine resume goes through `Dispatcher::process()`, the
@@ -378,6 +715,10 @@ the shared cycle clock. Studio draws them as swimlanes: one lane per coroutine,
 one per interrupt line, one for idle. The per-interrupt costs in the next
 section were measured from these spans
 ([`measure_isr.py`](https://github.com/tcmichals/AbstractX/blob/main/tests/board/measure_isr.py)).
+
+![Studio's timeline: swimlanes for coroutine resumes, each interrupt line and idle, on the E906 cycle clock](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.png)
+
+*Look at the lanes: one per coroutine (`repl_rx` carries the script), one per interrupt line (90 UART3, 91 TWI1), and idle; span widths are the measured durations.*
 
 The profiler (256 samples) and timeline (512 spans) rings live in Space 1
 (`.sram_c`). Under load, the first version sent one packet per stream per
