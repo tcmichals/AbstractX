@@ -233,6 +233,7 @@ Multi-viewport mode (the default) MUST make a popped-out window a real OS window
 * The size presets and sliders on a floating window resize only that window (`imgui.set_window_size`). They MUST NOT call `hello_imgui.change_window_size()`, which resizes the main Studio window. Only the status-bar "Window Size" buttons resize the main window.
 * `--demo` is an alias of `--sim`.
 * **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
+* **Tested on screen**: Ubuntu 24.04.5 LTS, X11 (2026-10-23): pop-out to a separate OS window and Pop In work. Not tested: Wayland, Windows, second monitor.
 
 ### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified Engineering Workbench
 The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, MemBrowse CI Report and CLI Console. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests. The TLP Bus Debugger ([SPEC-STUDIO-04]) and System Event Log ([SPEC-STUDIO-05]) are docked windows and MUST NOT also appear as tabs or pop-out copies: each surface is drawn once. A jump request for `tlp` or `log` shows and focuses the docked window.

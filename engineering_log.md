@@ -2065,4 +2065,4 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 ### 4. Implementation & Verification
 * **Code Implementation**: Tagged with `// @impl SPEC-STUDIO-01`
 * **Regression Test**: `tests/test_visualizer_sdk.py::test_viewport_popouts_become_os_windows` (pytest; fails on 627d1b5, passes on c61e444)
-* **On-screen check (2026-10-23, X11)**: with viewports on by default (21ff36d), Float Canvas opens a separate OS window and Pop In docks it back (reported by Tim). Not yet checked: second monitor, size presets, tab Pop to Canvas, tab drag-out, `--no-viewports`, Wayland, Windows.
+* **On-screen check (2026-10-23, Ubuntu 24.04.5 LTS, X11)**: with viewports on by default (21ff36d), Float Canvas opens a separate OS window and Pop In docks it back (reported by Tim). Not yet checked: second monitor, size presets, tab Pop to Canvas, tab drag-out, `--no-viewports`, Wayland, Windows.
