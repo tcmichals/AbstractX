@@ -15,7 +15,14 @@ shows, what was measured on the board, and what does not work yet.
 
 > **The one-line takeaway:** the script is the experiment; AbstractX is the part that stays.
 
-![What runs where: Studio on the PC, bridges on Linux, the AbstractX event loop with MicroPython as one coroutine on the E906](assets/what-runs-where.svg)
+<!-- PHOTO: the Cubie A5E test bench (u-blox GPS on UART3, HMC5883L compass on TWI1, wiring to the
+40-pin header). Upload to Hackster and place it here, or add assets/bench.jpg and link it with an
+absolute raw URL like the diagrams below. -->
+
+<!-- SCREENSHOT: AbstractX Studio connected to the board (CPU tab with busy %, tasks and drivers;
+or the source view with per-line CPU %). Place it here, after the photo. -->
+
+![What runs where: Studio on the PC, bridges on Linux, the AbstractX event loop with MicroPython as one coroutine on the E906](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/what-runs-where.png)
 
 *The three columns are three separate machines as far as software is concerned: a PC, Linux on the A55 cores, and the E906.*
 
@@ -207,7 +214,7 @@ RPMsg and are compiled in memory
 
 ## Memory layout
 
-![E906 memory: hot firmware in SRAM Space 0, cold compiler code and trace rings in the lower half of Space 1, Linux RPMsg pool in the upper half, MicroPython heap in DSP RAM](assets/memory-layout.svg)
+![E906 memory: hot firmware in SRAM Space 0, cold compiler code and trace rings in the lower half of Space 1, Linux RPMsg pool in the upper half, MicroPython heap in DSP RAM](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/memory-layout.png)
 
 The T527's E906 has no tightly coupled memory. It has two 256 KB on-chip SRAM
 windows that remoteproc can load, and AbstractX puts nothing in DRAM
