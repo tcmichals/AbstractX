@@ -95,3 +95,4 @@ add_custom_target(sim-test-all
 
 # Attach to the top level test-all target
 add_dependencies(test-all sim-test-all)
+add_abstractx_sim(test_uart_config        test_uart_config.cpp)

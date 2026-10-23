@@ -132,6 +132,31 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/uart.hpp`
 
+### `[SPEC-HAL-06]` UART Configuration by Capability: Format, Flow Control, Inter-Byte Gap
+* **Goal**: one UART API on every target; a feature is used only where the driver says the hardware
+  has it, and is refused (not faked) elsewhere.
+* **Requirement**: `UartConfig` carries baud, data bits, stop bits, parity, flow control and
+  `tx_gap_us` (idle time the transmitter inserts after every byte's stop bit). Each driver reports
+  `UartCapabilities`: maximum baud, FIFO bytes, data/stop bit and parity support, RTS/CTS, receive
+  and transmit DMA, the hardware inter-byte gap range and resolution (0 = none) and whether a write
+  completes at "transmitter empty" (last stop bit on the pin). `configure()` checks the request
+  against the capabilities first (`check_uart_config`) and returns `UartStatus::NotSupported`
+  without touching the hardware if anything is outside them. A driver that reports nothing
+  supports only 8 data bits, 1 stop bit, no parity, no flow control, no gap at its baud.
+* **Requirement**: a capability is reported only when it is verified for that chip (datasheet or
+  vendor header read, or measured); unverified features stay unsupported.
+* **Known hardware** (2026-10-22):
+
+  | Target | Inter-byte gap | Other | Source |
+  |---|---|---|---|
+  | T527 UART1-7 (E906) | `TX_DELAY` (+0xCC): 0-255 x 16 UART clocks (0.67 us steps, max 170 us at 24 MHz) | FIFO 128 B (read from `UART_FCC` on the board); 1/2 stop bits, parity, RX/TX DMA, RX DMA timeout | T527 manual V0.94 §8.19; board register read |
+  | RP2350 UART (Pico 2 W) | none (PL011 has no delay register; 2 stop bits or a PIO UART instead) | 5-8 data bits, 1-2 stop bits, parity, DMA | Pico SDK `uart.h`, `regs/uart.h` |
+  | ESP32-P4 | not verified (Espressif `tx_idle_num` / RS-485 TX delay, from memory) | not verified | none on this PC |
+  | Linux (termios) | none | stop bits, parity, RTS/CTS | termios |
+
+* **Verified by**: `host-tests` (`sim/test_uart_config.cpp`)
+* **Implementation Target**: `include/abstractx/hal/uart.hpp`
+
 ### `[SPEC-HAL-04]` Inter-Core Mailbox & Doorbell Interface
 * **Requirement**: `AsyncMailboxDriver` must handle hardware cross-core doorbells (MSGBox on Allwinner, SIO on RP2350, IPC on ESP32-P4) with `co_await notify_async()`.
 * **Implementation Target**: `include/abstractx/hal/mailbox.hpp`

@@ -516,7 +516,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 ---
 
 
-### `[SPEC-E906-HAL-02]` UART Receive Is Always Circular DMA into 4 Buffers
+### `[SPEC-E906-HAL-02]` UART Receive Is Always Circular DMA into 4 Buffers; Transmit by FIFO or DMA with a Hardware Gap
 * **Decision (project owner, 2026-10-22)**: every UART receive uses DMA at every baud rate; there is
   no interrupt-per-FIFO receive path in production (a receive stream is always larger than the
   FIFO, [SPEC-E906-HAL-01]). Rationale with board numbers: one UART register read costs ~0.29 us,
@@ -539,8 +539,18 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   line-status interrupt and counted per port.
 * **Requirement (reader)**: the reader is a coroutine that awaits "bytes available" and gets spans
   into the ring (no copy), then releases them; MicroPython's `uart_read` copies from the same spans.
-  For measurement only, `abstractx.uart_dma(False)` switches a port back to the interrupt receive
-  path, so DMA and interrupt receive can be compared on the same stream.
+  For measurement only, a MicroPython switch (planned name: abstractx.uart_dma) puts a port back on
+  the interrupt receive path, so DMA and interrupt receive can be compared on the same stream.
+* **Requirement (transmit)**: a message that fits the 128-byte FIFO is written into it in one go;
+  a larger one is sent by DMA ([SPEC-E906-HAL-01]). Either way the UART sends back-to-back unless
+  a gap is configured. The gap between bytes is the UART's own `TX_DELAY` register (+0xCC: idle
+  time after each stop bit, 0-255 units of 16 UART clocks = 0.67 us steps, max 170 us with
+  APB1 = 24 MHz); the driver converts `UartConfig::tx_gap_us` with the current UART clock and
+  reports the range in `UartCapabilities` ([SPEC-HAL-06]). Two stop bits come from `LCR`. A gap
+  longer than `TX_DELAY` allows is refused (`NotSupported`), never emulated by the driver.
+* **Requirement (transmit completion)**: a write completes when the transmitter is empty (`LSR`
+  bit 6, last stop bit on the pin), not when the FIFO is empty, so direction switching (RS-485),
+  baud changes and message gaps start after the last byte has left.
 * **Depends on**: E906 DMA working ([SPEC-E906-HAL-01]: physical addresses, CLIC line 88 via
   `DMAC_IRQ_MCU_EN_REG` (+0x38), channels 8..15 owned by the E906 through the overlay).
 * **Verified by**: `e906-board-selftest` (GPS stream on UART3: no drops, per-wake cost from the

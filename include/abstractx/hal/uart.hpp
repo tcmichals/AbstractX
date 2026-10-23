@@ -25,8 +25,50 @@ enum class UartStatus : uint8_t {
     Timeout = 1,
     FramingError = 2,
     OverrunError = 3,
-    QueueFull = 4
+    QueueFull = 4,
+    NotSupported = 5   // [SPEC-HAL-06]: the request is outside the driver's capabilities
 };
+
+// Line format, flow control and inter-byte gap ([SPEC-HAL-06]).
+// @impl [SPEC-HAL-06] docs/DESIGN_SPECIFICATION.md
+enum class UartParity : uint8_t { None = 0, Even = 1, Odd = 2 };
+enum class UartFlow : uint8_t { None = 0, RtsCts = 1 };
+
+struct UartConfig {
+    uint32_t   baud{115200};
+    uint8_t    data_bits{8};
+    uint8_t    stop_bits{1};
+    UartParity parity{UartParity::None};
+    UartFlow   flow{UartFlow::None};
+    uint32_t   tx_gap_us{0};  // idle time after every byte's stop bit (hardware gap only)
+};
+
+// What the hardware behind a driver can do; a field is set only when verified for that chip.
+struct UartCapabilities {
+    uint32_t max_baud{0};               // 0 = unknown: any baud the driver accepts
+    uint16_t fifo_bytes{0};
+    uint8_t  min_data_bits{8};
+    uint8_t  max_data_bits{8};
+    uint8_t  max_stop_bits{1};
+    bool     parity{false};
+    bool     rts_cts{false};
+    bool     rx_dma{false};
+    bool     tx_dma{false};
+    uint32_t max_tx_gap_us{0};          // 0 = no hardware inter-byte gap
+    uint32_t tx_gap_step_ns{0};         // gap resolution
+    bool     tx_done_at_line_idle{false};  // write completes when the last stop bit has left
+};
+
+// Pure check of a request against capabilities ([SPEC-HAL-06]); Ok or NotSupported.
+constexpr UartStatus check_uart_config(const UartCapabilities& caps, const UartConfig& cfg) noexcept {
+    if (cfg.baud == 0 || (caps.max_baud != 0 && cfg.baud > caps.max_baud)) return UartStatus::NotSupported;
+    if (cfg.data_bits < caps.min_data_bits || cfg.data_bits > caps.max_data_bits) return UartStatus::NotSupported;
+    if (cfg.stop_bits < 1 || cfg.stop_bits > caps.max_stop_bits) return UartStatus::NotSupported;
+    if (cfg.parity != UartParity::None && !caps.parity) return UartStatus::NotSupported;
+    if (cfg.flow != UartFlow::None && !caps.rts_cts) return UartStatus::NotSupported;
+    if (cfg.tx_gap_us > caps.max_tx_gap_us) return UartStatus::NotSupported;
+    return UartStatus::Ok;
+}
 
 /*
  * UART Transfer Result Descriptor (Output Queue element)
@@ -68,6 +110,23 @@ public:
     virtual size_t read(std::span<uint8_t> buffer) = 0;
     virtual void flush() = 0;
     virtual bool set_baud_rate(uint32_t baudrate) { (void)baudrate; return true; }
+
+    // [SPEC-HAL-06] What this driver's hardware supports; the default is plain 8N1, no gap.
+    virtual UartCapabilities capabilities() const noexcept { return {}; }
+
+    // [SPEC-HAL-06] Check against capabilities(), then apply (configuration, not I/O: no waiting).
+    UartStatus configure(const UartConfig& cfg) noexcept {
+        const UartStatus st = check_uart_config(capabilities(), cfg);
+        return st == UartStatus::Ok ? apply_config(cfg) : st;
+    }
+
+protected:
+    // Called only with a config that passed check_uart_config(); the default sets the baud.
+    virtual UartStatus apply_config(const UartConfig& cfg) noexcept {
+        return set_baud_rate(cfg.baud) ? UartStatus::Ok : UartStatus::NotSupported;
+    }
+
+public:
 
     /*
      * C++20 Coroutine Async Write Awaiter
