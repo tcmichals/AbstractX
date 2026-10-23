@@ -24,6 +24,7 @@
 
 #include "abstractx/interrupt_lock.hpp"
 #include "abstractx/domain_dispatcher.hpp"
+#include "io_status.hpp"
 
 namespace abstractx::hal {
 
@@ -103,10 +104,48 @@ public:
         return !output_queue_.empty();
     }
 
+    // [SPEC-HAL-07] Complete every queued (not yet started) request with its bus's Cancelled
+    // status: result_slot written, coroutine posted to the Dispatcher. Returns how many.
+    // @impl [SPEC-HAL-07] docs/DESIGN_SPECIFICATION.md
+    size_t cancel_pending() noexcept {
+        size_t cancelled = 0;
+        for (;;) {
+            TRequest req;
+            bool got = false;
+            {
+                InterruptGuard guard;
+                got = input_queue_.pop_from_isr(req);
+            }
+            if (!got) {
+                break;
+            }
+            complete_request(req, make_cancelled_result<TResult>());
+            ++cancelled;
+        }
+        return cancelled;
+    }
+
+    // [SPEC-HAL-07] Ask the driver to abort the in-flight request. True when the driver stopped
+    // it and completed it with Cancelled; false when nothing was in flight or the driver cannot
+    // abort (the request then completes normally).
+    bool cancel_active() noexcept {
+        InterruptGuard guard;
+        if (!hardware_busy_) {
+            return false;
+        }
+        if (abort_active_from_isr()) {
+            hardware_busy_ = false;
+            return true;
+        }
+        return false;
+    }
+
+    // [SPEC-HAL-07] Cancel queued requests, try to abort the active one, drop unclaimed results.
+    // No request is discarded without its coroutine being resumed.
     void reset_queues() noexcept {
-        input_queue_.clear();
+        (void)cancel_pending();
+        (void)cancel_active();
         output_queue_.clear();
-        hardware_busy_ = false;
     }
 
 protected:
@@ -145,6 +184,16 @@ protected:
      * Pure virtual hooks to be implemented by concrete hardware drivers
      */
     virtual void start_hardware_transfer_from_isr(const TRequest& request) noexcept = 0;
+
+    // [SPEC-HAL-07] Stop the in-flight transfer and complete it with
+    // make_cancelled_result<TResult>() through push_completion_from_isr(); return true.
+    // Called with interrupts masked. The default cannot abort: the transfer runs to completion.
+    virtual bool abort_active_from_isr() noexcept { return false; }
+
+    // Write the result to the request's slot (or the shared queue) and post its coroutine.
+    bool complete_request(const TRequest& req, const TResult& result) noexcept {
+        return push_completion_from_isr(req, result);
+    }
 
     void set_hardware_idle_from_isr() noexcept {
         InterruptGuard guard;

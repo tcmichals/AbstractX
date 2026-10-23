@@ -165,6 +165,187 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`sim/test_uart_config.cpp`)
 * **Implementation Target**: `include/abstractx/hal/uart.hpp`
 
+### `[SPEC-HAL-07]` One Status Vocabulary for Every Bus; Cancelled Requests Resume Their Coroutine
+* **Goal**: a caller handles a NACK, a timeout or a refusal the same way on SPI, I2C and UART,
+  and no request is ever lost with its coroutine suspended forever.
+* **Requirement (vocabulary)**: `IoStatus` (`include/abstractx/hal/io_status.hpp`) is the shared
+  set of outcomes. Each bus keeps its own `*Status` enum (existing numeric values unchanged, new
+  values appended) and provides `constexpr IoStatus to_io_status(<Bus>Status)`. Mapping, with the
+  nearest Linux / Zephyr return code for readers coming from those APIs:
+
+  | `IoStatus` | Meaning | SPI | I2C | UART | Linux / Zephyr |
+  |---|---|---|---|---|---|
+  | `Ok` | done | `Ok` | `Ok` | `Ok` | 0 |
+  | `QueueFull` | request queue full or a second reader; nothing was started | `QueueFull` | `QueueFull` | `QueueFull` | `-EBUSY` / `-EAGAIN` |
+  | `NotSupported` | well-formed, but outside the driver's capabilities; refused before the hardware | `NotSupported` | `NotSupported` | `NotSupported` | `-ENOTSUP` |
+  | `InvalidArgument` | malformed request (empty, mismatched lengths, bad address) | `InvalidArgument` | `InvalidArgument` | `InvalidArgument` | `-EINVAL` |
+  | `Cancelled` | cancelled or dropped before it completed | `Cancelled` | `Cancelled` | `Cancelled` | `-ECANCELED` |
+  | `Timeout` | no completion within the request's deadline | `Timeout` | `Timeout` | `Timeout` | `-ETIMEDOUT` |
+  | `NackAddress` | no device answered its address | - | `NackAddress` | - | `-ENXIO` |
+  | `NackData` | device refused a data byte | - | `NackData` | - | `-EREMOTEIO` / `-EIO` |
+  | `ArbitrationLost` | another master won the bus | - | `ArbitrationLost` | - | `-EAGAIN` |
+  | `BusError` | bus stuck or protocol error | `BusError` | `BusError` | - | `-EIO` |
+  | `DmaError` | DMA engine fault | `DmaError` | - | - | `-EIO` |
+  | `Crc` | link CRC mismatch | `CrcError` | - | - | `-EBADMSG` |
+  | `Overrun` / `Framing` / `Parity` / `Break` | UART line errors | - | - | `OverrunError` / `FramingError` / `ParityError` / `BreakError` | `TIOCGICOUNT` / `UART_RX_STOPPED` reason |
+
+* **Requirement (cancel)**: `AsyncDriverBase::cancel_pending()` completes every queued (not yet
+  started) request with its bus's `Cancelled` status through the normal completion path: the
+  result goes to the request's `result_slot` and its coroutine is posted to the `Dispatcher`
+  (never resumed inline, [SPEC-ARCH-10]). `cancel_active()` asks the driver to abort the request on
+  the hardware (`abort_active_from_isr()`); a driver that can stop the transfer completes it with
+  `Cancelled` and returns true; the default returns false and the in-flight request completes
+  normally, so a DMA never writes into a frame that has already been resumed. `reset_queues()` is
+  `cancel_pending()` + `cancel_active()` + clearing unclaimed results; it no longer discards
+  requests silently. A coroutine frame that owns a pending request MUST NOT be destroyed before
+  that request completes (AGENTS §10.3).
+* **Requirement**: the result type of every driver that calls these functions has a `status` whose
+  enum has a `Cancelled` value (checked at compile time).
+* **Rationale**: the HAL review (2026-10-22) found that `reset_queues()` cleared the queues and left
+  every queued coroutine suspended forever, and that each bus had its own partly unused error enum.
+* **Verified by**: `host-tests` (`sim/test_hal_cancel.cpp`: queued requests resume with `Cancelled`,
+  in-flight request completes or is aborted, 1000 cycles without pool or dropped-resume growth),
+  `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `include/abstractx/hal/io_status.hpp`, `include/abstractx/hal/async_driver.hpp`
+
+### `[SPEC-HAL-08]` SPI Devices and Segmented Transactions on One Bus Driver
+* **Goal (project owner, 2026-10-22)**: "I do not want to write several drivers": an IMU, a SPI
+  flash and the FPGA Dual-SPI link use the same SPI bus driver by describing their transactions.
+* **Requirement (device)**: `SpiDevice` describes one chip on the bus: chip select index, mode 0-3,
+  maximum clock, CS polarity (`cs_active_high`) and bit order (`lsb_first`). It is static data owned
+  by the device driver; the bus driver applies it at the start of each transaction (no bus-wide
+  `SpiConfig` is needed per device).
+* **Requirement (transaction)**: `co_await bus.transfer_async(const SpiDevice&, std::span<const
+  SpiSegment>)` runs one transaction and returns `SpiResult` (status, total bytes). CS is asserted
+  before the first segment and released after the last; between segments CS stays asserted unless
+  a segment sets `release_cs_after`. A `SpiSegment` has a tx span, an rx span and a lane width
+  (`SpiLanes::Single`/`Dual`/`Quad`, Linux `tx_nbits`/`rx_nbits`, Zephyr `SPI_LINES_*`):
+  * Single lane: tx only, rx only (tx clocks out `0xFF`), or full duplex with equal lengths.
+  * Dual / Quad: half duplex, exactly one of tx or rx.
+  * Malformed segments (both spans empty, unequal full-duplex lengths, tx and rx on 2/4 lanes,
+    no segments, `max_hz` 0) are refused with `InvalidArgument`.
+  The segment array and every buffer it points at live in the awaiting coroutine frame or static
+  storage until the transaction completes (AGENTS §10.3).
+* **Requirement (capabilities)**: each driver reports `SpiCapabilities`: maximum clock, FIFO bytes,
+  chip selects, supported modes, supported lane widths, CS polarity, LSB-first, CS release between
+  segments, maximum segments per transaction and DMA. `check_spi_transaction()` runs before
+  submission; a well-formed request outside the capabilities (lanes 2/4, a mode, a CS index, CS
+  active high, LSB first) completes with `SpiStatus::NotSupported` without suspending and without
+  touching the hardware. A driver that reports nothing (`max_segments == 0`, every target driver
+  today) refuses every device transaction; the legacy single-buffer API keeps working unchanged.
+* **Requirement (DMA)**: device drivers never choose DMA. The bus driver applies its target rule per
+  segment (E906: [SPEC-E906-HAL-01], larger than the FIFO = DMA, else FIFO + one completion
+  interrupt). `SpiCapabilities::dma` and `fifo_bytes` are informative only.
+* **Requirement (helpers)**: `write_then_read_async(dev, tx, rx, rx_lanes)` (two segments, CS held),
+  `read_regs_async(dev, reg, out, read_flag = 0x80)` and `write_regs_async(dev, reg, in,
+  write_mask = 0x7F)` return the full `SpiResult`. The command byte and segment array live in the
+  awaiter and are bound to the request in `await_suspend` (AGENTS §10.4c).
+* **Worked examples** (all host-tested against one fake bus driver):
+  * FPGA Dual-SPI TLP link (`docs/tier2_contracts/ASP_SPI_TRANSPORT.md` §3,
+    `rtl/spi/asp_spi_frontend.sv`): write = `{0xA1}` on 1 lane, then 64 TLP bytes on 2 lanes;
+    read = `{0xA2}` on 1 lane, then 64 bytes in on 2 lanes; 8 + 256 SCLK cycles per TLP.
+  * SPI NOR fast read: dual output `{0x3B, A23..A0, dummy}` on 1 lane, then N bytes on 2 lanes;
+    quad output `0x6B` with 4 lanes.
+  * IMU register burst: `read_regs_async(imu, 0x1D, out)` (Mode 0, 24 MHz).
+* **Verified by**: `host-tests` (`sim/test_spi_transactions.cpp`), `sanitizer-gate`
+* **Implementation Target**: `include/abstractx/hal/spi.hpp`
+
+### `[SPEC-HAL-09]` I2C Message Transfers, Distinct Errors, Timeout and Bus Recovery
+* **Requirement (messages)**: `co_await i2c.transfer_async(uint16_t address, std::span<const I2cMsg>
+  msgs, uint32_t timeout_us = kI2cDefaultTimeoutUs)` runs a list of messages in one bus transaction,
+  like Linux `i2c_transfer` / Zephyr `i2c_transfer`. An `I2cMsg` is a write (tx span) or a read (rx
+  span, `I2cFlag::Read`). The first message starts with START; each later message starts with a
+  repeated START unless it sets `I2cFlag::NoStart` (continues the previous message, same direction);
+  `I2cFlag::Stop` ends a non-last message with STOP; the last message always ends with STOP.
+* **Requirement (address)**: the address is `uint16_t`. 7-bit addresses are 0..0x7F;
+  `i2c_addr10(a)` (bit 15 set) marks a 10-bit address 0..0x3FF. Any other value is
+  `InvalidArgument`.
+* **Requirement (result)**: `I2cResult` reports the status, `msgs_done` (messages fully completed)
+  and `transferred_bytes`. Errors are distinct: `NackAddress` (address not acknowledged),
+  `NackData` (a written byte not acknowledged), `ArbitrationLost`, `Timeout` (no completion within
+  `timeout_us`, including a slave stretching SCL), `BusError`. `timeout_us == 0` is
+  `InvalidArgument`; every transfer has a deadline.
+* **Requirement (capabilities)**: `I2cCapabilities` reports maximum clock, FIFO bytes, maximum
+  messages per transfer and bytes per message, 10-bit addressing, `NoStart`, STOP between messages,
+  zero-length writes (address probe), bus recovery and DMA. `check_i2c_transfer()` runs before
+  submission and refuses with `NotSupported` (well-formed but unsupported) or `InvalidArgument`
+  (malformed), without touching the hardware. `max_msgs == 0` (every target today) refuses every
+  message transfer.
+* **Requirement (helpers)**: `read_regs_async(addr, reg, out)` = write `{reg}` + repeated START +
+  read; `write_regs_async(addr, reg, in)` = write `{reg}` + write `in` with `NoStart` when the
+  driver supports it, otherwise `{reg, in...}` built in the awaiter (at most
+  `kI2cRegWriteMax` = 32 bytes; a control-path copy, not a data path, [SPEC-ARCH-08]). Both return
+  the full `I2cResult`.
+* **Requirement (recovery)**: `co_await i2c.recover_bus_async()` clocks SCL until the slave releases
+  SDA (up to 9 pulses) and sends STOP; `Ok` when SDA is high afterwards, `BusError` otherwise,
+  `NotSupported` when the driver cannot drive the pins.
+* **Verified by**: `host-tests` (`sim/test_i2c_messages.cpp`), `sanitizer-gate`
+* **Implementation Target**: `include/abstractx/hal/i2c.hpp`
+
+### `[SPEC-HAL-10]` UART Receive: Driver-Owned Ring, Zero-Copy Spans, Drop and Line-Error Counters
+* **Goal**: the HAL form of [SPEC-E906-HAL-02], usable on every target: the receive buffer belongs
+  to the driver, the reader looks at it in place.
+* **Requirement (ring)**: `UartRxRing<BufBytes, NumBufs>` (default 64 x 4, `include/abstractx/hal/uart_rx.hpp`)
+  is the driver's receive storage: `NumBufs` contiguous buffers that a circular DMA chain fills
+  (E906) or an RX interrupt fills (targets without receive DMA). The producer (DMA "package end"
+  or RX-timeout interrupt) calls `produced_from_isr(n, end_of_frame)` after the hardware wrote
+  `n` more bytes; `end_of_frame` is set by the RX timeout so a partial frame is delivered.
+* **Requirement (reader)**: `co_await uart.read_async(min_bytes, timeout_us)` resumes when at least
+  `min_bytes` are buffered, or when an end of frame delivered at least one byte, or after
+  `timeout_us` (`Timeout`, possibly with fewer bytes; 0 = no deadline), or on `cancel_read()`
+  (`Cancelled`). It returns a `UartRxView`: up to two spans into the ring (the second after the
+  wrap point; no copy), the bytes dropped since the previous view and the line errors seen since
+  then. The reader calls `release_rx(n)` when it has parsed `n` bytes; unreleased bytes are offered
+  again by the next `read_async`. One reader per port: a second concurrent reader gets
+  `QueueFull`. A deadline needs the driver's timer hook; without it a non-zero `timeout_us` is
+  refused with `NotSupported`.
+* **Requirement (overrun)**: the hardware never stops. Bytes overwritten before the reader looked
+  at them are counted as dropped and skipped, never delivered. The buffer being filled by the DMA
+  counts as overwritten. If bytes the reader holds are overwritten before `release_rx`, `release_rx`
+  returns `OverrunError` and counts them, so the reader discards what it parsed from them.
+* **Requirement (counters)**: `rx_stats()` returns dropped bytes and the overrun, framing, parity
+  and break counts (`line_error_from_isr`), per port, since start.
+* **Requirement (transmit completion)**: `write_async` completes when the bytes have left the pin
+  only where `UartCapabilities::tx_done_at_line_idle` is set ([SPEC-HAL-06]); elsewhere it means the
+  bytes were accepted by the driver.
+* **Requirement (default)**: a driver without a ring (`rx_ring()` returns null, every target driver
+  today) answers `read_async` with `NotSupported`.
+* **Verified by**: `host-tests` (`sim/test_uart_rx_ring.cpp`: wrap, partial frame, timeout, cancel,
+  overrun, 1000-frame steady state, a producer thread for TSan), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `include/abstractx/hal/uart_rx.hpp`, `include/abstractx/hal/uart.hpp`
+
+### `[SPEC-HAL-11]` Deprecated Single-Buffer Bus APIs and Their Replacements
+* **Requirement**: the APIs below stay compiling and behave as before, so existing drivers and
+  applications keep working; new code uses the replacement, and each is removed once no target or
+  app uses it.
+
+  | Deprecated | Why | Replacement |
+  |---|---|---|
+  | SPI `transfer_dual_async`, `SpiRequest::is_dual_spi`, `tx_data_link_b`, `rx_data_link_b` | means two parallel links; no target implements it; the FPGA link is one link with 2 data lanes | `transfer_async(dev, segments)` with `SpiLanes::Dual` ([SPEC-HAL-08]) |
+  | SPI `read_reg_async`, `write_reg_async`, `transfer_reg_async` | return only the byte; `QueueFull` or a failure reads as data 0 | `read_regs_async` / `write_regs_async` returning `SpiResult` |
+  | SPI `SpiConfig::use_dma`, `dual_spi`, `SpiRequest::cs_pin`, `auto_cs`, `select()` | unread by targets, or bus-wide where the setting is per device | `SpiDevice`; the bus driver's DMA rule |
+  | I2C `transfer_async(uint8_t, tx, rx)`, `I2cRequest::slave_addr`, `use_register`, `register_offset`, `I2cConfig::ten_bit_addr` | 8-bit address makes 10-bit impossible; one write + one read only; no timeout | `transfer_async(uint16_t, msgs, timeout_us)` ([SPEC-HAL-09]) |
+  | I2C `read_reg_async` (byte only), `write_reg_async` | status dropped / one byte only | `read_regs_async` / `write_regs_async` returning `I2cResult` |
+  | UART `UartRxRequest` | never used by any driver | `read_async` ([SPEC-HAL-10]) |
+  | UART `read()`, `read_byte()` polling in coroutines | polls instead of waiting | `read_async`; the sync calls stay for pre-scheduler bring-up only (AGENTS §4) |
+
+* **Verified by**: `host-tests` (the existing users still build and pass: `tests/test_sitl_imu.cpp`,
+  `tests/test_sitl_gps.cpp`, `sim/test_gps_imu_coro_pool.cpp`), `spec-change-review`
+* **Implementation Target**: `include/abstractx/hal/spi.hpp`, `include/abstractx/hal/i2c.hpp`, `include/abstractx/hal/uart.hpp`
+
+### Bus API status per target (2026-10-22)
+
+No target driver implements [SPEC-HAL-08], [SPEC-HAL-09], [SPEC-HAL-10] or an `abort_active_from_isr`
+yet; each reports no capabilities and so refuses the new calls with `NotSupported`. Cancel of queued
+requests ([SPEC-HAL-07]) works on every target because it lives in the shared driver base.
+
+| Target | SPI transactions | I2C messages / recovery | UART receive ring | Abort in-flight |
+|---|---|---|---|---|
+| Allwinner E906 | not implemented (needs per-segment FIFO/DMA, dual I/O, CS per device) | not implemented (HAL TWI ISR not wired, review F-7) | not implemented (circular DMA, [SPEC-E906-HAL-02]) | no |
+| Pico 2 W | not implemented (dual/quad would need PIO) | not implemented | not implemented | no |
+| Linux / Zynq | not implemented (spidev `SPI_IOC_MESSAGE(n)` with `tx_nbits`/`rx_nbits`) | not implemented (`I2C_RDWR`) | not implemented | no |
+| ESP32-P4 | not implemented (no HAL SPI instance) | no I2C driver | no UART driver | no |
+
 ### `[SPEC-HAL-04]` Inter-Core Mailbox & Doorbell Interface
 * **Requirement**: `AsyncMailboxDriver` must handle hardware cross-core doorbells (MSGBox on Allwinner, SIO on RP2350, IPC on ESP32-P4) with `co_await notify_async()`.
 * **Implementation Target**: `include/abstractx/hal/mailbox.hpp`
@@ -365,7 +546,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
 ```mermaid
 graph TD
-    SPEC_ARCH["<b>Architecture</b><br/>SPEC-ARCH-01..05"] --> SPEC_HAL["<b>HAL Contracts</b><br/>SPEC-HAL-01..05"]
+    SPEC_ARCH["<b>Architecture</b><br/>SPEC-ARCH-01..05"] --> SPEC_HAL["<b>HAL Contracts</b><br/>SPEC-HAL-01..11"]
     SPEC_ARCH --> SPEC_TLP["<b>TLP Protocol</b><br/>SPEC-TLP-01..03"]
     SPEC_HAL --> SPEC_SENSORS["<b>Sensors</b><br/>SPEC-IMU-01..02<br/>SPEC-GPS-01..02"]
     SPEC_ARCH --> SPEC_TRACE["<b>Tracing & Visualizer</b><br/>SPEC-TRACE-01..03"]

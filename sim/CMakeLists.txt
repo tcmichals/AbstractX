@@ -98,3 +98,7 @@ add_custom_target(sim-test-all
 # Attach to the top level test-all target
 add_dependencies(test-all sim-test-all)
 add_abstractx_sim(test_uart_config        test_uart_config.cpp)
+add_abstractx_sim(test_spi_transactions   test_spi_transactions.cpp)
+add_abstractx_sim(test_i2c_messages       test_i2c_messages.cpp)
+add_abstractx_sim(test_hal_cancel         test_hal_cancel.cpp)
+add_abstractx_sim(test_uart_rx_ring       test_uart_rx_ring.cpp)
