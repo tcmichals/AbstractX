@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500" role="img" aria-labelledby="title desc">
+  <title id="title">What runs where: Studio on the PC, Linux on the Cortex-A55 cores, AbstractX and MicroPython on the E906</title>
+  <desc id="desc">Studio on the PC reaches the board over ssh and receives UDP on port 9870. Linux on the Cortex-A55 cores loads the E906 firmware with remoteproc and runs small Python bridges. The E906 runs the AbstractX event loop; MicroPython is one coroutine, repl_rx, inside it. Three RPMsg endpoints connect Linux and the E906: 1026 REPL text, 1024 TLPs, 1025 CTF trace.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .main { fill:#f4f7ff; font-size:17px; font-weight:800; }
+      .sub { fill:#c0cbe0; font-size:12px; }
+      .mono { fill:#e6ecfa; font-size:12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .tag { font-size:11px; font-weight:800; letter-spacing:1px; }
+      .lbl { fill:#c0cbe0; font-size:11px; }
+    </style>
+  </defs>
+  <rect width="1000" height="500" rx="22" fill="#10192c"/>
+  <text x="28" y="40" fill="#49d9f4" class="tag">WHAT RUNS WHERE • RADXA CUBIE A5E (ALLWINNER T527) + A PC</text>
+
+  <!-- PC -->
+  <rect x="24" y="64" width="222" height="372" rx="16" fill="#29213e" stroke="#b79cff" stroke-width="1.5"/>
+  <text x="42" y="94" fill="#d0bcff" class="tag">PC</text>
+  <text x="42" y="122" class="main">AbstractX Studio</text>
+  <text x="42" y="154" class="sub">CPU tab: busy %, tasks,</text>
+  <text x="42" y="171" class="sub">drivers, pools</text>
+  <text x="42" y="199" class="sub">Timeline: resumes,</text>
+  <text x="42" y="216" class="sub">interrupts, idle</text>
+  <text x="42" y="244" class="sub">Source view: profiler</text>
+  <text x="42" y="261" class="sub">samples per line</text>
+  <text x="42" y="289" class="sub">CLI: Python on the E906</text>
+  <text x="42" y="306" class="sub">beside the sensor stream</text>
+  <text x="42" y="334" class="sub">User canvas: compass,</text>
+  <text x="42" y="351" class="sub">GPS instruments</text>
+
+  <!-- PC <-> Linux -->
+  <path d="M250 180 H306" stroke="#b79cff" stroke-width="2.5"/>
+  <path d="M306 180 L296 174 V186 Z" fill="#b79cff"/>
+  <text x="278" y="170" text-anchor="middle" class="lbl">ssh</text>
+  <path d="M312 300 H256" stroke="#b79cff" stroke-width="2.5"/>
+  <path d="M250 300 L260 294 V306 Z" fill="#b79cff"/>
+  <text x="281" y="290" text-anchor="middle" class="lbl">UDP</text>
+  <text x="281" y="322" text-anchor="middle" class="lbl">:9870</text>
+
+  <!-- Linux -->
+  <rect x="314" y="64" width="246" height="372" rx="16" fill="#192940" stroke="#8ea7d8" stroke-width="1.5"/>
+  <text x="332" y="94" fill="#c4d5ff" class="tag">LINUX • CORTEX-A55 CORES</text>
+  <text x="332" y="122" class="main">Loader and bridges</text>
+  <text x="332" y="154" class="sub">remoteproc loads the E906 ELF</text>
+  <text x="332" y="171" class="sub">and announces RPMsg</text>
+  <text x="332" y="204" class="mono">run_e906_script.py</text>
+  <text x="332" y="221" class="sub">sends a script by raw REPL</text>
+  <text x="332" y="254" class="mono">board_studio_bridge.py</text>
+  <text x="332" y="271" class="sub">sensor lines, PING, CLI</text>
+  <text x="332" y="304" class="mono">e906_rpmsg_bridge.py</text>
+  <text x="332" y="321" class="sub">trace / tlp endpoints to UDP</text>
+  <text x="332" y="354" class="sub">one /dev/rpmsgN per endpoint</text>
+  <text x="332" y="371" class="sub">no sensor drivers attached</text>
+
+  <!-- Linux <-> E906 : three RPMsg endpoints -->
+  <path d="M566 170 H700" stroke="#42d8f5" stroke-width="2.5"/>
+  <path d="M700 170 L690 164 V176 Z" fill="#42d8f5"/>
+  <path d="M566 170 L576 164 V176 Z" fill="#42d8f5"/>
+  <text x="633" y="158" text-anchor="middle" class="lbl">1026 abstractx-repl</text>
+  <text x="633" y="190" text-anchor="middle" class="lbl">text, both ways</text>
+
+  <path d="M566 250 H700" stroke="#42d8f5" stroke-width="2.5"/>
+  <path d="M700 250 L690 244 V256 Z" fill="#42d8f5"/>
+  <path d="M566 250 L576 244 V256 Z" fill="#42d8f5"/>
+  <text x="633" y="238" text-anchor="middle" class="lbl">1024 abstractx-tlp</text>
+  <text x="633" y="270" text-anchor="middle" class="lbl">64-byte TLPs</text>
+
+  <path d="M700 330 H572" stroke="#42d8f5" stroke-width="2.5"/>
+  <path d="M566 330 L576 324 V336 Z" fill="#42d8f5"/>
+  <text x="633" y="318" text-anchor="middle" class="lbl">1025 abstractx-trace</text>
+  <text x="633" y="350" text-anchor="middle" class="lbl">CTF, 3 s hello lease</text>
+
+  <!-- E906 -->
+  <rect x="706" y="64" width="270" height="372" rx="16" fill="#123244" stroke="#42d8f5" stroke-width="1.5"/>
+  <text x="724" y="94" fill="#73e5fb" class="tag">XUANTIE E906 • 200 MHz</text>
+  <text x="724" y="122" class="main">AbstractX event loop</text>
+  <text x="724" y="146" class="sub">Dispatcher: the only place a</text>
+  <text x="724" y="163" class="sub">coroutine is resumed</text>
+
+  <rect x="724" y="178" width="234" height="30" rx="8" fill="#163d52" stroke="#3a8fb0"/>
+  <text x="738" y="198" class="mono">rpmsg_rx</text>
+  <rect x="724" y="216" width="234" height="74" rx="8" fill="#1d4a3a" stroke="#58d39b"/>
+  <text x="738" y="236" class="mono">repl_rx</text>
+  <rect x="738" y="244" width="206" height="38" rx="6" fill="#20352c" stroke="#58d39b" stroke-dasharray="4 3"/>
+  <text x="750" y="268" fill="#bff2d8" font-size="12">MicroPython VM + script</text>
+  <rect x="724" y="298" width="234" height="30" rx="8" fill="#163d52" stroke="#3a8fb0"/>
+  <text x="738" y="318" class="mono">repl_tx</text>
+
+  <text x="724" y="352" class="sub">Interrupts (CLIC line): timer 7,</text>
+  <text x="724" y="369" class="sub">msgbox 17, DMA 88, UART3 90,</text>
+  <text x="724" y="386" class="sub">TWI1 91</text>
+  <text x="724" y="412" class="sub">Nothing to do: wfi</text>
+
+  <text x="500" y="472" text-anchor="middle" fill="#96a6c4" font-size="12">MicroPython is one coroutine. Interrupts, drivers, RPMsg and the status reports belong to AbstractX.</text>
+</svg>

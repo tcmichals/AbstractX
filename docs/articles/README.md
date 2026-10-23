@@ -12,6 +12,7 @@ hardware setup instructions.
 - [Scaling Beyond Fixed TLPs: Lessons from Open-Source PCIe & AXI-Stream (Alex Forencich Patterns)](./PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md)
 - [Benchmark Series & Case Studies: Multi-Silicon Speed & Offload](./CASE_STUDIES_AND_BENCHMARKS.md)
 - [Straight-Line Async: GPS + Compass with C++20 Coroutines](./gps-compass-straight-line-async/README.md)
+- [MicroPython on the E906, With AbstractX Underneath (Cubie A5E: Linux, E906, Studio)](./micropython-on-e906/README.md)
 - [Bare Metal + AbstractX vs FreeRTOS + AbstractX on the XuanTie E906 (draft, numbers pending)](./BAREMETAL_VS_FREERTOS_E906.md)
 - [Jumpstarting Heterogeneous Silicon with AbstractX: From Python `asyncio` to Freestanding C++20](./INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md)
 
