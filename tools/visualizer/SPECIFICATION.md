@@ -227,6 +227,13 @@ Every requirement below is verified in code with an `@impl` tag:
 ### `[SPEC-STUDIO-01]` Full-Screen Multi-Window Docking Layout & Dynamic Management
 The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting single-OS-window internal docking (`enable_viewports = False` by default), multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`, `studio_workbench`; presets select tabs and never open a second copy of one), window pop-out via `decouple_window()`, pop-in via `restore_default_layout()`, and layout reset via `runner_params.docking_params.layout_reset = True`.
 
+Multi-viewport mode (`--viewports`) MUST make a popped-out window a real OS window:
+* `io.config_viewports_no_auto_merge = True` is set in `callbacks.post_init`. ImGui's default (`False`) merges any floating window that overlaps the main window back into it, so a pop-out opened inside the Studio window never became its own OS window.
+* `io.config_viewports_no_decoration = False`, so popped-out windows get a native title bar and resize borders.
+* The size presets and sliders on a floating window resize only that window (`imgui.set_window_size`). They MUST NOT call `hello_imgui.change_window_size()`, which resizes the main Studio window. Only the status-bar "Window Size" buttons resize the main window.
+* `--demo` is an alias of `--sim`.
+* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
+
 ### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified Engineering Workbench
 The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, MemBrowse CI Report and CLI Console. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests. The TLP Bus Debugger ([SPEC-STUDIO-04]) and System Event Log ([SPEC-STUDIO-05]) are docked windows and MUST NOT also appear as tabs or pop-out copies: each surface is drawn once. A jump request for `tlp` or `log` shows and focuses the docked window.
 * **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)

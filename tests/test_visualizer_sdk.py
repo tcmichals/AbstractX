@@ -774,3 +774,21 @@ def test_studio_live_profile_and_timeline_from_target_packets():
     assert _run_frames(show) >= 2
     studio._jump_to_source("src/runtime.cpp", 42)
     assert state.selected_source_file == "src/runtime.cpp" and state.requested_studio_tab == "source"
+
+
+def test_viewport_popouts_become_os_windows():
+    """--viewports stops pop-outs merging back into the main window; size bar never resizes the main window ([SPEC-STUDIO-01])."""
+    # @verifies [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    import inspect
+    from imgui_bundle import imgui
+    runner_multi = studio.create_docking_runner_params(enable_viewports=True)
+    ctx = imgui.create_context()
+    try:
+        io = imgui.get_io()
+        assert io.config_viewports_no_auto_merge is False  # ImGui default that caused the bug
+        runner_multi.callbacks.post_init()
+        assert io.config_viewports_no_auto_merge is True
+        assert io.config_viewports_no_decoration is False
+    finally:
+        imgui.destroy_context(ctx)
+    assert "change_window_size" not in inspect.getsource(studio._render_window_sizing_bar)

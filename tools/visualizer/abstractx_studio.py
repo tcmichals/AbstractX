@@ -1555,7 +1555,7 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         ]
         for lbl, w, h in presets:
             if imgui.button(f"{lbl}##{window_key}"):
-                hello_imgui.change_window_size((w, h))
+                # Resize this window only, not the main Studio window ([SPEC-STUDIO-01])
                 try:
                     imgui.set_window_size(window_title, imgui.ImVec2(float(w), float(h)), imgui.Cond_.always)
                 except Exception:
@@ -1569,7 +1569,6 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         ch_h, new_h = imgui.slider_int(f"H##{window_key}", int(cur_size.y), 350, 1600)
         imgui.pop_item_width()
         if ch_w or ch_h:
-            hello_imgui.change_window_size((new_w, new_h))
             try:
                 imgui.set_window_size(window_title, imgui.ImVec2(float(new_w), float(new_h)), imgui.Cond_.always)
             except Exception:
@@ -3778,7 +3777,8 @@ def main():
     parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT, help="UDP listening port (default: 9870)")
     parser.add_argument("--board-ip", type=str, default="192.168.3.3", help="Target board IP address (default: 192.168.3.3)")
     parser.add_argument("--host-ip", type=str, default="192.168.3.1", help="Studio host IP address for UDP telemetry (default: 192.168.3.1)")
-    parser.add_argument("--sim", action="store_true", help="Run with synthetic flight & telemetry generator")
+    parser.add_argument("--sim", "--demo", dest="sim", action="store_true",
+                        help="Run with synthetic flight & telemetry generator (--demo is an alias)")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],
                         help="Initial tab to display in single-window mode")
     parser.add_argument("--viewports", action="store_true", default=False,
@@ -3843,6 +3843,8 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
         hello_imgui.DefaultImGuiWindowType.provide_full_screen_dock_space
     )
     runner_params.imgui_window_params.enable_viewports = enable_viewports
+    if enable_viewports:
+        runner_params.callbacks.post_init = _configure_viewports
     runner_params.imgui_window_params.show_menu_bar = True
     runner_params.imgui_window_params.show_menu_view = True
     runner_params.imgui_window_params.show_status_bar = True
@@ -3907,6 +3909,13 @@ def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.
     runner_params.callbacks.setup_imgui_style = _setup_studio_style
     runner_params.callbacks.post_render_dockable_windows = _render_floating_canvas_windows
     return runner_params
+
+def _configure_viewports():
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    # Without no_auto_merge, a pop-out over the main window merges back into it.
+    io = imgui.get_io()
+    io.config_viewports_no_auto_merge = True
+    io.config_viewports_no_decoration = False
 
 def _render_studio_menus():
     """

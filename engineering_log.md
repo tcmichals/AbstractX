@@ -2045,3 +2045,23 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Open, same pattern**: `UartRxRingBase` (`[SPEC-HAL-10]`) also wakes without re-checking after
   taking the waiter. There a late wake returns a view with fewer bytes than `min_bytes` rather
   than reading unwritten memory. Not fixed in this change; to fix with the E906 UART DMA work.
+
+## [2026-10-23] - Mistake & Lesson: Studio viewports: pop-outs merged back into the main window
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/visualizer`
+* **Symptoms**: With --viewports, Float Canvas / Pop to Canvas never produced a separate OS window; viewports were switched off by default in 3c43654 with no recorded cause.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: process-gap: pop-outs open inside the main window and ImGui's default io.config_viewports_no_auto_merge=False merges any overlapping floating window back into the main viewport. The floating window size bar also called hello_imgui.change_window_size(), which resizes the main Studio window. The viewport default was flipped without logging why, so the cause was lost.
+* **Architectural Lesson**: When disabling a feature because it misbehaves, log the symptom and cause. In ImGui multi-viewport mode, set config_viewports_no_auto_merge=True if pop-outs start inside the main window. Regression: tests/test_visualizer_sdk.py::test_viewport_popouts_become_os_windows (fails on 627d1b5: post_init is None; passes now).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`tools/visualizer/SPECIFICATION.md`](tools/visualizer/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-STUDIO-01`
+* **Rule Added to Spec**:
+  > Multi-viewport mode sets no_auto_merge=True and no_decoration=False in post_init; floating window sizing never resizes the main window; --demo aliases --sim.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl SPEC-STUDIO-01`
+* **Regression Test**: Verified via CTest / Cocotb simulation
