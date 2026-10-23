@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" role="img" aria-labelledby="title desc">
+  <title id="title">How one RPMsg message travels between Linux and the E906</title>
+  <desc id="desc">A Python program on Linux writes to /dev/rpmsgN. The Linux RPMsg driver puts the bytes into a free 512-byte buffer in shared SRAM (16-byte header with source, destination and length, then up to 496 bytes of data), adds it to the Linux-to-E906 ring and rings the message box doorbell. The E906 gets an interrupt on CLIC line 17, takes the buffer from the ring, delivers it to the endpoint named by the destination address and returns the buffer. Replies travel the same way in the E906-to-Linux ring. The firmware has three endpoints: 1026 abstractx-repl for MicroPython text, 1024 abstractx-tlp for 64-byte sensor packets and 1025 abstractx-trace for status, profiler and timeline packets.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .main { fill:#f4f7ff; font-size:17px; font-weight:800; }
+      .sub { fill:#c0cbe0; font-size:12px; }
+      .mono { fill:#e6ecfa; font-size:12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .tag { font-size:11px; font-weight:800; letter-spacing:1px; }
+      .lbl { fill:#c0cbe0; font-size:11px; }
+      .step { fill:#10192c; font-size:12px; font-weight:800; }
+    </style>
+  </defs>
+  <rect width="1000" height="600" rx="22" fill="#10192c"/>
+  <text x="28" y="40" fill="#49d9f4" class="tag">ONE RPMSG MESSAGE, FROM A PYTHON WRITE() ON LINUX TO AN ENDPOINT ON THE E906</text>
+
+  <!-- Linux -->
+  <rect x="24" y="64" width="270" height="380" rx="16" fill="#1b2944" stroke="#8fa8d8" stroke-width="1.5"/>
+  <text x="42" y="94" fill="#a9c1ee" class="tag">LINUX • 8 × CORTEX-A55</text>
+  <text x="42" y="122" class="main">Your Python program</text>
+  <text x="42" y="152" class="mono">fd = os.open("/dev/rpmsg2")</text>
+  <text x="42" y="172" class="mono">os.write(fd, b"print(1+1)")</text>
+  <text x="42" y="192" class="mono">reply = os.read(fd, 512)</text>
+  <text x="42" y="222" class="sub">one write() = one message (max 496 B)</text>
+  <text x="42" y="240" class="sub">one read() = one message</text>
+  <rect x="42" y="266" width="234" height="74" rx="10" fill="#14203a" stroke="#5f7bb0"/>
+  <text x="58" y="290" class="sub">kernel: rpmsg_char gives each</text>
+  <text x="58" y="308" class="sub">endpoint a /dev/rpmsgN node;</text>
+  <text x="58" y="326" class="sub">virtio_rpmsg_bus moves buffers</text>
+  <text x="42" y="372" class="sub">Endpoints are created on demand</text>
+  <text x="42" y="390" class="sub">through /dev/rpmsg_ctrl0 after the</text>
+  <text x="42" y="408" class="sub">E906 announces their names.</text>
+
+  <!-- Shared SRAM -->
+  <rect x="324" y="64" width="352" height="380" rx="16" fill="#173a2e" stroke="#5cd39a" stroke-width="1.5"/>
+  <text x="342" y="94" fill="#7ce3b0" class="tag">SHARED SRAM • SPACE 1, UPPER 128 KB</text>
+  <text x="342" y="122" class="main">Two rings of buffers</text>
+
+  <text x="342" y="152" class="sub">ring 1: Linux → E906</text>
+  <rect x="342" y="162" width="62" height="34" rx="6" fill="#2e6b52" stroke="#7ce3b0"/>
+  <rect x="412" y="162" width="62" height="34" rx="6" fill="#204a3a" stroke="#4fa57d"/>
+  <rect x="482" y="162" width="62" height="34" rx="6" fill="#204a3a" stroke="#4fa57d"/>
+  <rect x="552" y="162" width="62" height="34" rx="6" fill="#204a3a" stroke="#4fa57d"/>
+  <text x="373" y="184" text-anchor="middle" class="lbl">full</text>
+  <text x="443" y="184" text-anchor="middle" class="lbl">free</text>
+  <text x="513" y="184" text-anchor="middle" class="lbl">free</text>
+  <text x="583" y="184" text-anchor="middle" class="lbl">free</text>
+
+  <text x="342" y="224" class="sub">ring 2: E906 → Linux</text>
+  <rect x="342" y="234" width="62" height="34" rx="6" fill="#204a3a" stroke="#4fa57d"/>
+  <rect x="412" y="234" width="62" height="34" rx="6" fill="#204a3a" stroke="#4fa57d"/>
+  <rect x="482" y="234" width="62" height="34" rx="6" fill="#204a3a" stroke="#4fa57d"/>
+  <rect x="552" y="234" width="62" height="34" rx="6" fill="#204a3a" stroke="#4fa57d"/>
+
+  <text x="342" y="304" class="sub">each buffer is 512 bytes:</text>
+  <rect x="342" y="314" width="72" height="40" rx="6" fill="#3b2f16" stroke="#f0b450"/>
+  <rect x="414" y="314" width="244" height="40" rx="6" fill="#204a3a" stroke="#7ce3b0"/>
+  <text x="378" y="332" text-anchor="middle" class="lbl">16 B header</text>
+  <text x="378" y="346" text-anchor="middle" class="lbl">src dst len</text>
+  <text x="536" y="339" text-anchor="middle" class="lbl">up to 496 B of data</text>
+  <text x="342" y="382" class="sub">dst = endpoint number on the other side,</text>
+  <text x="342" y="400" class="sub">e.g. 1026. A buffer goes back to the free</text>
+  <text x="342" y="418" class="sub">list once the receiver has taken it.</text>
+
+  <!-- E906 -->
+  <rect x="706" y="64" width="270" height="380" rx="16" fill="#123349" stroke="#49d9f4" stroke-width="1.5"/>
+  <text x="724" y="94" fill="#49d9f4" class="tag">XUANTIE E906 • 200 MHZ</text>
+  <text x="724" y="122" class="main">AbstractX RPMsg</text>
+  <text x="724" y="150" class="sub">delivers each message to the</text>
+  <text x="724" y="168" class="sub">endpoint named by dst:</text>
+  <rect x="724" y="184" width="234" height="62" rx="10" fill="#1b4a63" stroke="#49d9f4"/>
+  <text x="740" y="208" class="mono">1026 abstractx-repl</text>
+  <text x="740" y="228" class="sub">MicroPython text, both ways</text>
+  <rect x="724" y="256" width="234" height="62" rx="10" fill="#173b52" stroke="#3aa9c4"/>
+  <text x="740" y="280" class="mono">1024 abstractx-tlp</text>
+  <text x="740" y="300" class="sub">64-byte packets, 7 per message</text>
+  <rect x="724" y="328" width="234" height="62" rx="10" fill="#173b52" stroke="#3aa9c4"/>
+  <text x="740" y="352" class="mono">1025 abstractx-trace</text>
+  <text x="740" y="372" class="sub">status, profiler, timeline</text>
+  <text x="724" y="418" class="sub">At boot the E906 announces these</text>
+  <text x="724" y="436" class="sub">names; Linux creates the channels.</text>
+
+  <!-- flow arrows -->
+  <path d="M294 178 H336" stroke="#f0b450" stroke-width="2.5"/>
+  <path d="M342 178 L332 172 V184 Z" fill="#f0b450"/>
+  <path d="M618 178 H714" stroke="#f0b450" stroke-width="2.5"/>
+  <path d="M720 214 L712 204 L722 202 Z" fill="#f0b450"/>
+  <path d="M714 178 Q722 190 720 206" stroke="#f0b450" stroke-width="2.5" fill="none"/>
+  <path d="M706 252 H624" stroke="#7ce3b0" stroke-width="2.5"/>
+  <path d="M618 252 L628 246 V258 Z" fill="#7ce3b0"/>
+  <path d="M336 252 H300" stroke="#7ce3b0" stroke-width="2.5"/>
+  <path d="M294 252 L304 246 V258 Z" fill="#7ce3b0"/>
+
+  <!-- step badges -->
+  <circle cx="315" cy="160" r="11" fill="#f0b450"/><text x="315" y="164" text-anchor="middle" class="step">1</text>
+  <circle cx="666" cy="160" r="11" fill="#f0b450"/><text x="666" y="164" text-anchor="middle" class="step">3</text>
+  <circle cx="665" cy="236" r="11" fill="#7ce3b0"/><text x="665" y="240" text-anchor="middle" class="step">4</text>
+
+  <!-- doorbell band -->
+  <rect x="24" y="464" width="952" height="108" rx="16" fill="#2a2440" stroke="#b79cff" stroke-width="1.5"/>
+  <text x="42" y="492" fill="#d0bcff" class="tag">THE MESSAGE BOX: A HARDWARE DOORBELL BETWEEN THE TWO PROCESSORS</text>
+  <circle cx="54" cy="522" r="11" fill="#f0b450"/><text x="54" y="526" text-anchor="middle" class="step">2</text>
+  <text x="74" y="526" class="sub">After putting a buffer in a ring, the sender writes to the message box; the other side gets an interrupt</text>
+  <text x="74" y="546" class="sub">(on the E906: CLIC line 17). Nobody polls the rings: the doorbell says "look now". Both directions work the same way.</text>
+</svg>
