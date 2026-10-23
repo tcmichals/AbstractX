@@ -128,9 +128,10 @@ def test_studio_docking_workbench_configuration():
     runner = studio.create_docking_runner_params()
     assert runner is not None
     assert runner.app_window_params.window_title == "AbstractX Studio & User Domain Workbench"
-    assert runner.imgui_window_params.enable_viewports is False, "Single dedicated window mode by default for cross-platform portability"
-    runner_multi = studio.create_docking_runner_params(enable_viewports=True)
-    assert runner_multi.imgui_window_params.enable_viewports is True, "Multi-viewport enabled when requested"
+    assert runner.imgui_window_params.enable_viewports is True, "Multi-viewport by default ([SPEC-STUDIO-01])"
+    runner_single = studio.create_docking_runner_params(enable_viewports=False)
+    assert runner_single.imgui_window_params.enable_viewports is False, "--no-viewports keeps one OS window"
+    assert runner_single.callbacks.post_init is None
 
     windows = runner.docking_params.dockable_windows
     assert len(windows) == 4, f"Expected 4 dockable windows, found {len(windows)}"
@@ -777,11 +778,11 @@ def test_studio_live_profile_and_timeline_from_target_packets():
 
 
 def test_viewport_popouts_become_os_windows():
-    """--viewports stops pop-outs merging back into the main window; size bar never resizes the main window ([SPEC-STUDIO-01])."""
+    """Default multi-viewport mode stops pop-outs merging back into the main window; size bar never resizes the main window ([SPEC-STUDIO-01])."""
     # @verifies [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     import inspect
     from imgui_bundle import imgui
-    runner_multi = studio.create_docking_runner_params(enable_viewports=True)
+    runner_multi = studio.create_docking_runner_params()
     ctx = imgui.create_context()
     try:
         io = imgui.get_io()

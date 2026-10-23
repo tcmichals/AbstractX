@@ -3781,8 +3781,8 @@ def main():
                         help="Run with synthetic flight & telemetry generator (--demo is an alias)")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],
                         help="Initial tab to display in single-window mode")
-    parser.add_argument("--viewports", action="store_true", default=False,
-                        help="Enable experimental multi-viewport secondary OS windows")
+    parser.add_argument("--viewports", action=argparse.BooleanOptionalAction, default=True,
+                        help="Pop-outs become separate OS windows (default); --no-viewports keeps one window")
     parser.add_argument("--elf", type=str, default=str(DEFAULT_ELF),
                         help="Firmware ELF for the live profiler's source lines (default: the e906_repl_app build)")
     parser.add_argument("--auto-connect", action="store_true", default=False,
@@ -3823,12 +3823,11 @@ def main():
     immapp.run(runner_params)
     implot.destroy_context()
 
-def create_docking_runner_params(enable_viewports: bool = False) -> hello_imgui.RunnerParams:
+def create_docking_runner_params(enable_viewports: bool = True) -> hello_imgui.RunnerParams:
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
     Creates and configures HelloImGui dynamic docking layout for AbstractX Studio.
-    Defaults to single dedicated OS window for rock-solid portability across Windows and Linux,
-    with support for internal floating windows with dedicated size controls and presets.
+    Defaults to multi-viewport: popped-out windows become separate OS windows ([SPEC-STUDIO-01]).
     """
     runner_params = hello_imgui.RunnerParams()
     runner_params.app_window_params.window_title = "AbstractX Studio & User Domain Workbench"
