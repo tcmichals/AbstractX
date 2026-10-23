@@ -338,6 +338,11 @@ flowchart TD
   drains the RX FIFO into a ring on RX-data / RX-timeout, and refills the TX FIFO from a ring on
   THR-empty. `uart_read` takes bytes from the ring without touching the UART; `uart_write`
   queues bytes and sleeps (`wfi`) only while the TX ring is full.
+* **Requirement**: UART3's FIFOs are 128 B each (T527 User Manual V0.94 §8.19.1: 128 B for UART1-7,
+  64 B only for UART0 / S_UART). On RX the ISR reads the RX FIFO level (`UART_RFL`, +0x84) once
+  and then that many bytes from `RBR`, instead of reading `LSR` before every byte; on THR-empty it
+  refills up to 128 B. Baseline before this change (2026-10-22, 115200 baud GPS, MicroPython
+  reading every 100 ms): 29 interrupts/s, mean 39 us, median and max 50 us per interrupt.
 * **Requirement**: TWI1 (compass) is interrupt-driven on CLIC line 91: one `INT_FLG` interrupt per
   bus step runs a state machine (START, address, register, repeated START, data, STOP).
   `i2c_read` / `i2c_write` / `i2c_scan` start a transaction and sleep (`wfi`) until the ISR

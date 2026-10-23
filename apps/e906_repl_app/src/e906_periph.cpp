@@ -52,13 +52,14 @@ using U_IIR = Reg<kUart3 + 0x08>;  // read: IIR, write: FCR
 using U_LCR = Reg<kUart3 + 0x0C>;
 using U_MCR = Reg<kUart3 + 0x10>;
 using U_LSR = Reg<kUart3 + 0x14>;
+using U_RFL = Reg<kUart3 + 0x84>;  // RX FIFO level
 using U_MSR = Reg<kUart3 + 0x18>;
 using U_USR = Reg<kUart3 + 0x7C>;
 using U_HALT = Reg<kUart3 + 0xA4>;  // bit1 CHCFG_AT_BUSY, bit2 CHANGE_UPDATE
 
 constexpr uint32_t kIerRx = 0x01;   // ERBFI: RX data / timeout
 constexpr uint32_t kIerTx = 0x02;   // ETBEI: THR empty
-constexpr size_t kUartFifo = 64;
+constexpr size_t kUartFifo = 128;  // UART1-7 (T527 manual 8.19.1); UART0 / S_UART are 64
 
 abstractx::SpscRingBuffer<uint8_t, 1024> s_uart_rx;  // ISR -> VM
 abstractx::SpscRingBuffer<uint8_t, 256> s_uart_tx;   // VM -> ISR
@@ -73,13 +74,18 @@ void uart3_isr(void*) noexcept {
         }
         switch (iir) {
             case 0x04:  // RX data available
-            case 0x0C:  // RX timeout
-                while (U_LSR::r() & 0x01U) {
-                    if (!s_uart_rx.push(static_cast<uint8_t>(U_RBR::r() & 0xFFU))) {
-                        s_uart_rx_dropped = s_uart_rx_dropped + 1;
+            case 0x0C: {  // RX timeout
+                // One level read, then that many data reads (not LSR before every byte).
+                // @impl [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
+                for (uint32_t n = U_RFL::r() & 0x1FFU; n; n = U_RFL::r() & 0x1FFU) {
+                    for (; n; --n) {
+                        if (!s_uart_rx.push(static_cast<uint8_t>(U_RBR::r() & 0xFFU))) {
+                            s_uart_rx_dropped = s_uart_rx_dropped + 1;
+                        }
                     }
                 }
                 break;
+            }
             case 0x02: {  // THR empty: refill the FIFO from the ring
                 uint8_t b = 0;
                 size_t n = 0;

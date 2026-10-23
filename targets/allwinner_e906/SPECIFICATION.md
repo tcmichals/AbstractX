@@ -482,7 +482,8 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 
 ### `[SPEC-E906-HAL-01]` Choosing DMA or Interrupt-Driven FIFO per Transfer
 * **Requirement**: every driver picks DMA or ISR-driven FIFO I/O per transfer by rule, not by habit:
-  * **ISR + FIFO** when the transfer fits the peripheral FIFO (UART 64 B, SPI 64 B), when the
+  * **ISR + FIFO** when the transfer fits the peripheral FIFO (UART1-7 128 B, UART0 / S_UART 64 B,
+    SPI 64 B; T527 User Manual V0.94 §8.19.1, §8.16.1), when the
     protocol needs a decision per byte (I2C ACK/NACK, repeated START), or when the average
     interrupt rate stays below one per 50 µs (e.g. GPS NMEA at 9600 baud: one RX-timeout interrupt
     per sentence).

@@ -1841,3 +1841,33 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * Board suite on the fixed firmware: 30 passed, 0 failed, 2 skipped (idle: 4015 samples,
   124 idle spans in 4.5 s, busy 0.40 %; load: 2999/4565 samples in repl_rx, 9450 twi1 spans,
   0 dropped; no new "no recipient" lines after the reader closed).
+
+## [2026-10-22] - UART3 ISR: 128-byte FIFO, one level read per interrupt; UART clock limits
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `apps/e906_repl_app/src/e906_periph.cpp`, `targets/allwinner_e906/SPECIFICATION.md`
+* **Symptoms**: UART3 interrupts cost 50 us (median/max) for the GPS at 115200; code and spec said
+  the UART FIFO is 64 B.
+
+### 2. Root Cause & Lesson Learned
+* **product-bug**: UART1-7 FIFOs are 128 B (T527 manual V0.94 §8.19.1; 64 B only for UART0 /
+  S_UART). The ISR read `LSR` before every byte. Now one `UART_RFL` read, then the data.
+* **hardware-fact**: removing 64 `LSR` reads saved 18.6 us, so one UART register read from the
+  E906 costs ~0.29 us (~58 cycles at 200 MHz; derived, not measured directly). Byte-at-a-time
+  register I/O is the dominant cost at any high rate.
+* **hardware-fact**: `APB1_CLK_REG` (0x02001524) reads 0 on the board: APB1 = 24 MHz HOSC, so
+  UART1-7 are limited to 1.5 Mbit/s (manual: 5 Mbit/s needs >= 80 MHz APB1). Faster serial needs a
+  Linux-side clock change for the whole APB1 bus.
+* **hardware-fact**: the UART has a DMA receive-timeout request (`UART_DMA_REQ_EN` bit 2, DMA1
+  mode): partial frames reach memory without CPU reads.
+* **process-gap** (user review): I optimized one handler for one slow application before checking
+  the hardware limits (clock, FIFO, DMA features) that decide whether high-rate serial can work.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-E906-REPL-16]` (FIFO, level read, baseline), `[SPEC-E906-HAL-01]` (FIFO sizes).
+
+### 4. Implementation & Regression Test
+* `tests/board/measure_isr.py`: per-interrupt cost from timeline spans. UART3 at 115200:
+  median/max 50 -> 31.4/31.8 us, mean 39 -> 24.8 us, CPU 0.115 -> 0.071 %.
+  TWI1 compass loop (baseline, unchanged): 16,496 irq/s, 1.40 us each, 2.3 % CPU.
+* Board suite on this firmware: 30 passed, 0 failed, 2 skipped.
