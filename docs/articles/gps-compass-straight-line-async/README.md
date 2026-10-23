@@ -234,6 +234,8 @@ measured on the board.
 
 ## Why MicroPython, and why AbstractX underneath it
 
+*See also: [MicroPython on the E906, With AbstractX Underneath](https://github.com/tcmichals/AbstractX/blob/main/docs/articles/micropython-on-e906/README.md) for the full A5E setup, memory layout, DMA and board measurements.*
+
 **Why MicroPython on the E906.** Bringing up sensors on a coprocessor is
 mostly finding out what the hardware actually does. With MicroPython you
 change a script or type a line at the prompt instead of rebuilding and

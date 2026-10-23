@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 400" role="img" aria-labelledby="title desc">
+  <title id="title">E906 memory layout for the MicroPython firmware</title>
+  <desc id="desc">SRAM Space 0 at 0x3FFC0000 holds the hot firmware: vectors, interrupts, Dispatcher, the MicroPython VM and RPMsg, in the 192 KB SRAM_FAST region, plus a 64 KB shared tail. The lower half of SRAM Space 1 at 0x40000000 holds the resource table, trace0, the cold MicroPython compiler code and the profiler and timeline rings. The upper half of Space 1 is the Linux RPMsg buffer pool. The MicroPython garbage-collected heap is in the HiFi4 DSP RAM at 0x00020000. DRAM is not used.</desc>
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .main { fill:#f4f7ff; font-size:16px; font-weight:800; }
+      .sub { fill:#c0cbe0; font-size:12px; }
+      .addr { fill:#e6ecfa; font-size:12px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+      .tag { font-size:11px; font-weight:800; letter-spacing:1px; }
+    </style>
+  </defs>
+  <rect width="1000" height="400" rx="22" fill="#10192c"/>
+  <text x="28" y="40" fill="#49d9f4" class="tag">E906 MEMORY • ON-CHIP SRAM ONLY • NO DRAM</text>
+
+  <!-- Space 0 -->
+  <rect x="24" y="64" width="300" height="270" rx="14" fill="#123244" stroke="#42d8f5" stroke-width="1.5"/>
+  <text x="42" y="92" fill="#73e5fb" class="tag">SRAM SPACE 0 • 256 KB</text>
+  <text x="42" y="112" class="addr">0x3FFC0000</text>
+  <rect x="42" y="124" width="264" height="134" rx="10" fill="#163d52" stroke="#3a8fb0"/>
+  <text x="56" y="148" class="main">SRAM_FAST, 192 KB</text>
+  <text x="56" y="172" class="sub">vectors, trap entry, interrupts</text>
+  <text x="56" y="190" class="sub">Dispatcher, drivers, RPMsg</text>
+  <text x="56" y="208" class="sub">MicroPython VM (bytecode loop)</text>
+  <text x="56" y="226" class="sub">.data, .bss, stack; no heap</text>
+  <text x="56" y="246" class="sub">89.6 % used (commit a3284dd)</text>
+  <rect x="42" y="268" width="264" height="52" rx="10" fill="#192940" stroke="#8ea7d8"/>
+  <text x="56" y="290" class="sub">shared tail, 64 KB at 0x3FFF0000</text>
+  <text x="56" y="308" class="sub">host IPC, crash dump</text>
+
+  <!-- Space 1 -->
+  <rect x="340" y="64" width="300" height="270" rx="14" fill="#1d3a33" stroke="#58d39b" stroke-width="1.5"/>
+  <text x="358" y="92" fill="#8ff0c0" class="tag">SRAM SPACE 1 • 256 KB</text>
+  <text x="358" y="112" class="addr">0x40000000</text>
+  <rect x="358" y="124" width="264" height="116" rx="10" fill="#20473b" stroke="#58d39b"/>
+  <text x="372" y="148" class="main">Lower half, 128 KB</text>
+  <text x="372" y="172" class="sub">resource table, trace0</text>
+  <text x="372" y="190" class="sub">cold code: lexer, parser,</text>
+  <text x="372" y="208" class="sub">compiler, emitter, mpz</text>
+  <text x="372" y="226" class="sub">profiler + timeline rings</text>
+  <rect x="358" y="250" width="264" height="70" rx="10" fill="#192940" stroke="#8ea7d8"/>
+  <text x="372" y="272" class="sub">Upper half, 128 KB at 0x40020000</text>
+  <text x="372" y="290" class="sub">Linux RPMsg pool: vrings and</text>
+  <text x="372" y="308" class="sub">buffers; firmware puts nothing here</text>
+
+  <!-- DSP RAM -->
+  <rect x="656" y="64" width="320" height="162" rx="14" fill="#29213e" stroke="#b79cff" stroke-width="1.5"/>
+  <text x="674" y="92" fill="#d0bcff" class="tag">HIFI4 DSP RAM • 128 KB</text>
+  <text x="674" y="112" class="addr">0x00020000</text>
+  <text x="674" y="142" class="main">MicroPython GC heap</text>
+  <text x="674" y="166" class="sub">the DSP is not used, so its RAM is</text>
+  <text x="674" y="184" class="sub">free; Python allocation and garbage</text>
+  <text x="674" y="202" class="sub">collection never touch firmware memory</text>
+
+  <!-- DRAM -->
+  <rect x="656" y="240" width="320" height="94" rx="14" fill="#1a2130" stroke="#5d6b86" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="674" y="268" fill="#96a6c4" class="tag">DRAM CARVEOUT</text>
+  <text x="674" y="292" class="sub">not used by AbstractX (D-cache is off;</text>
+  <text x="674" y="310" class="sub">0.00 MB in the size report)</text>
+
+  <text x="500" y="370" text-anchor="middle" fill="#96a6c4" font-size="12">Hot paths stay in Space 0. Code that runs only while a script is compiled moved to Space 1 (SRAM_FAST 99.3 % to 85 %).</text>
+</svg>
