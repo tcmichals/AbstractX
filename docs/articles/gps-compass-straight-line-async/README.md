@@ -429,8 +429,9 @@ so they appear only in `--sim` mode or with an FPGA. The TLP Bus Debugger and
 System Event Log are docked windows and are not duplicated as tabs. The source
 tab browses the real repository files rather than canned snippets.
 
-Two further views are built and pass host tests but are **still being brought
-up on the board**, so treat them as not yet working on hardware:
+Two further views run on the board (board self-test, 2026-10-22: about 1,000
+samples a second, 0 dropped under a MicroPython load; the on-screen Studio
+views themselves have not been checked against the board):
 
 * a 1 kHz program-counter sampling profiler, shown per source line in Studio's
   source view (CTF stream 4, `[SPEC-TRACE-09]`, `[SPEC-STUDIO-11]`);
