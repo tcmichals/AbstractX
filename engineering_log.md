@@ -1935,3 +1935,36 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   `TX_ABRT` with NackAddress / NackData / BusError.
 * Evidence: Pico cross-build only (`cmake --build build_pico2w`, 0 errors). No host test, no board
   run: not verified on hardware. Known gap: no I2C bus timeout.
+
+## [2026-10-22] - TSan SEGV in Rpmsg::enable_rx_kick: asserts compiled out, stale vring pointers
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `sim/test_e906_rpmsg_flow_control.cpp`, `targets/allwinner_e906/src/rpmsg.cpp`
+* **Symptoms**: `sim_test_e906_rpmsg_flow_control` crashed on some TSan runs (SEGV writing e.g.
+  `0x40f7d000` at rpmsg.cpp:393, called from test line 357); 6th run of `--repeat until-fail`.
+
+### 2. Root Cause & Lesson Learned
+* **process-gap** (test bug): the host builds are `RelWithDebInfo` (`-DNDEBUG`), and the test did
+  not `#undef NDEBUG`. Every `assert(rpmsg.is_driver_ready())` was removed, so the vrings of the
+  new FakeHost were never mapped. Block 9 then wrote through `s_rx_vq.used` left from block 8,
+  whose memory was already `munmap`ed. Debug print: block 8 mapped `0x41fdd000`, block 9 got
+  `0x40f23000`, kick wrote `used=0x41fe2000` (block 8's ring). It "passed" whenever mmap reused
+  the same address. Every check in the test was a no-op in these builds.
+* **product-bug**: `Rpmsg::init()` / `RpmsgLiteMetal::init()` reset the ready flag but kept the
+  old `s_*_vq` layouts, and `enable_rx_kick()` wrote through them without checking readiness. On
+  the board this is a write into the previous resource table's vring after a re-init.
+* **process-gap**: 12 more host tests use `assert` without `#undef NDEBUG` (test_gps_imu_coro_pool,
+  test_coro_failures, test_coro_combinators, test_io_processor, test_pico_zero_copy_trace,
+  test_trace_zero_copy, test_baremetal_isr_spsc, test_tlp_msg, test_halo_worker_pool,
+  test_abstractx_runtime, test_spsc_channel_array, and test_e906_rpmsg_endpoints, fixed here).
+  Their checks do not run in the default build. Not fixed in this change.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-E906-IPC-02]`: "Re-init never keeps old vrings"; `Verified by` notes the tests must
+  `#undef NDEBUG` and adds `thread-sanitizer`.
+
+### 4. Implementation & Regression Test
+* `init()` clears both layouts (Rpmsg and RpmsgLiteMetal); `enable_rx_kick()` writes only when
+  `is_driver_ready()`.
+* Test block 11 keeps host A mapped, re-inits on host B and checks A's ring is not written:
+  fails on the old driver (assert at line 414), passes on the new. TSan: 200/200 consecutive passes.

@@ -241,6 +241,10 @@ void Rpmsg::init(const struct rpmsg_resource_table *rsc) noexcept {
     clic::enable(clic::kLineMsgbox);  // [SPEC-E906-IRQ-04]; the read IRQ stays masked until armed
     s_linux_rsc = rsc;
     s_linux_vdev_ready = false;
+    // @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
+    // Forget the vrings of any earlier resource table; is_driver_ready() maps the new ones.
+    s_tx_vq = VirtQueueLayout{};
+    s_rx_vq = VirtQueueLayout{};
     s_linux_rx_count.store(0, std::memory_order_relaxed);
     s_linux_tx_count.store(0, std::memory_order_relaxed);
     s_linux_ring_errors.store(0, std::memory_order_relaxed);
@@ -388,8 +392,9 @@ bool Rpmsg::announce_service(const char *name, uint32_t addr) noexcept {
     return tx_commit(buf, sizeof(rpmsg_ns_msg), addr, RPMSG_NS_ADDR);
 }
 
+// @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
 void Rpmsg::enable_rx_kick(bool enable) noexcept {
-    if (s_rx_vq.used) {
+    if (is_driver_ready() && s_rx_vq.used) {
         s_rx_vq.used->flags = enable ? 0 : VRING_USED_F_NO_NOTIFY;
         std::atomic_thread_fence(std::memory_order_seq_cst);
     }
@@ -633,6 +638,9 @@ void RpmsgLiteMetal::init(const struct rpmsg_resource_table *rsc) noexcept {
     MsgBox::init();
     s_lite_rsc = rsc;
     s_lite_vdev_ready = false;
+    // @impl [SPEC-E906-IPC-03] targets/allwinner_e906/SPECIFICATION.md
+    s_lite_tx_vq = VirtQueueLayout{};
+    s_lite_rx_vq = VirtQueueLayout{};
     s_lite_ns_announced = false;
     s_lite_rx_count.store(0, std::memory_order_relaxed);
     s_lite_tx_count.store(0, std::memory_order_relaxed);
@@ -698,8 +706,9 @@ bool RpmsgLiteMetal::announce_service(const char *name, uint32_t addr) noexcept 
     return true;
 }
 
+// @impl [SPEC-E906-IPC-03] targets/allwinner_e906/SPECIFICATION.md
 void RpmsgLiteMetal::enable_rx_kick(bool enable) noexcept {
-    if (s_lite_rx_vq.used) {
+    if (is_driver_ready() && s_lite_rx_vq.used) {
         s_lite_rx_vq.used->flags = enable ? 0 : VRING_USED_F_NO_NOTIFY;
         std::atomic_thread_fence(std::memory_order_seq_cst);
     }

@@ -219,7 +219,12 @@ sequenceDiagram
 * **VirtIO Kick Suppression**:
   * In polling mode, `s_tx_vq.used->flags` and `s_rx_vq.used->flags` default to `VRING_USED_F_NO_NOTIFY`
     to suppress redundant host kicks. `enable_rx_kick(bool)` toggles `s_rx_vq.used->flags`.
-* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`, `sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`
+* **Re-init never keeps old vrings** (2026-10-22): `init()` clears both vring layouts
+  (`s_tx_vq`, `s_rx_vq`; `s_lite_*` for `RpmsgLiteMetal`) together with the ready flag, and
+  `enable_rx_kick()` writes the used ring only when `is_driver_ready()` is true (which maps the
+  rings of the *current* resource table first). A vring pointer kept from an earlier resource table
+  (remoteproc restart, or a previous host test block whose memory is unmapped) is never written.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`, `sim/test_e906_rpmsg_flow_control.cpp`; the tests `#undef NDEBUG` so their checks also run in `RelWithDebInfo` builds), `thread-sanitizer`, `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ### `[SPEC-E906-IPC-03]` Lite-Metal Direct Driver (`class RpmsgLiteMetal`)
