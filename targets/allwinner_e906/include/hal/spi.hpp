@@ -1,5 +1,6 @@
 #ifndef IOPROCESSOR_HAL_SPI_HPP
 #define IOPROCESSOR_HAL_SPI_HPP
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 
 #include <stdint.h>
 #include <stddef.h>
@@ -16,10 +17,10 @@ enum class SpiMode {
 
 class Spi0 {
 public:
-    // Threshold balancing: transfers <= 4 bytes (commands / register read-writes)
+    // Threshold balancing ([SPEC-E906-HAL-01]): transfers <= 64 bytes (SPI0 hardware FIFO depth)
     // use direct fast-path FIFO avoiding DMA channel allocation & setup latency;
-    // transfers > 4 bytes (IMU bursts, FPGA frames) stream via dual-channel DMA.
-    static constexpr size_t DMA_THRESHOLD = 4;
+    // transfers > 64 bytes (IMU bursts, FPGA frames) stream via dual-channel DMA.
+    static constexpr size_t DMA_THRESHOLD = 64;
 
     static void init(uint32_t speed_hz = 25000000);
     static void set_speed(uint32_t speed_hz);
@@ -53,7 +54,7 @@ public:
 
         AsyncTransferAwaiter(SpiMode m, int cs, const uint8_t *t, uint8_t *r, size_t l);
         bool await_ready() const noexcept;
-        void await_suspend(std::coroutine_handle<> handle) noexcept;
+        bool await_suspend(std::coroutine_handle<> handle) noexcept;
         bool await_resume() noexcept;
     };
 

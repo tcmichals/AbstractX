@@ -295,6 +295,32 @@ int main() {
         assert(got == kTotal && in_order && t_uart.rx_stats().dropped_bytes == 0);
     }
 
+    // 12. Synchronous copy_out() across wrap + reset() with external backing span.
+    {
+        alignas(64) std::array<uint8_t, 256> ext_mem{};
+        UartRxRingBase ext_ring(ext_mem, 64);
+        uint32_t wr = 0;
+        auto ext_dma = [&](size_t n) {
+            for (size_t i = 0; i < n; ++i) {
+                ext_mem[wr % ext_mem.size()] = static_cast<uint8_t>(wr);
+                ++wr;
+            }
+            ext_ring.produced_from_isr(n, true);
+        };
+        ext_dma(240);
+        std::array<uint8_t, 256> out{};
+        assert(ext_ring.copy_out(out.data(), 240) == 240);
+        ext_dma(32); // wraps across 256 B boundary (240..271)
+        const size_t n = ext_ring.copy_out(out.data(), 32);
+        assert(n == 32);
+        for (size_t i = 0; i < 32; ++i) {
+            assert(out[i] == static_cast<uint8_t>(240 + i));
+        }
+        ext_ring.reset();
+        assert(ext_ring.copy_out(out.data(), 32) == 0);
+        assert(ext_ring.stats().dropped_bytes == 0);
+    }
+
     std::printf("[PASS] UART RX ring: zero-copy spans, partial frames, timeout, cancel, overrun counted, 1000 frames flat, threaded producer\n");
     return 0;
 }

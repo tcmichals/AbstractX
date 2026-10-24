@@ -43,25 +43,31 @@ public:
 
 
 protected:
+    // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
     void start_hardware_transfer_from_isr(const SpiRequest& req) noexcept override {
-        size_t len = req.tx_data.empty() ? req.rx_data.size() : req.tx_data.size();
-        fc::hal::Spi0::start_dma_transfer(
+        active_req_ = req;
+        const size_t len = req.tx_data.empty() ? req.rx_data.size() : req.tx_data.size();
+        if (!fc::hal::Spi0::start_dma_transfer(
             1 /* CS1 */,
             req.tx_data.data(),
             req.rx_data.data(),
             len,
             etl::delegate<void(bool)>::create<E906SpiDriver, &E906SpiDriver::on_dma_done>(*this)
-        );
+        )) {
+            on_dma_done(false);
+        }
     }
 
 private:
+    SpiRequest active_req_{};
+
     void on_dma_done(bool success) noexcept {
         SpiResult res{};
         res.status = success ? SpiStatus::Ok : SpiStatus::DmaError;
-        SpiRequest req{};
-        if (pop_next_request_from_isr(req)) {
-            push_completion_from_isr(req, res);
-        }
+        res.transferred_bytes = active_req_.tx_data.empty() ? active_req_.rx_data.size() : active_req_.tx_data.size();
+        res.timestamp_us = ::hal::Timer::get_time_us();
+        push_completion_from_isr(active_req_, res);
+        active_req_ = {};
         set_hardware_idle_from_isr();
     }
 };
@@ -138,13 +144,41 @@ public:
     }
 
 protected:
+    // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
     void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
+        active_req_ = req;
+        if (req.duration_us == 0) {
+            on_alarm(this);
+            return;
+        }
+        waiter_.target_ticks = ::hal::Timer::get_ticks() +
+                               static_cast<uint64_t>(req.duration_us) * ::hal::Timer::TICKS_PER_US;
+        waiter_.handle = nullptr;
+        waiter_.callback = &E906TimerDriver::on_alarm;
+        waiter_.ctx = this;
+        ::hal::Timer::schedule_waiter(&waiter_);
+    }
+
+    bool abort_active_from_isr() noexcept override {
+        ::hal::Timer::cancel_waiter(&waiter_);
+        push_completion_from_isr(active_req_, make_cancelled_result<TimerResult>());
+        active_req_ = {};
+        return true;
+    }
+
+private:
+    static void on_alarm(void* ctx) noexcept {
+        auto* self = static_cast<E906TimerDriver*>(ctx);
         TimerResult res{};
         res.status = TimerStatus::Ok;
-        res.timestamp_us = get_time_us() + req.duration_us;
-        push_completion_from_isr(req, res);
-        set_hardware_idle_from_isr();
+        res.timestamp_us = self->get_time_us();
+        self->push_completion_from_isr(self->active_req_, res);
+        self->active_req_ = {};
+        self->set_hardware_idle_from_isr();
     }
+
+    TimerRequest               active_req_{};
+    ::hal::Timer::SleepAwaiter waiter_{};
 };
 
 // GPIO HAL Adapter for E906

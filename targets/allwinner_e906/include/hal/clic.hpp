@@ -24,6 +24,7 @@ inline constexpr uint32_t kLineDma    = 88;
 inline constexpr uint32_t kLineGroup0 = 90;   // GIC 32..39; each next line covers 8 more
 
 inline constexpr uint32_t kGicUart3 = 37;
+inline constexpr uint32_t kGicTwi0  = 42;
 inline constexpr uint32_t kGicTwi1  = 43;
 
 constexpr uint32_t line_for_gic(uint32_t gic) noexcept { return kLineGroup0 + (gic - 32U) / 8U; }

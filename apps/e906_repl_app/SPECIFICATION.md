@@ -20,7 +20,7 @@ the hard real-time determinism or zero-heap constraints of the AbstractX flight 
 ### Core Architecture Invariants:
 1. **Target Specificity**: Exclusively targets the Allwinner A5E / A7A (XuanTie E906 + dormant HiFi4 Audio DSP).
 2. **Zero MCU SRAM Heap**: The real-time C++ flight engine runs 100% zero-heap in MCU SRAM Space 0 (`0x3FFC0000`).
-3. **DSP Memory Quarantine**: MicroPython's 256 KB GC heap is quarantined inside the dormant on-chip Cadence HiFi4 Audio DSP memory aperture (`0x00020000` / `0x00400000`).
+3. **DSP Memory Quarantine**: MicroPython's 128 KB GC heap is quarantined inside the dormant on-chip Cadence HiFi4 Audio DSP memory aperture (`0x00020000`–`0x00040000`).
 4. **Cooperative Coroutine Guest**: The MicroPython REPL executes as a single cooperative C++20 coroutine task inside `abstractx::step()`.
 5. **Non-Preemptive Interleaving**: Bytecode loop hooks (`MICROPY_VM_HOOK_LOOP`) yield cooperatively to primary-paced sensor rings.
 6. **Unified Observability Integration**: Bridges seamlessly to AbstractX Studio Tab 11 ([SPEC-STUDIO-13]) over RPMsg text frames.
@@ -46,7 +46,7 @@ The AbstractX XuanTie E906 runtime implements a strict **Three-Plane Separation 
 ```mermaid
 flowchart TD
     subgraph SILICON_A5E["Allwinner Radxa Cubie A5E Silicon"]
-        subgraph E906_MCU["XuanTie E906 RISC-V Core @ 800 MHz (SRAM Space 0: 0x3FFC0000)"]
+        subgraph E906_MCU["XuanTie E906 RISC-V Core @ 200 MHz (SRAM Space 0: 0x3FFC0000)"]
             DISPATCHER["<b>AbstractX Work Queue (Dispatcher)</b><br/>Lock-Free etl::queue_spsc_isr<br/>Cooperative Coroutine Resumption"]
             
             subgraph COROUTINES["Cooperative C++20 Tasks"]
@@ -145,6 +145,9 @@ flowchart TD
   2. MicroPython MUST NOT call standard C `malloc()`, `calloc()`, or `free()`.
   3. No MicroPython objects, parse trees, or GC blocks may reside in MCU SRAM Space 0
      (`0x3FFC0000`) or Space 1 (`0x40000000`).
+  4. `gc_collect()` MUST spill RISC-V callee-saved registers (`s0`–`s11`) onto the stack before
+     invoking `gc_collect_root()` so live object references held in registers across C frames are
+     never prematurely swept.
 * **Rationale**: Quarantining the GC heap in dormant DSP SRAM prevents Python heap
   fragmentation or GC sweep latency from polluting zero-wait-state MCU flight memory.
 * **Verified by**: `e906-build-layout`, `host-tests`
@@ -152,12 +155,14 @@ flowchart TD
 
 ### `[SPEC-E906-REPL-03]` Event-Driven MicroPython Coroutine Task
 * **Requirement**:
-  1. MicroPython's REPL MUST execute as a cooperative C++20 coroutine task:
-     `coro::Task<void> repl_task(hal::IRpmsg &rpmsg)`.
-  2. When no input is available, the coroutine yields execution via `co_await console.read_char_async()`,
+  1. MicroPython's REPL MUST execute as cooperative C++20 coroutine tasks (`rpmsg_rx_coroutine`,
+     `repl_rx_coroutine`, `repl_tx_coroutine`, spawned as `"rpmsg_rx"`, `"repl_rx"`, `"repl_tx"`,
+     `[SPEC-E906-REPL-18]`).
+  2. When no input is available, `repl_rx_coroutine` yields execution via `co_await console.read_char_async()`,
      consuming 0 CPU cycles.
   3. Incoming characters and lines are dispatched into `pyexec_event_repl_process_char()`
-     without blocking the dispatcher.
+     without blocking the dispatcher, and `console.flush()` is called when the input queue drains
+     so non-newline prompts (`\x04\x04>`) are sent immediately (`[SPEC-E906-REPL-16]`).
   4. On soft reset (`PYEXEC_FORCED_EXIT`, Ctrl-D), the task MUST reinitialize the MicroPython VM
      and REPL context via `mp_deinit()`, `mp_init()`, and `pyexec_event_repl_init()`.
 * **Verified by**: `host-tests`, `sanitizer-gate`
@@ -166,18 +171,20 @@ flowchart TD
 ### `[SPEC-E906-REPL-04]` `MICROPY_VM_HOOK_LOOP` Non-Preemptive Interleaving & Ctrl-C Interrupts
 * **Requirement**:
   1. The MicroPython bytecode dispatch loop MUST define `MICROPY_VM_HOOK_LOOP` to call
-     `abstractx::repl_vm_hook()`.
-  2. On every loop invocation (or prescaled VM tick), `abstractx::repl_vm_hook()` MUST
-     pump pending ISR dispatcher queues and service high-rate primary-paced sensor rings.
+     `abstractx_repl_vm_hook()`.
+  2. When an RPMsg doorbell or dispatcher resume is pending (or every 64th backward jump),
+     `abstractx_repl_vm_hook()` MUST pump `abstractx::Dispatcher::process()`, `platform_poll_network()`,
+     `abstractx::status_service()`, and `flush_if_older(20 ms)`.
   3. Long-running or infinite Python loops (`while True: pass`) MUST NOT starve
-     the 8 kHz IMU fusion pipeline or watchdog timers.
-  4. The VM hook MUST inspect the console input ring for interrupt character `CHAR_CTRL_C`
-     (`0x03`) and schedule `mp_sched_keyboard_interrupt()` to trigger a non-local return (`nlr_jump`)
-     back to the REPL prompt.
+     cooperative coroutines, telemetry flushing, or runtime status reporting.
+  4. While a script runs (`mp_interrupt_char != -1`), `RpmsgConsole::on_rx_data()` MUST intercept
+     `CHAR_CTRL_C` (`0x03`) on arrival and schedule `mp_sched_keyboard_interrupt()` without queueing it,
+     and `abstractx_repl_vm_hook()` MUST call `mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS)`
+     without draining the console input queue (so `PING` heartbeats remain intact, `[SPEC-E906-REPL-14]`).
   5. Uncaught NLR failures (`nlr_jump_fail`) MUST dump an exception diagnostic autopsy to
      the console rather than silently stalling.
 * **Verified by**: `host-tests`
-* **Implementation Target**: `apps/e906_repl_app/include/mpconfigport.h`, `apps/e906_repl_app/src/mphalport.cpp`
+* **Implementation Target**: `apps/e906_repl_app/include/mpconfigport.h`, `apps/e906_repl_app/src/mphalport.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
 
 ### `[SPEC-E906-REPL-05]` RPMsg Studio REPL Endpoint Protocol
 * **Requirement**:
@@ -192,19 +199,24 @@ flowchart TD
 ### `[SPEC-E906-REPL-06]` Native `abstractx` Module Hardware Bindings
 * **Requirement**:
   MicroPython MUST expose a built-in C module `abstractx`:
-  * `abstractx.peek(addr)`: Reads 32-bit MMIO or SRAM word at address `addr`.
+  * `abstractx.peek(addr)`: Reads full 32-bit unsigned MMIO or SRAM word at address `addr` (`mp_obj_new_int_from_uint`).
   * `abstractx.poke(addr, val)`: Writes 32-bit MMIO or SRAM word at address `addr`.
   * `abstractx.version()`: Returns AbstractX firmware release string.
   * `abstractx.cycles()`: Returns current RISC-V 64-bit `mcycle` timestamp.
   * `abstractx.alive()`: Returns `True` (liveness probe).
-  * `abstractx.uart_read()`: Reads pending bytes from UART3 FIFO (u-blox NEO-M8N GPS on Pins 16 & 31, `0x02500C00`).
+  * `abstractx.uart_read()`: Reads pending bytes from UART3 RX ring (u-blox NEO-M8N GPS on Pins 16 & 31, `0x02500C00`).
+  * `abstractx.uart_read_into(buf)`: Zero-allocation read of pending UART3 RX bytes into a writable buffer (`bytearray` / `memoryview`), returning bytes copied.
+  * `abstractx.uart_dma([enable])`: Queries or switches UART3 RX between circular 4x64 B DMA mode (`True`) and interrupt FIFO mode (`False`, `[SPEC-E906-HAL-02]`).
   * `abstractx.uart_write(data)`: Transmits bytes or string over UART3 to GPS.
   * `abstractx.i2c_scan()`: Probes I2C1 (TWI1, Pins 3 & 5, `0x02502400`) and returns list of responding 7-bit addresses.
   * `abstractx.i2c_read(addr, reg, len)`: Reads `len` bytes from register `reg` on I2C device `addr`.
+  * `abstractx.i2c_read_into(addr, reg, buf)`: Zero-allocation read from register `reg` on I2C device `addr` directly into a writable buffer, returning bytes read (`0` on NACK/timeout).
   * Also present and part of the contract: `peek_hex`, `uart_init([baud])`, `uart_status()`,
     `i2c_init([hz])`, `i2c_write(addr, reg, data)`, `sleep_ms(ms)`, `ticks_ms()`,
-    `console_read([n])` ([SPEC-E906-REPL-14]), `tlp_send(buf)`, `tlp_push(buf)`, `tlp_dropped()`
-    ([SPEC-E906-REPL-10]) and `trace(task_id[, state[, msg]])` ([SPEC-E906-REPL-07]).
+    `console_read([n])`, `console_read_into(buf)` ([SPEC-E906-REPL-14]),
+    `tlp_send(buf)`, `tlp_push(buf)`, `tlp_poll_into(buf)`, `tlp_dropped()`
+    ([SPEC-E906-REPL-10]), `trace(task_id[, state[, msg]])` ([SPEC-E906-REPL-07]),
+    `irq_stats()` ([SPEC-E906-REPL-16]) and `dma_bench(n[, port])` ([SPEC-E906-HAL-01]).
 * **Verified by**: `host-tests`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`
 
@@ -213,11 +225,11 @@ flowchart TD
   1. **RemoteProc `trace0` Buffer**: The memory-mapped debugfs trace buffer (`g_rproc_trace_buffer`, 1 KB in `SRAM_FAST`) is STRICTLY reserved for:
      - Firmware liveness confirmation upon boot (`[E906] Online\n`).
      - Fatal crash autopsies (`hal_crash_dispatcher` register dump and stack unwinding).
-     - **Negative Invariant**: It MUST NOT be used for general diagnostic logging, function call tracing, or arbitrary printf string emissions. Firmware rodata string literals are prohibited from consuming on-chip SRAM for trace formatting.
+     - **Negative Invariant**: It MUST NOT be used for general diagnostic logging, function call tracing, REPL stdout mirroring (`mp_hal_stdout_tx_strn`), or arbitrary printf string emissions. Firmware rodata string literals are prohibited from consuming on-chip SRAM for trace formatting.
   2. **barectf CTF 1.8 Binary Code Tracing**: All code tracing, driver event telemetry, and coroutine execution instrumentation MUST use structured binary CTF 1.8 frames emitted via `barectf` over VirtIO RPMsg endpoint 1025 (`"abstractx-trace"`).
   3. Binary trace packets must be emitted zero-copy into host SRAM buffers without heap allocation or CPU-bound string rendering.
 * **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
-* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `targets/allwinner_e906/src/trace.cpp`
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`, `targets/allwinner_e906/src/trace.cpp`
 
 ### `[SPEC-E906-REPL-08]` Three-Plane Communication Isolation & Endpoint Mapping
 * **Requirement**:
@@ -244,8 +256,8 @@ flowchart TD
      - `abstractx.tlp_poll_into(bytearray_64)`: Non-blocking pop from the ingress SPSC TLP ring directly into a pre-allocated mutable buffer without heap allocation. Returns `True` if a packet was dequeued, `False` if empty.
      - `abstractx.tlp_send_nav(lat, lon, alt_mm, speed_mms, heading_cdeg, sats, fix)`: Direct C helper that packs pre-scaled navigation integers into an in-place `asp_tlp64_unaligned_t*` slot borrowed via `tlp_channel.emplace()`.
   2. **Zero GC Pressure Invariant**: Continuous telemetry emissions (10 Hz – 100 Hz) MUST allocate **0 bytes** on the MicroPython garbage-collected heap during steady-state flight loops.
-  3. **Execution Latency Invariant**: Packing and submitting a 64-byte TLP frame from MicroPython MUST complete in $< 5 \ \mu\text{s}$ per frame on the 800 MHz XuanTie E906 core.
-* **Not implemented yet**: `tlp_poll_into`, `tlp_send_nav`
+  3. **Execution Latency Invariant**: Packing and submitting a 64-byte TLP frame from MicroPython MUST complete in $< 50 \ \mu\text{s}$ per frame on the 200 MHz XuanTie E906 core.
+* **Not implemented yet**: `tlp_send_nav`
 * **Verified by**: `host-tests`, `e906-build-layout`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/flight_sensors.py`
 
@@ -278,11 +290,11 @@ flowchart TD
 ### `[SPEC-E906-REPL-13]` Fixed-Point Sensor Fusion & Navigation Vector Synthesis
 * **Requirement**:
   1. **Integer Fixed-Point Trigonometry**: In Minimal ROM MicroPython environments lacking `<math.h>` floating-point modules, directional projections MUST use precomputed integer trigonometric tables (scaling factor $10000$) with quadrant symmetry, completing in $\mathcal{O}(1)$ time with zero heap allocation.
-  2. **Navigation Vector Synthesis**:
-     - **3D Unit Heading Vector**: Decomposed from magnetometer azimuth $\psi$ as $\vec{u}_h = (\cos \psi, \sin \psi, 0)$ scaled to $\pm 10000$.
-     - **Ground Velocity Vector**: Decomposed from GPS ground speed $v_g$ (mm/s) and Course Over Ground $\chi$ as $\vec{v}_g = (v_g \cos \chi, v_g \sin \chi, v_D)$ in Earth NED frame.
-     - **Aerodynamic Drift & Wind Crab Angle**: Calculated as $\beta = (\chi - \psi) \pmod{360^\circ}$, yielding cross-track velocity $v_{\text{cross}} = v_g \sin \beta$ and along-track velocity $v_{\text{along}} = v_g \cos \beta$.
-     - **Local Displacement Vector**: Integer equirectangular projection yielding $(\Delta N, \Delta E, \Delta D)$ in millimeters relative to initial Home fix.
+  2. **Navigation Vector Synthesis (`NavVectorEngine`)**:
+     - **2D Unit Heading Vector (`calc_heading_vector`)**: Decomposed from magnetometer azimuth $\psi$ as $(u_N, u_E) = (\cos \psi, \sin \psi)$ scaled to $\pm 10000$.
+     - **Ground Velocity Vector (`calc_ground_velocity_vector`)**: Decomposed from GPS ground speed $v_g$ (cm/s) and Course Over Ground $\chi$ as $(v_N, v_E) = (v_g \cos \chi, v_g \sin \chi)$ in cm/s in the Earth NE frame.
+     - **Aerodynamic Drift & Wind Crab Angle (`calc_drift_and_wind`)**: Calculated as $\beta = (\chi - \psi) \pmod{360^\circ}$ normalized to $[-180^\circ, +180^\circ]$, yielding along-track velocity $v_{\text{along}} = v_g \cos \beta$ and cross-track velocity $v_{\text{cross}} = v_g \sin \beta$ in cm/s.
+     - **Local Displacement Vector (`calc_local_ned_displacement`)**: Integer flat-earth equirectangular projection yielding $(\Delta N, \Delta E)$ in meters relative to the initial Home fix (`1e-7` deg coordinates).
   3. **Zero Dynamic Allocation**: Vector calculation and formatting MUST NOT allocate intermediate heap objects or lists during steady-state sensor fusion loops.
 * **Verified by**: `host-tests`, `e906-build-layout`
 * **Implementation Target**: `apps/e906_repl_app/compass_gps_vector.py`
@@ -334,19 +346,25 @@ flowchart TD
 * **Requirement**: the main loop is only `abstractx::step()`. RPMsg is read after the message box
   interrupt ([SPEC-E906-IRQ-04]); the `abstractx-repl` announcement is retried on each doorbell
   wake, not from a polling loop.
-* **Requirement**: UART3 (GPS) is interrupt-driven on CLIC line 90 ([SPEC-E906-IRQ-02]): the ISR
-  drains the RX FIFO into a ring on RX-data / RX-timeout, and refills the TX FIFO from a ring on
-  THR-empty. `uart_read` takes bytes from the ring without touching the UART; `uart_write`
-  queues bytes and sleeps (`wfi`) only while the TX ring is full.
+* **Requirement**: UART3 (GPS) uses circular 4x64 B DMA receive (`UartRxRing<64, 4>` in `.sram_c`,
+  CLIC line 88 package-end + CLIC line 90 RX-timeout / line-status, `[SPEC-E906-HAL-02]`) by
+  default, and can be switched at run time to interrupt-driven FIFO receive on CLIC line 90 via
+  `abstractx.uart_dma(False)` ([SPEC-E906-IRQ-02]): in ISR mode the handler drains the RX FIFO into
+  a ring on RX-data / RX-timeout, and refills the TX FIFO from a ring on THR-empty. `uart_read` /
+  `uart_read_into` takes bytes from the ring without touching the UART; `uart_write` queues bytes
+  (or uses TX DMA for transfers larger than the 128 B FIFO) and sleeps (`wfi`) only while busy/full.
 * **Requirement**: UART3's FIFOs are 128 B each (T527 User Manual V0.94 §8.19.1: 128 B for UART1-7,
-  64 B only for UART0 / S_UART). On RX the ISR reads the RX FIFO level (`UART_RFL`, +0x84) once
+  64 B only for UART0 / S_UART). On RX in ISR mode the handler reads the RX FIFO level (`UART_RFL`, +0x84) once
   and then that many bytes from `RBR`, instead of reading `LSR` before every byte; on THR-empty it
   refills up to 128 B. Baseline before this change (2026-10-22, 115200 baud GPS, MicroPython
   reading every 100 ms): 29 interrupts/s, mean 39 us, median and max 50 us per interrupt.
 * **Requirement**: TWI1 (compass) is interrupt-driven on CLIC line 91: one `INT_FLG` interrupt per
   bus step runs a state machine (START, address, register, repeated START, data, STOP).
-  `i2c_read` / `i2c_write` / `i2c_scan` start a transaction and sleep (`wfi`) until the ISR
+  `i2c_read` / `i2c_read_into` / `i2c_write` / `i2c_scan` start a transaction and sleep (`wfi`) until the ISR
   completes it or a 20 ms `mtimecmp` timeout fires, which aborts with STOP and returns empty / 0.
+  Peripheral data buffers (`s_twi` buffers, UART RX/TX rings and DMA descriptors) reside in `.sram_c`
+  (SRAM Space 1) to preserve `SRAM_FAST` (`.bss`). `dma_bench` releases its allocated DMA channel
+  upon completion so channels 8..15 are not leaked.
 * **Requirement**: blocking MicroPython calls (`sleep_ms`, stdin read, UART/I2C waits) sleep with
   `wfi` under the masked-check pattern ([SPEC-ARCH-06]) and run the VM hook on each wake; they never
   spin on a hardware register.

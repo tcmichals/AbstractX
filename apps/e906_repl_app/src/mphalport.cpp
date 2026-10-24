@@ -21,11 +21,19 @@ extern "C" {
 #include "abstractx/hal/platform.hpp"
 #include "hal/timer.hpp"
 #include "hal/rpmsg.hpp"
+#include "hal/rpmsg_endpoints.hpp"
+#include "spsc_tlp_ring.hpp"
 #include <cstdint>
 
 namespace abstractx::hal {
 extern volatile uint32_t g_telemetry_dropped;
+extern ::hal::RpmsgTlpChannel g_tlp_channel;
 }
+
+namespace {
+__attribute__((section(".sram_c"))) abstractx::SpscTlpRing<> s_tlp_ingress_ring;
+bool s_tlp_ingress_attached = false;
+} // namespace
 
 #if defined(__riscv)
 static inline uint64_t read_mcycle() noexcept {
@@ -100,12 +108,37 @@ void abstractx_repl_vm_hook(void) {
     mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS);
 }
 
-// Garbage collection root scan
+// Garbage collection root scan: spill RISC-V callee-saved registers (s0..s11) onto the stack
+// before scanning from `regs` to `stack_top` so live pointers in registers are never swept.
 // @impl [SPEC-E906-REPL-02] apps/e906_repl_app/SPECIFICATION.md
 void gc_collect(void) {
     gc_collect_start();
-    void *dummy;
-    gc_collect_root(&dummy, ((mp_uint_t)MP_STATE_THREAD(stack_top) - (mp_uint_t)&dummy) / sizeof(mp_uint_t));
+    uintptr_t regs[12];
+#if defined(__riscv)
+    asm volatile(
+        "sw s0,   0(%0)\n"
+        "sw s1,   4(%0)\n"
+        "sw s2,   8(%0)\n"
+        "sw s3,  12(%0)\n"
+        "sw s4,  16(%0)\n"
+        "sw s5,  20(%0)\n"
+        "sw s6,  24(%0)\n"
+        "sw s7,  28(%0)\n"
+        "sw s8,  32(%0)\n"
+        "sw s9,  36(%0)\n"
+        "sw s10, 40(%0)\n"
+        "sw s11, 44(%0)\n"
+        :
+        : "r"(regs)
+        : "memory"
+    );
+#else
+    for (size_t i = 0; i < 12; ++i) {
+        regs[i] = 0;
+    }
+#endif
+    gc_collect_root(reinterpret_cast<void **>(regs),
+                    ((mp_uint_t)MP_STATE_THREAD(stack_top) - (mp_uint_t)regs) / sizeof(mp_uint_t));
     gc_collect_end();
 }
 
@@ -169,6 +202,30 @@ bool abstractx_console_has_rx(void) {
 bool abstractx_tlp_send_bytes(const uint8_t *data, size_t len) {
     if (!data || len != 64) return false;
     abstractx::hal::platform_send_telemetry(data, len);
+    return true;
+}
+
+// @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+void abstractx_tlp_ingress_init(void) {
+    if (!s_tlp_ingress_attached) {
+        s_tlp_ingress_ring.clear();
+        abstractx::hal::g_tlp_channel.set_ingress_ring(&s_tlp_ingress_ring);
+        s_tlp_ingress_attached = true;
+    }
+}
+
+// @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+bool abstractx_tlp_poll_bytes(uint8_t *dst, size_t len) {
+    if (!dst || len != 64) return false;
+    abstractx_tlp_ingress_init();
+    abstractx::Tlp64 tlp{};
+    if (!s_tlp_ingress_ring.pop(tlp)) {
+        return false;
+    }
+    const auto *src = reinterpret_cast<const uint8_t *>(&tlp.wire);
+    for (size_t i = 0; i < 64; ++i) {
+        dst[i] = src[i];
+    }
     return true;
 }
 

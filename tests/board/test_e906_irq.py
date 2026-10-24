@@ -133,3 +133,39 @@ def test_dma_copy_completes_by_interrupt():
         assert 0 < dma < 200_000, f"port {port}, {n} B: {dma} cycles"
     assert "EN 0x000000ff 0x0000ff00" in out, f"DMAC IRQ routing not set: {out.strip()[-120:]}"
     assert _stats().get(LINE_DMA, 0) - before >= 6, "line 88 did not fire once per transfer"
+
+
+def test_uart3_rx_dma_and_into():
+    """[SPEC-E906-HAL-02], [SPEC-E906-REPL-06]: circular 4x64 B DMA RX on UART3, runtime switch
+    abstractx.uart_dma(), zero-allocation _into bindings, and full 32-bit unsigned peek()."""
+    # @verifies [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md
+    # @verifies [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
+    _require_board()
+    before = _stats()
+    out = _run("import abstractx\n"
+               "abstractx.poke(0x3FFF0100, 0xDEADBEEF)\n"
+               "p32 = abstractx.peek(0x3FFF0100)\n"
+               "abstractx.uart_init(115200)\n"
+               "dma_on = abstractx.uart_dma(True)\n"
+               "d0 = abstractx.irq_stats()['uart_dropped']\n"
+               "abstractx.sleep_ms(250)\n"
+               "buf = bytearray(512)\n"
+               "n_dma = abstractx.uart_read_into(buf)\n"
+               "dma_off = abstractx.uart_dma(False)\n"
+               "abstractx.sleep_ms(250)\n"
+               "n_isr = abstractx.uart_read_into(buf)\n"
+               "abstractx.uart_dma(True)\n"
+               "d1 = abstractx.irq_stats()['uart_dropped'] - d0\n"
+               "abstractx.i2c_init(400000)\n"
+               "ibuf = bytearray(3)\n"
+               "n_i2c = abstractx.i2c_read_into(0x1E, 0x0A, ibuf)\n"
+               "print('RES', (hex(p32), dma_on, dma_off, n_dma, n_isr, n_i2c, list(ibuf), d1))", 10.0)
+    after = _stats()
+    raw = [ln[4:] for ln in out.splitlines() if ln.startswith("RES ")][-1]
+    p32, dma_on, dma_off, n_dma, n_isr, n_i2c, ibuf, dropped = eval(raw, {"__builtins__": {}})
+    assert p32 == "0xdeadbeef", f"32-bit unsigned peek() truncated top bits: {p32}"
+    assert dma_on is True and dma_off is False, f"uart_dma toggle failed: {dma_on}, {dma_off}"
+    assert n_dma > 0 and n_isr > 0, f"uart_read_into returned 0 bytes: {n_dma}, {n_isr}"
+    assert n_i2c == 3 and ibuf == [72, 52, 51], f"i2c_read_into failed: {n_i2c}, {ibuf}"
+    assert dropped == 0, f"UART3 RX dropped {dropped} bytes"
+    assert after.get(LINE_DMA, 0) > before.get(LINE_DMA, 0), f"CLIC line 88 did not fire during UART3 DMA RX: {before} -> {after}"

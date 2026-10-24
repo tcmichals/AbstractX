@@ -81,7 +81,7 @@ struct alignas(4) DmaLli {
     uint32_t src;        // Source physical address
     uint32_t dst;        // Destination physical address
     uint32_t len;        // Transfer byte count
-    uint32_t para;       // Clock wait parameters (default: 8)
+    uint32_t para;       // Clock wait parameters (0x40 for 24 MHz APB1 DRQ deassert, [SPEC-E906-HAL-02])
     uint32_t p_lli_next; // Physical address of next LLI (or LLI_LAST_ITEM)
 };
 
@@ -93,10 +93,17 @@ constexpr uint8_t DMA_IRQ_QUEUE = 0x4;  // whole chain done
 class DmaController {
 public:
     // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+    static constexpr bool is_dma_sram(uintptr_t da) noexcept {
+        return da >= 0x3FFC0000U && da < 0x40040000U;
+    }
+    static bool is_dma_sram(const volatile void* p) noexcept {
+        return is_dma_sram(reinterpret_cast<uintptr_t>(p));
+    }
+
     // E906 address -> DMAC (physical) address: SRAM Space 0 and 1 share one offset.
     static constexpr uint32_t pa(uintptr_t da) noexcept {
-        return (da >= 0x3FFC0000U && da < 0x40040000U) ? static_cast<uint32_t>(da - 0x38D40000U)
-                                                       : static_cast<uint32_t>(da);
+        return is_dma_sram(da) ? static_cast<uint32_t>(da - 0x38D40000U)
+                               : static_cast<uint32_t>(da);
     }
     static uint32_t pa(const volatile void* p) noexcept { return pa(reinterpret_cast<uintptr_t>(p)); }
 
@@ -125,6 +132,48 @@ public:
                (static_cast<uint32_t>(dst_width & 0x03) << 25);
     }
 
+    // Build a Memory -> Peripheral FIFO LLI descriptor with physical addresses ([SPEC-E906-HAL-01]).
+    static DmaLli make_mem2periph(
+        const void* src_buf,
+        uintptr_t dst_reg,
+        uint32_t len,
+        uint8_t dst_drq,
+        uint8_t burst = DMA_BURST_4,
+        uint8_t width = DMA_WIDTH_8,
+        uint32_t next_pa = LLI_LAST_ITEM
+    ) noexcept {
+        DmaLli lli{};
+        lli.cfg = build_cfg(DRQ_SDRAM, burst, width, DMA_MODE_LINEAR,
+                            dst_drq, burst, width, DMA_MODE_IO);
+        lli.src = pa(src_buf);
+        lli.dst = static_cast<uint32_t>(dst_reg);
+        lli.len = len;
+        lli.para = 0x40U;
+        lli.p_lli_next = next_pa;
+        return lli;
+    }
+
+    // Build a Peripheral FIFO -> Memory LLI descriptor with physical addresses ([SPEC-E906-HAL-01]).
+    static DmaLli make_periph2mem(
+        uintptr_t src_reg,
+        void* dst_buf,
+        uint32_t len,
+        uint8_t src_drq,
+        uint8_t burst = DMA_BURST_1,
+        uint8_t width = DMA_WIDTH_8,
+        uint32_t next_pa = LLI_LAST_ITEM
+    ) noexcept {
+        DmaLli lli{};
+        lli.cfg = build_cfg(src_drq, burst, width, DMA_MODE_IO,
+                            DRQ_SDRAM, burst, width, DMA_MODE_LINEAR);
+        lli.src = static_cast<uint32_t>(src_reg);
+        lli.dst = pa(dst_buf);
+        lli.len = len;
+        lli.para = 0x40U;
+        lli.p_lli_next = next_pa;
+        return lli;
+    }
+
     // Start asynchronous non-blocking DMA transfer. The descriptor's fields must already hold
     // physical addresses (pa()); the descriptor address itself is converted here. irq_type:
     // DMA_IRQ_QUEUE (one callback at the end, channel stops) or DMA_IRQ_PKG with cyclic = true
@@ -139,6 +188,11 @@ public:
 
     static void stop_transfer(uint8_t channel) noexcept;
     static bool is_busy(uint8_t channel) noexcept;
+
+    // @impl [SPEC-E906-HAL-01] [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md
+    static uint32_t current_dst_pa(uint8_t channel) noexcept;
+    static uint32_t current_src_pa(uint8_t channel) noexcept;
+    static uint32_t pkg_num(uint8_t channel) noexcept;
 
     // Top-half ISR on CLIC line 88
     static void handle_irq() noexcept;

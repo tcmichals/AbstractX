@@ -3,6 +3,7 @@
 #include "abstractx/isr_dispatcher.hpp"
 #include "abstractx/trace/event_trace.hpp"
 #include <atomic>
+#include <etl/intrusive_list.h>
 
 // Set by a timer interrupt that only took a profiler sample; startup.S reads and clears it
 // on trap return and, on the idle wfi, goes back to sleep ([SPEC-E906-IRQ-06]).
@@ -17,7 +18,9 @@ static constexpr uintptr_t MTIME_BASE    = 0xE000BFF8U;
 static constexpr uint64_t  kNever        = ~0ULL;
 
 static std::atomic<std::coroutine_handle<>> g_timer_coroutine{nullptr};
-// Two deadlines share one comparator: a sleeping coroutine and a synchronous wake.
+using WaiterList = etl::intrusive_list<Timer::SleepAwaiter, etl::bidirectional_link<0>>;
+static WaiterList g_waiters{};
+// Two deadlines share one comparator: sleeping coroutines and a synchronous wake.
 static volatile uint64_t g_coro_target{kNever};
 static volatile uint64_t g_wake_target{kNever};
 // Third deadline: profiler samples ([SPEC-E906-IRQ-06], [SPEC-TRACE-09]).
@@ -97,9 +100,40 @@ void Timer::set_alarm_us(uint32_t us_from_now) noexcept {
 
 void Timer::cancel_alarm() noexcept {
     abstractx::InterruptGuard guard;
+    g_waiters.clear();
     g_coro_target = kNever;
     g_wake_target = kNever;
     reprogram();  // the profiler sample deadline stays
+}
+
+// @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
+void Timer::schedule_waiter(SleepAwaiter* node) noexcept {
+    if (node == nullptr) return;
+    abstractx::InterruptGuard guard;
+    if (node->is_linked()) {
+        g_waiters.erase(*node);
+    }
+    auto it = g_waiters.begin();
+    while (it != g_waiters.end() && it->target_ticks <= node->target_ticks) {
+        ++it;
+    }
+    g_waiters.insert(it, *node);
+    if (g_waiters.front().target_ticks < g_coro_target) {
+        g_coro_target = g_waiters.front().target_ticks;
+    }
+    reprogram();
+}
+
+void Timer::cancel_waiter(SleepAwaiter* node) noexcept {
+    if (node == nullptr) return;
+    abstractx::InterruptGuard guard;
+    if (!node->is_linked()) return;
+    const bool was_front = (&g_waiters.front() == node);
+    g_waiters.erase(*node);
+    if (was_front) {
+        g_coro_target = !g_waiters.empty() ? g_waiters.front().target_ticks : kNever;
+        reprogram();
+    }
 }
 
 // @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
@@ -128,14 +162,28 @@ void Timer::handle_irq() noexcept {
         const uint64_t next = g_sample_target + g_sample_period;
         g_sample_target = next > now ? next : now + g_sample_period;  // fell behind: skip
     }
+    while (!g_waiters.empty() && now >= g_waiters.front().target_ticks) {
+        other = true;
+        SleepAwaiter& w = g_waiters.front();
+        g_waiters.pop_front();
+        const auto h = w.handle;
+        const auto cb = w.callback;
+        void* const c = w.ctx;
+        if (cb != nullptr) {
+            cb(c);
+        }
+        if (h) {
+            abstractx::IsrDispatcher::post(h);
+        }
+    }
     if (now >= g_coro_target) {
         other = true;
-        g_coro_target = kNever;
         auto handle = g_timer_coroutine.exchange(nullptr, std::memory_order_acq_rel);
         if (handle) {
             abstractx::IsrDispatcher::post(handle);
         }
     }
+    g_coro_target = !g_waiters.empty() ? g_waiters.front().target_ticks : kNever;
     if (now >= g_wake_target) {
         other = true;
         g_wake_target = kNever;  // the woken wfi loop re-checks its own deadline
@@ -146,14 +194,19 @@ void Timer::handle_irq() noexcept {
 
 // ----------------------------------------------------------------------------
 // Non-Blocking Coroutine Sleep Implementation
+// @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
 // ----------------------------------------------------------------------------
 bool Timer::SleepAwaiter::await_ready() const noexcept {
     return Timer::get_ticks() >= target_ticks;
 }
 
-void Timer::SleepAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
-    g_timer_coroutine.store(h, std::memory_order_release);
-    Timer::set_compare(target_ticks);
+bool Timer::SleepAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
+    if (Timer::get_ticks() >= target_ticks) {
+        return false;
+    }
+    handle = h;
+    Timer::schedule_waiter(this);
+    return true;
 }
 
 Timer::SleepAwaiter Timer::sleep_ticks_async(uint64_t ticks) noexcept {

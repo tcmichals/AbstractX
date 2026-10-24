@@ -15,6 +15,7 @@
  */
 
 #include "spsc_tlp_ring.hpp"
+#include "mpsc_tlp_ring.hpp"
 #include "asp_tlp_msg.hpp"
 #include <coroutine>
 #include <cstdint>
@@ -196,5 +197,27 @@ int main() {
     std::cout << "======================================================================\n";
 
     assert(processed_count == 4);
+
+    // Steady-state 2000-iteration test of MpscTlpRing<8> mixing ISR and non-ISR producers
+    static MpscTlpRing<8> mpsc_ring;
+    mpsc_ring.clear();
+    for (uint32_t iter = 0; iter < 1000; ++iter) {
+        Tlp64 coro_pkt{};
+        coro_pkt.wire.sequence = static_cast<uint16_t>(iter * 2U);
+        Tlp64 isr_pkt{};
+        isr_pkt.wire.sequence = static_cast<uint16_t>(iter * 2U + 1U);
+
+        assert(mpsc_ring.push(coro_pkt));
+        assert(mpsc_ring.push_from_isr(isr_pkt));
+        assert(mpsc_ring.size() == 2U);
+
+        Tlp64 out0{}, out1{};
+        assert(mpsc_ring.pop(out0));
+        assert(mpsc_ring.pop(out1));
+        assert(out0.wire.sequence == static_cast<uint16_t>(iter * 2U));
+        assert(out1.wire.sequence == static_cast<uint16_t>(iter * 2U + 1U));
+        assert(mpsc_ring.empty());
+    }
+
     return 0;
 }

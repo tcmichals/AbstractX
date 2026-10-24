@@ -67,16 +67,11 @@ public:
             req.duration_us = duration_us;
             req.target_time_us = driver.get_time_us() + duration_us;
             req.coro_handle = handle;
-            req.callback = etl::delegate<void(const TimerResult&)>::create<SleepAwaiter, &SleepAwaiter::on_done>(*this);
+            req.result_slot = &result;
             return driver.submit_request(req);
         }
 
         TimerResult await_resume() const noexcept { return result; }
-
-    private:
-        void on_done(const TimerResult& res) noexcept {
-            result = res;
-        }
     };
 
     SleepAwaiter sleep_us_async(uint32_t us) noexcept {

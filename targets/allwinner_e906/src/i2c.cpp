@@ -11,6 +11,9 @@
 
 #include "hal/i2c.hpp"
 #include "hal/ccu.hpp"
+#include "hal/clic.hpp"
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-IRQ-02] targets/allwinner_e906/SPECIFICATION.md
 #include "hal/timer.hpp"
 #include "memory_map.h"
 #include <atomic>
@@ -80,11 +83,10 @@ bool E906I2c::init(const I2cConfig& config) {
     // 4. Enable Bus and Interrupts
     TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN;
 
-    // 5. Enable PLIC IRQ 26 (TWI0)
-    volatile uint32_t* priority = reinterpret_cast<volatile uint32_t*>(0x10000000 + 4 * 26);
-    *priority = 1;
-    volatile uint32_t* enable = reinterpret_cast<volatile uint32_t*>(0x10002000 + 4 * (26 / 32));
-    *enable |= (1U << (26 % 32));
+    // 5. Route TWI0 (GIC 42) through S_INTC to CLIC ([SPEC-E906-IRQ-01] [SPEC-E906-IRQ-02])
+    ::hal::clic::route_gic(::hal::clic::kGicTwi0, true);
+    (void)::hal::irq::attach(::hal::clic::line_for_gic(::hal::clic::kGicTwi0),
+                             +[](void*) noexcept { abstractx::hal::get_e906_i2c().on_irq(); }, nullptr);
 
     // 6. Allocate DMA Channels for large transfers
     if (dma_tx_chan_ < 0) {
@@ -150,11 +152,11 @@ bool E906I2c::start_dma_xfer(uint8_t slave_addr, bool is_read,
     // 4. Clear FIFOs in TWI_DRV_FIFO_CON (0x021C)
     TWI0_DRV_FIFO_CON |= (1 << 6) | (1 << 22);
 
-    // 5. Setup DMA LLI & Channel
+    // 5. Setup DMA LLI & Channel ([SPEC-E906-HAL-01])
     if (is_read) {
         // RX: TWI_DRIVER_RECVF (0x0304) -> memory
         dma_lli_.src = TWI0_BASE + 0x0304;
-        dma_lli_.dst = reinterpret_cast<uint32_t>(rx.data());
+        dma_lli_.dst = ::hal::DmaController::pa(rx.data());
         dma_lli_.len = rx.size();
         dma_lli_.para = 8;
         dma_lli_.p_lli_next = ::hal::LLI_LAST_ITEM;
@@ -173,7 +175,7 @@ bool E906I2c::start_dma_xfer(uint8_t slave_addr, bool is_read,
         );
     } else {
         // TX: memory -> TWI_DRIVER_SENDF (0x0300)
-        dma_lli_.src = reinterpret_cast<uint32_t>(tx.data());
+        dma_lli_.src = ::hal::DmaController::pa(tx.data());
         dma_lli_.dst = TWI0_BASE + 0x0300;
         dma_lli_.len = tx.size();
         dma_lli_.para = 8;

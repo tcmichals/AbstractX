@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <coroutine>
+#include <etl/intrusive_links.h>
 
 namespace hal {
 
@@ -37,14 +38,26 @@ public:
 
     // ------------------------------------------------------------------------
     // Non-Blocking Coroutine Sleep Awaiters (ZERO POLLING / ZERO HARD LOOPS)
+    // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
     // ------------------------------------------------------------------------
-    struct SleepAwaiter {
-        uint64_t target_ticks;
+    struct SleepAwaiter : public etl::bidirectional_link<0> {
+        using Callback = void (*)(void* ctx) noexcept;
+
+        uint64_t                target_ticks{0};
+        std::coroutine_handle<> handle{nullptr};
+        Callback                callback{nullptr};
+        void*                   ctx{nullptr};
+
+        constexpr SleepAwaiter() noexcept = default;
+        constexpr explicit SleepAwaiter(uint64_t ticks) noexcept : target_ticks(ticks) {}
 
         bool await_ready() const noexcept;
-        void await_suspend(std::coroutine_handle<> h) noexcept;
+        bool await_suspend(std::coroutine_handle<> h) noexcept;
         void await_resume() noexcept {}
     };
+
+    static void schedule_waiter(SleepAwaiter* node) noexcept;
+    static void cancel_waiter(SleepAwaiter* node) noexcept;
 
     static SleepAwaiter sleep_ticks_async(uint64_t ticks) noexcept;
     static SleepAwaiter sleep_us_async(uint32_t us) noexcept;

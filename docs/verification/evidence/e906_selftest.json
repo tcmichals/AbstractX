@@ -1,9 +1,9 @@
 {
  "check": "board:e906:selftest",
- "time": "1970-01-05T21:34:23",
+ "time": "1970-01-07T04:37:41",
  "uname": "7.1.0",
  "counts": {
-  "PASS": 31,
+  "PASS": 32,
   "FAIL": 0,
   "SKIP": 2
  },
@@ -48,13 +48,13 @@
    "test": "test_e906_irq::test_uart3_rx_by_interrupt",
    "status": "PASS",
    "detail": "",
-   "seconds": 1.72
+   "seconds": 1.65
   },
   {
    "test": "test_e906_irq::test_twi1_compass_by_interrupt",
    "status": "PASS",
    "detail": "",
-   "seconds": 0.68
+   "seconds": 0.67
   },
   {
    "test": "test_e906_irq::test_no_spurious_interrupts",
@@ -67,6 +67,12 @@
    "status": "PASS",
    "detail": "",
    "seconds": 0.73
+  },
+  {
+   "test": "test_e906_irq::test_uart3_rx_dma_and_into",
+   "status": "PASS",
+   "detail": "",
+   "seconds": 1.2
   },
   {
    "test": "test_e906_planes::test_remoteproc_runs_expected_firmware",
@@ -96,13 +102,13 @@
    "test": "test_e906_planes::test_tlp_plane_delivers_every_frame",
    "status": "PASS",
    "detail": "",
-   "seconds": 2.01
+   "seconds": 2.02
   },
   {
    "test": "test_e906_planes::test_trace_plane_ctf_decodes",
    "status": "PASS",
    "detail": "",
-   "seconds": 1.95
+   "seconds": 1.93
   },
   {
    "test": "test_e906_planes::test_repl_text_has_no_binary_planes",
@@ -120,25 +126,25 @@
    "test": "test_e906_planes::test_gps_bytes_arrive",
    "status": "PASS",
    "detail": "",
-   "seconds": 0.65
+   "seconds": 0.68
   },
   {
    "test": "test_e906_planes::test_streamer_stops_without_heartbeat",
    "status": "PASS",
    "detail": "",
-   "seconds": 4.07
+   "seconds": 4.12
   },
   {
    "test": "test_e906_planes::test_streamer_keeps_running_with_heartbeat",
    "status": "PASS",
    "detail": "",
-   "seconds": 26.18
+   "seconds": 26.09
   },
   {
    "test": "test_e906_planes::test_kernel_log_quiet_when_idle",
    "status": "PASS",
    "detail": "",
-   "seconds": 3.02
+   "seconds": 3.04
   },
   {
    "test": "test_e906_planes::test_repl_output_is_line_buffered",
@@ -150,13 +156,13 @@
    "test": "test_e906_planes::test_large_script_survives_chunking",
    "status": "PASS",
    "detail": "",
-   "seconds": 0.45
+   "seconds": 0.47
   },
   {
    "test": "test_e906_planes::test_ctrl_c_interrupts_running_script",
    "status": "PASS",
    "detail": "",
-   "seconds": 0.76
+   "seconds": 0.73
   },
   {
    "test": "test_e906_planes::test_reopened_tlp_endpoint_drops_nothing",
@@ -168,19 +174,19 @@
    "test": "test_e906_planes::test_kernel_log_tail_bounded_after_run",
    "status": "PASS",
    "detail": "",
-   "seconds": 1.24
+   "seconds": 1.26
   },
   {
    "test": "test_e906_trace::test_status_reports_arrive_once_a_second",
    "status": "PASS",
    "detail": "",
-   "seconds": 4.6
+   "seconds": 4.51
   },
   {
    "test": "test_e906_trace::test_status_shows_script_load_and_driver_interrupts",
    "status": "PASS",
    "detail": "",
-   "seconds": 5.09
+   "seconds": 5.11
   },
   {
    "test": "test_e906_trace::test_cli_runs_beside_the_sensor_stream",
@@ -198,13 +204,13 @@
    "test": "test_e906_trace::test_profiler_and_timeline_follow_the_script",
    "status": "PASS",
    "detail": "",
-   "seconds": 5.4
+   "seconds": 5.35
   },
   {
    "test": "test_e906_trace::test_trace_quiet_after_reader_closes",
    "status": "PASS",
    "detail": "",
-   "seconds": 9.1
+   "seconds": 9.07
   }
  ]
 }

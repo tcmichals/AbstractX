@@ -420,8 +420,13 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   core clock (measured: `mcycle`/200000 per ms matched 24,000,410 `mtime` ticks over 1 s).
 * **Requirement**: the timer interrupt (line 7) is level while `mtime >= mtimecmp`; the handler
   re-arms or parks `mtimecmp` at all-ones before returning, never leaves it matched.
-* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`)
-* **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`
+* **Requirement**: `hal::Timer::SleepAwaiter` inherits `etl::bidirectional_link<0>` and nodes form a
+  deadline-sorted `etl::intrusive_list<SleepAwaiter, etl::bidirectional_link<0>>` so any number of
+  coroutines and `E906TimerDriver` (`ITimer`) requests may sleep concurrently without overwriting
+  each other, `cancel_waiter()` unlinks in $O(1)$ without scanning the list, and expired nodes are
+  posted to `IsrDispatcher` from the line-7 handler.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests`
+* **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`, `targets/allwinner_e906/include/hal/timer.hpp`, `targets/allwinner_e906/src/platform.cpp`
 
 ### `[SPEC-E906-IRQ-04]` RPMsg Doorbell Interrupt (No Polling)
 * **Requirement**: Linux kicks arrive on MSGBOX channels 0 and 1 (CLIC line 17, level until the
@@ -477,7 +482,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   3. Interrupts branch to `.Lhandle_irq`, dispatch to `riscv_trap_dispatcher(mcause, mepc)`, completely restore all FP registers (`f0`..`f31`), `fcsr`, CSRs, and integer GPRs, deallocate the 416-byte stack frame, and return with `mret`.
   4. Synchronous exceptions MUST pass the `CrashFrame*` (`sp`) in `a0` to `hal_crash_dispatcher`, which records the full GPR, CSR, and FPR crash dump to `Trace` and SRAM and halts.
 * **Rationale**:
-  - In `ilp32d` ABI, C/C++ compilers generate floating-point instructions in any subroutine and can clobber caller-saved FP registers (`ft0`..`ft11`, `fa0`..`fa7`). Without saving FP registers in the trap prologue, an asynchronous interrupt clobbers live floating-point computations in interrupted coroutines (e.g. sensor fusion math), causing silent corruption upon `mret`.
+  - In `ilp32f` ABI, C/C++ compilers generate single-precision floating-point instructions in any subroutine and can clobber caller-saved FP registers (`ft0`..`ft11`, `fa0`..`fa7`). Without saving FP registers in the trap prologue, an asynchronous interrupt clobbers live floating-point computations in interrupted coroutines (e.g. sensor fusion math), causing silent corruption upon `mret`.
   - In synchronous exceptions, saving FP registers ensures the crash autopsy dump captures the full FPU state at the moment of the fault, and prevents formatting routines in `hal_crash_dispatcher` from destroying the fault context.
   - Branching on `mcause` bit 31 is mandatory because `mstatus` bit 31 is the SD summary bit, which is always 1 when `mstatus.FS = Dirty`.
 * **Verified by**: `e906-disassembly-check` (`fsw f0, 144(sp)`, `lw t0, 128(sp); bltz t0`, `flw f0, 144(sp)`, no double-precision instruction anywhere in the ELF), `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_irq.py`: an interrupt is taken and returns)
@@ -524,8 +529,11 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   addresses (SRAM space 0 DA `0x3FFC0000` = PA `0x07280000`, space 1 DA `0x40000000` = PA `0x072C0000`).
 * **Requirement (addresses)**: the DMAC sees physical addresses. SRAM Space 0 and Space 1 share
   one offset: PA = DA - `0x38D40000` (DA `0x3FFC0000` = PA `0x07280000`, DA `0x40000000` = PA
-  `0x072C0000`); `DmaController::pa()` converts every descriptor field and the descriptor address
-  itself. Peripheral registers have the same address on both sides.
+  `0x072C0000`); `DmaController::pa()` converts every descriptor field (`make_mem2periph`,
+  `make_periph2mem`) and the descriptor address itself, and `current_dst_pa()` / `pkg_num()` query
+  the active channel registers. Peripheral registers have the same address on both sides.
+  `E906SpiDriver` retains `active_req_` while DMA is in flight and completes `active_req_` before
+  calling `set_hardware_idle_from_isr()`.
 * **Requirement (bring-up measurement)**: `abstractx.dma_bench(n, port=1)` copies `n` bytes
   (<= 1024) from SRAM Space 0 to Space 1 on an E906 channel, waits for the line-88 completion
   interrupt and returns `(ok, dma_cycles, cpu_cycles)` (mcycle at 200 MHz; dma = start to
@@ -557,15 +565,34 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   timeout (bit 2), so bytes left in the FIFO at the end of a frame are moved by DMA; the RX-timeout
   interrupt then reads `DMAC_CUR_DEST_REG` (+0x114 + N*0x40) and hands the partly filled buffer's
   new bytes to the reader. A frame is delivered within 4 character times plus the interrupt,
-  whatever the buffer size.
+  whatever the buffer size. While circular DMA is active:
+  1. `UART_IER` keeps `ERBFI | ELSI` (`0x05`) enabled so the 4-character RX timeout (`IIR = 0x0C`)
+     and threshold events increment CLIC line 90 (`uart3`), while the UART ISR never reads
+     `UART_RBR` with the CPU when circular DMA is active;
+  2. On `IIR = 0x04` (64 B half-full trigger), `uart3_isr()` waits only until `UART_RFL < 64` (with
+     32-`nop` spacing between APB1 reads so it does not contend with the DMAC) and lets the line-88
+     `DMA_IRQ_PKG` completion commit the 64 B buffer; on `IIR = 0x0C` (RX character timeout),
+     `uart3_isr()` waits for `UART_RFL == 0` plus 64 `nop`s for the DMAC MBUS write buffer to drain
+     before calling `uart3_dma_sync(true)`;
+  3. `DmaLli::para` (`WAIT_CYC`) MUST be `>= 0x40` (64 DMAC clocks): on the T527, UART1-7 run on the
+     24 MHz APB1 clock while the DMAC runs on the high-speed AHB/MBUS clock, so `para <= 0x20`
+     re-samples `DRQ_UART3` before the 24 MHz UART deasserts `DRQ` after the last FIFO byte and
+     reads the last byte twice; and
+  4. On the T527 DMAC, `DMA_PKG_NUM_REG` (`+0x30`) increments when a 64 B LLI burst starts (~145 µs
+     before `DMA_CUR_DEST_REG` advances to the next LLI), and `DMA_CUR_DEST_REG` (`+0x14`) advances
+     by 4 bytes (`mod64 = 0..3`) when words enter the DMAC internal FIFO before the MBUS write lands
+     in SRAM. Therefore `uart3_dma_sync(end_of_frame)` subtracts `kDmaBufBytes` when `pkg_bytes` is
+     one buffer ahead of `DMA_CUR_DEST_REG`, and only includes partial-LLI `ahead` bytes when
+     `end_of_frame` is true (`IIR = 0x0C` or `UART_RFL == 0` with the UART RX FIFO drained).
 * **Requirement (overrun)**: if the DMA laps a buffer the reader has not released (detected with
   `DMAC_PKG_NUM_REG`, +0x130 + N*0x40), the overwritten bytes are counted as dropped, never
   delivered as data. UART line errors (overrun, framing, parity, break) are taken from the
   line-status interrupt and counted per port.
 * **Requirement (reader)**: the reader is a coroutine that awaits "bytes available" and gets spans
-  into the ring (no copy), then releases them; MicroPython's `uart_read` copies from the same spans.
-  For measurement only, a MicroPython switch (planned name: abstractx.uart_dma) puts a port back on
-  the interrupt receive path, so DMA and interrupt receive can be compared on the same stream.
+  into the ring (no copy), then releases them; MicroPython's `uart_read` / `uart_read_into` copies
+  from the same spans. For measurement only, a MicroPython switch (`abstractx.uart_dma([enable])`)
+  puts a port back on the interrupt receive path, so DMA and interrupt receive can be compared on
+  the same stream.
 * **Requirement (transmit)**: a message that fits the 128-byte FIFO is written into it in one go;
   a larger one is sent by DMA ([SPEC-E906-HAL-01]). Either way the UART sends back-to-back unless
   a gap is configured. The gap between bytes is the UART's own `TX_DELAY` register (+0xCC: idle
@@ -588,17 +615,26 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 
 | Design Requirement | Description | Primary Implementation File |
 | :--- | :--- | :--- |
-| `[SPEC-E906-ARCH-01]` | E906 RV32IMAFDC Core (No MMU) | `bsp/startup.S` |
+| `[SPEC-E906-ARCH-01]` | E906 RV32IMAFC Core (No MMU, Single-Precision FPU) | `bsp/startup.S` |
 | `[SPEC-E906-ARCH-02]` | Hardwired ASIC SYSMAP PMAs | `include/memory_map.h` |
 | `[SPEC-E906-MEM-01]`  | Dedicated MCU SRAM (Zero TCM) | `bsp/e906_sram.ld` |
-| `[SPEC-E906-MEM-02]`  | SPSC in SRAM / DDR Buffers | `dram_spsc_protocol.h` |
+| `[SPEC-E906-MEM-02]`  | Control & Data Plane SRAM Split | `dram_spsc_protocol.h` |
 | `[SPEC-E906-CACHE-01]`| THEADISAEE Vendor Opcode Unlock | `bsp/startup.S` |
-| `[SPEC-E906-CACHE-02]`| I-Cache On, D-Cache Off (0x1031) | `bsp/startup.S` |
+| `[SPEC-E906-CACHE-02]`| I-Cache On, D-Cache Off (`0x1031`) | `bsp/startup.S` |
 | `[SPEC-E906-CACHE-03]`| Tina SDK Machine Opcodes | `src/pmp.cpp` |
 | `[SPEC-E906-IPC-01]`  | Pure Virtual `IRpmsg` | `include/hal/rpmsg.hpp` |
-| `[SPEC-E906-IPC-02]`  | Linux VirtIO RPMsg with D-Cache | `src/rpmsg.cpp` |
+| `[SPEC-E906-IPC-02]`  | Standard Linux VirtIO RPMsg | `src/rpmsg.cpp` |
 | `[SPEC-E906-IPC-03]`  | Lite-Metal Direct SRAM Driver | `src/rpmsg.cpp` |
-| `[SPEC-E906-IPC-04]`  | Zero-Copy TLP + Trace Endpoints over RPMsg | `src/rpmsg.cpp`, `src/rpmsg_*` |
+| `[SPEC-E906-IPC-04]`  | Zero-Copy TLP + Trace Endpoints over RPMsg | `src/rpmsg.cpp`, `src/rpmsg_endpoints.cpp` |
+| `[SPEC-E906-IPC-05]`  | Trace Endpoint 3 s Hello Lease | `src/rpmsg_endpoints.cpp`, `src/platform.cpp` |
 | `[SPEC-E906-CORO-01]` | Async `async_receive()` | `include/hal/rpmsg.hpp` |
 | `[SPEC-E906-CORO-02]` | MSGBOX Doorbell ISR Waking | `src/rpmsg.cpp` |
-| `[SPEC-E906-HAL-01]`  | FIFO vs. DMA Balancing | `src/{spi,uart,i2c}.cpp` |
+| `[SPEC-E906-IRQ-01]`  | CLIC Mode and Dispatch | `include/hal/clic.hpp`, `src/irq_dispatcher.cpp` |
+| `[SPEC-E906-IRQ-02]`  | Main-Domain Peripherals via S_INTC | `include/hal/clic.hpp` |
+| `[SPEC-E906-IRQ-03]`  | Core Timer (`mtime` 24 MHz, `mcycle` 200 MHz) | `src/timer.cpp`, `include/hal/timer.hpp` |
+| `[SPEC-E906-IRQ-04]`  | RPMsg Doorbell Interrupt (No Polling) | `src/rpmsg.cpp`, `src/platform.cpp` |
+| `[SPEC-E906-IRQ-05]`  | Runtime Status: Cycle Clock & Per-Line ISR Time | `src/platform.cpp`, `src/irq_dispatcher.cpp` |
+| `[SPEC-E906-IRQ-06]`  | Profiler Sample Timer & Interrupt Spans | `src/timer.cpp`, `src/irq_dispatcher.cpp` |
+| `[SPEC-E906-CRASH-01]`| Trap Classification, FPU Save & Crash Dump | `bsp/startup.S`, `src/crash.cpp` |
+| `[SPEC-E906-HAL-01]`  | FIFO vs. DMA Balancing & DMAC Routing | `src/{dma,spi,uart,i2c,platform}.cpp` |
+| `[SPEC-E906-HAL-02]`  | Circular 4x64 B UART DMA RX & TX Gap | `src/dma.cpp`, `apps/e906_repl_app/src/e906_periph.cpp` |

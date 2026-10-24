@@ -9,13 +9,16 @@
 #include "py/mphal.h"
 #include "mphalport.h"
 
-// abstractx.peek(addr) -> uint32 (truncated to 30-bit signed if high bit set)
+// Shared staging buffer in SRAM Space 1 (.sram_c) to avoid 256-512 B C stack frames.
+static uint8_t s_mod_io_buf[512] __attribute__((section(".sram_c")));
+
+// abstractx.peek(addr) -> uint32 (full 32-bit unsigned value)
 // @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_peek(mp_obj_t addr_in) {
     uintptr_t addr = (uintptr_t)mp_obj_get_int_truncated(addr_in);
     volatile uint32_t *reg = (volatile uint32_t *)addr;
     uint32_t val = *reg;
-    return mp_obj_new_int((mp_int_t)(val & 0x3FFFFFFFU));
+    return mp_obj_new_int_from_uint(val);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_peek_obj, mod_abstractx_peek);
 
@@ -48,11 +51,13 @@ static mp_obj_t mod_abstractx_poke(mp_obj_t addr_in, mp_obj_t val_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(mod_abstractx_poke_obj, mod_abstractx_poke);
 
-// Interrupt-driven UART3 and TWI1 live in e906_periph.cpp ([SPEC-E906-REPL-16]).
+// Circular DMA / Interrupt-driven UART3 and TWI1 live in e906_periph.cpp ([SPEC-E906-REPL-16] [SPEC-E906-HAL-02]).
 extern bool e906_uart3_init(uint32_t baud);
 extern size_t e906_uart3_read(uint8_t *dst, size_t max_len);
 extern size_t e906_uart3_write(const uint8_t *src, size_t len);
 extern uint32_t e906_uart3_lsr(void);
+extern bool e906_uart3_set_dma(bool enable);
+extern bool e906_uart3_get_dma(void);
 extern bool e906_twi1_init(uint32_t freq);
 extern int e906_twi1_xfer(uint8_t addr, int reg, const uint8_t *wdata, size_t wlen, uint8_t *rdata, size_t rlen);
 extern size_t e906_irq_stats(uint32_t *lines, uint32_t *counts, size_t max);
@@ -75,24 +80,43 @@ static mp_obj_t mod_abstractx_uart_init(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_uart_init_obj, 0, 1, mod_abstractx_uart_init);
 
-// abstractx.uart_read(max_bytes=256) -> bytes (from the RX ring the ISR fills)
+// abstractx.uart_read(max_bytes=256) -> bytes (from the RX ring)
 // @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_uart_read(size_t n_args, const mp_obj_t *args) {
     size_t max_bytes = 256;
     if (n_args > 0) {
         max_bytes = (size_t)mp_obj_get_int_truncated(args[0]);
     }
-    if (max_bytes > 512) {
-        max_bytes = 512;
+    if (max_bytes > sizeof(s_mod_io_buf)) {
+        max_bytes = sizeof(s_mod_io_buf);
     }
-    uint8_t rx_buf[512];
-    size_t count = e906_uart3_read(rx_buf, max_bytes);
+    size_t count = e906_uart3_read(s_mod_io_buf, max_bytes);
     if (count == 0) {
         return mp_const_empty_bytes;
     }
-    return mp_obj_new_bytes(rx_buf, count);
+    return mp_obj_new_bytes(s_mod_io_buf, count);
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_uart_read_obj, 0, 1, mod_abstractx_uart_read);
+
+// abstractx.uart_read_into(buf) -> int (zero-allocation read into writable buffer)
+// @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_uart_read_into(mp_obj_t buf_in) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_WRITE);
+    size_t count = e906_uart3_read((uint8_t *)bufinfo.buf, bufinfo.len);
+    return mp_obj_new_int((mp_int_t)count);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_uart_read_into_obj, mod_abstractx_uart_read_into);
+
+// abstractx.uart_dma([enable]) -> bool ([SPEC-E906-HAL-02])
+// @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] [SPEC-E906-HAL-02] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_uart_dma(size_t n_args, const mp_obj_t *args) {
+    if (n_args > 0) {
+        return mp_obj_new_bool(e906_uart3_set_dma(mp_obj_is_true(args[0])));
+    }
+    return mp_obj_new_bool(e906_uart3_get_dma());
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_uart_dma_obj, 0, 1, mod_abstractx_uart_dma);
 
 // abstractx.uart_write(data) -> int (queued; the THR-empty interrupt sends it)
 // @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
@@ -155,20 +179,34 @@ static mp_obj_t mod_abstractx_i2c_scan(void) {
 static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_i2c_scan_obj, mod_abstractx_i2c_scan);
 
 // abstractx.i2c_read(addr, reg, len) -> bytes (empty on NACK or timeout)
+// @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_i2c_read(size_t n_args, const mp_obj_t *args) {
     (void)n_args;
     uint8_t addr = (uint8_t)mp_obj_get_int_truncated(args[0]);
     int reg = (int)mp_obj_get_int_truncated(args[1]);
     size_t len = (size_t)mp_obj_get_int_truncated(args[2]);
     if (len > 256) len = 256;
-    uint8_t buf[256];
-    int n = e906_twi1_xfer(addr, reg, NULL, 0, buf, len);
+    int n = e906_twi1_xfer(addr, reg, NULL, 0, s_mod_io_buf, len);
     if (n <= 0) {
         return mp_const_empty_bytes;
     }
-    return mp_obj_new_bytes(buf, (size_t)n);
+    return mp_obj_new_bytes(s_mod_io_buf, (size_t)n);
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_i2c_read_obj, 3, 3, mod_abstractx_i2c_read);
+
+// abstractx.i2c_read_into(addr, reg, buf) -> int (zero-allocation read into writable buffer)
+// @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_i2c_read_into(size_t n_args, const mp_obj_t *args) {
+    (void)n_args;
+    uint8_t addr = (uint8_t)mp_obj_get_int_truncated(args[0]);
+    int reg = (int)mp_obj_get_int_truncated(args[1]);
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(args[2], &bufinfo, MP_BUFFER_WRITE);
+    size_t len = bufinfo.len > 256 ? 256 : bufinfo.len;
+    int n = e906_twi1_xfer(addr, reg, NULL, 0, (uint8_t *)bufinfo.buf, len);
+    return mp_obj_new_int(n > 0 ? n : 0);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_i2c_read_into_obj, 3, 3, mod_abstractx_i2c_read_into);
 
 // abstractx.i2c_write(addr, reg, data) -> int (bytes written, 0 on NACK or timeout)
 static mp_obj_t mod_abstractx_i2c_write(size_t n_args, const mp_obj_t *args) {
@@ -228,13 +266,23 @@ static mp_obj_t mod_abstractx_console_read(size_t n_args, const mp_obj_t *args) 
         max_len = (size_t)mp_obj_get_int(args[0]);
     }
     if (max_len > 256) max_len = 256;
-    uint8_t buf[256];
-    size_t n = abstractx_console_rx_bytes(buf, max_len);
-    return mp_obj_new_bytes(buf, n);
+    size_t n = abstractx_console_rx_bytes(s_mod_io_buf, max_len);
+    return mp_obj_new_bytes(s_mod_io_buf, n);
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_console_read_obj, 0, 1, mod_abstractx_console_read);
 
+// abstractx.console_read_into(buf) -> int (zero-allocation read into writable buffer)
+// @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_console_read_into(mp_obj_t buf_in) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_WRITE);
+    size_t n = abstractx_console_rx_bytes((uint8_t *)bufinfo.buf, bufinfo.len);
+    return mp_obj_new_int((mp_int_t)n);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_console_read_into_obj, mod_abstractx_console_read_into);
+
 extern bool abstractx_tlp_send_bytes(const uint8_t *data, size_t len);
+extern bool abstractx_tlp_poll_bytes(uint8_t *dst, size_t len);
 extern void abstractx_trace_emit(uint32_t task_id, uint8_t state, const char *msg);
 extern uint32_t abstractx_tlp_dropped_count(void);
 
@@ -250,6 +298,19 @@ static mp_obj_t mod_abstractx_tlp_send(mp_obj_t buf_in) {
     return ok ? mp_const_true : mp_const_false;
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_tlp_send_obj, mod_abstractx_tlp_send);
+
+// abstractx.tlp_poll_into(buf) -> bool (zero-allocation pop from ingress TLP ring)
+// @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_tlp_poll_into(mp_obj_t buf_in) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(buf_in, &bufinfo, MP_BUFFER_WRITE);
+    if (bufinfo.len != 64) {
+        mp_raise_ValueError(MP_ERROR_TEXT("TLP packet must be exactly 64 bytes"));
+    }
+    bool ok = abstractx_tlp_poll_bytes((uint8_t *)bufinfo.buf, 64);
+    return ok ? mp_const_true : mp_const_false;
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_tlp_poll_into_obj, mod_abstractx_tlp_poll_into);
 
 // abstractx.tlp_dropped() -> int
 // @impl [SPEC-E906-REPL-10] apps/e906_repl_app/SPECIFICATION.md
@@ -290,17 +351,22 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_alive), MP_ROM_PTR(&mod_abstractx_alive_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_init), MP_ROM_PTR(&mod_abstractx_uart_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_read), MP_ROM_PTR(&mod_abstractx_uart_read_obj) },
+    { MP_ROM_QSTR(MP_QSTR_uart_read_into), MP_ROM_PTR(&mod_abstractx_uart_read_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_uart_dma), MP_ROM_PTR(&mod_abstractx_uart_dma_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_write), MP_ROM_PTR(&mod_abstractx_uart_write_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_status), MP_ROM_PTR(&mod_abstractx_uart_status_obj) },
     { MP_ROM_QSTR(MP_QSTR_i2c_init), MP_ROM_PTR(&mod_abstractx_i2c_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_i2c_scan), MP_ROM_PTR(&mod_abstractx_i2c_scan_obj) },
     { MP_ROM_QSTR(MP_QSTR_i2c_read), MP_ROM_PTR(&mod_abstractx_i2c_read_obj) },
+    { MP_ROM_QSTR(MP_QSTR_i2c_read_into), MP_ROM_PTR(&mod_abstractx_i2c_read_into_obj) },
     { MP_ROM_QSTR(MP_QSTR_i2c_write), MP_ROM_PTR(&mod_abstractx_i2c_write_obj) },
     { MP_ROM_QSTR(MP_QSTR_sleep_ms), MP_ROM_PTR(&mod_abstractx_sleep_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_ticks_ms), MP_ROM_PTR(&mod_abstractx_ticks_ms_obj) },
     { MP_ROM_QSTR(MP_QSTR_console_read), MP_ROM_PTR(&mod_abstractx_console_read_obj) },
+    { MP_ROM_QSTR(MP_QSTR_console_read_into), MP_ROM_PTR(&mod_abstractx_console_read_into_obj) },
     { MP_ROM_QSTR(MP_QSTR_tlp_send), MP_ROM_PTR(&mod_abstractx_tlp_send_obj) },
     { MP_ROM_QSTR(MP_QSTR_tlp_push), MP_ROM_PTR(&mod_abstractx_tlp_send_obj) },
+    { MP_ROM_QSTR(MP_QSTR_tlp_poll_into), MP_ROM_PTR(&mod_abstractx_tlp_poll_into_obj) },
     { MP_ROM_QSTR(MP_QSTR_tlp_dropped), MP_ROM_PTR(&mod_abstractx_tlp_dropped_obj) },
     { MP_ROM_QSTR(MP_QSTR_trace), MP_ROM_PTR(&mod_abstractx_trace_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq_stats), MP_ROM_PTR(&mod_abstractx_irq_stats_obj) },

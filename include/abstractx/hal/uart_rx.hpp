@@ -137,6 +137,7 @@ public:
             } else if (ring->waiter_.load(std::memory_order_acquire) != nullptr) {
                 refused = UartStatus::QueueFull;             // one reader per port
             } else {
+                ring->cancel_req_.store(false, std::memory_order_relaxed);
                 ring->want_.store(static_cast<uint32_t>(min_bytes), std::memory_order_relaxed);
                 if (!ring->satisfied()) {
                     return false;
@@ -150,13 +151,14 @@ public:
             ring->reason_.store(kReasonNone, std::memory_order_relaxed);
             const uint32_t token = ring->gen_.fetch_add(1, std::memory_order_acq_rel) + 1U;
             ring->waiter_.store(h.address(), std::memory_order_release);
-            // Re-check after publishing: data that arrived in between must not be missed.
-            if (ring->satisfied()) {
+            // Re-check after publishing: data or cancel that arrived in between must not be missed.
+            if (ring->satisfied() || ring->cancel_req_.load(std::memory_order_acquire)) {
                 if (ring->waiter_.exchange(nullptr, std::memory_order_acq_rel) != nullptr) {
-                    ring->reason_.store(kReasonData, std::memory_order_relaxed);
+                    const bool cancelled = ring->cancel_req_.load(std::memory_order_relaxed) && !ring->satisfied();
+                    ring->reason_.store(cancelled ? kReasonCancel : kReasonData, std::memory_order_relaxed);
                     return false;   // resume now; never resume inline
                 }
-                return true;        // the producer took it and posted the resume
+                return true;        // the producer or cancel_read() took it and posted the resume
             }
             if (timeout_us != 0) {
                 ring->deadline_fn_(ring->deadline_ctx_, timeout_us, token);
@@ -205,7 +207,10 @@ public:
     }
 
     // Complete a pending read with Cancelled (posted, not resumed inline).
-    void cancel_read() noexcept { wake(kReasonCancel, /*from_isr=*/false); }
+    void cancel_read() noexcept {
+        cancel_req_.store(true, std::memory_order_release);
+        wake(kReasonCancel, /*from_isr=*/false);
+    }
 
     bool reader_waiting() const noexcept { return waiter_.load(std::memory_order_acquire) != nullptr; }
 
@@ -223,7 +228,40 @@ public:
         return s;
     }
 
-protected:
+    // Copy up to max_len available bytes from the ring's spans and release them ([SPEC-E906-HAL-02]).
+    // @impl [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md
+    size_t copy_out(uint8_t* dst, size_t max_len) noexcept {
+        if (dst == nullptr || max_len == 0) return 0;
+        const UartRxView v = make_view(UartStatus::Ok);
+        size_t copied = 0;
+        for (uint8_t b : v.first) {
+            if (copied >= max_len) break;
+            dst[copied++] = b;
+        }
+        if (copied < max_len) {
+            for (uint8_t b : v.second) {
+                if (copied >= max_len) break;
+                dst[copied++] = b;
+            }
+        }
+        (void)release(copied);
+        return copied;
+    }
+
+    void reset() noexcept {
+        wr_.store(0, std::memory_order_relaxed);
+        eof_wr_.store(0, std::memory_order_relaxed);
+        rd_.store(0, std::memory_order_relaxed);
+        want_.store(1, std::memory_order_relaxed);
+        waiter_.store(nullptr, std::memory_order_relaxed);
+        reason_.store(kReasonNone, std::memory_order_relaxed);
+        cancel_req_.store(false, std::memory_order_relaxed);
+        pending_errs_.store(0, std::memory_order_relaxed);
+        held_ = 0;
+        dropped_total_ = 0;
+        dropped_since_view_ = 0;
+    }
+
     UartRxRingBase(std::span<uint8_t> storage, uint32_t buffer_bytes) noexcept
         : storage_(storage), buf_(buffer_bytes), cap_(static_cast<uint32_t>(storage.size())) {}
 
@@ -259,6 +297,17 @@ private:
         void* h = waiter_.exchange(nullptr, std::memory_order_acq_rel);
         if (h == nullptr) {
             return;
+        }
+        if (reason == kReasonData && !satisfied() && !cancel_req_.load(std::memory_order_acquire)) {
+            waiter_.store(h, std::memory_order_release);
+            if (!cancel_req_.load(std::memory_order_acquire)) {
+                return;
+            }
+            h = waiter_.exchange(nullptr, std::memory_order_acq_rel);
+            if (h == nullptr) {
+                return;
+            }
+            reason = kReasonCancel;
         }
         reason_.store(reason, std::memory_order_relaxed);
         const auto handle = std::coroutine_handle<>::from_address(h);
@@ -307,6 +356,7 @@ private:
     std::atomic<uint32_t> gen_{0};      // read generation, for stale deadlines
     std::atomic<void*>    waiter_{nullptr};
     std::atomic<uint8_t>  reason_{kReasonNone};
+    std::atomic<bool>     cancel_req_{false};
     std::atomic<uint8_t>  pending_errs_{0};
     std::atomic<uint32_t> overrun_{0};
     std::atomic<uint32_t> framing_{0};

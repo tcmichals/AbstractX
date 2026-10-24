@@ -16,6 +16,7 @@
 #define SPSC_TLP_RING_HPP
 
 #include "asp_tlp64.hpp"
+#include "mpsc_tlp_ring.hpp"
 #include <atomic>
 #include <cstddef>
 #include <array>

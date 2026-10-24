@@ -2269,4 +2269,39 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - `pytest tests/test_visualizer_sdk.py`: 30 passed in 5.75s.
   - `python3 tools/audit_specs.py`: Traceability Coverage 100.0%.
 
+## [2026-10-24] - Allwinner T527 E906 Circular UART DMA (`para=0x40`, `DMA_PKG_NUM_REG` Lead, `DMA_CUR_DEST_REG` 4B FIFO Lead), `etl::intrusive_list` Timer Queue & `MpscTlpRing`
+
+### 1. Mistake / Bug Identification
+* **Category**: `hardware-fact`, `product-bug`
+* **Target / Subsystem**: `targets/allwinner_e906/src/{dma,timer,spi,uart}.cpp`, `apps/e906_repl_app/src/{e906_periph.cpp,modabstractx.c}`, `include/mpsc_tlp_ring.hpp`
+* **Governing Requirements**: `[SPEC-E906-HAL-01]`, `[SPEC-E906-HAL-02]`, `[SPEC-E906-IRQ-03]`, `[SPEC-E906-REPL-06]`, `[SPEC-E906-REPL-16]`, `[SPEC-TLP-03]`
+* **Symptoms**:
+  1. Circular 4x64 B DMA on UART3 (`DRQ_UART3 = 17`) duplicated the 64th byte of every 64 B burst when `DmaLli::para` was `0x08` or `0x20`.
+  2. During continuous 115200-baud GPS + 200 Hz I2C streaming (`test_streamer_keeps_running_with_heartbeat`), ~1-3% of NMEA sentences failed checksum with a 4-byte stale slice at `mod64 = 0..3` (the first 4 bytes of a 64 B LLI buffer held bytes from 256 B earlier).
+  3. `hal::Timer::SleepAwaiter` used a raw singly-linked list (`SleepAwaiter* next`) requiring an $O(N)$ linear walk on every timeout cancellation (`Timer::cancel_waiter()`).
+  4. `SpscRingBuffer` / `SpscTlpRing` in `include/spsc_tlp_ring.hpp` is a lock-free single-producer ring (`std::atomic` indices without `InterruptLock`), making it unsafe when both an ISR and a coroutine produce into the same ring.
+
+### 2. Root Cause & Lesson Learned
+* **Why**:
+  1. **`hardware-fact` (`DmaLli::para = 0x40`)**: On Allwinner T527 (`sun55iw3`), `UART1-7` run on the 24 MHz APB1 clock while the DMAC runs on the high-speed AHB/MBUS clock. With `para <= 0x20`, the DMAC re-samples `DRQ_UART3` before the 24 MHz UART deasserts `DRQ` after the last FIFO byte and reads `UART_RBR` twice. Setting `para = 0x40` (64 wait cycles) eliminates the duplicate read.
+  2. **`hardware-fact` (`DMA_PKG_NUM_REG` + `DMA_CUR_DEST_REG` pipeline lead on T527 DMAC)**: Measured with `mcycle` (200 MHz) on the Cubie A5E (`192.168.3.3`):
+     - `DMA_PKG_NUM_REG` (`+0x30`) increments when a 64 B LLI burst **starts** (~145 µs / 29,000 CPU cycles before `DMA_CUR_DEST_REG` advances to the next LLI).
+     - During an active 64 B LLI burst, `DMA_CUR_DEST_REG` (`+0x14`) advances by 4 bytes (`mod64 = 0..3`) when bytes enter the DMAC's internal FIFO, **before** the MBUS write master commits that 4-byte word to SRAM. Because `uart3_dma_sync()` included partial-LLI `ahead` bytes even when `end_of_frame == false` and `uart3_isr()` called `uart3_dma_sync(true)` on `IIR = 0x04` (64 B trigger threshold at the start of an LLI), `uart3_dma_sync()` copied `s_uart_dma_rx_mem[mod64 = 0..3]` before the DMAC flushed those 4 bytes to SRAM.
+  3. **`product-bug` (UART baud change while RX DMA active)**: `e906_uart3_init()` set `U_LCR = 0x80` (`DLAB=1`) while circular RX DMA from a previous run was still active; while `DLAB=1`, `Offset 0x00` is `UART_DLL` rather than `UART_RBR`.
+* **Lesson**:
+  - Stop circular RX DMA before setting `DLAB=1` in `UART_LCR`, and flush framing-error bytes after `UART_HALT = 0`.
+  - In `uart3_dma_sync(end_of_frame)`, subtract `kDmaBufBytes` when `pkg_bytes` is one LLI buffer ahead of `pos_in_ring`, and only include partial-LLI `ahead` bytes when `end_of_frame` is true (`IIR = 0x0C` RX timeout or `UART_RFL == 0` idle FIFO).
+  - Use `etl::intrusive_list<Timer::SleepAwaiter, etl::bidirectional_link<0>>` for $O(1)$ `Timer::cancel_waiter()` unlinking.
+  - Provide `MpscRingBuffer` / `MpscTlpRing` in `include/mpsc_tlp_ring.hpp` backed by `etl::queue_spsc_isr<T, Capacity, InterruptLock>` for multi-producer (ISR + non-ISR) queues while preserving `SpscRingBuffer` / `SpscTlpRing` in `include/spsc_tlp_ring.hpp` for cross-core AMP rings.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `docs/DESIGN_SPECIFICATION.md`, `targets/allwinner_e906/SPECIFICATION.md`, `apps/e906_repl_app/SPECIFICATION.md`
+* **Requirements Updated**: `[SPEC-TLP-03]`, `[SPEC-E906-IRQ-03]`, `[SPEC-E906-HAL-01]`, `[SPEC-E906-HAL-02]`, `[SPEC-E906-REPL-06]`, `[SPEC-E906-REPL-16]`.
+
+### 4. Implementation & Verification
+* **Evidence**:
+  - Cubie A5E board (`192.168.3.3`) `python3 run_board_tests.py --json /tmp/e906_selftest.json`: **32 passed, 0 failed, 2 skipped** (including `test_uart3_rx_by_interrupt`, `test_uart3_rx_dma_and_into`, and `test_streamer_keeps_running_with_heartbeat` in 26.1s with 0 NMEA checksum errors).
+  - Host `ctest --test-dir build_host`, `ctest --test-dir build_asan`: **59/59 passed (100%)**.
+
+
 

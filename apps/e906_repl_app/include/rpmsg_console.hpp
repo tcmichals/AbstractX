@@ -19,6 +19,7 @@ public:
     static constexpr uint32_t REPL_ENDPOINT_ADDR = 1026;
     static constexpr size_t INPUT_BUFFER_SIZE = 512;
     static constexpr size_t OUTPUT_BUFFER_SIZE = 256;
+    static constexpr size_t TX_QUEUE_SIZE = 16;
 
     explicit RpmsgConsole(::hal::IRpmsg &rpmsg) noexcept;
 
@@ -35,7 +36,7 @@ public:
         return m_rx_channel;
     }
 
-    coro::AsyncQueue<char, OUTPUT_BUFFER_SIZE>& tx_channel() noexcept {
+    coro::AsyncQueue<char, TX_QUEUE_SIZE>& tx_channel() noexcept {
         return m_tx_channel;
     }
 
@@ -94,7 +95,7 @@ private:
 
     ::hal::IRpmsg &m_rpmsg;
     coro::AsyncQueue<char, INPUT_BUFFER_SIZE> m_rx_channel{};
-    coro::AsyncQueue<char, OUTPUT_BUFFER_SIZE> m_tx_channel{};
+    coro::AsyncQueue<char, TX_QUEUE_SIZE> m_tx_channel{};
     char m_out_buf[OUTPUT_BUFFER_SIZE]{};
     size_t m_out_len{0};
     uint64_t m_out_since{0};   // mtime when the first unsent byte was staged

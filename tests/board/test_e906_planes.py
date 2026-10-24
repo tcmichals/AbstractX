@@ -26,9 +26,10 @@ N = 10
 EXPECTED_FIRMWARE = os.environ.get("E906_FIRMWARE", "e906_repl_app.elf")
 # [SPEC-E906-REPL-06] and [SPEC-E906-REPL-10]: the abstractx API the spec promises.
 SPEC_API = ("peek", "peek_hex", "poke", "version", "cycles", "alive", "uart_init", "uart_read",
-            "uart_write", "uart_status", "i2c_init", "i2c_scan", "i2c_read", "i2c_write", "sleep_ms",
-            "ticks_ms", "console_read", "tlp_send", "tlp_push", "tlp_dropped", "trace",
-            "irq_stats")
+            "uart_read_into", "uart_dma", "uart_write", "uart_status", "i2c_init", "i2c_scan",
+            "i2c_read", "i2c_read_into", "i2c_write", "sleep_ms", "ticks_ms", "console_read",
+            "console_read_into", "tlp_send", "tlp_push", "tlp_poll_into", "tlp_dropped", "trace",
+            "irq_stats", "dma_bench")
 # Listed under 'Not implemented yet' in [SPEC-E906-REPL-10]; not required here.
 COMPASS_ADDRS = (0x0D, 0x1E)
 # RPMsg framing ([SPEC-E906-IPC-04], engineering log 2026-10-18 #3): 512 B buffer - 16 B header.

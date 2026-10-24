@@ -1,5 +1,6 @@
 #ifndef IOPROCESSOR_HAL_UART_HPP
 #define IOPROCESSOR_HAL_UART_HPP
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 
 #include <stdint.h>
 #include <stddef.h>
@@ -11,10 +12,10 @@ namespace fc::hal {
 
 class Uart2 {
 public:
-    // Threshold balancing:
-    // Writes <= 32 bytes or single characters use direct FIFO / SPSC ring buffer (no DMA overhead)
-    // Writes > 32 bytes stream via hardware DMA Channel (DRQ 16)
-    static constexpr size_t DMA_TX_THRESHOLD = 32;
+    // Threshold balancing ([SPEC-E906-HAL-01]):
+    // Writes <= 128 bytes (UART1-7 hardware FIFO depth) use direct FIFO / SPSC ring buffer
+    // Writes > 128 bytes stream via hardware DMA Channel (DRQ 16)
+    static constexpr size_t DMA_TX_THRESHOLD = 128;
 
     static void init(uint32_t baud_rate = 115200, uint32_t apb_clock_hz = 24000000);
     static void set_baud(uint32_t baud_rate, uint32_t apb_clock_hz = 24000000);
@@ -36,7 +37,7 @@ public:
 
         AsyncTxAwaiter(const uint8_t *d, size_t l) : data(d), len(l) {}
         bool await_ready() const noexcept { return len == 0; }
-        void await_suspend(std::coroutine_handle<> handle) noexcept;
+        bool await_suspend(std::coroutine_handle<> handle) noexcept;
         bool await_resume() noexcept { return completed; }
     };
 

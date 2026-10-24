@@ -29,18 +29,26 @@ static std::array<DmaChannelState, DmaController::NUM_CHANNELS> g_channels{};
 
 // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 void DmaController::init() noexcept {
+    static bool s_inited = false;
+    abstractx::InterruptGuard guard;
     // The main DMAC's clock and reset belong to Linux (it keeps the controller clocked); the
     // E906 never touches them ([SPEC-E906-HAL-01]). Channels 0..7 are Linux's (overlay
     // dma-channels = <8>); only register 1 (channels 8..15) is written here.
-    DMA_IRQ_EN_REG1 = 0;
-    DMA_IRQ_STAT_REG1 = 0xFFFFFFFFU;
     // Route 8..15 to the E906 and away from Linux before any of them can interrupt: Linux's one
     // DMA interrupt covers all 16 channels and its handler only clears register 0.
     DMA_IRQ_CPU_EN_REG = DMA_IRQ_CPU_EN_REG & 0x00FFU;
     DMA_IRQ_MCU_EN_REG = 0xFF00U;
     clic::enable(clic::kLineDma);
+    if (s_inited) {
+        return;
+    }
+    s_inited = true;
 
-    // Reset channel states
+    DMA_IRQ_EN_REG1 = 0;
+    DMA_IRQ_STAT_REG1 = 0xFFFFFFFFU;
+
+    // Reset channel states once at first init so subsequent driver init() calls never clobber
+    // already-allocated channels (e.g. UART3 circular RX DMA on channel 8).
     for (auto& ch : g_channels) {
         ch.allocated = false;
         ch.cyclic = false;
@@ -86,6 +94,9 @@ bool DmaController::start_transfer(
 
     // Per-channel nibble: bit0 half package, bit1 package end, bit2 queue end.
     const uint8_t ch_idx = channel - 8;
+    DMA_IRQ_CPU_EN_REG = DMA_IRQ_CPU_EN_REG & 0x00FFU;
+    DMA_IRQ_MCU_EN_REG = 0xFF00U;
+    clic::enable(clic::kLineDma);
     DMA_IRQ_STAT_REG1 = (0x0FU << (ch_idx * 4));
     DMA_IRQ_EN_REG1 = (DMA_IRQ_EN_REG1 & ~(0x0FU << (ch_idx * 4))) |
                       (static_cast<uint32_t>(irq_type & 0x07U) << (ch_idx * 4));
@@ -114,6 +125,22 @@ void DmaController::stop_transfer(uint8_t channel) noexcept {
 bool DmaController::is_busy(uint8_t channel) noexcept {
     if (channel >= NUM_CHANNELS) return false;
     return (DMA_CHAN_ENABLE_REG(channel) & 1) != 0;
+}
+
+// @impl [SPEC-E906-HAL-01] [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md
+uint32_t DmaController::current_dst_pa(uint8_t channel) noexcept {
+    if (channel >= NUM_CHANNELS) return 0;
+    return DMA_CHAN_CUR_DST_REG(channel);
+}
+
+uint32_t DmaController::current_src_pa(uint8_t channel) noexcept {
+    if (channel >= NUM_CHANNELS) return 0;
+    return DMA_CHAN_CUR_SRC_REG(channel);
+}
+
+uint32_t DmaController::pkg_num(uint8_t channel) noexcept {
+    if (channel >= NUM_CHANNELS) return 0;
+    return DMA_CHAN_PKG_NUM_REG(channel);
 }
 
 // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md

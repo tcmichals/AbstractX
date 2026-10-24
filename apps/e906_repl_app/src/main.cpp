@@ -76,6 +76,7 @@ static abstractx::coro::Task<void> repl_tx_coroutine(abstractx::RpmsgConsole &co
 
 extern "C" {
 extern const struct rpmsg_resource_table global_resource_table;
+extern void abstractx_tlp_ingress_init(void);
 }
 
 int main() {
@@ -85,6 +86,7 @@ int main() {
 
     abstractx::Config config{};
     abstractx::init(config);
+    abstractx_tlp_ingress_init();
 
     // 2. Initialize Console on shared RPMsg bus
     s_console.init();

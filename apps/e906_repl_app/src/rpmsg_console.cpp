@@ -94,20 +94,13 @@ void RpmsgConsole::flush() noexcept {
 
 } // namespace abstractx
 
-#include "hal/trace.hpp"
-
 extern "C" {
 #include "py/mphal.h"
 
 mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
-    // @impl [SPEC-E906-REPL-05] apps/e906_repl_app/SPECIFICATION.md
+    // @impl [SPEC-E906-REPL-05] [SPEC-E906-REPL-07] [SPEC-E906-REPL-08] apps/e906_repl_app/SPECIFICATION.md
     if (abstractx::g_repl_console) {
         abstractx::g_repl_console->write(str, len);
-    }
-    if (str) {
-        for (size_t i = 0; i < len; ++i) {
-            hal::Trace::putc(str[i]);
-        }
     }
     return static_cast<mp_uint_t>(len);
 }

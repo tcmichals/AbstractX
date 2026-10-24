@@ -4,14 +4,15 @@
  *
  * AbstractX Allwinner XuanTie E906 SPI0 Driver
  * --------------------------------------------
- * Dual-Mode Engine with Threshold Balancing:
- * 1. Low-Latency Fast FIFO Direct Transfer (<= 4 bytes): Zero DMA setup overhead
- * 2. High-Performance Dual-Channel DMA (> 4 bytes): Zero CPU bus cycles
+ * Dual-Mode Engine with Threshold Balancing ([SPEC-E906-HAL-01]):
+ * 1. Low-Latency Fast FIFO Direct Transfer (<= 64 bytes, SPI0 FIFO depth): Zero DMA setup overhead
+ * 2. High-Performance Dual-Channel DMA (> 64 bytes): Zero CPU bus cycles
  */
 
 #include "hal/spi.hpp"
 #include "hal/pio.hpp"
 #include "hal/dma.hpp"
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 #include "memory_map.h"
 #include "abstractx/isr_dispatcher.hpp"
 #include <cstring>
@@ -174,9 +175,9 @@ bool Spi0::start_dma_transfer(
     // 4. Configure TCR
     SPI0_TCR = (1 << 7); // SS_LEVEL=1 (manual CS)
 
-    // 5. Setup RX DMA LLI (SPI0_RXD_8 -> rx buffer)
+    // 5. Setup RX DMA LLI (SPI0_RXD_8 -> rx buffer) ([SPEC-E906-HAL-01])
     g_spi_rx_lli.src = reinterpret_cast<uint32_t>(&SPI0_RXD_8);
-    g_spi_rx_lli.dst = reinterpret_cast<uint32_t>(rx ? rx : &g_dummy_rx);
+    g_spi_rx_lli.dst = ::hal::DmaController::pa(rx ? rx : &g_dummy_rx);
     g_spi_rx_lli.len = len;
     g_spi_rx_lli.para = 8;
     g_spi_rx_lli.p_lli_next = ::hal::LLI_LAST_ITEM;
@@ -186,7 +187,7 @@ bool Spi0::start_dma_transfer(
     );
 
     // 6. Setup TX DMA LLI (tx buffer -> SPI0_TXD_8)
-    g_spi_tx_lli.src = reinterpret_cast<uint32_t>(tx ? tx : &g_dummy_tx);
+    g_spi_tx_lli.src = ::hal::DmaController::pa(tx ? tx : &g_dummy_tx);
     g_spi_tx_lli.dst = reinterpret_cast<uint32_t>(&SPI0_TXD_8);
     g_spi_tx_lli.len = len;
     g_spi_tx_lli.para = 8;
@@ -265,20 +266,25 @@ static void on_spi_dma_coro_callback(bool success) noexcept {
     }
 }
 
-void Spi0::AsyncTransferAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
+bool Spi0::AsyncTransferAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
     // Threshold decision:
     // If len <= DMA_THRESHOLD (4 bytes), execute immediate fast-path FIFO and resume
     if (len <= DMA_THRESHOLD) {
         transceive_fifo_sync(cs_id, tx, rx, len);
         completed = true;
-        handle.resume();
-        return;
+        return false; // resume immediately; never resume inline
     }
 
     // Large payload: stream via dual DMA channels
     g_spi_coro_handle = handle;
     g_spi_completed_ptr = &completed;
-    start_dma_transfer(cs_id, tx, rx, len, etl::delegate<void(bool)>::create<on_spi_dma_coro_callback>());
+    if (!start_dma_transfer(cs_id, tx, rx, len, etl::delegate<void(bool)>::create<on_spi_dma_coro_callback>())) {
+        g_spi_coro_handle = nullptr;
+        g_spi_completed_ptr = nullptr;
+        completed = false;
+        return false;
+    }
+    return true;
 }
 
 bool Spi0::AsyncTransferAwaiter::await_resume() noexcept {

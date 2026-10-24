@@ -170,7 +170,8 @@ bool Uart2::write_async_dma(const uint8_t *data, size_t len, etl::delegate<void(
     g_uart_tx_dma_busy = true;
     g_uart_tx_dma_callback = callback;
 
-    g_uart_tx_lli.src = reinterpret_cast<uint32_t>(data);
+    // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+    g_uart_tx_lli.src = ::hal::DmaController::pa(data);
     g_uart_tx_lli.dst = UART2_BASE + 0x00; // UART2_THR
     g_uart_tx_lli.len = len;
     g_uart_tx_lli.para = 8;
@@ -193,21 +194,26 @@ bool Uart2::is_tx_busy() noexcept {
     return g_uart_tx_dma_busy || !g_uart_tx_ring.empty();
 }
 
-void Uart2::AsyncTxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
+bool Uart2::AsyncTxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
     // Threshold Balancing:
     // If len <= DMA_TX_THRESHOLD (32 bytes) or DMA not available:
     // push to low-latency FIFO / ring buffer without DMA allocation & descriptor setup!
     if (len <= DMA_TX_THRESHOLD || g_uart_tx_dma_chan < 0) {
         Uart2::write(data, len);
         completed = true;
-        handle.resume();
-        return;
+        return false; // resume immediately; never resume inline
     }
 
     // Large payload: stream via zero-copy DMA
     g_uart_tx_coro_handle = handle;
     g_uart_tx_completed_ptr = &completed;
-    write_async_dma(data, len, etl::delegate<void(bool)>::create<on_uart_tx_dma_coro_callback>());
+    if (!write_async_dma(data, len, etl::delegate<void(bool)>::create<on_uart_tx_dma_coro_callback>())) {
+        g_uart_tx_coro_handle = nullptr;
+        g_uart_tx_completed_ptr = nullptr;
+        completed = false;
+        return false;
+    }
+    return true;
 }
 
 bool Uart2::has_data() {
