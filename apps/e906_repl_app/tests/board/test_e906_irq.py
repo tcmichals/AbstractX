@@ -169,3 +169,33 @@ def test_uart3_rx_dma_and_into():
     assert n_i2c == 3 and ibuf == [72, 52, 51], f"i2c_read_into failed: {n_i2c}, {ibuf}"
     assert dropped == 0, f"UART3 RX dropped {dropped} bytes"
     assert after.get(LINE_DMA, 0) > before.get(LINE_DMA, 0), f"CLIC line 88 did not fire during UART3 DMA RX: {before} -> {after}"
+
+
+def test_spi1_dma_and_dual_mode():
+    """Verify hardware SPI1 Single and Dual mode DMA transfers on PB11..PB14 ([SPEC-E906-HAL-03])."""
+    _require_board()
+    before = _stats()
+    code = (
+        "import abstractx\n"
+        "init_ok = abstractx.spi_init(10000000)\n"
+        "s_fifo = abstractx.spi_xfer(bytes([0x90, 0, 0, 0]), False)\n"
+        "d_fifo = abstractx.spi_xfer(bytes([0xA0, 0, 0, 0]), True)\n"
+        "s_dma = abstractx.spi_xfer(bytes(128), False)\n"
+        "tx_buf = bytearray([0x55] * 128)\n"
+        "rx_buf = bytearray(128)\n"
+        "d_dma_n = abstractx.spi_xfer_into(tx_buf, rx_buf, True)\n"
+        "print('SPI_RES', (init_ok, len(s_fifo), len(d_fifo), len(s_dma), d_dma_n))\n"
+    )
+    out = _run(code, 10.0)
+    after = _stats()
+    raw = [ln[8:] for ln in out.splitlines() if ln.startswith("SPI_RES ")][-1]
+    init_ok, s_fifo_len, d_fifo_len, s_dma_len, d_dma_n = eval(raw, {"__builtins__": {}})
+    assert init_ok is True, "abstractx.spi_init() returned False"
+    assert s_fifo_len == 4, f"Single SPI FIFO transfer returned {s_fifo_len} bytes, expected 4"
+    assert d_fifo_len == 4, f"Dual SPI FIFO transfer returned {d_fifo_len} bytes, expected 4"
+    assert s_dma_len == 128, f"Single SPI DMA transfer returned {s_dma_len} bytes, expected 128"
+    assert d_dma_n == 128, f"Dual SPI DMA transfer into returned {d_dma_n} bytes, expected 128"
+    assert after.get(LINE_DMA, 0) >= before.get(LINE_DMA, 0) + 2, (
+        f"CLIC line 88 DMA interrupt count did not increment by at least 2: {before} -> {after}"
+    )
+

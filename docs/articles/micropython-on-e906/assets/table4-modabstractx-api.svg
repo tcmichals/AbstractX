@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 601" width="984" height="601" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="601" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">MICROPYTHON INTEGRATION • MODABSTRACTX BUILT-IN EXTENSION</text>
+  <text x="32" y="56" class="title">Hardware Peripheral &amp; Telemetry C-Binding Functions</text>
+  <rect x="32" y="75" width="920" height="490" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">Function &amp; Signature</text>
+  <text x="426" y="99" class="th">Hardware Action &amp; Behavioral Semantics</text>
+  <rect x="32" y="113" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="151" x2="952" y2="151" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-mono">i2c_init([hz]), i2c_scan()</text>
+  <text x="426" y="136" class="cell">Configures I²C1 controller; scans 7-bit bus addresses non-blockingly</text>
+  <rect x="32" y="151" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="207" x2="952" y2="207" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="174" class="cell-mono">i2c_read(addr, reg, n), i2c_write(addr, reg,</text>
+  <text x="46" y="192" class="cell-mono">data)</text>
+  <text x="426" y="174" class="cell">Transfers register data to QMC5883L compass; returns empty/0 on NACK or</text>
+  <text x="426" y="192" class="cell">20 ms timeout</text>
+  <rect x="32" y="207" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="263" x2="952" y2="263" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="230" class="cell-mono">uart_init([baud]), uart_read([n]),</text>
+  <text x="46" y="248" class="cell-mono">uart_write(data)</text>
+  <text x="426" y="230" class="cell">UART3 (GPS). Reads bytes pre-buffered by interrupt handler; non-blocking</text>
+  <rect x="32" y="263" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="301" x2="952" y2="301" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="286" class="cell-mono">uart_status()</text>
+  <text x="426" y="286" class="cell">Returns FIFO fill levels and hardware overrun/framing error flags</text>
+  <rect x="32" y="301" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="357" x2="952" y2="357" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="324" class="cell-mono">sleep_ms(ms), ticks_ms(), cycles()</text>
+  <text x="426" y="324" class="cell">Enters low-power RISC-V wfi sleep; returns millisecond and 200 MHz cycle</text>
+  <text x="426" y="342" class="cell">counters</text>
+  <rect x="32" y="357" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="395" x2="952" y2="395" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="380" class="cell-mono">peek(addr), peek_hex(addr), poke(addr, val)</text>
+  <text x="426" y="380" class="cell">Direct MMIO: reads or writes any 32-bit hardware register</text>
+  <rect x="32" y="395" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="433" x2="952" y2="433" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="418" class="cell-mono">irq_stats()</text>
+  <text x="426" y="418" class="cell">Queries CLIC interrupt firing counters and per-driver latency stats</text>
+  <rect x="32" y="433" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="489" x2="952" y2="489" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="456" class="cell-mono">trace(task_id, state[, msg])</text>
+  <text x="426" y="456" class="cell">Emits zero-copy barectf CTF 1.8 binary trace record to RPMsg endpoint</text>
+  <text x="426" y="474" class="cell">1025</text>
+  <rect x="32" y="489" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="527" x2="952" y2="527" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="512" class="cell-mono">tlp_send(buf), console_read([n])</text>
+  <text x="426" y="512" class="cell">Sends 64-byte binary telemetry frame or drains raw REPL input buffer</text>
+  <rect x="32" y="527" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="565" x2="952" y2="565" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="550" class="cell-mono">dma_bench(n[, port])</text>
+  <text x="426" y="550" class="cell">Runs hardware DMA engine vs CPU memcpy comparison across n bytes</text>
+</svg>

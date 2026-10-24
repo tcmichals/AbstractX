@@ -513,7 +513,11 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   streams. FIFO transfers use the widest access the register allows (SPI: 32-bit, 4 bytes per
   access) and never busy-wait. Replaces the unmeasured thresholds (SPI 4 B, the 32 B draft).
 * **Requirement**: the E906 owns DMAC channels 8..15 at `0x03002000`; the E906 overlay limits
-  Linux's `sun6i-dma` to channels 0..7 (`dma-channels = <8>`). Interrupt routing (T527 manual
+  Linux's `sun6i-dma` to channels 0..7 (`dma-channels = <8>`). Note on hardware reservation (measured on silicon 2026-10-24):
+  channels 9 and 10 are hardware-firewalled/reserved on Allwinner T527 (OP-TEE / TrustZone / DSP firewall; hardware
+  ignores LLI descriptor fetches and leaves CFG=0). Available E906 channels are 8, 11, 12, 13, 14, 15.
+  `DmaController::allocate_channel()` skips channels 9 and 10.
+  Interrupt routing (T527 manual
   §2.8.6.8-9; reset value of both is `0xFFFF`, measured on the board 2026-10-22, and Linux never
   writes them): the E906 sets `DMAC_IRQ_MCU_EN_REG` (+0x38) = `0xFF00` and clears bits 8..15 of
   `DMAC_IRQ_CPU_EN_REG` (+0x34, i.e. `0x00FF`) **before** enabling any channel interrupt. If
@@ -607,6 +611,34 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Verified by**: `e906-board-selftest` (GPS stream on UART3: no drops, per-wake cost from the
   timeline, DMA vs interrupt comparison)
 * **Implementation Target**: `targets/allwinner_e906/src/dma.cpp`, `targets/allwinner_e906/src/uart.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`
+
+### `[SPEC-E906-HAL-03]` Dual-Mode (Single-SPI 1-Bit & Dual-SPI 2-Bit) DMA Engine on SPI1 (PB11..PB14)
+* **Hardware Routing & Bus Pinmux**:
+  - The Radxa Cubie A5E 40-pin header routes exclusively to **SPI1** (`SPI1_BASE = 0x04026000`), not SPI0 (Port C is unrouted).
+  - Physical pins on Port B:
+    - Pin 24: PB11 (SPI1_CS0)
+    - Pin 23: PB12 (SPI1_CLK)
+    - Pin 19: PB13 (SPI1_MOSI / SPI1_IO0)
+    - Pin 21: PB14 (SPI1_MISO / SPI1_IO1)
+  - Multiplex function is Function 4 (`allwinner,pinmux = <4>`). Bound to `generic-uio` in device tree to prevent Linux kernel driver contention while E906 controls the bus.
+* **Clock & Reset Control (CCU)**:
+  - Bus Gating & Reset: `CCU_SPI_BGR_REG = 0x0200196C`. Bit 17 deasserts SPI1 reset (`1U << 17`); Bit 1 enables SPI1 clock gating (`1U << 1`).
+  - Module Clock: `CCU_SPI1_CLK_REG = 0x02001944`. Gating bit is bit 31 (`1U << 31`), parent clock selected as `osc24M` (bits 26..24 = 0), divider M/N configured for requested baud.
+* **DMA Endpoint & Physical Address Mapping**:
+  - SPI1 DMA Request Line is **DRQ 23** (`DRQ_SPI1 = 23`).
+  - E906 owns DMA channels 8..15 (`0x03002000`).
+  - Physical address translation: `hal::DmaController::pa()` translates SRAM Space 0 (`0x3FFC0000` -> host PA `0x07280000`) and Space 1 (`0x40000000` -> host PA `0x072C0000`) for all LLI descriptor fields (`dst`, `src`, `p_lli_next`).
+  - Register endpoints: `SPI1_RXD_8 = 0x04026300` and `SPI1_TXD_8 = 0x04026200`.
+  - Interrupt completion: signaled on CLIC line 88 (`DMAC_IRQ1_NS`) via `DMA_IRQ_MCU_EN_REG = 0xFF00`.
+* **Dual-Mode Operation**:
+  - **Single-SPI (4-Wire Full Duplex)**: Standard 1-bit MOSI/MISO protocol on PB13/PB14 for ICM-42688-P IMU and standard SPI peripherals. Burst counters `SPI_MBC = len`, `SPI_MTC = len`, `SPI_BCC = len`.
+  - **Dual-SPI (2-Bit Half Duplex / Dual-Lane)**: High-speed 2-bit protocol on IO0/IO1 (PB13/PB14) for the FPGA crossbar switch fabric (`asp_spi_frontend.sv`, commands `0xA0`, `0xA1`, `0xA2`). `SPI_BCC = (1U << 28) | len` (`SUN6I_BURST_CTL_CNT_DRM = BIT(28)`).
+* **Threshold-Balanced Execution**:
+  - Transfers $\le 64$ bytes (hardware FIFO depth) execute directly via low-latency FIFO MMIO (`transceive_fifo_sync`), bypassing DMA setup overhead.
+  - Transfers $> 64$ bytes stream via dual-channel DMA (TX channel + RX channel) with zero CPU bus cycles.
+* **Verified by**: `e906-board-selftest`, `host-tests`
+* **Implementation Target**: `targets/allwinner_e906/include/memory_map.h`, `targets/allwinner_e906/include/hal/dma.hpp`, `targets/allwinner_e906/include/hal/spi.hpp`, `targets/allwinner_e906/src/spi.cpp`, `targets/allwinner_e906/src/platform.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`
+
 ## 7. Binary Telemetry & Observability (`SPEC-E906-TRACE`)
 
 
@@ -637,3 +669,4 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 | `[SPEC-E906-CRASH-01]`| Trap Classification, FPU Save & Crash Dump | `bsp/startup.S`, `src/crash.cpp` |
 | `[SPEC-E906-HAL-01]`  | FIFO vs. DMA Balancing & DMAC Routing | `src/{dma,spi,uart,i2c,platform}.cpp` |
 | `[SPEC-E906-HAL-02]`  | Circular 4x64 B UART DMA RX & TX Gap | `src/dma.cpp`, `apps/e906_repl_app/src/e906_periph.cpp` |
+| `[SPEC-E906-HAL-03]`  | Dual-Mode SPI1 (PB11..PB14) DMA Engine | `src/{spi,platform}.cpp`, `apps/e906_repl_app/src/e906_periph.cpp` |

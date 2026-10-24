@@ -43,14 +43,7 @@ between experiments. While it runs, **AbstractX Studio**—our native desktop en
 
 ### Where this fits in the series
 
-| Part | What it covers | Where |
-|---|---|---|
-| 1 | The T527's hidden RISC-V core: why it is useful, the memory windows, how it boots from on-chip SRAM, how to debug it | [Hackster](https://www.hackster.io/MichalsTC/unlocking-the-xuantie-risc-v-core-on-allwinner-t527-part-1-976063) |
-| 2 | The Linux `remoteproc` driver that loads and starts the E906, and a hardware test suite | [Hackster](https://www.hackster.io/MichalsTC/bringing-up-heterogeneous-risc-v-on-allwinner-socs-part-2-53deb8) |
-| 3 | Linux ↔ RISC-V messaging: the message box doorbell, shared SRAM rings and VirtIO RPMsg, measured | [GitHub](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part3_baremetal_firmware_ipc_and_coroutines_intro.md) |
-| 4 | C++20 coroutines vs FreeRTOS on the bare-metal E906 | [GitHub](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md) |
-| side | Device-tree overlays in U-Boot: how `config.txt` picks the hardware setup at boot | [GitHub](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md) |
-| **5** | **This article: Python on both processors, RPMsg streams, live profiling, DMA** | |
+![Allwinner T527 RISC-V Firmware & MicroPython Series](assets/table1-series-roadmap.png)
 
 You do not need the earlier parts to follow this one: each section below
 starts from what you need to know and points back to the part that goes deeper.
@@ -61,13 +54,7 @@ starts from what you need to know and points back to the part that goes deeper.
 
 The Cubie A5E's Allwinner T527 combines:
 
-| Block | What it is | Who uses it here |
-|---|---|---|
-| 8 × ARM Cortex-A55 | Application cores, 64-bit | Linux, Python, the bridges to the PC |
-| XuanTie E906 | 32-bit RISC-V (RV32IMAFC) at 200 MHz, single-precision FPU, no MMU, interrupt controller called CLIC | AbstractX firmware and MicroPython |
-| On-chip SRAM | Two 256 KB windows the E906 can run from (Part 1 maps them) | E906 code, data, and the shared message rings |
-| Message box | A hardware mailbox that raises an interrupt on the other processor | The "look now" doorbell for RPMsg |
-| UARTs, I²C (TWI), SPI, DMA | Standard peripherals on the 40-pin header | Split between Linux and the E906 by the device tree |
+![Hardware Execution Domains & Peripheral Partitioning](assets/table2-architecture-blocks.png)
 
 On our test bench two sensors are wired to the 40-pin header:
 
@@ -189,11 +176,7 @@ most 496 bytes and arrives whole. Our firmware builds three different
 **streams** on top of that, one per endpoint, so the three kinds of traffic
 never mix:
 
-| Endpoint | Name | What flows | How it uses messages |
-|---|---|---|---|
-| 1026 | `abstractx-repl` | MicroPython text: the prompt, scripts going in, output coming out | A text stream cut into messages; long scripts are sent in 256-byte chunks and reassembled on the E906 |
-| 1024 | `abstractx-tlp` | Fixed 64-byte binary packets (sensor data, commands) | Up to 7 packets batched into one message (448 of 496 bytes) |
-| 1025 | `abstractx-trace` | Status reports, profiler samples, timeline events | One self-describing binary packet (**barectf / CTF 1.8 format**) per message, written straight into the RPMsg buffer, so the E906 never copies it |
+![Shared SRAM Virtual Endpoints & Wire Protocols](assets/table3-rpmsg-endpoints.png)
 
 Linux creates the `/dev/rpmsgN` file for an endpoint when a program asks for
 it, through `/dev/rpmsg_ctrl0`. The numbers depend on the order, so tools find
@@ -293,16 +276,7 @@ consequences you will see in the experiments:
 Scripts reach the hardware through one built-in module, `abstractx`
 ([`modabstractx.c`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/modabstractx.c)):
 
-| Function | What it does |
-| :--- | :--- |
-| `i2c_init([hz])`, `i2c_scan()`, `i2c_read(addr, reg, n)`, `i2c_write(addr, reg, data)` | I²C1 (the compass). Returns empty / 0 on a NACK or a 20 ms timeout |
-| `uart_init([baud])`, `uart_read([n])`, `uart_write(data)`, `uart_status()` | UART3 (the GPS). `uart_read` takes bytes the interrupt handler already received |
-| `sleep_ms(ms)`, `ticks_ms()`, `cycles()` | Sleep in `wfi`; millisecond and CPU-cycle (200 MHz) counters |
-| `peek(addr)`, `peek_hex(addr)`, `poke(addr, val)` | Read or write any 32-bit register |
-| `irq_stats()` | How often each interrupt line fired, plus error counters |
-| `trace(task_id, state[, msg])` | Emit a zero-copy barectf CTF 1.8 binary trace event into the trace stream |
-| `tlp_send(buf)`, `console_read([n])` | Send a 64-byte packet or read the REPL stream from a script |
-| `dma_bench(n[, port])` | Copy `n` bytes by DMA and by CPU and time both (section 10) |
+![Hardware Peripheral & Telemetry C-Binding Functions](assets/table4-modabstractx-api.png)
 
 The board's MicroPython is a minimal build: `bytes.decode` and `bytes.fromhex`
 do not exist (use `str(b, "ascii")` and `int(h, 16)`), and there is no
@@ -333,13 +307,7 @@ An embedded coroutine engine *should never have been a desktop socket scheduler*
 
 #### What an Embedded Coroutine Engine Actually Looks Like (`abstractx_coro.py`)
 
-| Dimension | Desktop CPython `asyncio` | MicroPython `uasyncio` | AbstractX Coroutines (`abstractx_coro`) |
-|---|---|---|---|
-| **Primary Domain** | Web APIs, network sockets, databases | Emulated desktop Python on MCUs | Hardware DMA, I²C, SPI, real-time control loops |
-| **Steady-State Memory** | Hundreds of KB on system heap | Allocates `Task` & generator closures on every cycle | **0 bytes allocated** (pre-allocated static channels) |
-| **Garbage Collector** | Generational GC (negligible in web apps) | **5–15 ms GC pauses** freezing CPU | **0 GC sweeps** during steady-state execution |
-| **Idle Behavior** | Epoll / Kqueue socket wait | Software task-list polling loops | Hardware **RISC-V `wfi` sleep (0.01% CPU)** |
-| **Graduation to C++** | Complete rewrite | Complete rewrite | **1-to-1 syntactic translation** to C++20 coroutines |
+![Desktop Python vs MicroPython vs AbstractX Coroutines](assets/table5-async-concurrency.png)
 
 Rather than relying on heap-allocating task wrappers, AbstractX brings the exact C++20 coroutine model into MicroPython:
 
@@ -796,12 +764,7 @@ handler (CLIC line 90) has already put in its buffer.
 The E906 runs entirely from on-chip SRAM; nothing is in DRAM (Part 1 maps the
 windows):
 
-| Region | E906 address | Holds |
-| :--- | :--- | :--- |
-| SRAM Space 0, 192 KB | `0x3FFC0000` | Interrupt handlers, the event loop, drivers, RPMsg, the MicroPython interpreter, data, stack |
-| SRAM Space 1, lower 128 KB | `0x40000000` | Resource table, boot log, code only used while compiling a script, profiler and timeline buffers |
-| SRAM Space 1, upper 128 KB | `0x40020000` | Linux's RPMsg rings and buffers (section 4) |
-| HiFi4 DSP RAM, 128 KB | `0x00020000` | MicroPython's heap |
+![SRAM Space Partitioning for RISC-V Firmware & MicroPython](assets/table6-memory-regions.png)
 
 Space 0 had filled to 99.3 %. Moving the MicroPython compiler (only needed while
 a script is being compiled) into Space 1 brought it to 85 %; with the profiler
@@ -827,12 +790,7 @@ Sharing it takes three things:
 
 What it buys, measured with `abstractx.dma_bench()` (SRAM to SRAM):
 
-| Bytes | DMA, start to done | CPU copy |
-| ---: | ---: | ---: |
-| 4 | 4.4 µs | 0.45 µs |
-| 64 | 4.8 µs | 3.9 µs |
-| 256 | 7.0 µs | 14.4 µs |
-| 1024 | 10.8 µs | 56.6 µs |
+![Hardware DMA Engine vs XuanTie E906 CPU memcpy](assets/table7-dma-benchmark.png)
 
 DMA has a fixed cost of about 4.4 µs, and the CPU is free during the transfer:
 the "done" interrupt itself costs 1.33 µs. The rule we adopted: **a transfer
@@ -850,17 +808,7 @@ checksums. You can query or toggle it live from Python with `abstractx.uart_dma(
 
 All on the Cubie A5E with the E906 at 200 MHz, 2026-10-21 to 2026-10-23:
 
-| What | Result |
-| :--- | :--- |
-| Idle board | 0.01 % busy; 0.3-0.4 % with the 1 kHz profiler on |
-| MicroPython sensor streamer (reads every 100 ms) | `repl_rx` about 7.6 % |
-| MicroPython tight compass and GPS loop | `repl_rx` about 90 % |
-| I²C (compass) interrupt | 1.40-1.43 µs each; 11 per 6-byte register read |
-| UART3 (GPS) interrupt at 115,200 baud | 50 µs when the driver checked status before every byte; 31.8 µs reading the FIFO level once |
-| One UART register read from the E906 | about 0.29 µs |
-| Studio CLI round trip | about 55 ms |
-| DMA "done" interrupt | 1.33 µs |
-| Board self-test | 32 passed, 0 failed, 2 skipped |
+![Silicon Timings, Interrupt Latency & Resource Utilization](assets/table8-measured-results.png)
 
 The two lessons: the interpreter, not the drivers, is where the time goes in
 Python; and register access from this core is expensive enough that DMA

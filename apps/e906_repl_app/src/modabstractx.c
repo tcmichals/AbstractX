@@ -68,6 +68,8 @@ extern uint32_t e906_twi1_timeouts(void);
 extern uint32_t e906_mtvec(void);
 extern int e906_dma_bench(uint32_t n, uint32_t port, uint32_t *dma_cycles, uint32_t *cpu_cycles);
 extern void e906_sleep_ms(uint32_t ms);
+extern bool e906_spi_init(uint32_t baud);
+extern int e906_spi_xfer(const uint8_t *tx, uint8_t *rx, size_t len, bool dual);
 
 // abstractx.uart_init(baud=9600) -> bool
 // @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
@@ -341,6 +343,59 @@ static mp_obj_t mod_abstractx_dma_bench(size_t n_args, const mp_obj_t *args) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_dma_bench_obj, 1, 2, mod_abstractx_dma_bench);
 
+// abstractx.spi_init(baud=10000000) -> bool
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-REPL-20] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_spi_init(size_t n_args, const mp_obj_t *args) {
+    uint32_t baud = 10000000;
+    if (n_args > 0) {
+        baud = (uint32_t)mp_obj_get_int_truncated(args[0]);
+    }
+    return mp_obj_new_bool(e906_spi_init(baud));
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_spi_init_obj, 0, 1, mod_abstractx_spi_init);
+
+// abstractx.spi_xfer(tx_bytes, dual=False) -> bytes
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-REPL-20] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_spi_xfer(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(args[0], &bufinfo, MP_BUFFER_READ);
+    bool dual = false;
+    if (n_args > 1) {
+        dual = mp_obj_is_true(args[1]);
+    }
+    if (bufinfo.len > sizeof(s_mod_io_buf)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buffer exceeds maximum transfer size"));
+    }
+    int res = e906_spi_xfer((const uint8_t *)bufinfo.buf, s_mod_io_buf, bufinfo.len, dual);
+    if (res < 0) {
+        mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("SPI transfer failed: %d"), res);
+    }
+    return mp_obj_new_bytes(s_mod_io_buf, (size_t)res);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_spi_xfer_obj, 1, 2, mod_abstractx_spi_xfer);
+
+// abstractx.spi_xfer_into(tx_buf, rx_buf, dual=False) -> int
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-REPL-20] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_spi_xfer_into(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t tx_info, rx_info;
+    mp_get_buffer_raise(args[0], &tx_info, MP_BUFFER_READ);
+    mp_get_buffer_raise(args[1], &rx_info, MP_BUFFER_WRITE);
+    bool dual = false;
+    if (n_args > 2) {
+        dual = mp_obj_is_true(args[2]);
+    }
+    size_t len = tx_info.len < rx_info.len ? tx_info.len : rx_info.len;
+    int res = e906_spi_xfer((const uint8_t *)tx_info.buf, (uint8_t *)rx_info.buf, len, dual);
+    if (res < 0) {
+        mp_raise_msg_varg(&mp_type_RuntimeError, MP_ERROR_TEXT("SPI transfer failed: %d"), res);
+    }
+    return mp_obj_new_int(res);
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_spi_xfer_into_obj, 2, 3, mod_abstractx_spi_xfer_into);
+
 static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_abstractx) },
     { MP_ROM_QSTR(MP_QSTR_peek), MP_ROM_PTR(&mod_abstractx_peek_obj) },
@@ -371,6 +426,9 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_trace), MP_ROM_PTR(&mod_abstractx_trace_obj) },
     { MP_ROM_QSTR(MP_QSTR_irq_stats), MP_ROM_PTR(&mod_abstractx_irq_stats_obj) },
     { MP_ROM_QSTR(MP_QSTR_dma_bench), MP_ROM_PTR(&mod_abstractx_dma_bench_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spi_init), MP_ROM_PTR(&mod_abstractx_spi_init_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spi_xfer), MP_ROM_PTR(&mod_abstractx_spi_xfer_obj) },
+    { MP_ROM_QSTR(MP_QSTR_spi_xfer_into), MP_ROM_PTR(&mod_abstractx_spi_xfer_into_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_abstractx_globals, mp_module_abstractx_globals_table);

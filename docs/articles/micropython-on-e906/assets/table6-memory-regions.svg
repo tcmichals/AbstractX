@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 373" width="984" height="373" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="373" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">MEMORY MAP • ALLWINNER T527 ON-CHIP SRAM ALLOCATION</text>
+  <text x="32" y="56" class="title">SRAM Space Partitioning for RISC-V Firmware &amp; MicroPython</text>
+  <rect x="32" y="75" width="920" height="262" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">Memory Segment</text>
+  <text x="352.0" y="99" class="th" text-anchor="middle">E906 Address</text>
+  <text x="446" y="99" class="th">Assigned Data Structures &amp; Firmware Components</text>
+  <rect x="32" y="113" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="169" x2="952" y2="169" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-bold">SRAM Space 0 (192 KB)</text>
+  <text x="352.0" y="136" class="cell-mono" text-anchor="middle">0x3FFC0000</text>
+  <text x="446" y="136" class="cell">Fast vector table, CLIC handlers, Dispatcher, drivers, RPMsg,</text>
+  <text x="446" y="154" class="cell">MicroPython VM, stack</text>
+  <rect x="32" y="169" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="225" x2="952" y2="225" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="192" class="cell-bold">SRAM Space 1 (Lower 128 KB)</text>
+  <text x="352.0" y="192" class="cell-mono" text-anchor="middle">0x40000000</text>
+  <text x="446" y="192" class="cell">VirtIO resource table, boot log, parser/compiler, profiler &amp; timeline</text>
+  <text x="446" y="210" class="cell">CTF rings</text>
+  <rect x="32" y="225" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="281" x2="952" y2="281" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="248" class="cell-bold">SRAM Space 1 (Upper 128 KB)</text>
+  <text x="352.0" y="248" class="cell-mono" text-anchor="middle">0x40020000</text>
+  <text x="446" y="248" class="cell">Linux VirtIO RPMsg vrings and shared buffer pool (firmware zero</text>
+  <text x="446" y="266" class="cell">allocation)</text>
+  <rect x="32" y="281" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="337" x2="952" y2="337" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="304" class="cell-bold">HiFi4 DSP RAM (128 KB)</text>
+  <text x="352.0" y="304" class="cell-mono" text-anchor="middle">0x00020000</text>
+  <text x="446" y="304" class="cell">Dedicated MicroPython GC heap (completely isolated from firmware</text>
+  <text x="446" y="322" class="cell">SRAM)</text>
+</svg>

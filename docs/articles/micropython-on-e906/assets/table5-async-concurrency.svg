@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 429" width="984" height="429" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="429" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">EXECUTION MODELS • CONCURRENCY ARCHITECTURE COMPARISON</text>
+  <text x="32" y="56" class="title">Desktop Python vs MicroPython vs AbstractX Coroutines</text>
+  <rect x="32" y="75" width="920" height="318" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">Architectural Dimension</text>
+  <text x="226" y="99" class="th">CPython asyncio (Desktop)</text>
+  <text x="466" y="99" class="th">MicroPython uasyncio</text>
+  <text x="706" y="99" class="th">AbstractX Coroutines (C++20)</text>
+  <rect x="32" y="113" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="169" x2="952" y2="169" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-bold">Primary Domain</text>
+  <text x="226" y="136" class="cell">Web APIs, network I/O,</text>
+  <text x="226" y="154" class="cell">databases</text>
+  <text x="466" y="136" class="cell">Emulated desktop async on MCUs</text>
+  <text x="706" y="136" class="cell">Hardware DMA, SPI, I²C, control</text>
+  <text x="706" y="154" class="cell">loops</text>
+  <rect x="32" y="169" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="225" x2="952" y2="225" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="192" class="cell-bold">Steady-State Heap</text>
+  <text x="226" y="192" class="cell">Hundreds of KB dynamic</text>
+  <text x="226" y="210" class="cell">allocations</text>
+  <text x="466" y="192" class="cell">Allocates Task &amp; closures each</text>
+  <text x="466" y="210" class="cell">run</text>
+  <text x="706" y="192" class="cell">0 bytes heap (pre-allocated</text>
+  <text x="706" y="210" class="cell">static pools)</text>
+  <rect x="32" y="225" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="281" x2="952" y2="281" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="248" class="cell-bold">Garbage Collector</text>
+  <text x="226" y="248" class="cell">Generational GC (negligible in</text>
+  <text x="226" y="266" class="cell">web)</text>
+  <text x="466" y="248" class="cell">5–15 ms GC pauses freeze CPU</text>
+  <text x="706" y="248" class="cell">0 GC sweeps during steady-state</text>
+  <text x="706" y="266" class="cell">loops</text>
+  <rect x="32" y="281" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="337" x2="952" y2="337" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="304" class="cell-bold">Idle Power State</text>
+  <text x="226" y="304" class="cell">Epoll / kqueue socket sleep</text>
+  <text x="466" y="304" class="cell">Software task-list polling</text>
+  <text x="466" y="322" class="cell">loop</text>
+  <text x="706" y="304" class="cell">Hardware RISC-V wfi sleep (0.01%</text>
+  <text x="706" y="322" class="cell">CPU)</text>
+  <rect x="32" y="337" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="393" x2="952" y2="393" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="360" class="cell-bold">Path to C++ Flight</text>
+  <text x="226" y="360" class="cell">Complete architectural rewrite</text>
+  <text x="466" y="360" class="cell">Complete architectural rewrite</text>
+  <text x="706" y="360" class="cell">1-to-1 syntactic translation to</text>
+  <text x="706" y="378" class="cell">C++20</text>
+</svg>

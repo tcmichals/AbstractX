@@ -43,7 +43,6 @@ namespace hal {
 #define DMA_CHAN_CUR_DST_REG(ch)    (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0014))
 #define DMA_CHAN_CUR_CNT_REG(ch)    (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0018))
 #define DMA_CHAN_CUR_PARA_REG(ch)   (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x001C))
-#define DMA_CHAN_MODE_REG(ch)       (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0028))
 #define DMA_CHAN_PKG_NUM_REG(ch)    (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0030))
 
 /* DRQ Endpoint Ports (T527 manual V0.94 Table 2-12) */
@@ -53,6 +52,7 @@ constexpr uint8_t DRQ_UART3 = 17;
 constexpr uint8_t DRQ_UART0 = 14;
 constexpr uint8_t DRQ_UART2 = 16;
 constexpr uint8_t DRQ_SPI0  = 22;
+constexpr uint8_t DRQ_SPI1  = 23;
 constexpr uint8_t DRQ_TWI0  = 43;
 constexpr uint8_t DRQ_TWI1  = 44;
 

@@ -421,3 +421,13 @@ flowchart TD
 * **Not implemented yet**: `stream_tlp`
 * **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_board_suite_local.py`)
 * **Implementation Target**: `apps/e906_repl_app/raw_sensor_streamer.py`, `apps/e906_repl_app/sensor_contract.py`, `tools/e906_rpmsg_bridge.py`
+
+### `[SPEC-E906-REPL-20]` Interactive SPI & Dual-SPI DMA Python Interface
+* **Requirement**: MicroPython exposes hardware SPI1 (PB11..PB14, DRQ 23, `[SPEC-E906-HAL-03]`) via:
+  - `abstractx.spi_init(baud=10000000, dual=False)`: Initializes SPI1 master clock, resets FIFOs, gates CCU clock, and configures PB11 (CS0), PB12 (CLK), PB13 (MOSI/IO0), PB14 (MISO/IO1).
+  - `abstractx.spi_xfer(tx_bytes, dual=False) -> bytes`: Transceives byte payload using threshold balancing ($\le 64$ B direct FIFO, $> 64$ B dual-channel DMA). Returns received bytes.
+  - `abstractx.spi_xfer_into(tx_buf, rx_buf, dual=False) -> int`: Zero-heap transceive reading and writing into user preallocated buffers. Returns number of bytes transferred.
+* **Dual-SPI Support**: In Dual mode (`dual=True`), sets `SUN6I_BURST_CTL_CNT_DRM` (`BIT(28)`) in `SPI_BCC`, driving 2-bit transactions compatible with the FPGA switch fabric (`asp_spi_frontend.sv`).
+* **Verified by**: `e906-board-selftest`, `host-tests`
+* **Implementation Target**: `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/modabstractx.c`
+

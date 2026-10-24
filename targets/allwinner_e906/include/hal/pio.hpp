@@ -1,5 +1,6 @@
 #ifndef IOPROCESSOR_HAL_PIO_HPP
 #define IOPROCESSOR_HAL_PIO_HPP
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -7,25 +8,26 @@
 
 namespace fc::hal {
 
+#define PB_DATA_REG (*(volatile uint32_t *)(PIO_BASE + 0x0040))
 #define PC_DATA_REG (*(volatile uint32_t *)(PIO_BASE + 0x0070))
 
 class Pio {
 public:
     static void init();
     
-    /* Port C Chip Select Control (when in Manual GPIO Mode) */
+    /* Port B Chip Select Control (PB11 / Pin 24 on 40-pin header) */
     static inline void set_cs0(bool active) {
         if (active)
-            PC_DATA_REG &= ~(1 << 3); // Pull LOW (Active)
+            PB_DATA_REG &= ~(1U << 11); // Pull LOW (Active)
         else
-            PC_DATA_REG |=  (1 << 3); // Pull HIGH (Inactive)
+            PB_DATA_REG |=  (1U << 11); // Pull HIGH (Inactive)
     }
 
     static inline void set_cs1(bool active) {
         if (active)
-            PC_DATA_REG &= ~(1 << 7); // Pull LOW (Active)
+            PC_DATA_REG &= ~(1U << 7); // Pull LOW (Active)
         else
-            PC_DATA_REG |=  (1 << 7); // Pull HIGH (Inactive)
+            PC_DATA_REG |=  (1U << 7); // Pull HIGH (Inactive)
     }
 
     /* Interrupt / Status Checks */

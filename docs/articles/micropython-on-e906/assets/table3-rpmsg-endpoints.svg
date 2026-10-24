@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 317" width="984" height="317" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="317" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">INTER-PROCESSOR COMMUNICATION • VIRTIO RPMSG</text>
+  <text x="32" y="56" class="title">Shared SRAM Virtual Endpoints &amp; Wire Protocols</text>
+  <rect x="32" y="75" width="920" height="206" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="82.0" y="99" class="th" text-anchor="middle">Endpoint</text>
+  <text x="146" y="99" class="th">Service Name</text>
+  <text x="326" y="99" class="th">Payload &amp; Format</text>
+  <text x="606" y="99" class="th">Buffering &amp; Transmission Strategy</text>
+  <rect x="32" y="113" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="169" x2="952" y2="169" stroke="#233554" stroke-width="1"/>
+  <text x="82.0" y="136" class="cell-mono" text-anchor="middle">1026</text>
+  <text x="146" y="136" class="cell-mono">abstractx-repl</text>
+  <text x="326" y="136" class="cell">MicroPython text: REPL prompts, raw</text>
+  <text x="326" y="154" class="cell">script input, stdout</text>
+  <text x="606" y="136" class="cell">Stream segmented into 256-byte chunks;</text>
+  <text x="606" y="154" class="cell">reassembled in-place on E906</text>
+  <rect x="32" y="169" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="225" x2="952" y2="225" stroke="#233554" stroke-width="1"/>
+  <text x="82.0" y="192" class="cell-mono" text-anchor="middle">1024</text>
+  <text x="146" y="192" class="cell-mono">abstractx-tlp</text>
+  <text x="326" y="192" class="cell">Fixed 64-byte binary frames</text>
+  <text x="326" y="210" class="cell">(sensors, attitude, commands)</text>
+  <text x="606" y="192" class="cell">Batched: up to 7 TLP frames packed into one</text>
+  <text x="606" y="210" class="cell">496-byte RPMsg buffer</text>
+  <rect x="32" y="225" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="281" x2="952" y2="281" stroke="#233554" stroke-width="1"/>
+  <text x="82.0" y="248" class="cell-mono" text-anchor="middle">1025</text>
+  <text x="146" y="248" class="cell-mono">abstractx-trace</text>
+  <text x="326" y="248" class="cell">CTF 1.8 / barectf binary traces,</text>
+  <text x="326" y="266" class="cell">profiler samples, spans</text>
+  <text x="606" y="248" class="cell">Zero-copy: trace events written directly into</text>
+  <text x="606" y="266" class="cell">RPMsg TX buffer without copy</text>
+</svg>

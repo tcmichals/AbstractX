@@ -1,5 +1,6 @@
 #include "ccu.hpp"
 #include "memory_map.h"
+// @impl [SPEC-E906-HAL-01] [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
 #include <atomic>
 
 namespace hal {
@@ -10,6 +11,7 @@ namespace hal {
 #define CCU_UART_BGR_REG            (*(volatile uint32_t *)(SUNXI_CCU_BASE + 0x090C))
 #define CCU_TWI_BGR_REG             (*(volatile uint32_t *)(SUNXI_CCU_BASE + 0x091C))
 #define CCU_SPI_BGR_REG             (*(volatile uint32_t *)(SUNXI_CCU_BASE + 0x096C))
+#define CCU_SPI_CLK_REG(idx)        (*(volatile uint32_t *)(SUNXI_CCU_BASE + 0x0940 + ((idx) * 4)))
 #define CCU_PWM_BGR_REG             (*(volatile uint32_t *)(SUNXI_CCU_BASE + 0x07AC))
 #define CCU_LEDC_BGR_REG            (*(volatile uint32_t *)(SUNXI_CCU_BASE + 0x0BFC))
 #define CCU_GPADC_BGR_REG           (*(volatile uint32_t *)(SUNXI_CCU_BASE + 0x09EC))
@@ -61,6 +63,7 @@ void Ccu::enable_module(BusModule mod) noexcept
         const uint32_t idx = static_cast<uint32_t>(mod) - static_cast<uint32_t>(BusModule::Spi0);
         CCU_SPI_BGR_REG |= (1U << (16 + idx));
         CCU_SPI_BGR_REG |= (1U << idx);
+        CCU_SPI_CLK_REG(idx) = (1U << 31); // Gate on, osc24M (parent=0), 1:1 divider
         break;
     }
     case BusModule::Pwm:
@@ -124,6 +127,7 @@ void Ccu::disable_module(BusModule mod) noexcept
     case BusModule::Spi1:
     case BusModule::Spi2: {
         const uint32_t idx = static_cast<uint32_t>(mod) - static_cast<uint32_t>(BusModule::Spi0);
+        CCU_SPI_CLK_REG(idx) &= ~(1U << 31);
         CCU_SPI_BGR_REG &= ~(1U << idx);
         CCU_SPI_BGR_REG &= ~(1U << (16 + idx));
         break;

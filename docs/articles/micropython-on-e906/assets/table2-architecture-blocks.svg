@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 429" width="984" height="429" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="429" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">SOC ARCHITECTURE • RADXA CUBIE A5E (ALLWINNER T527)</text>
+  <text x="32" y="56" class="title">Hardware Execution Domains &amp; Peripheral Partitioning</text>
+  <rect x="32" y="75" width="920" height="318" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">Hardware Block</text>
+  <text x="266" y="99" class="th">Silicon Specifications &amp; Features</text>
+  <text x="726" y="99" class="th">Assigned Role in System</text>
+  <rect x="32" y="113" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="169" x2="952" y2="169" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-bold">8 × ARM Cortex-A55</text>
+  <text x="266" y="136" class="cell">Application cores @ 1.4 GHz, 64-bit ARMv8.2, Linux OS</text>
+  <text x="726" y="136" class="cell">Linux userland, Python</text>
+  <text x="726" y="154" class="cell">bridges, PC SSH/UDP</text>
+  <rect x="32" y="169" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="225" x2="952" y2="225" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="192" class="cell-bold">XuanTie E906</text>
+  <text x="266" y="192" class="cell">32-bit RISC-V (RV32IMAFC) @ 200 MHz, FPU, CLIC, no MMU</text>
+  <text x="726" y="192" class="cell">AbstractX bare-metal firmware</text>
+  <text x="726" y="210" class="cell">&amp; MicroPython REPL</text>
+  <rect x="32" y="225" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="281" x2="952" y2="281" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="248" class="cell-bold">On-Chip SRAM</text>
+  <text x="266" y="248" class="cell">Two 256 KB SRAM windows (Space 0 @ 0x3FFC0000, Space 1 @</text>
+  <text x="266" y="266" class="cell">0x40000000)</text>
+  <text x="726" y="248" class="cell">Zero-wait firmware, vectors,</text>
+  <text x="726" y="266" class="cell">VirtIO RPMsg buffers</text>
+  <rect x="32" y="281" width="920" height="56" fill="#182540"/>
+  <line x1="32" y1="337" x2="952" y2="337" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="304" class="cell-bold">Message Box</text>
+  <text x="266" y="304" class="cell">Hardware dual-core mailbox with low-latency IRQ generation</text>
+  <text x="726" y="304" class="cell">Bidirectional 'look-now'</text>
+  <text x="726" y="322" class="cell">doorbell for RPMsg</text>
+  <rect x="32" y="337" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="393" x2="952" y2="393" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="360" class="cell-bold">UART, I²C, SPI, DMA</text>
+  <text x="266" y="360" class="cell">Hardware peripherals on 40-pin header + multi-channel DMA</text>
+  <text x="726" y="360" class="cell">Dedicated real-time I/O</text>
+  <text x="726" y="378" class="cell">isolated from Linux kernel</text>
+</svg>

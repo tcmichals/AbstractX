@@ -27,32 +27,36 @@ extern "C" const struct rpmsg_resource_table global_resource_table;
 namespace abstractx::hal {
 
 // @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
 // SPI HAL Adapter for E906
 class E906SpiDriver final : public ISpi {
 public:
     E906SpiDriver() = default;
 
     bool init(const SpiConfig& config) override {
-        fc::hal::Spi0::init(config.frequency_hz ? config.frequency_hz : 20'000'000);
+        fc::hal::Spi1::init(config.frequency_hz ? config.frequency_hz : 10'000'000);
         return true;
     }
 
     void select(bool active) override {
-        fc::hal::Pio::set_cs1(active);
+        fc::hal::Pio::set_cs0(active);
     }
 
 
 protected:
     // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+    // @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
     void start_hardware_transfer_from_isr(const SpiRequest& req) noexcept override {
         active_req_ = req;
         const size_t len = req.tx_data.empty() ? req.rx_data.size() : req.tx_data.size();
-        if (!fc::hal::Spi0::start_dma_transfer(
-            1 /* CS1 */,
+        const bool dual = req.is_dual_spi;
+        if (!fc::hal::Spi1::start_dma_transfer(
+            0 /* CS0: PB11 */,
             req.tx_data.data(),
             req.rx_data.data(),
             len,
-            etl::delegate<void(bool)>::create<E906SpiDriver, &E906SpiDriver::on_dma_done>(*this)
+            etl::delegate<void(bool)>::create<E906SpiDriver, &E906SpiDriver::on_dma_done>(*this),
+            dual
         )) {
             on_dma_done(false);
         }

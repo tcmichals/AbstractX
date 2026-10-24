@@ -59,6 +59,9 @@ void DmaController::init() noexcept {
 int DmaController::allocate_channel() noexcept {
     abstractx::InterruptGuard guard;
     for (size_t i = DMA_START_CHANNEL; i < NUM_CHANNELS; ++i) {
+        // Channels 9 and 10 are reserved on Allwinner T527 / A523 (OP-TEE / TrustZone / DSP firewall;
+        // hardware ignores descriptor fetches). Channels 8, 11..15 are available.
+        if (i == 9 || i == 10) continue;
         if (!g_channels[i].allocated) {
             g_channels[i].allocated = true;
             g_channels[i].callback = {};
@@ -102,7 +105,9 @@ bool DmaController::start_transfer(
                       (static_cast<uint32_t>(irq_type & 0x07U) << (ch_idx * 4));
 
     // The DMAC fetches the descriptor by physical address ([SPEC-E906-HAL-01]).
-    DMA_CHAN_MODE_REG(channel) = 0;  // wait mode both sides, as Linux leaves it
+    // Hardware ignores writes to LLI_ADDR if channel is already enabled.
+    DMA_CHAN_ENABLE_REG(channel) = 0;
+    DMA_CHAN_PAUSE_REG(channel) = 0;
     DMA_CHAN_LLI_ADDR_REG(channel) = pa(lli_desc);
     DMA_CHAN_ENABLE_REG(channel) = 1;
 

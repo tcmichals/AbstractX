@@ -2383,3 +2383,45 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 
 
 
+
+## [2026-10-24] - Dual-Mode (Single & Dual) SPI1 DMA Engine on XuanTie E906 & T527 DMAC Firewall Discovery
+
+### 1. Mistake / Bug Identification & Silicon Facts
+* **Category**: `hardware-fact`, `product-bug`, `process-gap`
+* **Target / Subsystem**: `targets/allwinner_e906/src/spi.cpp`, `targets/allwinner_e906/src/dma.cpp`, `targets/allwinner_e906/include/hal/dma.hpp`, `apps/e906_repl_app/src/e906_periph.cpp`
+* **Governing Requirements**: `[SPEC-E906-HAL-01]`, `[SPEC-E906-HAL-03]`, `[SPEC-E906-REPL-20]`
+* **Symptoms**:
+  1. SPI DMA transfers from MicroPython hung or raised `RuntimeError: SPI transfer failed: -2` (timeout).
+  2. `test_dma_copy_completes_by_interrupt` failed with `-1` (timeout) when running after UART3 RX DMA initialization.
+  3. Probing DMAC registers showed Channel 9 and Channel 10 stuck with `EN=1`, `CFG=0x0`, and `LLI` unupdated.
+
+### 2. Root Cause & Lesson Learned
+* **Root Causes**:
+  1. **T527 DMAC Hardware Channel 9 and 10 Firewall**: On Allwinner T527 / A523, DMAC channels 9 and 10 are hardware-reserved / firewalled by the SoC security monitor (OP-TEE TrustZone / DSP security firewall). While the E906 can access their registers, hardware ignores LLI descriptor fetches on channels 9 and 10 (`CFG` stays `0x0`, `LLI` remains unread). Channels 8, 11, 12, 13, 14, 15 all fetch descriptors and complete normally.
+  2. **Bogus `DMA_CHAN_MODE_REG(channel)` write**: Writing to `DMA_CHAN_BASE(ch) + 0x28` was an erroneous port of the global `DMA_GATE_REG` (which lives at `SUNXI_DMA_BASE + 0x0028`). Offset 0x28 within a channel block is reserved and caused bus instability.
+  3. **Channel Enable LLI Write Invariant**: The Sunxi DMAC hardware ignores writes to `DMA_CHAN_LLI_ADDR` if `DMA_CHAN_ENABLE` is already 1. `start_transfer()` must explicitly clear `ENABLE` to 0 before setting `LLI_ADDR`.
+  4. **SPI1 FIFO Reset and Trigger Invariant**: Setting `SPI1_FCR |= (1U << 31) | (1U << 15)` in place without clearing left FIFO reset bits asserted. Additionally, `RF_RDY_TRIG_LEVEL` was 0, so the SPI controller never asserted `RF_DRQ` to the DMAC.
+  5. **HiFi4 DSP Local SRAM Interconnect Boundary**: MicroPython heap resides in HiFi4 DSP local SRAM (`0x00020000..0x00040000`), which cannot be mastered by the system DMAC. Descriptors and transfer buffers must live in SRAM Space 0 (`0x3FFC0000` / host PA `0x07280000`) or SRAM Space 1 (`.sram_c`, `0x40000000` / host PA `0x072C0000`).
+* **Lessons**:
+  - `DmaController::allocate_channel()` must skip channels 9 and 10 (`if (i == 9 || i == 10) continue;`).
+  - Staging buffers (`s_spi_tx_staging`, `s_spi_rx_staging`) and DMA descriptors (`g_spi_tx_lli`, `g_spi_rx_lli`) must be placed in `section(".sram_c")` with 4-byte alignment.
+  - Reset SPI FIFOs by writing reset bits once, then immediately write clean configuration (`0x01200101`: `TF_DRQ_EN`, `TF_TRIG=32`, `RF_DRQ_EN`, `RF_TRIG=1`).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/allwinner_e906/SPECIFICATION.md`, `apps/e906_repl_app/SPECIFICATION.md`
+* **Requirements Updated**:
+  - `[SPEC-E906-HAL-01]`: Documented hardware firewall reservation of DMAC channels 9 and 10 on Allwinner T527; documented available MCU channels (8, 11..15).
+  - `[SPEC-E906-HAL-03]`: Specified SPI1 PB11..PB14 pinmux, CCU gating, dual-mode bit (`BCC[28]`), and threshold balancing ($\le 64$ B FIFO, $> 64$ B DMA).
+  - `[SPEC-E906-REPL-20]`: Documented `abstractx.spi_init()`, `abstractx.spi_xfer()`, and `abstractx.spi_xfer_into()`.
+
+### 4. Implementation & Verification
+* **Evidence**:
+  - `targets/allwinner_e906/tests/test_e906_irq.py`: Added `test_spi1_dma_and_dual_mode`.
+  - Cubie A5E physical hardware execution (`run_board_tests.py` on `192.168.3.3`):
+    - `test_dma_copy_completes_by_interrupt`: **PASS** (0.7s)
+    - `test_uart3_rx_dma_and_into`: **PASS** (1.2s)
+    - `test_spi1_dma_and_dual_mode`: **PASS** (0.7s)
+    - **Total: 32 passed, 0 failed, 3 skipped (100% pass rate)**.
+  - Host `ctest --test-dir build_host`: **60/60 passed (100%)**.
+  - `python3 tools/audit_specs.py`: **46/46 tagged (100% coverage)**.
+  - `python3 tools/spectrace_matrix.py --changes`: **95 hunks governed, 0 untraced**.

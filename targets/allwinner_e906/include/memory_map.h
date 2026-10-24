@@ -88,6 +88,7 @@
 #define SUNXI_CCU_BASE              CCU_BASE    /* HAL Compatibility Alias */
 #define MSGBOX_BASE                 0x03003000  /* Hardware Message Box Doorbell */
 #define SPI0_BASE                   0x04025000  /* High-Speed SPI0 Controller (Port C) */
+#define SPI1_BASE                   0x04026000  /* High-Speed SPI1 Controller (Port B - 40-Pin Header) */
 #define UART0_BASE                  0x02500000  /* UART0 Debug Serial Console */
 #define UART2_BASE                  0x02500800  /* UART2 Navigation/CRSF Serial (Port B) */
 #define TWI0_BASE                   0x02502000  /* High-Speed I2C / TWI0 Controller */

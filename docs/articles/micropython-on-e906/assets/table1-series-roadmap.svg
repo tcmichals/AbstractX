@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 395" width="984" height="395" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="395" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">SERIES ROADMAP • UNLOCKING THE XUANTIE E906</text>
+  <text x="32" y="56" class="title">Allwinner T527 RISC-V Firmware &amp; MicroPython Series</text>
+  <rect x="32" y="75" width="920" height="284" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="72.0" y="99" class="th" text-anchor="middle">Part</text>
+  <text x="126" y="99" class="th">Topic &amp; Architectural Focus</text>
+  <text x="852.0" y="99" class="th" text-anchor="middle">Platform</text>
+  <rect x="32" y="113" width="920" height="56" fill="#141f36"/>
+  <line x1="32" y1="169" x2="952" y2="169" stroke="#233554" stroke-width="1"/>
+  <text x="72.0" y="136" class="cell-mono" text-anchor="middle">1</text>
+  <text x="126" y="136" class="cell">The T527's hidden RISC-V core: why it is useful, memory windows, SRAM booting, JTAG</text>
+  <text x="126" y="154" class="cell">debugging</text>
+  <text x="852.0" y="136" class="cell" text-anchor="middle">Hackster (Part 1)</text>
+  <rect x="32" y="169" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="207" x2="952" y2="207" stroke="#233554" stroke-width="1"/>
+  <text x="72.0" y="192" class="cell-mono" text-anchor="middle">2</text>
+  <text x="126" y="192" class="cell">Linux remoteproc driver that loads and starts the E906, plus hardware test suite</text>
+  <text x="852.0" y="192" class="cell" text-anchor="middle">Hackster (Part 2)</text>
+  <rect x="32" y="207" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="245" x2="952" y2="245" stroke="#233554" stroke-width="1"/>
+  <text x="72.0" y="230" class="cell-mono" text-anchor="middle">3</text>
+  <text x="126" y="230" class="cell">Linux ↔ RISC-V messaging: mailbox doorbell, shared SRAM rings and VirtIO RPMsg</text>
+  <text x="852.0" y="230" class="cell" text-anchor="middle">GitHub (Part 3)</text>
+  <rect x="32" y="245" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="283" x2="952" y2="283" stroke="#233554" stroke-width="1"/>
+  <text x="72.0" y="268" class="cell-mono" text-anchor="middle">4</text>
+  <text x="126" y="268" class="cell">C++20 coroutines vs FreeRTOS on the bare-metal E906</text>
+  <text x="852.0" y="268" class="cell" text-anchor="middle">GitHub (Part 4)</text>
+  <rect x="32" y="283" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="321" x2="952" y2="321" stroke="#233554" stroke-width="1"/>
+  <text x="72.0" y="306" class="cell-mono" text-anchor="middle">Side</text>
+  <text x="126" y="306" class="cell">Device-tree overlays in U-Boot: how config.txt configures pinmux at boot</text>
+  <text x="852.0" y="306" class="cell" text-anchor="middle">GitHub (Devicetree)</text>
+  <rect x="32" y="321" width="920" height="38" fill="#163c52" stroke="#42d8f5" stroke-width="1.5"/>
+  <text x="72.0" y="344" class="cell-bold" text-anchor="middle">5</text>
+  <text x="126" y="344" class="cell-bold">This article: MicroPython on both processors, RPMsg streams, live profiling, DMA</text>
+  <text x="852.0" y="344" class="cell-bold" text-anchor="middle">Hackster (Current)</text>
+</svg>

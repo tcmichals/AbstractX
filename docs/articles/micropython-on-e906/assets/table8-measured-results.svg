@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 491" width="984" height="491" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="491" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">EMPIRICAL VALIDATION • SYSTEM MEASUREMENTS</text>
+  <text x="32" y="56" class="title">Silicon Timings, Interrupt Latency &amp; Resource Utilization</text>
+  <rect x="32" y="75" width="920" height="380" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">Subsystem / Operating Condition</text>
+  <text x="506" y="99" class="th">Measured Hardware Metric / Latency</text>
+  <rect x="32" y="113" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="151" x2="952" y2="151" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-bold">Idle board baseline</text>
+  <text x="506" y="136" class="cell">0.01% busy (wfi sleep); 0.3–0.4% with 1 kHz profiler active</text>
+  <rect x="32" y="151" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="189" x2="952" y2="189" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="174" class="cell-bold">MicroPython sensor streamer (100 ms period)</text>
+  <text x="506" y="174" class="cell">repl_rx task consumes ~7.6% CPU</text>
+  <rect x="32" y="189" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="227" x2="952" y2="227" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="212" class="cell-bold">MicroPython tight compass + GPS loop</text>
+  <text x="506" y="212" class="cell">repl_rx consumes ~90% CPU</text>
+  <rect x="32" y="227" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="265" x2="952" y2="265" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="250" class="cell-bold">I²C (compass) interrupt handler</text>
+  <text x="506" y="250" class="cell">1.40–1.43 µs per ISR; 11 interrupts per 6-byte register read</text>
+  <rect x="32" y="265" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="303" x2="952" y2="303" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="288" class="cell-bold">UART3 (GPS) interrupt (115,200 baud)</text>
+  <text x="506" y="288" class="cell">50 µs (polling status/byte) → 31.8 µs (FIFO burst read)</text>
+  <rect x="32" y="303" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="341" x2="952" y2="341" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="326" class="cell-bold">Single UART register read latency</text>
+  <text x="506" y="326" class="cell">~0.29 µs (58 clock cycles @ 200 MHz)</text>
+  <rect x="32" y="341" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="379" x2="952" y2="379" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="364" class="cell-bold">Studio CLI round-trip latency</text>
+  <text x="506" y="364" class="cell">~55 ms (SSH + bridge + RPMsg + Python eval + return)</text>
+  <rect x="32" y="379" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="417" x2="952" y2="417" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="402" class="cell-bold">Hardware DMA transfer complete ISR</text>
+  <text x="506" y="402" class="cell">1.33 µs interrupt execution latency</text>
+  <rect x="32" y="417" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="455" x2="952" y2="455" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="440" class="cell-bold">Hardware board self-test suite</text>
+  <text x="506" y="440" class="cell">32 passed, 0 failed, 2 skipped (100% pass rate)</text>
+</svg>

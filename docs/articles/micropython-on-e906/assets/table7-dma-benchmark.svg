@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 984 301" width="984" height="301" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="984" height="301" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">HARDWARE BENCHMARK • ON-CHIP DATA TRANSFERS</text>
+  <text x="32" y="56" class="title">Hardware DMA Engine vs XuanTie E906 CPU memcpy</text>
+  <rect x="32" y="75" width="920" height="190" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 942 Q 952 75 952 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="952" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="112.0" y="99" class="th" text-anchor="middle">Payload Size</text>
+  <text x="382.0" y="99" class="th" text-anchor="middle">Hardware DMA (Start to Done)</text>
+  <text x="762.0" y="99" class="th" text-anchor="middle">CPU memcpy @ 200 MHz</text>
+  <rect x="32" y="113" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="151" x2="952" y2="151" stroke="#233554" stroke-width="1"/>
+  <text x="112.0" y="136" class="cell-mono" text-anchor="middle">4 Bytes</text>
+  <text x="382.0" y="136" class="cell" text-anchor="middle">4.4 µs (descriptor setup overhead dominates)</text>
+  <text x="762.0" y="136" class="cell" text-anchor="middle">0.45 µs (CPU copy is faster for tiny payloads)</text>
+  <rect x="32" y="151" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="189" x2="952" y2="189" stroke="#233554" stroke-width="1"/>
+  <text x="112.0" y="174" class="cell-mono" text-anchor="middle">64 Bytes</text>
+  <text x="382.0" y="174" class="cell" text-anchor="middle">4.8 µs</text>
+  <text x="762.0" y="174" class="cell" text-anchor="middle">3.9 µs (break-even crossover region)</text>
+  <rect x="32" y="189" width="920" height="38" fill="#141f36"/>
+  <line x1="32" y1="227" x2="952" y2="227" stroke="#233554" stroke-width="1"/>
+  <text x="112.0" y="212" class="cell-mono" text-anchor="middle">256 Bytes</text>
+  <text x="382.0" y="212" class="cell" text-anchor="middle">7.0 µs (DMA 2.0× faster than CPU)</text>
+  <text x="762.0" y="212" class="cell" text-anchor="middle">14.4 µs</text>
+  <rect x="32" y="227" width="920" height="38" fill="#182540"/>
+  <line x1="32" y1="265" x2="952" y2="265" stroke="#233554" stroke-width="1"/>
+  <text x="112.0" y="250" class="cell-mono" text-anchor="middle">1024 Bytes</text>
+  <text x="382.0" y="250" class="cell" text-anchor="middle">10.8 µs (DMA 5.2× faster, bus saturated)</text>
+  <text x="762.0" y="250" class="cell" text-anchor="middle">56.6 µs</text>
+</svg>
