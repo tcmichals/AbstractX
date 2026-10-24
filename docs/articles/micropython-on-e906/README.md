@@ -594,6 +594,8 @@ To eliminate this blindness, AbstractX includes **AbstractX Studio** ([`tools/vi
 
 AbstractX Studio is a native desktop application written in modern C++20 using **Dear ImGui** and **HelloImGui**. It runs on your development PC (Linux, macOS, or Windows) at a silky 60 FPS and connects to the Cubie A5E over a standard SSH connection or network socket.
 
+The workbench is **fully customizable**: developers can drag, re-dock, split horizontally or vertically, and stack tabs anywhere on the canvas. With multi-viewport docking enabled by default, any tool can be torn off into its own independent OS window on a second monitor with a 1-click `Pop In` button to re-dock. Crucially, Studio is not a fixed dashboard—it allows developers to **embed their own custom tabs and instruments** directly into the workbench using an open Python plugin architecture.
+
 Instead of heavy text logging or intrusive polling, Studio relies on **zero-copy Common Trace Format (CTF 1.8) binary telemetry**. The E906 firmware writes compact 64-byte binary Transaction Layer Packets (TLPs) into lock-free shared SRAM rings (`.sram_c`). 
 
 Emitting a binary trace packet takes only **4 to 12 RISC-V instructions** (~20 to 60 nanoseconds). The coprocessor spends less than **0.4% CPU overhead** reporting its internal state, completely eliminating the probe effect.
@@ -725,9 +727,13 @@ Hardware profiles describe the physical target board and its interconnect topolo
 
 Switching Studio between targets—from the bare-metal XuanTie E906 on the Cubie A5E, to an ESP32-P4, a Raspberry Pi Pico 2 W, or a desktop SITL simulator—is simply a matter of passing `--profile profiles/<target>.json`. Studio automatically reconfigures its core topology views, network endpoints, and telemetry parsers.
 
-#### 3. The Extensible Python Plugin SDK (`AbstractXStudioPlugin`)
+#### 3. Customizing Windows & Embedding Your Own Tabs (`AbstractXStudioPlugin`)
 
-Studio is built on an extensible core-and-plugin architecture ([`tools/visualizer/sdk/plugin.py`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/sdk/plugin.py)). Developers can create custom visualizers, instrumentation panels, or automated test consoles in pure Python using Dear ImGui (`imgui-bundle`):
+A hallmark of AbstractX Studio is that developers are never forced into a single pre-baked layout or rigid set of tools. 
+
+Every engineering project has unique telemetry needs—a robotics team needs motor demand bars and Joint PID curves; a drone project needs artificial horizons and compass roses; a battery management system needs cell voltage heatmaps.
+
+Studio makes it trivial for users to **customize their workspace and embed their own tabs directly into the workbench** using the Python Plugin SDK ([`tools/visualizer/sdk/plugin.py`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/sdk/plugin.py)):
 
 ```python
 from visualizer.sdk.plugin import AbstractXStudioPlugin
@@ -744,13 +750,20 @@ class CustomSensorDashboard(AbstractXStudioPlugin):
             self.latest_heading = payload_dict["heading_cdeg"] * 0.01
 
     def render_ui(self, delta_time, state):
-        # Rendered at 60 FPS inside Studio's dockable workbench
-        imgui.text(f"Live Heading: {self.latest_heading:.1f}°")
+        # Rendered at 60 FPS inside Studio's dockable tab
+        imgui.text_colored(imgui.ImVec4(0.3, 0.85, 1.0, 1.0), "Custom Flight Deck")
+        imgui.text(f"Live Magnetic Heading: {self.latest_heading:.1f}°")
+        
+        # Interactive controls sending commands to E906 over RPMsg
         if imgui.button("Zero Compass Bias"):
             state.send_cli("abstractx.compass_calibrate()")
 ```
 
-Plugins integrate seamlessly into Studio's multi-window docking layout. They inherit native OS window pop-outs (moving the plugin to a second monitor), dark-mode styling, and zero-copy packet ingestion without having to manage windowing loops, OpenGL contexts, or threading primitives.
+By subclassing `AbstractXStudioPlugin`, your custom tool becomes a **first-class citizen on the workbench**:
+- **Automatic Docking & Layout Customization**: Your tab can be dragged, nested into tab groups, or split side-by-side with CPU gauges, the timeline, or the memory inspector.
+- **Multi-Monitor "Pop to Canvas"**: Any embedded tab gets a native OS window tear-off button (`🗖 Pop to Canvas`). You can pull your custom dashboard onto a second monitor, resize it, and dock it back with 1 click (`🗗 Pop In`).
+- **Direct Real-Time Target Interaction**: Through `state.send_cli(...)`, your custom tab can send Python expressions, calibrate sensors, or tweak control gains on the live E906 coprocessor while streaming continues uninterrupted.
+- **Zero GUI Boilerplate**: No OpenGL shaders, GLFW event loops, or thread synchronizers. You write high-level ImGui and ImPlot Python code, and Studio handles the rendering at 60 FPS.
 
 
 ## 8. Under the hood: how one call reaches the hardware
