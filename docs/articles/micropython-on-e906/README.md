@@ -193,7 +193,7 @@ never mix:
 |---|---|---|---|
 | 1026 | `abstractx-repl` | MicroPython text: the prompt, scripts going in, output coming out | A text stream cut into messages; long scripts are sent in 256-byte chunks and reassembled on the E906 |
 | 1024 | `abstractx-tlp` | Fixed 64-byte binary packets (sensor data, commands) | Up to 7 packets batched into one message (448 of 496 bytes) |
-| 1025 | `abstractx-trace` | Status reports, profiler samples, timeline events | One self-describing binary packet (CTF format) per message, written straight into the RPMsg buffer, so the E906 never copies it |
+| 1025 | `abstractx-trace` | Status reports, profiler samples, timeline events | One self-describing binary packet (**barectf / CTF 1.8 format**) per message, written straight into the RPMsg buffer, so the E906 never copies it |
 
 Linux creates the `/dev/rpmsgN` file for an endpoint when a program asks for
 it, through `/dev/rpmsg_ctrl0`. The numbers depend on the order, so tools find
@@ -300,7 +300,8 @@ Scripts reach the hardware through one built-in module, `abstractx`
 | `sleep_ms(ms)`, `ticks_ms()`, `cycles()` | Sleep in `wfi`; millisecond and CPU-cycle (200 MHz) counters |
 | `peek(addr)`, `peek_hex(addr)`, `poke(addr, val)` | Read or write any 32-bit register |
 | `irq_stats()` | How often each interrupt line fired, plus error counters |
-| `tlp_send(buf)`, `trace(...)`, `console_read([n])` | Send a 64-byte packet, a trace event, or read the REPL stream from a script |
+| `trace(task_id, state[, msg])` | Emit a zero-copy barectf CTF 1.8 binary trace event into the trace stream |
+| `tlp_send(buf)`, `console_read([n])` | Send a 64-byte packet or read the REPL stream from a script |
 | `dma_bench(n[, port])` | Copy `n` bytes by DMA and by CPU and time both (section 10) |
 
 The board's MicroPython is a minimal build: `bytes.decode` and `bytes.fromhex`
@@ -633,9 +634,13 @@ A common limitation of embedded diagnostic GUIs is rigidity: they are compiled b
 
 AbstractX Studio takes a completely different approach: it is **declarative and programmable**.
 
-#### 1. Dynamic JSON Telemetry Schemas (`trace_schema.json`)
+#### 1. Dynamic barectf & CTF 1.8 Telemetry Schemas (`trace_schema.json` & `barectf_config.yaml`)
 
-All telemetry packet formats, sensor channels, and engineering units are declared in external JSON schemas rather than hardcoded in source files:
+Telemetry streams in AbstractX are governed by **barectf**—an open-source generator that produces ultra-fast, zero-allocation ANSI C tracers emitting the standardized Common Trace Format (CTF 1.8).
+
+Instead of burning cycles on string formatting or JSON serialization on the microcontroller, the E906 firmware bit-packs trace events directly into shared SRAM rings in 4 to 12 instructions. Furthermore, MicroPython scripts on the E906 can call `abstractx.trace(task_id, state, "msg")` to emit structured barectf binary events into this exact same stream!
+
+On the host PC, Python tools and AbstractX Studio decode these binary streams dynamically using external schemas rather than hardcoded struct offsets:
 
 ```json
 {
@@ -672,8 +677,8 @@ All telemetry packet formats, sensor channels, and engineering units are declare
 }
 ```
 
-When Studio connects to a telemetry stream:
-1. **Dynamic Unpack Compilation**: Studio's `CtfSchemaLoader` ingests the JSON schema and compiles the `unpack_format` (e.g. `<i6h` or `<3hH`) into native Python `struct.unpack` byte decoders on the fly.
+When Studio or a Python tool connects to a stream:
+1. **Dynamic barectf Unpack Compilation**: Studio's `CtfSchemaLoader` (`tools/visualizer/ctf_schema_loader.py`) reads the barectf YAML or JSON configuration and compiles the `unpack_format` (e.g. `<i6h` or `<3hH`) into native Python `struct.unpack` byte decoders on the fly.
 2. **Automatic Unit Scaling**: Raw integer values from hardware ADCs are automatically scaled into human-readable engineering units using the `"scale"` multiplier (e.g. `0.001` converts milligauss or milli-$g$ to $g$, and `0.01` converts centidegrees to degrees).
 3. **Automatic UI Widget Binding**: The `"widget"` tag binds decoded signals directly to Studio's visualization components—routing high-rate accelerometer and gyroscope data to the 8 kHz oscilloscope, magnetic heading to the vector compass dial, or altitude to the altimeter—without writing any UI wiring code.
 
