@@ -1536,13 +1536,26 @@ def decouple_window(window_title: str, default_width: float = 1280.0, default_he
     except Exception:
         pass
 
+def resize_popped_window(window_title: str, w: float, h: float):
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    Resizes a floating / popped-out window.
+    """
+    try:
+        win = imgui.internal.find_window_by_name(window_title)
+        if win:
+            imgui.internal.set_window_size(win, imgui.ImVec2(float(w), float(h)), imgui.Cond_.always.value)
+        imgui.set_window_size(window_title, imgui.ImVec2(float(w), float(h)), imgui.Cond_.always)
+    except Exception:
+        pass
+
 def dock_window(window_title: str, dock_space_name: str = None):
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     Docks a floating/decoupled window back into its designated dock space.
     Resolves parent split nodes to central leaf nodes so ImGui accepts the docking target.
-    If the target dock node was pruned by Dear ImGui (because all windows were undocked),
-    triggers restore_default_layout() to reconstruct the split tree and dock the window.
+    Recreates pruned split nodes (like LeftSpace) independently without resetting the
+    layout of other windows.
     """
     try:
         rp = hello_imgui.get_runner_params()
@@ -1555,16 +1568,29 @@ def dock_window(window_title: str, dock_space_name: str = None):
                     break
         if not dock_space_name:
             dock_space_name = "MainDockSpace"
+
+        main_id = rp.docking_params.dock_space_id_from_name("MainDockSpace")
         space_id = rp.docking_params.dock_space_id_from_name(dock_space_name)
         node = imgui.internal.dock_builder_get_node(space_id) if space_id != 0 else None
+
         if node is not None:
+            target_id = space_id
             if node.is_split_node():
                 central = imgui.internal.dock_builder_get_central_node(space_id)
                 if central:
-                    space_id = central.id_
-            imgui.internal.dock_builder_dock_window(window_title, space_id)
+                    target_id = central.id_
+            imgui.internal.dock_builder_dock_window(window_title, target_id)
+            imgui.internal.dock_builder_finish(space_id if space_id != 0 else main_id)
         else:
-            restore_default_layout()
+            # Node was pruned because all windows in it were undocked (e.g. LeftSpace)
+            main_node = imgui.internal.dock_builder_get_node(main_id) if main_id != 0 else None
+            if main_node is not None and dock_space_name == "LeftSpace":
+                # Re-split MainDockSpace to recreate LeftSpace independently
+                res = imgui.internal.dock_builder_split_node(main_id, imgui.Dir_.left, 0.54)
+                imgui.internal.dock_builder_dock_window(window_title, res.id_at_dir)
+                imgui.internal.dock_builder_finish(main_id)
+            else:
+                restore_default_layout()
     except Exception:
         pass
 
@@ -1574,6 +1600,7 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
     Renders dynamic sizing controls for both docked and popped-out windows.
     When popped out: provides instant size presets (800x600, 1024x720, 1280x820, 1600x960, 1920x1080),
     continuous width & height pixel sliders, and a prominent 1-click Pop In (Dock to Studio) button.
+    Controls wrap across two clean lines so content does not artificially prevent downsizing.
     When docked: provides 1-click pop-out to its own dedicated canvas.
     """
     is_docked = imgui.is_window_docked()
@@ -1581,14 +1608,25 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
 
     imgui.begin_group()
     if not is_docked:
+        # Row 1: Canvas status banner & prominent Pop In button
         if window_key == "user":
             imgui.text_colored(imgui.ImVec4(0.2, 0.9, 0.5, 1.0), "🗖 USER FLOATING CANVAS (Layered over Studio)")
         else:
             imgui.text_colored(imgui.ImVec4(0.95, 0.82, 0.25, 1.0), "🗖 FLOATING CANVAS")
         imgui.same_line(0, 10)
         imgui.text(f"| Size: {int(cur_size.x)}x{int(cur_size.y)} px")
-        imgui.same_line(0, 14)
+        imgui.same_line(0, 16)
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.7, 0.4, 0.9))
+        if imgui.button(f"🗗 Pop In (Dock to Studio)##{window_key}"):
+            if on_pop_in is not None:
+                on_pop_in()
+            else:
+                dock_window(window_title)
+        imgui.pop_style_color()
 
+        # Row 2: Instant sizing presets & sliders
+        imgui.text_colored(imgui.ImVec4(0.5, 0.7, 0.9, 0.9), "Window Size:")
+        imgui.same_line(0, 8)
         presets = [
             ("800x600", 800, 600),
             ("1024x720", 1024, 720),
@@ -1598,11 +1636,7 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         ]
         for lbl, w, h in presets:
             if imgui.button(f"{lbl}##{window_key}"):
-                # Resize this window only, not the main Studio window ([SPEC-STUDIO-01])
-                try:
-                    imgui.set_window_size(window_title, imgui.ImVec2(float(w), float(h)), imgui.Cond_.always)
-                except Exception:
-                    pass
+                resize_popped_window(window_title, float(w), float(h))
             imgui.same_line()
 
         # Continuous width & height sliders
@@ -1612,19 +1646,7 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         ch_h, new_h = imgui.slider_int(f"H##{window_key}", int(cur_size.y), 350, 1600)
         imgui.pop_item_width()
         if ch_w or ch_h:
-            try:
-                imgui.set_window_size(window_title, imgui.ImVec2(float(new_w), float(new_h)), imgui.Cond_.always)
-            except Exception:
-                pass
-
-        imgui.same_line(0, 14)
-        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.7, 0.4, 0.9))
-        if imgui.button(f"🗗 Pop In (Dock to Studio)##{window_key}"):
-            if on_pop_in is not None:
-                on_pop_in()
-            else:
-                dock_window(window_title)
-        imgui.pop_style_color()
+            resize_popped_window(window_title, float(new_w), float(new_h))
     else:
         # Window is docked inside workbench
         if imgui.button(f"🗖 Pop Out Canvas (Drag to 2nd Monitor)##{window_key}"):
@@ -1634,18 +1656,6 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
 
     imgui.end_group()
     imgui.separator()
-
-def launch_external_flight_canvas():
-    """
-    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
-    Launches the Flight Display in a separate, fully decorated native OS window.
-    Provides full native OS titlebar, minimize/maximize buttons, and mouse resize borders
-    that can be freely dragged to a second monitor across both Windows and Linux.
-    """
-    flight_script = REPO_ROOT / "apps" / "gps_imu_app" / "tools" / "flight_display.py"
-    if flight_script.exists():
-        sim_arg = ["--sim"] if g_state.sim_mode else []
-        subprocess.Popen([sys.executable, str(flight_script)] + sim_arg)
 
 def _setup_studio_style():
     """

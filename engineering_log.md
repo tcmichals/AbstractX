@@ -2189,6 +2189,11 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - Implemented circular 4x64 B DMA RX (`UartRxRing<64, 4>` in `.sram_c`) for UART3 with `DMA_IRQ_PKG` (CLIC line 88) and RX-timeout sync (CLIC line 90) plus runtime ISR fallback switch `abstractx.uart_dma`.
   - Moved UART3 and TWI1 buffers into `.sram_c` (Space 1) and released the DMA channel at the end of `e906_dma_bench()`.
   - Upgraded `hal::Timer::SleepAwaiter` to an intrusive deadline-sorted list and wired `E906TimerDriver` to `hal::Timer`; fixed `E906SpiDriver` `active_req_` completion; fixed `pa()`, CLIC routing, and `bool await_suspend` in `uart.cpp`, `i2c.cpp`, `spi.cpp`.
+* **Evidence**:
+  - `cmake --preset e906 && cmake --build build_e906 -j`: all load segments `[ok]`; `e906_repl_app` `text=180366 data=460 bss=48144 dec=228970`; `gps_imu_app` `text=94228 data=416 bss=45924 dec=140568`.
+  - `riscv-none-elf-objdump -d`: 0 double-precision instructions in `e906_repl_app` and `e906_coprocessor`; `gc_collect` spills `s0`–`s11` to `0(sp)`..`44(sp)`.
+  - `ctest --test-dir build_host`, `ctest --test-dir build_asan`, `ctest --test-dir build_tsan`: 59/59 passed across all three suites.
+  - `python3 tools/audit_specs.py`: Traceability Coverage 100.0%; `python3 tools/spectrace_matrix.py --changes`: 179 governed hunks, 0 untraced hunks.
 
 ## [2026-10-24] - Studio Visualizer Pop-Out/Pop-In: Subprocess Proliferation, Pruned Dock Nodes, and Split Central Leaf Resolution
 
@@ -2225,6 +2230,43 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - Configured `runner_params.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start`.
   - Converted `apps/gps_imu_app/tools/flight_display.py` into a thin launcher delegating directly to `abstractx_studio.main()` with `--tab flight` pre-configured.
 * **Evidence**:
-  - `pytest tests/test_visualizer_sdk.py`: 30 passed in 5.26s
-  - `python3 tools/audit_specs.py`: Traceability Coverage 100.0%
+## [2026-10-24] - Studio Visualizer Pop-Out/Pop-In: dock_builder_finish Requirement, Independent LeftSpace Re-Splitting, and Sizing Bar Content Width Clamping
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug`
+* **Target / Subsystem**: `tools/visualizer/abstractx_studio.py`, `tools/visualizer/flight_plugin.py`, `tests/test_visualizer_sdk.py`
+* **Governing Requirements**: `[SPEC-STUDIO-01]`
+* **Symptoms**:
+  1. Clicking "Pop In (Dock to Studio)" on User Domain Instruments did not dock the window back into the Studio workbench.
+  2. Clicking "Pop In" on AbstractX Core Studio docked Core Studio, but inadvertently docked the User Domain Instruments window back in as well, destroying the user's floating canvas layout.
+  3. Clicking size presets (800x600, 1024x720, 1280x820) or adjusting width sliders on the User Domain Instrument panel did nothing.
+  4. Header rendering in `flight_plugin.py` threw `UnboundLocalError: cannot access local variable 'avail_w'`.
+
+### 2. Root Cause & Lesson Learned
+* **Why**:
+  1. `dock_window()` called `dock_builder_dock_window(window_title, target_id)` but omitted `dock_builder_finish(space_id)`. In Dear ImGui, dock builder operations are staged in memory; without calling `dock_builder_finish()`, `DockContextRebuildNodes` is not triggered, leaving the window floating in the next frame.
+  2. When `AbstractX Core Studio` was undocked, its node `LeftSpace` had 0 windows and was pruned by Dear ImGui. The fallback code called `restore_default_layout()`, which set `runner_params.docking_params.layout_reset = True`, globally resetting all dockable windows and forcing `User Domain Instruments` back into its docked slot.
+  3. In `_render_window_sizing_bar`, all preset buttons, labels, and sliders were chained together with `imgui.same_line()` on a single horizontal line that measured 1,345 pixels wide. Dear ImGui windows are clamped to never shrink smaller than their content; thus any preset smaller than 1,345 px (including 800, 1024, and 1280) was ignored.
+  4. `if avail_w >= 850.0:` was inserted before `avail_w = imgui.get_content_region_avail().x` was assigned.
+* **Lesson**:
+  - Always call `dock_builder_finish()` after any `dock_builder_*` operation to commit docking changes.
+  - To dock a window whose node was pruned without resetting other windows, re-split the parent dock node (`dock_builder_split_node`) and finish the parent node without setting `layout_reset = True`.
+  - Floating window sizing bars must split presets and sliders across multiple rows or wrap so the sizing UI does not dictate a high minimum window width.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `tools/visualizer/SPECIFICATION.md`
+* **Requirements Updated**: `[SPEC-STUDIO-01]` (independent node re-splitting on pop-in, `dock_builder_finish` commit requirement, and sizing bar multi-line layout).
+
+### 4. Implementation & Verification
+* **Fixes**:
+  - Added `dock_builder_finish(space_id if space_id != 0 else main_id)` to `dock_window()`.
+  - Re-split `MainDockSpace` via `dock_builder_split_node(main_id, imgui.Dir_.left, 0.54)` when `dock_space_name == "LeftSpace"` is pruned, committing with `dock_builder_finish(main_id)` without calling `restore_default_layout()`.
+  - Split `_render_window_sizing_bar` into Row 1 (status banner & Pop In button) and Row 2 (size presets & continuous sliders) so the minimum window width is <= 800 px.
+  - In `flight_plugin.py`, computed `avail_w` before header button rendering and lowered column min width to 360 px.
+  - Added `resize_popped_window()` using `imgui.internal.set_window_size()` with `Cond_.always.value`.
+  - Expanded `test_popout_and_popin_dock_window()` in `tests/test_visualizer_sdk.py` to assert that Core Studio pops in alone without popping in User Domain Instruments, that resizing down to 800x600 works, and that User Domain Instruments pops in on demand.
+* **Evidence**:
+  - `pytest tests/test_visualizer_sdk.py`: 30 passed in 5.75s.
+  - `python3 tools/audit_specs.py`: Traceability Coverage 100.0%.
+
 

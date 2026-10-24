@@ -463,6 +463,8 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
                 except ValueError:
                     pass
 
+        avail_w = imgui.get_content_region_avail().x
+
         # ----------------------------------------------------------------------
         # 1. Hardware Connection & Telemetry Header
         # ----------------------------------------------------------------------
@@ -505,7 +507,8 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.same_line(0, 15)
         imgui.text(f"| Packets: {state.packet_count:,} | Rate: {state.fps_packet_rate} pkts/s")
 
-        imgui.same_line(0, 20)
+        if avail_w >= 850.0:
+            imgui.same_line(0, 20)
         # @impl [SPEC-USER-PLUGIN-02] tools/visualizer/flight_plugin.py
         if imgui.button("⚡ Fast GPS (115.2k @ 10Hz)"):
             cmd = UbxNmeaParser.build_ubx_cfg_prt(115200) + UbxNmeaParser.build_ubx_cfg_rate(10)
@@ -526,7 +529,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         # 2. Main Navigation Dashboard: Side-by-Side Compass HSI & GPS Geodetic
         # ----------------------------------------------------------------------
         avail_w = imgui.get_content_region_avail().x
-        col_w = max(420.0, (avail_w - 20.0) / 2.0)
+        col_w = max(360.0, (avail_w - 20.0) / 2.0)
         inst_h = 360.0
 
         imgui.columns(2, "nav_main_cols", False)

@@ -797,7 +797,7 @@ def test_viewport_popouts_become_os_windows():
 
 
 def test_popout_and_popin_dock_window():
-    """Pop-in uses dock_builder_dock_window to re-dock floating windows into their splits ([SPEC-STUDIO-01])."""
+    """Pop-in uses dock_builder_dock_window to re-dock floating windows independently into their splits ([SPEC-STUDIO-01])."""
     # @verifies [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     import inspect
     from imgui_bundle import imgui, implot, hello_imgui, immapp
@@ -806,10 +806,12 @@ def test_popout_and_popin_dock_window():
     assert runner.docking_params.layout_condition == hello_imgui.DockingLayoutCondition.application_start
     frames = 0
     decoupled = False
-    re_docked = False
+    core_docked_alone = False
+    size_tested = False
+    both_docked = False
 
     def on_frame():
-        nonlocal frames, decoupled, re_docked
+        nonlocal frames, decoupled, core_docked_alone, size_tested, both_docked
         frames += 1
         w_user = imgui.internal.find_window_by_name("User Domain Instruments")
         w_core = imgui.internal.find_window_by_name("AbstractX Core Studio")
@@ -817,14 +819,24 @@ def test_popout_and_popin_dock_window():
             studio.decouple_window("User Domain Instruments")
             studio.decouple_window("AbstractX Core Studio")
             decoupled = True
-        elif frames == 4:
-            # Test default dock_space_name resolution and central leaf node lookup
-            studio.dock_window("User Domain Instruments")
+        elif frames == 3:
+            # Pop in AbstractX Core Studio only; LeftSpace was pruned, must re-split without disturbing User Domain
             studio.dock_window("AbstractX Core Studio")
+        elif frames == 4:
+            assert w_core and w_core.dock_id != 0, f"Core should be docked, got {w_core.dock_id}"
+            assert w_user and w_user.dock_id == 0, f"User domain should remain undocked, got {w_user.dock_id}"
+            core_docked_alone = True
+            # Test resizing popped-out user window down to 800x600
+            studio.resize_popped_window("User Domain Instruments", 800.0, 600.0)
+        elif frames == 5:
+            assert w_user.size.x <= 850.0, f"User window should resize down to ~800, got {w_user.size.x}"
+            size_tested = True
+            # Now pop in User Domain Instruments
+            studio.dock_window("User Domain Instruments")
         elif frames == 6:
             assert w_user and w_user.dock_id != 0, f"User Domain Instruments should be docked, got {w_user.dock_id}"
             assert w_core and w_core.dock_id != 0, f"AbstractX Core Studio should be docked, got {w_core.dock_id}"
-            re_docked = True
+            both_docked = True
             hello_imgui.get_runner_params().app_shall_exit = True
 
     runner.callbacks.custom_background = on_frame
@@ -833,4 +845,4 @@ def test_popout_and_popin_dock_window():
         immapp.run(runner)
     finally:
         implot.destroy_context()
-    assert decoupled and re_docked
+    assert decoupled and core_docked_alone and size_tested and both_docked
