@@ -2068,6 +2068,28 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **On-screen check (2026-10-23, Ubuntu 24.04.5 LTS, X11)**: with viewports on by default (21ff36d), Float Canvas opens a separate OS window and Pop In docks it back (reported by Tim).
 * **On-screen check (2026-10-24, Ubuntu 24.04.5 LTS, Wayland)**: verified multi-viewport pop-out, `config_viewports_no_auto_merge`, and sizing presets on Wayland via `tools/visualizer/demo_viewport_popout.py`. Popped-out tool canvas windows (`_render_floating_canvas_windows`) now also provide the unified sizing bar (`_render_window_sizing_bar`) with size presets and 1-click Pop In back to the Studio tab. Not yet checked: second monitor, Windows.
 
+## [2026-10-24] - Studio Pop-In Did Not Re-Dock Floating Viewports into the Workbench Splits
+
+### 1. Mistake / Bug Observed
+* **Category**: `product-bug`
+* **Target / Subsystem**: `tools/visualizer` (`abstractx_studio.py`, `demo_viewport_popout.py`)
+* **Governing Requirements**: `[SPEC-STUDIO-01]`
+* **Symptoms**: Pop-in failed to re-dock floating/popped-out windows (User Domain Instruments, AbstractX Core Studio) back into the studio workbench. AbstractX Core Studio also lacked a "Pop In" button when undocked.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: `restore_default_layout()` only set `runner_params.docking_params.layout_reset = True`. While HelloImGui resets docking split tree structures, Dear ImGui's internal window list still treated the undocked windows as floating/separate viewports until `imgui.internal.dock_builder_dock_window(window_title, space_id)` explicitly re-assigned them to their split node ID (`dp.dock_space_id_from_name(dock_space_name)`). AbstractX Core Studio also only had a static "Pop Out" button without checking `imgui.is_window_docked()`.
+* **Architectural Lesson**: In Dear ImGui docking, undocked floating windows must be programmatically re-docked via `dock_builder_dock_window(name, space_id)` rather than relying on `layout_reset` alone. Windows that support pop-out must dynamically toggle between "Pop Out" (when docked) and "Pop In" (when floating).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`tools/visualizer/SPECIFICATION.md`](tools/visualizer/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-STUDIO-01`
+* **Rule Added to Spec**:
+  > Pop-in via `dock_window()` and `restore_default_layout()` uses `dock_builder_dock_window` with the target space ID; popped-out windows display a 1-click 'Pop In (Dock to Studio)' button when undocked.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Added `dock_window(window_title, dock_space_name)` using `dock_builder_dock_window()`; updated `restore_default_layout()` to re-dock all dockable windows to their target split IDs; added dynamic Pop In button to AbstractX Core Studio toolbar when undocked.
+* **Regression Test**: `tests/test_visualizer_sdk.py::test_popout_and_popin_dock_window` (pytest; passes).
+
 ## [2026-10-23] - when_any Destroyed the Losing Task While It Was Still Waiting; Its Only Test Never Ran
 
 ### 1. Mistake / Bug Identification

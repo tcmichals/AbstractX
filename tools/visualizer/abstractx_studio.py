@@ -1465,7 +1465,7 @@ g_dockable_windows = {}
 
 def restore_default_layout():
     """
-    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     Restores all windows and docking splits back to default factory settings,
     re-docking any floating / popped-out canvases back into the studio workbench.
     """
@@ -1474,6 +1474,12 @@ def restore_default_layout():
         if rp and rp.docking_params:
             for w in rp.docking_params.dockable_windows:
                 w.is_visible = True
+                try:
+                    space_id = rp.docking_params.dock_space_id_from_name(w.dock_space_name)
+                    if space_id != 0:
+                        imgui.internal.dock_builder_dock_window(w.label, space_id)
+                except Exception:
+                    pass
             rp.docking_params.layout_reset = True
         g_state.active_layout_preset = "balanced"
     except Exception:
@@ -1512,7 +1518,7 @@ def apply_docking_layout(preset: str):
 
 def decouple_window(window_title: str, default_width: float = 1280.0, default_height: float = 820.0):
     """
-    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     Pops out a dockable window into its own floating OS desktop window / viewport,
     setting an immediate generous, comfortable size.
     """
@@ -1522,6 +1528,30 @@ def decouple_window(window_title: str, default_width: float = 1280.0, default_he
         if win and ctx:
             imgui.internal.dock_context_queue_undock_window(ctx, win)
             imgui.set_window_size(window_title, imgui.ImVec2(default_width, default_height), 0)
+    except Exception:
+        pass
+
+def dock_window(window_title: str, dock_space_name: str = None):
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    Docks a floating/decoupled window back into its designated dock space.
+    """
+    try:
+        rp = hello_imgui.get_runner_params()
+        if not rp or not rp.docking_params:
+            return
+        if dock_space_name is None:
+            for w in rp.docking_params.dockable_windows:
+                if w.label == window_title:
+                    dock_space_name = w.dock_space_name
+                    break
+        if not dock_space_name:
+            dock_space_name = "MainDockSpace"
+        space_id = rp.docking_params.dock_space_id_from_name(dock_space_name)
+        if space_id != 0:
+            imgui.internal.dock_builder_dock_window(window_title, space_id)
+        else:
+            restore_default_layout()
     except Exception:
         pass
 
@@ -1580,7 +1610,7 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
             if on_pop_in is not None:
                 on_pop_in()
             else:
-                restore_default_layout()
+                dock_window(window_title)
         imgui.pop_style_color()
     else:
         # Window is docked inside workbench
@@ -3218,8 +3248,14 @@ def _render_core_studio_window():
         if imgui.button("⛶ Expand Window##core"):
             apply_docking_layout("core_focus")
     imgui.same_line()
-    if imgui.button("🗖 Pop Out Studio##core"):
-        decouple_window("AbstractX Core Studio")
+    if not imgui.is_window_docked():
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.7, 0.4, 0.9))
+        if imgui.button("🗗 Pop In (Dock to Studio)##core"):
+            dock_window("AbstractX Core Studio", "LeftSpace")
+        imgui.pop_style_color()
+    else:
+        if imgui.button("🗖 Pop Out Studio##core"):
+            decouple_window("AbstractX Core Studio")
     imgui.same_line()
     if imgui.button("🔄 Restore Defaults##core"):
         restore_default_layout()

@@ -78,7 +78,12 @@ def render_main_controller_window():
 
     if imgui.button("🗗 Reset Layout (Dock All Windows)", imgui.ImVec2(260, 32)):
         params = hello_imgui.get_runner_params()
-        params.docking_params.layout_reset = True
+        if params and params.docking_params:
+            for w in params.docking_params.dockable_windows:
+                space_id = params.docking_params.dock_space_id_from_name(w.dock_space_name)
+                if space_id != 0:
+                    imgui.internal.dock_builder_dock_window(w.label, space_id)
+            params.docking_params.layout_reset = True
 
     imgui.spacing()
     g_state.counter += 1
@@ -129,7 +134,12 @@ def render_secondary_window():
         imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.7, 0.4, 0.9))
         if imgui.button("🗗 Dock Back to Main Workbench (Pop In)", imgui.ImVec2(280, 30)):
             params = hello_imgui.get_runner_params()
-            params.docking_params.layout_reset = True
+            if params and params.docking_params:
+                space_id = params.docking_params.dock_space_id_from_name("RightSpace")
+                if space_id != 0:
+                    imgui.internal.dock_builder_dock_window("Secondary Pop-out Window", space_id)
+                else:
+                    params.docking_params.layout_reset = True
         imgui.pop_style_color()
     else:
         imgui.text_wrapped("Hint: You can undock this tab by clicking and dragging its tab bar out into the desktop.")

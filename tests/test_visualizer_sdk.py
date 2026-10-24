@@ -794,3 +794,39 @@ def test_viewport_popouts_become_os_windows():
         imgui.destroy_context(ctx)
     assert "change_window_size" not in inspect.getsource(studio._render_window_sizing_bar)
     assert "_render_window_sizing_bar" in inspect.getsource(studio._render_floating_canvas_windows)
+
+
+def test_popout_and_popin_dock_window():
+    """Pop-in uses dock_builder_dock_window to re-dock floating windows into their splits ([SPEC-STUDIO-01])."""
+    # @verifies [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    from imgui_bundle import imgui, implot, hello_imgui, immapp
+    runner = studio.create_docking_runner_params(enable_viewports=True)
+    frames = 0
+    decoupled = False
+    re_docked = False
+
+    def on_frame():
+        nonlocal frames, decoupled, re_docked
+        frames += 1
+        w_user = imgui.internal.find_window_by_name("User Domain Instruments")
+        w_core = imgui.internal.find_window_by_name("AbstractX Core Studio")
+        if frames == 2:
+            studio.decouple_window("User Domain Instruments")
+            studio.decouple_window("AbstractX Core Studio")
+            decoupled = True
+        elif frames == 4:
+            studio.dock_window("User Domain Instruments", "MainDockSpace")
+            studio.dock_window("AbstractX Core Studio", "LeftSpace")
+        elif frames == 6:
+            assert w_user and w_user.dock_id != 0
+            assert w_core and w_core.dock_id != 0
+            re_docked = True
+            hello_imgui.get_runner_params().app_shall_exit = True
+
+    runner.callbacks.custom_background = on_frame
+    implot.create_context()
+    try:
+        immapp.run(runner)
+    finally:
+        implot.destroy_context()
+    assert decoupled and re_docked
