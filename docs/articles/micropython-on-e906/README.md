@@ -891,11 +891,43 @@ matters at high data rates.
 > check never matched and the idle loop still woke about 1,050 times a second.
 > The firmware now accepts both addresses, and idle wakes dropped to about one
 > a second.
+>
+> **The DMA bring-up & the "last byte" trap.** Getting hardware DMA working across
+> asymmetric processors took days of grueling bring-up. First, Linux claimed all 16 DMA
+> channels by default, so we had to patch the device tree (`dma-channels = <8>`) and reprogram
+> interrupt routing registers so the Linux kernel wouldn't panic on unhandled coprocessor interrupts.
+> Second, the E906 views SRAM through its local core addresses (`0x3FFC0000` / `0x40000000`), but
+> the system DMA controller requires physical bus addresses (`0x00020000`); passing raw C++ pointers
+> silently caused DMA bus errors. But the most insidious bug was the **"last byte" issue**:
+> UART GPS sentences are variable in length (e.g. 73 bytes). If you configure DMA to transfer
+> 64 or 512 bytes, the transfer only triggers when the block completes—leaving the **trailing
+> bytes of a sentence trapped in the hardware FIFO indefinitely** until the next burst arrived!
+> The fix was pairing **circular DMA mode** (a 16×64-byte ring buffer in shared SRAM) with the
+> UART's hardware **character timeout interrupt** (`IIR = 0x0C`, `UART_DMA_REQ_EN` bit 2). When the
+> line goes idle for 4 character times, the timeout interrupt flushes the pipeline and delivers the
+> trailing bytes to Python immediately.
+>
+> **Studio pop-outs, multi-viewports & the disappearing canvas.** Giving AbstractX Studio multi-monitor
+> pop-out capabilities took three iterations to get right. Our first attempt was a crude hack: clicking
+> "Pop Out" spawned an external Python subprocess (`flight_display.py`). Clicking it repeatedly spawned
+> an avalanche of rogue Python processes that didn't share memory, and clicking "Pop In" was a broken no-op.
+> When we moved to native Dear ImGui multi-viewports (`enable_viewports = True`), three subtle bugs hit:
+> 1. *The Auto-Merge Trap*: ImGui's default `io.config_viewports_no_auto_merge = False` automatically
+>    swallowed any floating window that overlapped the main workbench back into the main OS window,
+>    making pop-out look completely broken.
+> 2. *Pruned Dock Nodes*: When a window was popped out, ImGui dynamically pruned its parent dock split.
+>    Calling `dock_builder_dock_window()` on a pruned node failed silently. A naive fallback called
+>    `restore_default_layout()`, which reset *every* window globally—inadvertently slamming the user's
+>    flight instruments back into the main window and destroying their layout! We had to detect pruned
+>    nodes, re-split the parent node independently (`dock_builder_split_node`), and call
+>    `dock_builder_finish()` to stage and commit docking changes cleanly.
+> 3. *The Sizing Bar Minimum Width Clamp*: Preset buttons (800×600, 1024×720) were chained on a single
+>    horizontal line measuring 1,345 pixels wide. Because ImGui windows can never shrink smaller than
+>    their content, clicking the 800×600 preset did nothing until the sizing bar was wrapped into multiple rows.
 
-Neither problem showed up in tests on the PC. Both were found on the board and
-are written up in the
-[engineering log](https://github.com/tcmichals/AbstractX/blob/main/engineering_log.md)
-(2026-10-22).
+These problems did not show up in simulation or static analysis. They were found on the physical board
+and during real workbench testing, and are fully recorded in the
+[engineering log](https://github.com/tcmichals/AbstractX/blob/main/engineering_log.md).
 
 ## 13. Limits and what is not done yet
 
