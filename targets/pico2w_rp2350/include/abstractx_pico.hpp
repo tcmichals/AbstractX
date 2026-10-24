@@ -82,8 +82,8 @@ protected:
     }
 
 private:
-    abstractx::SpscRingBuffer<uint8_t, 512> rx_queue_{};
-    abstractx::SpscRingBuffer<uint8_t, 512> tx_queue_{};
+    abstractx::MpscRingBuffer<uint8_t, 512> rx_queue_{};
+    abstractx::MpscRingBuffer<uint8_t, 512> tx_queue_{};
 };
 
 // ----------------------------------------------------------------------------

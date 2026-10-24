@@ -77,8 +77,8 @@ struct AutoChannelConfig {
  */
 struct IoProcessorSetup {
     std::span<const AutoChannelConfig> channels{};
-    SpscTlpRing<>* egress_tx_ring{nullptr};  // Application -> ioProcessor (Manual requests / IOCTL)
-    SpscTlpRing<>* ingress_rx_ring{nullptr}; // ioProcessor -> Application (Completions & Auto-Forwarded Stream TLPs)
+    MpscTlpRing<>* egress_tx_ring{nullptr};  // Application -> ioProcessor (Manual requests / IOCTL)
+    MpscTlpRing<>* ingress_rx_ring{nullptr}; // ioProcessor -> Application (Completions & Auto-Forwarded Stream TLPs)
 
     // Optional notification hooks
     etl::delegate<void()> on_tx_pushed{};

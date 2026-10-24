@@ -127,7 +127,7 @@ int main() {
     trace.attach();
     abstractx::trace::CtfTraceEngine<1024, 0> engine;
     engine.set_transport(&trace);
-    abstractx::SpscTlpRing<> ingress;
+    abstractx::MpscTlpRing<> ingress;
     tlp.set_ingress_ring(&ingress);
     auto loop = [&] { tlp.service(); trace.service(); (void)rpmsg.poll(); tlp.flush(); };
 

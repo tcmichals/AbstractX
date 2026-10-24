@@ -39,9 +39,9 @@ int main() {
     channels[0].tlp_channel = 0x02;      // DMA_Stream
     channels[0].tlp_tag = 1;
 
-    // 2. Instantiate SPSC TLP Rings
-    SpscTlpRing<> app_to_io_tx_ring{};
-    SpscTlpRing<> io_to_app_rx_ring{};
+    // 2. Instantiate MPSC TLP Rings
+    MpscTlpRing<> app_to_io_tx_ring{};
+    MpscTlpRing<> io_to_app_rx_ring{};
 
     IoProcessorSetup setup{};
     setup.channels = std::span<const AutoChannelConfig>(channels, 1);

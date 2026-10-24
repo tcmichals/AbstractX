@@ -31,7 +31,7 @@ extern ::hal::RpmsgTlpChannel g_tlp_channel;
 }
 
 namespace {
-__attribute__((section(".sram_c"))) abstractx::SpscTlpRing<> s_tlp_ingress_ring;
+__attribute__((section(".sram_c"))) abstractx::MpscTlpRing<> s_tlp_ingress_ring;
 bool s_tlp_ingress_attached = false;
 } // namespace
 

@@ -22,8 +22,8 @@ using namespace abstractx;
 using namespace abstractx::coro;
 
 // @impl [SPEC-LOOP-01] [SPEC-TLP-03] apps/serial_loopback_app/SPECIFICATION.md#spec-loop-01 docs/DESIGN_SPECIFICATION.md#spec-tlp-03
-static SpscTlpRing<> g_serial_tx_ring;
-static SpscTlpRing<> g_serial_rx_ring;
+static MpscTlpRing<> g_serial_tx_ring;
+static MpscTlpRing<> g_serial_rx_ring;
 
 // @impl [SPEC-LOOP-01] [SPEC-LOOP-08] [SPEC-LOOP-09] apps/serial_loopback_app/SPECIFICATION.md
 Task<void> serial_ping_loopback_task(hal::ITimer& timer) {

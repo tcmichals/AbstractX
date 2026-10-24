@@ -40,7 +40,7 @@ flowchart TD
     end
 
     subgraph EGRESS_LAYER["5. Telemetry Egress Plane"]
-        RING["<b>g_telemetry_ring</b> (SpscTlpRing&lt;64&gt;)"]
+        RING["<b>g_telemetry_ring</b> (MpscTlpRing&lt;64&gt;)"]
         NET["<b>Live UDP Stream (:9870)</b> / CTF File"]
         RING --> NET
     end
@@ -198,7 +198,7 @@ Motor output demands MUST resolve four motor throttle values ($M_1..M_4$) clampe
 * **Verified by**: `host-tests` (`tests/test_sitl_fusion.cpp`)
 
 ### `[SPEC-APP-07]` Zero Dynamic Heap Allocation
-All sensor channels (`AsyncQueue`), SPSC rings (`SpscTlpRing`), and filter instances MUST allocate exclusively from static memory with 0 heap bytes allocated during flight.
+All sensor channels (`AsyncQueue`), MPSC rings (`MpscTlpRing`), and filter instances MUST allocate exclusively from static memory with 0 heap bytes allocated during flight.
 * **Refines**: `[SPEC-ARCH-02]`
 * **Method**: `Test`
 * **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`), `sanitizer-gate`
@@ -216,7 +216,7 @@ Application code in `apps/gps_imu_app` MUST compile and execute without modifica
 * **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`)
 
 ### `[SPEC-APP-10]` Telemetry Decimation & Egress
-Fused AHRS state packets MUST be emitted into the lock-free telemetry ring at a decimated rate (e.g. 100 Hz) and serviced by a background egress task.
+Fused AHRS state packets MUST be emitted into the multi-producer telemetry ring (`MpscTlpRing`) at a decimated rate (e.g. 100 Hz) and serviced by a background egress task.
 * **Refines**: `[SPEC-ARCH-08]`
 * **Method**: `Test`
 * **Verified by**: `host-tests` (`tests/test_sitl_fusion.cpp`)

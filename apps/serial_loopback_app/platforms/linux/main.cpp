@@ -23,8 +23,8 @@ using namespace abstractx;
 using namespace abstractx::coro;
 
 // @impl [SPEC-LOOP-01] [SPEC-TLP-03] apps/serial_loopback_app/SPECIFICATION.md#spec-loop-01 docs/DESIGN_SPECIFICATION.md#spec-tlp-03
-static SpscTlpRing<> g_sitl_rx_ring;
-static SpscTlpRing<> g_sitl_tx_ring;
+static MpscTlpRing<> g_sitl_rx_ring;
+static MpscTlpRing<> g_sitl_tx_ring;
 
 // Application coroutine under test (Pure software, zero TTY)
 // @impl [SPEC-LOOP-01] [SPEC-LOOP-08] [SPEC-LOOP-09] apps/serial_loopback_app/SPECIFICATION.md

@@ -2330,5 +2330,56 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - `python3 tools/audit_specs.py`: 100% specification traceability coverage (46/46).
   - Host `ctest --test-dir build_host`: **59/59 passed (100%)**.
 
+## [2026-10-24] - Migration of Multi-Producer Queues to MpscTlpRing & Addition of Modular `queue-concurrency` Skill
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug`, `process-gap`
+* **Target / Subsystem**: `include/abstractx/hal/io_processor.hpp`, `apps/gps_imu_app/`, `apps/e906_repl_app/src/mphalport.cpp`, `targets/pico2w_rp2350/`, `.agents/skills/queue-concurrency/`, `tools/check_queue_concurrency.py`
+* **Governing Requirements**: `[SPEC-TLP-03]`, `[SPEC-APP-07]`, `[SPEC-APP-10]`
+* **Symptoms**:
+  1. `SpscRingBuffer` / `SpscTlpRing` was used across several subsystems where multiple producers (multiple coroutine tasks, worker threads, or ISR triggers) push items into a single queue:
+     - `IoProcessorSetup::egress_tx_ring` and `ingress_rx_ring` in `include/abstractx/hal/io_processor.hpp`.
+     - `g_tx_ring`, `g_sensor_ring`, and `g_telemetry_ring` in `apps/gps_imu_app/include/gps_imu_tasks.hpp`.
+     - `s_tlp_ingress_ring` in `apps/e906_repl_app/src/mphalport.cpp`.
+     - `PicoUart::rx_queue_` and `tx_queue_` in `targets/pico2w_rp2350/include/abstractx_pico.hpp`.
+  2. Because SPSC queues rely solely on atomic write indices without interrupt masking or critical section synchronization, concurrent writes from an ISR or multiple coroutine contexts risk race conditions, corrupted queue head pointers, or lost entries.
+  3. SpecTrace lacked a dedicated check skill to enforce queue concurrency invariants across the repository.
+
+### 2. Root Cause & Lesson Learned
+* **Why**:
+  - `SpscRingBuffer` / `SpscTlpRing` is lock-free with atomic indices without interrupt disabling. It is safe *only* for strictly 1:1 single-producer, single-consumer data paths (such as a dedicated hardware DMA ring buffer streaming to one reader task).
+  - Any queue fed by multiple coroutines, worker threads, or an ISR must use `MpscRingBuffer` / `MpscTlpRing` backed by `etl::queue_spsc_isr<T, Cap, InterruptLock>` to serialize push operations across interrupt and thread/coroutine boundaries.
+  - Rather than creating a large, monolithic review skill combining C++, SystemVerilog, and linting checks (which adds noise and coupling), small, single-purpose skills should be created and chained together (`queue-concurrency`, `thread-sanitizer`, `host-tests`, `rtl-lint`, `rtl-synth-check`, `cocotb-regression`).
+* **Lesson**:
+  - Audit all queue definitions whenever changing I/O routing or telemetry topologies: if more than one producer can invoke `push()` or `try_push()`, mandate `MpscTlpRing` or `MpscRingBuffer`.
+  - Enforce queue concurrency rules in specifications (`[SPEC-TLP-03]`) and link them directly to a dedicated `queue-concurrency` skill in their `Verified by` lines.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `docs/DESIGN_SPECIFICATION.md`, `apps/gps_imu_app/SPECIFICATION.md`
+* **Requirements Updated**:
+  - `[SPEC-TLP-03]`: Explicitly mandates `MpscTlpRing` / `MpscRingBuffer` with `InterruptLock` for multi-producer queues; added `queue-concurrency` to `Verified by`.
+  - `[SPEC-APP-07]`: Updated queue diagram and specifications to mandate `MpscTlpRing` for `g_sensor_ring` and `g_telemetry_ring`.
+  - `[SPEC-APP-10]`: Updated `g_tx_ring` to `MpscTlpRing`.
+
+### 4. Implementation & Verification
+* **Fixes**:
+  - Migrated `IoProcessorSetup::egress_tx_ring` and `ingress_rx_ring` to `MpscTlpRing<64>*`.
+  - Migrated `g_tx_ring`, `g_sensor_ring`, and `g_telemetry_ring` in `apps/gps_imu_app` to `MpscTlpRing<64>`.
+  - Migrated `s_tlp_ingress_ring` in `apps/e906_repl_app/src/mphalport.cpp` to `MpscTlpRing<32>`.
+  - Migrated `targets/pico2w_rp2350/include/abstractx_pico.hpp` `rx_queue_` and `tx_queue_` to `MpscRingBuffer<uint8_t, 512>`.
+  - Migrated SITL, serial loopback, and simulation harnesses to `MpscTlpRing`.
+  - Removed dead `dram_spsc_protocol.h`.
+  - Created `.agents/skills/queue-concurrency/SKILL.md` and `tools/check_queue_concurrency.py`.
+* **Evidence**:
+  - `python3 tools/check_queue_concurrency.py`: 121/121 files passed.
+  - `python3 tools/spectrace_matrix.py --check-skills`: 17 skills, 0 problems.
+  - `python3 tools/audit_specs.py`: Traceability Coverage 100.0% (46/46 specs).
+  - `python3 tools/spectrace_matrix.py --changes`: 23 hunks governed, 0 untraced.
+  - Host `ctest --test-dir build_host`: **59/59 passed (100%)**.
+  - ASan/UBSan `ctest --test-dir build_asan`: **59/59 passed (100%)**.
+  - ThreadSanitizer `ctest --test-dir build_tsan`: **59/59 passed (100%)**.
+
+
+
 
 
