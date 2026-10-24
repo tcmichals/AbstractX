@@ -77,8 +77,9 @@ prt_cmd = bytes([
 abstractx.uart_write(prt_cmd)
 abstractx.sleep_ms(50)
 
-# Switch XuanTie E906 UART3 divisor to 115200 baud
+# Switch XuanTie E906 UART3 divisor to 115200 baud and enable circular DMA
 abstractx.uart_init(115200)
+abstractx.uart_dma(True)
 abstractx.sleep_ms(50)
 
 # UBX-CFG-MSG: Suppress unneeded NMEA sentences to preserve bus bandwidth
