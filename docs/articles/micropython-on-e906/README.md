@@ -356,7 +356,7 @@ def compass_task(channel):
         # Hardware interrupt reads into pre-allocated buffer
         n = abstractx.i2c_read_into(0x1E, 0x03, buf)
         if n == 6:
-            channel.try_push(buf)
+            channel.try_push(bytes(buf))
         # Yields execution; E906 enters wfi sleep (0.01% CPU)
         yield abstractx_coro.sleep_ms(20)
 ```
@@ -451,11 +451,19 @@ The u-blox powers up at 9600 baud:
 >>> print(str(abstractx.uart_read(512), "ascii")) # NMEA sentences
 ```
 
-Switching it to 115,200 baud is a binary configuration message to the GPS
+You can also enable the **autonomous 16×64-byte circular DMA ring** in `.sram_c`:
+
+```python
+>>> abstractx.uart_dma(True)                      # activates circular DMA on UART3
+>>> buf = bytearray(512)
+>>> n = abstractx.uart_read_into(buf)             # zero-copy drain from DMA ring
+>>> print(str(buf[:n], "ascii"))
+```
+
+Switching the GPS to 115,200 baud is a binary configuration message to the GPS
 followed by `uart_init(115200)`; the
 [streamer](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/raw_sensor_streamer.py)
-shows the exact bytes. At 115,200 baud more than 512 bytes can arrive between
-two reads, so read in a loop until a read returns less than 512.
+shows the exact bytes. At 115,200 baud, circular DMA absorbs bursts without dropping a byte.
 
 ### 6.5 Time things, then put it in a file
 
@@ -502,11 +510,19 @@ Instead of sequential polling scripts that waste bus time, the **AbstractX Corou
 import abstractx
 import abstractx_coro
 
-# 1. Channels matching AbstractX C++ AsyncQueue<T, N>
+# 1. Initialize hardware buses & circular DMA
+abstractx.i2c_init(400000)
+abstractx.i2c_write(0x1E, 0x00, b"\x70")      # CRA: 8-sample average, 15 Hz
+abstractx.i2c_write(0x1E, 0x01, b"\x20")      # CRB: +-1.3 gauss
+abstractx.i2c_write(0x1E, 0x02, b"\x00")      # MR: continuous measurement
+abstractx.uart_init(115200)
+abstractx.uart_dma(True)                      # activate 16x64B circular DMA
+
+# 2. Channels matching AbstractX C++ AsyncQueue<T, N>
 mag_channel = abstractx_coro.AsyncQueue(16)
 gps_channel = abstractx_coro.AsyncQueue(16)
 
-# 2. Dedicated Sensor Producers
+# 3. Dedicated Sensor Producers
 def compass_producer(channel):
     buf = bytearray(6)
     while True:
@@ -526,9 +542,10 @@ def gps_producer(channel):
             channel.try_push(bytes(buf[:n]))
         yield abstractx_coro.sleep_ms(100)
 
-# 3. Primary-Paced Consumer Loop
+# 4. Primary-Paced Consumer Loop
 def flight_fusion_task(primary_q, aux_q):
     last_gps = None
+    epoch = 0
     while True:
         # Await next compass sample (acts as the physical pacing clock)
         mag_sample = yield primary_q.pop()
@@ -540,10 +557,15 @@ def flight_fusion_task(primary_q, aux_q):
                 break
             last_gps = gps
 
-        # Update attitude & navigation solution
-        # (Zero blocking, zero heap churn, zero GC pauses)
+        epoch += 1
+        # Decode 16-bit big-endian X, Z, Y
+        x = (mag_sample[0] << 8) | mag_sample[1]
+        z = (mag_sample[2] << 8) | mag_sample[3]
+        y = (mag_sample[4] << 8) | mag_sample[5]
+        if epoch % 10 == 0:  # Print every 10th epoch (5 Hz output rate)
+            print("Epoch", epoch, "Mag:", (x, y, z), "GPS bytes:", len(last_gps) if last_gps else 0)
 
-# 4. Cooperative Dispatcher
+# 5. Cooperative Dispatcher
 dispatcher = abstractx_coro.Dispatcher()
 dispatcher.spawn(compass_producer(mag_channel))
 dispatcher.spawn(gps_producer(gps_channel))
@@ -712,7 +734,8 @@ from visualizer.sdk.plugin import AbstractXStudioPlugin
 from imgui_bundle import imgui, implot
 
 class CustomSensorDashboard(AbstractXStudioPlugin):
-    def on_init(self, context):
+    def __init__(self):
+        super().__init__("Custom Dashboard", "1.0")
         self.latest_heading = 0.0
 
     def on_tlp_packet(self, header, payload_dict):
