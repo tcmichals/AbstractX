@@ -303,28 +303,38 @@ filesystem, so scripts arrive over RPMsg and are compiled in memory.
 
 ### 5.1 Concurrency in Python: Why AbstractX Coroutines Instead of `uasyncio`?
 
-A natural question when looking at concurrent I/O in Python is: **"Python has `asyncio` (and MicroPython has `uasyncio`), so why aren't we using that? Is `asyncio` flawed?"**
+A natural question when looking at concurrent I/O in Python is: **"Python has `asyncio` (and MicroPython has `uasyncio`), so why aren't we using that? Is `asyncio` flawed? Or did `uasyncio` miss what microcontrollers actually need?"**
 
-#### Is `asyncio` Flawed?
+#### Is Python's `asyncio` Flawed?
 **No, `asyncio` is not flawed for its intended domain.**
 
 Python's `asyncio` was designed for network applications—web servers (FastAPI, aiohttp), database connection pools, and microservices on Linux and cloud servers with gigabytes of RAM. In that domain:
 - Waiting 10–50 ms for an HTTP response or a database query over TCP is typical.
-- Allocating 500 bytes of memory per task is completely unnoticeable.
+- Allocating 500 bytes of memory per `Task` is completely unnoticeable.
 - A 50-microsecond garbage collection pause causes no issues whatsoever.
 
-#### Why `uasyncio` Fails on Hard Real-Time Embedded Flight Silicon
-When you take `uasyncio` onto a bare-metal microcontroller like the XuanTie E906 (192 KB SRAM, 200 MHz, no operating system, balancing an 8 kHz gyroscope and 200 Hz compass), the model hits hard physical constraints:
+#### The Historical Mismatch: Why `uasyncio` Should Have Been Built Differently
+MicroPython is called **MICRO**Python. Yet when `uasyncio` was created, the project prioritized **desktop CPython compatibility** over **microcontroller physics**:
+- *"If someone writes `asyncio` code on their PC, it should copy-paste onto an ESP32 or PyBoard."*
 
-1. **Heap Allocation on Every Coroutine Step**:
-   Every `async def`, `Task`, `Future`, and `await asyncio.sleep()` in MicroPython allocates objects on the Python heap.
-2. **Garbage Collection (GC) Jitter**:
-   MicroPython uses a mark-and-sweep Garbage Collector. When the heap fills up or fragments, `gc.collect()` runs, freezing CPU execution for **5 to 15 milliseconds**. On a drone flight loop, a 10 ms freeze means dropped sensor packets, missed attitude corrections, and flight instability.
-3. **ROM & Symbol Table Footprint**:
-   Supporting full `async/await` syntax requires enabling `MICROPY_PY_ASYNC_AWAIT = 1` and large QSTR symbol tables (`__aiter__`, `__anext__`, `StopAsyncIteration`), which exceed the lean 192 KB `SRAM_FAST` budget.
+By mimicking CPython's desktop API, `uasyncio` inherited all of its desktop assumptions:
+1. **Dynamic Heap Allocation on Every Step**: Every `async def`, `Task`, `Future`, and `await asyncio.sleep()` in MicroPython allocates objects on the Python heap.
+2. **The 10 ms Garbage Collection Freeze**: MicroPython uses a mark-and-sweep Garbage Collector. When the heap fragments or fills up, `gc.collect()` freezes CPU execution for **5 to 15 milliseconds**. On an embedded drone or robot balancing an 8 kHz gyroscope and 200 Hz compass, a 15 ms freeze means lost sensor packets, missed attitude corrections, and flight instability.
+3. **ROM & Symbol Table Footprint**: Supporting full `async/await` syntax requires enabling `MICROPY_PY_ASYNC_AWAIT = 1` and large QSTR symbol tables (`__aiter__`, `__anext__`, `StopAsyncIteration`), which exceed the lean 192 KB `SRAM_FAST` budget.
 
-#### The AbstractX Way: Zero-Heap Coroutines & Paced Channels (`abstractx_coro.py`)
-Rather than relying on pure-Python heap schedulers, AbstractX brings the exact C++20 coroutine model into MicroPython:
+An embedded coroutine engine *should never have been a desktop socket scheduler*. It should have been designed for silicon: static channels, zero allocation in the loop pass, and direct hardware interrupt sleep.
+
+#### What an Embedded Coroutine Engine Actually Looks Like (`abstractx_coro.py`)
+
+| Dimension | Desktop CPython `asyncio` | MicroPython `uasyncio` | AbstractX Coroutines (`abstractx_coro`) |
+|---|---|---|---|
+| **Primary Domain** | Web APIs, network sockets, databases | Emulated desktop Python on MCUs | Hardware DMA, I²C, SPI, real-time control loops |
+| **Steady-State Memory** | Hundreds of KB on system heap | Allocates `Task` & generator closures on every cycle | **0 bytes allocated** (pre-allocated static channels) |
+| **Garbage Collector** | Generational GC (negligible in web apps) | **5–15 ms GC pauses** freezing CPU | **0 GC sweeps** during steady-state execution |
+| **Idle Behavior** | Epoll / Kqueue socket wait | Software task-list polling loops | Hardware **RISC-V `wfi` sleep (0.01% CPU)** |
+| **Graduation to C++** | Complete rewrite | Complete rewrite | **1-to-1 syntactic translation** to C++20 coroutines |
+
+Rather than relying on heap-allocating task wrappers, AbstractX brings the exact C++20 coroutine model into MicroPython:
 
 ```python
 # The AbstractX Coroutine Pattern: 0 Heap Allocations in Steady State
@@ -349,6 +359,7 @@ def compass_task(channel):
 - **Direct 1:1 Mapping to C++20**: When the prototype is proven, running the `micropython-to-cpp` skill translates the Python generator coroutine directly into a native C++20 `coro::Task<void>` with zero conceptual friction.
 
 ## 6. Experiments without compiling
+
 
 
 Everything in this section is Python. The firmware stays loaded the whole time.
