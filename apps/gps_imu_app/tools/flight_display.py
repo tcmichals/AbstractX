@@ -33,38 +33,25 @@ except ImportError as e:
     sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(description="AbstractX Flight Display (imgui-bundle)")
-    parser.add_argument("--port", type=int, default=abstractx_studio.DEFAULT_UDP_PORT,
-                        help="UDP telemetry port (default: 9870)")
-    parser.add_argument("--sim", action="store_true",
-                        help="Run in synthetic simulation mode without external target")
-    parser.add_argument("--studio", action="store_true",
-                        help="Start on Level 1 Platform Studio tab instead of Level 2 Flight Display")
-    args = parser.parse_args()
-
-    # Pass configuration to studio
-    abstractx_studio.g_initial_tab = "platform" if args.studio else "flight"
-
-    # Start UDP receiver background thread
-    recv_thread = abstractx_studio.threading.Thread(
-        target=abstractx_studio.udp_receiver_thread,
-        args=(args.port, args.sim),
-        daemon=True
-    )
-    recv_thread.start()
-
-    # Launch Dear ImGui application
-    runner_params = abstractx_studio.hello_imgui.RunnerParams()
-    runner_params.app_window_params.window_title = "AbstractX Flight Display & Attitude Visualizer (imgui-bundle)"
-    runner_params.app_window_params.window_geometry.size = (1180, 780)
-    runner_params.app_window_params.resizable = True
-    runner_params.app_window_params.restore_previous_geometry = True
-    runner_params.callbacks.show_gui = abstractx_studio.render_gui
-    abstractx_studio.implot.create_context()
-
-    print("[Flight Display] Launching high-performance Dear ImGui Bundle visualizer...")
-    abstractx_studio.immapp.run(runner_params)
-    abstractx_studio.implot.destroy_context()
+    """
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    Launches AbstractX Visualizer Studio configured with Level 2 Flight Instruments.
+    """
+    new_args = [sys.argv[0]]
+    has_tab = False
+    for a in sys.argv[1:]:
+        if a == "--studio":
+            new_args.extend(["--tab", "platform"])
+            has_tab = True
+        elif a.startswith("--tab"):
+            has_tab = True
+            new_args.append(a)
+        else:
+            new_args.append(a)
+    if not has_tab:
+        new_args.extend(["--tab", "flight"])
+    sys.argv = new_args
+    abstractx_studio.main()
 
 if __name__ == "__main__":
     main()

@@ -2158,3 +2158,73 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression Test**: `tests/test_spec_traceability.py` failed with the old scan list (45 == 46)
   and passes with the new one; the report now lists the driver headers for `[SPEC-IMU-02]` /
   `[SPEC-GPS-02]` again.
+
+## [2026-10-24] - E906 REPL & DMA/ISR Audit: trace0 Stdout Bleed, 30-Bit peek Mask, GC Register Roots, Circular UART3 DMA & HAL Completion Bugs
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug`, `process-gap`
+* **Target / Subsystem**: `apps/e906_repl_app`, `targets/allwinner_e906`, `include/abstractx/hal/timer.hpp`
+* **Governing Requirements**: `[SPEC-E906-REPL-02]`, `[SPEC-E906-REPL-06]`, `[SPEC-E906-REPL-07]`, `[SPEC-E906-REPL-10]`, `[SPEC-E906-REPL-16]`, `[SPEC-E906-IRQ-03]`, `[SPEC-E906-HAL-01]`, `[SPEC-E906-HAL-02]`
+* **Symptoms**:
+  1. `mp_hal_stdout_tx_strn()` in `rpmsg_console.cpp` mirrored every REPL stdout character to `hal::Trace::putc()` (`trace0`), violating `[SPEC-E906-REPL-07]`.
+  2. `mod_abstractx_peek()` in `modabstractx.c` masked register values with `0x3FFFFFFFU` (30-bit signed small int), corrupting bits 30–31 of any MMIO/SRAM word read from Python.
+  3. `gc_collect()` in `mphalport.cpp` scanned from `&dummy` to `stack_top` without spilling RISC-V callee-saved registers (`s0`–`s11`), leaving live `mp_obj_t` references in registers unprotected during GC sweeps.
+  4. `uart.cpp`, `i2c.cpp`, and `spi.cpp` in `targets/allwinner_e906/src/` wrote E906 core addresses (`reinterpret_cast<uint32_t>(ptr)`) into `DmaLli::{src,dst}` instead of physical addresses (`DmaController::pa(ptr)`), `i2c.cpp` wrote to a non-existent PLIC at `0x10000000`, and `uart.cpp` / `spi.cpp` called `handle.resume()` inline inside `await_suspend()`.
+  5. `E906SpiDriver::on_dma_done()` in `platform.cpp` called `pop_next_request_from_isr()` on completion instead of completing `active_req_` (which `AsyncDriverBase` had already popped on start), hanging single requests and completing the wrong request when queued.
+  6. `E906TimerDriver::start_hardware_transfer_from_isr()` completed immediately in 0 us without waiting for the hardware timer, and `hal::Timer::SleepAwaiter` had a single global `g_timer_coroutine` slot that concurrent sleepers overwrote.
+  7. `e906_dma_bench()` allocated a DMA channel and never released it; `s_twi` and `s_uart_rx`/`s_uart_tx` buffers occupied ~1.8 KB of constrained `SRAM_FAST` (`.bss`) instead of `.sram_c` (Space 1).
+
+### 2. Root Cause & Lesson Learned
+* **Why**: `dma.cpp` was updated with `DmaController::pa()` on 2026-10-22 for `e906_dma_bench()`, but the older BSP drivers (`uart.cpp`, `i2c.cpp`, `spi.cpp`) and `platform.cpp` adapters were not updated at the same time. `E906SpiDriver` misunderstood `AsyncDriverBase::check_and_start_hardware_if_idle()` which pops the request before calling `start_hardware_transfer_from_isr()`.
+* **Lesson**: Every `AsyncDriverBase` subclass must store `active_req_` in `start_hardware_transfer_from_isr()` and complete `active_req_` before `set_hardware_idle_from_isr()`. DMA descriptor builders (`DmaController::make_mem2periph` / `make_periph2mem`) should apply `DmaController::pa()` centrally so callers cannot forget address translation.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `apps/e906_repl_app/SPECIFICATION.md`, `targets/allwinner_e906/SPECIFICATION.md`
+* **Requirements Updated**: `[SPEC-E906-REPL-02]`, `[SPEC-E906-REPL-06]`, `[SPEC-E906-REPL-07]`, `[SPEC-E906-REPL-10]`, `[SPEC-E906-REPL-16]`, `[SPEC-E906-IRQ-03]`, `[SPEC-E906-HAL-01]`, `[SPEC-E906-HAL-02]`
+
+### 4. Implementation & Verification
+* **Fixes**:
+  - Removed `hal::Trace::putc` from `mp_hal_stdout_tx_strn()`; fixed `peek()` to use `mp_obj_new_int_from_uint(val)`; spilled `s0`–`s11` in `gc_collect()`.
+  - Added zero-allocation `_into` buffer-protocol bindings (`uart_read_into`, `i2c_read_into`, `console_read_into`, `tlp_poll_into`) and `uart_dma([enable])`.
+  - Implemented circular 4x64 B DMA RX (`UartRxRing<64, 4>` in `.sram_c`) for UART3 with `DMA_IRQ_PKG` (CLIC line 88) and RX-timeout sync (CLIC line 90) plus runtime ISR fallback switch `abstractx.uart_dma`.
+  - Moved UART3 and TWI1 buffers into `.sram_c` (Space 1) and released the DMA channel at the end of `e906_dma_bench()`.
+  - Upgraded `hal::Timer::SleepAwaiter` to an intrusive deadline-sorted list and wired `E906TimerDriver` to `hal::Timer`; fixed `E906SpiDriver` `active_req_` completion; fixed `pa()`, CLIC routing, and `bool await_suspend` in `uart.cpp`, `i2c.cpp`, `spi.cpp`.
+
+## [2026-10-24] - Studio Visualizer Pop-Out/Pop-In: Subprocess Proliferation, Pruned Dock Nodes, and Split Central Leaf Resolution
+
+### 1. Mistake / Bug Identification
+* **Category**: `product-bug`
+* **Target / Subsystem**: `tools/visualizer`, `apps/gps_imu_app/tools/flight_display.py`
+* **Governing Requirements**: `[SPEC-STUDIO-01]`
+* **Symptoms**:
+  1. Clicking pop out on the flight display sizing bar spawned endless independent Python processes (`flight_display.py`) instead of operating as a native Dear ImGui multi-viewport window.
+  2. Clicking "Pop In (Dock to Studio)" on User Domain Instruments or AbstractX Core Studio failed to re-dock the window into the Studio workbench, leaving it floating.
+  3. Starting Studio with an existing `.ini` where Core Studio had been previously undocked left Core Studio floating disconnected (`dock_id=0`) on fresh launches.
+
+### 2. Root Cause & Lesson Learned
+* **Why**:
+  1. An external subprocess launcher (`launch_external_flight_canvas()`) was bound to a button on the flight instruments sizing bar, invoking `subprocess.Popen([sys.executable, flight_display.py])` on every click. Because `flight_display.py` ran standalone without docking splits, it rendered another sizing bar whose pop-in was a no-op.
+  2. Dear ImGui's `dock_builder_dock_window()` rejects non-leaf split nodes. When docking to `MainDockSpace` (split by LeftSpace and BottomSpace), ImGui rejected the space ID unless resolved to its central leaf node via `imgui.internal.dock_builder_get_central_node(space_id)`.
+  3. When all windows in a split (like `LeftSpace`) are undocked, Dear ImGui dynamically prunes that dock node (`dock_builder_get_node(space_id) is None`). Attempting to dock back into the pruned node ID failed silently.
+  4. HelloImGui defaulted `docking_params.layout_condition` to `first_use_ever`, persisting pruned/detached dock node states across sessions in `AbstractX_Studio___User_Domain_Workbench.ini`.
+* **Lesson**:
+  - Dear ImGui multi-viewport (`enable_viewports = True`) handles multi-monitor pop-outs natively via the OS window manager; never spawn uncoordinated external Python subprocesses from workbench UI buttons.
+  - Dock space targets that are split nodes MUST be resolved to leaf nodes before calling `dock_builder_dock_window`.
+  - When undocking can prune a dock node, `dock_window()` must detect `node is None` and trigger a layout rebuild via `restore_default_layout()` / `layout_reset = True`.
+  - Workbench docking layouts must enforce `DockingLayoutCondition.application_start` to guarantee clean initial splits on launch.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `tools/visualizer/SPECIFICATION.md`
+* **Requirements Updated**: `[SPEC-STUDIO-01]` (mandating central leaf node resolution, pruned dock node recovery, native multi-viewport pop-out without external subprocesses, status-bar pop-in/pop-out toggle, and `flight_display.py` delegation).
+
+### 4. Implementation & Verification
+* **Fixes**:
+  - Removed `launch_external_flight_canvas()` subprocess launcher and replaced it with a unified native multi-viewport `decouple_window()` pop-out.
+  - Updated `dock_window()` and `restore_default_layout()` to resolve split nodes to central leaf nodes and fall back to `restore_default_layout()` when a node is pruned.
+  - Updated status bar to toggle between `🗖 Pop Out Flight Canvas` and `🗗 Pop In Flight Canvas` based on active dock state.
+  - Configured `runner_params.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start`.
+  - Converted `apps/gps_imu_app/tools/flight_display.py` into a thin launcher delegating directly to `abstractx_studio.main()` with `--tab flight` pre-configured.
+* **Evidence**:
+  - `pytest tests/test_visualizer_sdk.py`: 30 passed in 5.26s
+  - `python3 tools/audit_specs.py`: Traceability Coverage 100.0%
+

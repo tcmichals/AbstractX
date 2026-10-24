@@ -1477,6 +1477,11 @@ def restore_default_layout():
                 try:
                     space_id = rp.docking_params.dock_space_id_from_name(w.dock_space_name)
                     if space_id != 0:
+                        node = imgui.internal.dock_builder_get_node(space_id)
+                        if node and node.is_split_node():
+                            central = imgui.internal.dock_builder_get_central_node(space_id)
+                            if central:
+                                space_id = central.id_
                         imgui.internal.dock_builder_dock_window(w.label, space_id)
                 except Exception:
                     pass
@@ -1535,6 +1540,9 @@ def dock_window(window_title: str, dock_space_name: str = None):
     """
     # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     Docks a floating/decoupled window back into its designated dock space.
+    Resolves parent split nodes to central leaf nodes so ImGui accepts the docking target.
+    If the target dock node was pruned by Dear ImGui (because all windows were undocked),
+    triggers restore_default_layout() to reconstruct the split tree and dock the window.
     """
     try:
         rp = hello_imgui.get_runner_params()
@@ -1548,7 +1556,12 @@ def dock_window(window_title: str, dock_space_name: str = None):
         if not dock_space_name:
             dock_space_name = "MainDockSpace"
         space_id = rp.docking_params.dock_space_id_from_name(dock_space_name)
-        if space_id != 0:
+        node = imgui.internal.dock_builder_get_node(space_id) if space_id != 0 else None
+        if node is not None:
+            if node.is_split_node():
+                central = imgui.internal.dock_builder_get_central_node(space_id)
+                if central:
+                    space_id = central.id_
             imgui.internal.dock_builder_dock_window(window_title, space_id)
         else:
             restore_default_layout()
@@ -1614,14 +1627,10 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         imgui.pop_style_color()
     else:
         # Window is docked inside workbench
-        if imgui.button(f"🗖 Float Canvas##{window_key}"):
+        if imgui.button(f"🗖 Pop Out Canvas (Drag to 2nd Monitor)##{window_key}"):
             decouple_window(window_title, default_w, default_h)
-        if window_key == "user":
-            imgui.same_line()
-            if imgui.button(f"🚀 Dedicated Window (2nd Monitor)##{window_key}"):
-                launch_external_flight_canvas()
-            imgui.same_line()
-            imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Single dedicated window or dual monitor")
+        imgui.same_line()
+        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Multi-viewport independent native OS canvas")
 
     imgui.end_group()
     imgui.separator()
@@ -1789,8 +1798,16 @@ def _render_status_bar():
         restore_default_layout()
 
     imgui.same_line(0, 12)
-    if imgui.button("🗖 Pop Out Flight Canvas"):
-        decouple_window("User Domain Instruments", 1280.0, 820.0)
+    user_win = imgui.internal.find_window_by_name("User Domain Instruments")
+    user_is_docked = (user_win is not None and user_win.dock_id != 0)
+    if not user_is_docked and user_win is not None:
+        imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.7, 0.4, 0.9))
+        if imgui.button("🗗 Pop In Flight Canvas"):
+            dock_window("User Domain Instruments")
+        imgui.pop_style_color()
+    else:
+        if imgui.button("🗖 Pop Out Flight Canvas"):
+            decouple_window("User Domain Instruments", 1280.0, 820.0)
 
     imgui.same_line(0, 16)
     imgui.text_colored(imgui.ImVec4(0.9, 0.8, 0.3, 1.0), "Window Size:")
@@ -3948,6 +3965,7 @@ def create_docking_runner_params(enable_viewports: bool = True) -> hello_imgui.R
 
     runner_params.docking_params.docking_splits = [split_left, split_bottom, split_bottom_log]
     runner_params.docking_params.dockable_windows = [win_core, win_user, win_tlp, win_log]
+    runner_params.docking_params.layout_condition = hello_imgui.DockingLayoutCondition.application_start
     runner_params.callbacks.show_menus = _render_studio_menus
     runner_params.callbacks.show_status = _render_status_bar
     runner_params.callbacks.setup_imgui_style = _setup_studio_style

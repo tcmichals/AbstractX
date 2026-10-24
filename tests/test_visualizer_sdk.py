@@ -799,8 +799,11 @@ def test_viewport_popouts_become_os_windows():
 def test_popout_and_popin_dock_window():
     """Pop-in uses dock_builder_dock_window to re-dock floating windows into their splits ([SPEC-STUDIO-01])."""
     # @verifies [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    import inspect
     from imgui_bundle import imgui, implot, hello_imgui, immapp
+    assert "launch_external_flight_canvas" not in inspect.getsource(studio._render_window_sizing_bar)
     runner = studio.create_docking_runner_params(enable_viewports=True)
+    assert runner.docking_params.layout_condition == hello_imgui.DockingLayoutCondition.application_start
     frames = 0
     decoupled = False
     re_docked = False
@@ -815,11 +818,12 @@ def test_popout_and_popin_dock_window():
             studio.decouple_window("AbstractX Core Studio")
             decoupled = True
         elif frames == 4:
-            studio.dock_window("User Domain Instruments", "MainDockSpace")
-            studio.dock_window("AbstractX Core Studio", "LeftSpace")
+            # Test default dock_space_name resolution and central leaf node lookup
+            studio.dock_window("User Domain Instruments")
+            studio.dock_window("AbstractX Core Studio")
         elif frames == 6:
-            assert w_user and w_user.dock_id != 0
-            assert w_core and w_core.dock_id != 0
+            assert w_user and w_user.dock_id != 0, f"User Domain Instruments should be docked, got {w_user.dock_id}"
+            assert w_core and w_core.dock_id != 0, f"AbstractX Core Studio should be docked, got {w_core.dock_id}"
             re_docked = True
             hello_imgui.get_runner_params().app_shall_exit = True
 
