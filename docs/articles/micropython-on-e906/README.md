@@ -43,7 +43,7 @@ between experiments. While it runs, **AbstractX Studio**—our native desktop en
 
 ### Where this fits in the series
 
-![Allwinner T527 RISC-V Firmware & MicroPython Series](assets/table1-series-roadmap.svg)
+![Allwinner T527 RISC-V Firmware & MicroPython Series](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table1-series-roadmap.svg)
 
 You do not need the earlier parts to follow this one: each section below
 starts from what you need to know and points back to the part that goes deeper.
@@ -54,7 +54,7 @@ starts from what you need to know and points back to the part that goes deeper.
 
 The Cubie A5E's Allwinner T527 combines:
 
-![Hardware Execution Domains & Peripheral Partitioning](assets/table2-architecture-blocks.svg)
+![Hardware Execution Domains & Peripheral Partitioning](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table2-architecture-blocks.svg)
 
 On our test bench two sensors are wired to the 40-pin header:
 
@@ -176,7 +176,7 @@ most 496 bytes and arrives whole. Our firmware builds three different
 **streams** on top of that, one per endpoint, so the three kinds of traffic
 never mix:
 
-![Shared SRAM Virtual Endpoints & Wire Protocols](assets/table3-rpmsg-endpoints.svg)
+![Shared SRAM Virtual Endpoints & Wire Protocols](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table3-rpmsg-endpoints.svg)
 
 Linux creates the `/dev/rpmsgN` file for an endpoint when a program asks for
 it, through `/dev/rpmsg_ctrl0`. The numbers depend on the order, so tools find
@@ -276,7 +276,7 @@ consequences you will see in the experiments:
 Scripts reach the hardware through one built-in module, `abstractx`
 ([`modabstractx.c`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/modabstractx.c)):
 
-![Hardware Peripheral & Telemetry C-Binding Functions](assets/table4-modabstractx-api.svg)
+![Hardware Peripheral & Telemetry C-Binding Functions](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table4-modabstractx-api.svg)
 
 The board's MicroPython is a minimal build: `bytes.decode` and `bytes.fromhex`
 do not exist (use `str(b, "ascii")` and `int(h, 16)`), and there is no
@@ -307,7 +307,7 @@ An embedded coroutine engine *should never have been a desktop socket scheduler*
 
 #### What an Embedded Coroutine Engine Actually Looks Like (`abstractx_coro.py`)
 
-![Desktop Python vs MicroPython vs AbstractX Coroutines](assets/table5-async-concurrency.svg)
+![Desktop Python vs MicroPython vs AbstractX Coroutines](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table5-async-concurrency.svg)
 
 Rather than relying on heap-allocating task wrappers, AbstractX brings the exact C++20 coroutine model into MicroPython:
 
@@ -764,7 +764,7 @@ handler (CLIC line 90) has already put in its buffer.
 The E906 runs entirely from on-chip SRAM; nothing is in DRAM (Part 1 maps the
 windows):
 
-![SRAM Space Partitioning for RISC-V Firmware & MicroPython](assets/table6-memory-regions.svg)
+![SRAM Space Partitioning for RISC-V Firmware & MicroPython](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table6-memory-regions.svg)
 
 Space 0 had filled to 99.3 %. Moving the MicroPython compiler (only needed while
 a script is being compiled) into Space 1 brought it to 85 %; with the profiler
@@ -790,7 +790,7 @@ Sharing it takes three things:
 
 What it buys, measured with `abstractx.dma_bench()` (SRAM to SRAM):
 
-![Hardware DMA Engine vs XuanTie E906 CPU memcpy](assets/table7-dma-benchmark.svg)
+![Hardware DMA Engine vs XuanTie E906 CPU memcpy](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table7-dma-benchmark.svg)
 
 DMA has a fixed cost of about 4.4 µs, and the CPU is free during the transfer:
 the "done" interrupt itself costs 1.33 µs. The rule we adopted: **a transfer
@@ -808,7 +808,7 @@ checksums. You can query or toggle it live from Python with `abstractx.uart_dma(
 
 All on the Cubie A5E with the E906 at 200 MHz, 2026-10-21 to 2026-10-23:
 
-![Silicon Timings, Interrupt Latency & Resource Utilization](assets/table8-measured-results.svg)
+![Silicon Timings, Interrupt Latency & Resource Utilization](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/table8-measured-results.svg)
 
 The two lessons: the interpreter, not the drivers, is where the time goes in
 Python; and register access from this core is expensive enough that DMA
