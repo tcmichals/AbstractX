@@ -627,6 +627,103 @@ Studio includes a dedicated terminal tab connected directly to the E906 over RPM
 
 *Captured from the live board: running `ps`, `drivers`, and evaluating Python expressions on the E906 in the CLI tab while the background sensor streamer continues running at 10 Hz.*
 
+### 7.3 How Studio is Programmed: Declarative JSON Schemas & Python Plugins
+
+A common limitation of embedded diagnostic GUIs is rigidity: they are compiled binary monoliths with hardcoded packet parsers and static layouts. If an engineer adds a magnetometer axis, swaps an IMU, or changes a telemetry rate, someone has to modify C++ GUI parsing code and recompile the desktop application.
+
+AbstractX Studio takes a completely different approach: it is **declarative and programmable**.
+
+#### 1. Dynamic JSON Telemetry Schemas (`trace_schema.json`)
+
+All telemetry packet formats, sensor channels, and engineering units are declared in external JSON schemas rather than hardcoded in source files:
+
+```json
+{
+  "application": "gps_imu_app",
+  "wire_protocol": { "frame_size_bytes": 64, "header_size_bytes": 20, "payload_size_bytes": 40 },
+  "streams": {
+    "1": {
+      "name": "telemetry",
+      "events": {
+        "1": {
+          "name": "imu_sample",
+          "rate_hz": 8000,
+          "source_device": "ICM-42688-P (SPI1)",
+          "unpack_format": "<i6h",
+          "fields": [
+            { "name": "sample_seq", "type": "int32", "scale": 1.0, "display_name": "Sequence" },
+            { "name": "accel_x_mg", "type": "int16", "unit": "g", "scale": 0.001, "widget": "oscilloscope" },
+            { "name": "gyro_z_dps", "type": "int16", "unit": "deg/s", "scale": 0.1, "widget": "oscilloscope" }
+          ]
+        },
+        "2": {
+          "name": "mag_sample",
+          "rate_hz": 50,
+          "source_device": "HMC5883L (I2C1)",
+          "unpack_format": "<3hH",
+          "fields": [
+            { "name": "mag_x_mgauss", "type": "int16", "unit": "mG", "scale": 1.0 },
+            { "name": "heading_cdeg", "type": "uint16", "unit": "deg", "scale": 0.01, "widget": "compass" }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+When Studio connects to a telemetry stream:
+1. **Dynamic Unpack Compilation**: Studio's `CtfSchemaLoader` ingests the JSON schema and compiles the `unpack_format` (e.g. `<i6h` or `<3hH`) into native Python `struct.unpack` byte decoders on the fly.
+2. **Automatic Unit Scaling**: Raw integer values from hardware ADCs are automatically scaled into human-readable engineering units using the `"scale"` multiplier (e.g. `0.001` converts milligauss or milli-$g$ to $g$, and `0.01` converts centidegrees to degrees).
+3. **Automatic UI Widget Binding**: The `"widget"` tag binds decoded signals directly to Studio's visualization components—routing high-rate accelerometer and gyroscope data to the 8 kHz oscilloscope, magnetic heading to the vector compass dial, or altitude to the altimeter—without writing any UI wiring code.
+
+#### 2. Declarative Hardware Profiles (`profiles/*.json`)
+
+Hardware profiles describe the physical target board and its interconnect topology:
+
+```json
+{
+  "profile_id": "cubie_a5e_pure",
+  "platform_name": "Allwinner Cubie A5E (Pure Silicon)",
+  "board_ip": "192.168.3.3",
+  "udp_port": 9870,
+  "active_cores": [
+    {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
+    {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & Sensors", "clock_mhz": 200}
+  ],
+  "hardware_accels": ["UART3 Circular DMA (GPS)", "TWI1 I2C (Compass)", "sun6i-msgbox"],
+  "schema_file": "apps/gps_imu_app/trace_schema.json"
+}
+```
+
+Switching Studio between targets—from the bare-metal XuanTie E906 on the Cubie A5E, to an ESP32-P4, a Raspberry Pi Pico 2 W, or a desktop SITL simulator—is simply a matter of passing `--profile profiles/<target>.json`. Studio automatically reconfigures its core topology views, network endpoints, and telemetry parsers.
+
+#### 3. The Extensible Python Plugin SDK (`AbstractXStudioPlugin`)
+
+Studio is built on an extensible core-and-plugin architecture ([`tools/visualizer/sdk/plugin.py`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/sdk/plugin.py)). Developers can create custom visualizers, instrumentation panels, or automated test consoles in pure Python using Dear ImGui (`imgui-bundle`):
+
+```python
+from visualizer.sdk.plugin import AbstractXStudioPlugin
+from imgui_bundle import imgui, implot
+
+class CustomSensorDashboard(AbstractXStudioPlugin):
+    def on_init(self, context):
+        self.latest_heading = 0.0
+
+    def on_tlp_packet(self, header, payload_dict):
+        # Asynchronously invoked when relevant telemetry packets arrive
+        if "heading_cdeg" in payload_dict:
+            self.latest_heading = payload_dict["heading_cdeg"] * 0.01
+
+    def render_ui(self, delta_time, state):
+        # Rendered at 60 FPS inside Studio's dockable workbench
+        imgui.text(f"Live Heading: {self.latest_heading:.1f}°")
+        if imgui.button("Zero Compass Bias"):
+            state.send_cli("abstractx.compass_calibrate()")
+```
+
+Plugins integrate seamlessly into Studio's multi-window docking layout. They inherit native OS window pop-outs (moving the plugin to a second monitor), dark-mode styling, and zero-copy packet ingestion without having to manage windowing loops, OpenGL contexts, or threading primitives.
+
 
 ## 8. Under the hood: how one call reaches the hardware
 
@@ -766,7 +863,7 @@ are written up in the
 - **MicroPython is slow in tight loops:** about 90 % of the E906 for a busy
   compass and GPS loop. It is for experiments and bring-up; real-time loops
   belong in C++ coroutines on the same drivers.
-- **UART receive DMA:** designed, not built.
+- **UART receive DMA:** active on E906 (16×64-byte circular DMA ring in SRAM with timeout triggers, toggleable via `abstractx.uart_dma()`); SPI DMA remains to be connected.
 - **SPI DMA:** the SPI driver does not use the corrected DMA addresses yet.
 - **Sensor packets:** Linux still builds the 64-byte sensor packets from text
   the script prints; having the script send them itself is planned.
