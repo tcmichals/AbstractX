@@ -8,7 +8,7 @@
  */
 
 #include "abstractx/hal/io_processor.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 #include "asp_tlp_msg.hpp"
 
 #include <iostream>

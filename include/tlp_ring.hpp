@@ -2,27 +2,48 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX C++20 Lock-Free Wait-Free Single-Producer Single-Consumer (SPSC) Ring Buffers
- * --------------------------------------------------------------------------------------
+ * AbstractX C++20 Ring Buffers: SPSC (Inter-Core / AMP) & MPSC (ISR-Safe / Intra-Core)
+ * -------------------------------------------------------------------------------------
  * Provides:
  * 1. SpscRingBuffer<T, Capacity>: Zero-allocation, lock-free, wait-free ring buffer
- *    with cache-line alignment (alignas(64)) to prevent false sharing.
- * 2. SpscTlpRing<Capacity>: Tlp64-specialized alias.
+ *    with cache-line alignment (alignas(64)) to prevent false sharing across cores.
+ * 2. SpscTlpRing<Capacity>: Tlp64-specialized alias for single-producer inter-core channels.
  * 3. SpscChannelArray<T, NumChannels, Capacity>: Dedicated per-device lock-free ring array
- *    enabling 100% mutex-free multi-threaded I/O dispatches to a single main consumer loop.
+ *    enabling mutex-free multi-threaded I/O dispatches to a single main consumer loop.
+ * 4. MpscRingBuffer<T, Capacity>: ISR-safe multi-producer single-consumer ring buffer backed by
+ *    etl::queue_spsc_isr<T, Capacity, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>,
+ *    serializing concurrent ISR and coroutine producers via nesting-aware InterruptLock.
+ * 5. MpscTlpRing<Capacity>: Tlp64-specialized alias for intra-core multi-producer telemetry.
  */
 
-#ifndef SPSC_TLP_RING_HPP
-#define SPSC_TLP_RING_HPP
+#ifndef TLP_RING_HPP
+#define TLP_RING_HPP
 
 #include "asp_tlp64.hpp"
-#include "mpsc_tlp_ring.hpp"
+#include "abstractx/interrupt_lock.hpp"
+
+#include <array>
 #include <atomic>
 #include <cstddef>
-#include <array>
 #include <optional>
+#include <etl/memory_model.h>
+#include <etl/queue_spsc_isr.h>
 
 namespace abstractx {
+
+// Default TLP ring capacity: 8 for E906 (matching 7-TLP RPMsg batch payload), 64 for host/desktop
+// @impl [SPEC-TLP-03] [SPEC-E906-MEM-01] [SPEC-E906-IPC-04] docs/DESIGN_SPECIFICATION.md#spec-tlp-03 targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
+#ifndef ABSTRACTX_TLP_RING_CAPACITY
+#if defined(TARGET_ALLWINNER_E906) || defined(CONFIG_RPROC_RPMSG)
+#define ABSTRACTX_TLP_RING_CAPACITY 8
+#else
+#define ABSTRACTX_TLP_RING_CAPACITY 64
+#endif
+#endif
+
+// ---------------------------------------------------------------------------
+// Lock-Free Single-Producer Single-Consumer (SPSC) Ring Buffer
+// ---------------------------------------------------------------------------
 
 // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 // @status Complete
@@ -99,17 +120,7 @@ private:
     alignas(64) std::atomic<size_t> tail_{0};
 };
 
-// SPSC TLP ring default capacity: 8 for E906 (matching 7-TLP RPMsg batch payload), 64 for host/desktop
-// @impl [SPEC-TLP-03] [SPEC-E906-MEM-01] [SPEC-E906-IPC-04] docs/DESIGN_SPECIFICATION.md#spec-tlp-03 targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
-#ifndef ABSTRACTX_TLP_RING_CAPACITY
-#if defined(TARGET_ALLWINNER_E906) || defined(CONFIG_RPROC_RPMSG)
-#define ABSTRACTX_TLP_RING_CAPACITY 8
-#else
-#define ABSTRACTX_TLP_RING_CAPACITY 64
-#endif
-#endif
-
-// Backward-compatible alias for 64-byte TLP packets
+// SPSC TLP ring default capacity alias
 template <size_t Capacity = ABSTRACTX_TLP_RING_CAPACITY>
 using SpscTlpRing = SpscRingBuffer<Tlp64, Capacity>;
 
@@ -149,6 +160,86 @@ private:
     std::array<SpscRingBuffer<T, Capacity>, NumChannels> channels_{};
 };
 
+// ---------------------------------------------------------------------------
+// ISR-Safe Multi-Producer Single-Consumer (MPSC) Ring Buffer
+// ---------------------------------------------------------------------------
+
+// @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
+template <typename T, size_t Capacity = 64>
+class MpscRingBuffer {
+    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity MUST be a power of 2");
+
+public:
+    using value_type = T;
+    using QueueType = etl::queue_spsc_isr<T,
+                                          Capacity,
+                                          InterruptLock,
+                                          etl::memory_model::MEMORY_MODEL_SMALL>;
+
+    constexpr MpscRingBuffer() noexcept = default;
+
+    // Safe from any producer context (cooperative coroutine or ISR via nesting InterruptLock)
+    bool push(const T& item) noexcept {
+        return queue_.push(item);
+    }
+
+    // Fast path when caller is already inside a bare-metal ISR with interrupts masked
+    bool push_from_isr(const T& item) noexcept {
+#if ABSTRACTX_HOSTED
+        return queue_.push(item);
+#else
+        return queue_.push_from_isr(item);
+#endif
+    }
+
+    std::optional<T> pop() noexcept {
+        T item{};
+        if (!queue_.pop(item)) {
+            return std::nullopt;
+        }
+        return item;
+    }
+
+    bool pop(T& item) noexcept {
+        return queue_.pop(item);
+    }
+
+    bool pop_from_isr(T& item) noexcept {
+#if ABSTRACTX_HOSTED
+        return queue_.pop(item);
+#else
+        return queue_.pop_from_isr(item);
+#endif
+    }
+
+    constexpr size_t capacity() const noexcept { return Capacity; }
+
+    size_t size() const noexcept {
+        return queue_.size();
+    }
+
+    bool empty() const noexcept {
+#if ABSTRACTX_HOSTED
+        return queue_.empty();
+#else
+        return queue_.empty_from_isr();
+#endif
+    }
+
+    void clear() noexcept {
+        InterruptGuard guard;
+        queue_.clear();
+    }
+
+private:
+    alignas(64) QueueType queue_{};
+};
+
+// MPSC TLP ring alias
+// @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
+template <size_t Capacity = ABSTRACTX_TLP_RING_CAPACITY>
+using MpscTlpRing = MpscRingBuffer<Tlp64, Capacity>;
+
 } // namespace abstractx
 
-#endif // SPSC_TLP_RING_HPP
+#endif // TLP_RING_HPP

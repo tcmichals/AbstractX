@@ -16,7 +16,7 @@
 // @status Complete
 
 #include "asp_tlp64.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include <coroutine>
 #include <cstdint>

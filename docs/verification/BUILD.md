@@ -62,7 +62,7 @@ make -C sim/cocotb TOPLEVEL=asp_tlp_64b_top MODULE=test_asp_tlp_64b_cocotb
 
 | Path | Purpose |
 |------|---------|
-| `/include/` | Header-only freestanding C++20 Coroutine & PCIe TLP engine (`asp_coro.hpp`, `spsc_tlp_ring.hpp`, `asp_tlp64.hpp`). |
+| `/include/` | Header-only freestanding C++20 Coroutine & PCIe TLP engine (`asp_coro.hpp`, `tlp_ring.hpp`, `asp_tlp64.hpp`). |
 | `/examples/` | Standalone multi-domain applications (Flight Controller, Robotics, Redundancy, Generic I/O). |
 | `/sim/` | C++20 SITL harnesses, Bare-Metal MCU SPSC tests, and Halo worker pool models. |
 | `/rtl/` | SystemVerilog RTL modules (Router, Dual-SPI, IMU Auto-DMA, Wishbone Master, System Registers). |

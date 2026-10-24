@@ -8,7 +8,7 @@
  * Source Comparisons:
  * - Betaflight: external/betaflight/src/main/sensors/barometer.c (barometerState_e)
  * - Betaflight: external/betaflight/src/main/scheduler/scheduler.c (schedulerSetNextStateTime)
- * - AbstractX:  include/asp_coro.hpp, include/spsc_tlp_ring.hpp, include/asp_tlp64.hpp
+ * - AbstractX:  include/asp_coro.hpp, include/tlp_ring.hpp, include/asp_tlp64.hpp
  *
  * Key Architectural Demonstration:
  * The EXACT SAME high-level C++20 sensor driver (universal_ms5611_baro_driver)
@@ -21,7 +21,7 @@
  */
 
 #include "abstractx/coro.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"  // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 #include "asp_tlp64.hpp"
 
 #include <iostream>

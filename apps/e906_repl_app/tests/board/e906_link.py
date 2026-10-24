@@ -16,9 +16,16 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-for p in (HERE, os.path.join(HERE, "..", "..", "tools")):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+cur = HERE
+while cur != os.path.dirname(cur):
+    if os.path.exists(os.path.join(cur, ".git")):
+        t = os.path.join(cur, "tools")
+        if os.path.isdir(t) and t not in sys.path:
+            sys.path.insert(0, t)
+        break
+    cur = os.path.dirname(cur)
 
 from e906_rpmsg_bridge import ENDPOINTS, HELLO, create_endpoint, find_node  # noqa: E402
 

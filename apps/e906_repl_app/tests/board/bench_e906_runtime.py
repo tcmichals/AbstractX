@@ -19,9 +19,16 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-for p in (HERE, os.path.join(HERE, "..", "..", "tools")):
-    if p not in sys.path:
-        sys.path.insert(0, p)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+cur = HERE
+while cur != os.path.dirname(cur):
+    if os.path.exists(os.path.join(cur, ".git")):
+        t = os.path.join(cur, "tools")
+        if os.path.isdir(t) and t not in sys.path:
+            sys.path.insert(0, t)
+        break
+    cur = os.path.dirname(cur)
 
 BENCH = {"name": "abstractx-bench", "addr": 1030}
 MCYCLE_HZ = 200_000_000  # [SPEC-E906-BENCH-02] measured 2026-10-21

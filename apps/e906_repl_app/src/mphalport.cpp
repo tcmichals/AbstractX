@@ -22,7 +22,7 @@ extern "C" {
 #include "hal/timer.hpp"
 #include "hal/rpmsg.hpp"
 #include "hal/rpmsg_endpoints.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 #include <cstdint>
 
 namespace abstractx::hal {

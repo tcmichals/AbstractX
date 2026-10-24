@@ -16,7 +16,7 @@
 #include "abstractx/hal/io_processor.hpp"
 #include "abstractx_pico.hpp"
 #include "asp_tlp_msg.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"  // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 #include "pcie_bar_map.hpp"
 
 #ifdef PICO_ON_DEVICE

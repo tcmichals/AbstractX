@@ -136,9 +136,9 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Implementation Target**: `include/pcie_bar_map.hpp`
 
 ### `[SPEC-TLP-03]` Lock-Free SPSC & Wait-Free MPSC Ring Transport
-* **Requirement**: Inter-core and inter-domain FIFO queues with a single producer and single consumer must operate lock-free via `SpscRingBuffer<T, Capacity>` / `SpscTlpRing<Capacity>` (`include/spsc_tlp_ring.hpp`) with atomic head/tail indices. When multiple producers on a core (ISRs, DMA callbacks, and/or cooperative coroutines) enqueue into a shared ring, `MpscRingBuffer<T, Capacity>` / `MpscTlpRing<Capacity>` (`include/mpsc_tlp_ring.hpp`) wraps `etl::queue_spsc_isr<T, Capacity, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>` so non-ISR `push()`/`pop()` mask interrupts via `InterruptLock` (`csrrci` on RV32 / `cpsid i` on Cortex-M, recursive atomic spinlock on hosted OS) and ISR `push_from_isr()` enqueues safely without racing on `tail_`. Interrupt-to-loop coroutine handle handoff uses the Dispatcher's ISR-safe queue (`etl::queue_spsc_isr` guarded by `InterruptLock`, `[SPEC-ARCH-04]`).
+* **Requirement**: Inter-core and inter-domain FIFO queues with a single producer and single consumer must operate lock-free via `SpscRingBuffer<T, Capacity>` / `SpscTlpRing<Capacity>` (`include/tlp_ring.hpp`) with atomic head/tail indices. When multiple producers on a core (ISRs, DMA callbacks, and/or cooperative coroutines) enqueue into a shared ring, `MpscRingBuffer<T, Capacity>` / `MpscTlpRing<Capacity>` (`include/tlp_ring.hpp`) wraps `etl::queue_spsc_isr<T, Capacity, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>` so non-ISR `push()`/`pop()` mask interrupts via `InterruptLock` (`csrrci` on RV32 / `cpsid i` on Cortex-M, recursive atomic spinlock on hosted OS) and ISR `push_from_isr()` enqueues safely without racing on `tail_`. Interrupt-to-loop coroutine handle handoff uses the Dispatcher's ISR-safe queue (`etl::queue_spsc_isr` guarded by `InterruptLock`, `[SPEC-ARCH-04]`).
 * **Verified by**: `host-tests` (`sim/test_spsc_channel_array.cpp`), `thread-sanitizer` (`sim/test_baremetal_isr_spsc.cpp`)
-* **Implementation Target**: `include/spsc_tlp_ring.hpp`, `include/mpsc_tlp_ring.hpp`, `include/abstractx/domain_dispatcher.hpp`
+* **Implementation Target**: `include/tlp_ring.hpp`, `include/tlp_ring.hpp`, `include/abstractx/domain_dispatcher.hpp`
 
 ### `[SPEC-TLP-04]` Multi-Register Burst Memory Operations
 * **Requirement**: The TLP memory interface MUST support packed multi-register burst writes (`MemWrBurst`) and burst reads (`MemRdBurst`) packing up to 9 consecutive 32-bit registers (36 bytes payload) into a single 64-byte TLP with `length_dw = N (1..9)`. The receiving gateway (`asp_wishbone_master.sv`) MUST sequentially write/read consecutive memory-mapped Wishbone addresses starting at `target_address` without issuing separate 64-byte control frames.
@@ -729,7 +729,7 @@ graph TD
     SPEC_SENSORS --> CODE_IMU["<code>icm42688p.hpp</code>"]
     SPEC_SENSORS --> CODE_GPS["<code>ublox_gps.hpp</code>"]
     SPEC_HAL --> CODE_HAL["<code>async_driver.hpp</code><br/><code>spi.hpp</code><br/><code>uart.hpp</code><br/><code>timer.hpp</code>"]
-    SPEC_TLP --> CODE_TLP["<code>asp_tlp64.hpp</code><br/><code>spsc_tlp_ring.hpp</code>"]
+    SPEC_TLP --> CODE_TLP["<code>asp_tlp64.hpp</code><br/><code>tlp_ring.hpp</code>"]
     SPEC_TRACE --> CODE_TRACE["<code>tracer.hpp</code><br/><code>barectf_config.yaml</code>"]
     
     classDef specBox fill:#1e3a8a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;

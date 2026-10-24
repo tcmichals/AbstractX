@@ -2303,5 +2303,32 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - Cubie A5E board (`192.168.3.3`) `python3 run_board_tests.py --json /tmp/e906_selftest.json`: **32 passed, 0 failed, 2 skipped** (including `test_uart3_rx_by_interrupt`, `test_uart3_rx_dma_and_into`, and `test_streamer_keeps_running_with_heartbeat` in 26.1s with 0 NMEA checksum errors).
   - Host `ctest --test-dir build_host`, `ctest --test-dir build_asan`: **59/59 passed (100%)**.
 
+## [2026-10-24] - 16x64 B Circular UART DMA Ring, Unified `tlp_ring.hpp` & Test Hierarchy Reorganization
+
+### 1. Mistake / Architecture Refinement Summary
+* **Category**: `process-gap`, `hardware-fact`
+* **Target / Subsystem**: `include/tlp_ring.hpp`, `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/tests/`, `targets/allwinner_e906/tests/`
+* **Governing Requirements**: `[SPEC-TLP-03]`, `[SPEC-E906-HAL-02]`, `[SPEC-E906-REPL-15]`, `[SPEC-E906-REPL-16]`
+* **Symptoms**:
+  1. At 115200 baud, 4x64 B DMA (256 B total) gave only 22.2 ms of slack before an overrun occurred. MicroPython garbage collection sweeps (`gc.collect()`) can block bytecode execution for 5–15 ms, narrowing buffer margin during continuous high-rate sensor bursts.
+  2. Having separate `spsc_tlp_ring.hpp` and `mpsc_tlp_ring.hpp` created naming fragmentation and duplicate includes across drivers, examples, and simulations.
+  3. E906 tests and board runner scripts were scattered across `tests/`, `tests/board/`, and `tools/` without clear subsystem ownership.
+
+### 2. Root Cause & Lesson Learned
+* **Lesson**:
+  - Sizing the circular UART DMA buffer to 16x64 B (1,024 B total in `.sram_c`) provides 88.8 ms of overrun headroom, cleanly absorbing MicroPython GC pauses without risk of dropped NMEA sentences or FIFO overflow.
+  - In `uart3_dma_sync()`, copying out in 64-byte chunks rather than a 1,024-byte stack allocation protects the 8 KB execution stack.
+  - Unifying SPSC (`SpscRingBuffer`, `SpscTlpRing`, `SpscChannelArray`) and MPSC (`MpscRingBuffer`, `MpscTlpRing`) under a single `include/tlp_ring.hpp` eliminates header proliferation while preserving exact semantics for both inter-core lock-free rings and intra-core ISR-safe queues.
+  - Colocating tests with their owning target (`targets/allwinner_e906/tests/`) or application (`apps/e906_repl_app/tests/`) with relative symlinks preserves backward compatibility for automated tools, ctest, and concurrent agents.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec Files**: `targets/allwinner_e906/SPECIFICATION.md`, `apps/e906_repl_app/SPECIFICATION.md`, `docs/DESIGN_SPECIFICATION.md`
+* **Requirements Updated**: `[SPEC-TLP-03]`, `[SPEC-E906-HAL-02]`, `[SPEC-E906-REPL-16]`.
+
+### 4. Implementation & Verification
+* **Evidence**:
+  - `python3 tools/audit_specs.py`: 100% specification traceability coverage (46/46).
+  - Host `ctest --test-dir build_host`: **59/59 passed (100%)**.
+
 
 

@@ -12,7 +12,7 @@
  */
 
 #include "asp_coro.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"  // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 #include "asp_tlp64.hpp"
 
 #include <iostream>

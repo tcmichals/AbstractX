@@ -13,7 +13,7 @@
 #include "abstractx/hal/timer.hpp"
 #include "abstractx/hal/gpio.hpp"
 #include "abstractx/hal/io_processor.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"

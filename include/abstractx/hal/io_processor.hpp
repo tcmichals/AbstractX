@@ -18,7 +18,7 @@
 #include <etl/delegate.h>
 
 #include "asp_tlp64.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 #include "asp_coro.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 

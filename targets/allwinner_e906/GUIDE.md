@@ -37,7 +37,7 @@ sequenceDiagram
 | `SPEC-E906-IPC-01` | **Pure Virtual `IRpmsg` Contract** | ``host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`` | ``targets/allwinner_e906/include/hal/rpmsg.hpp`` |
 | `SPEC-E906-IPC-02` | **Standard Linux VirtIO RPMsg (`class Rpmsg`)** | ``host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`, `sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`` | ``targets/allwinner_e906/src/rpmsg.cpp`` |
 | `SPEC-E906-IPC-03` | **Lite-Metal Direct Driver (`class RpmsgLiteMetal`)** | ``host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`` | ``targets/allwinner_e906/src/rpmsg.cpp`` |
-| `SPEC-E906-IPC-04` | **Zero-Copy TLP and Trace Endpoints over RPMsg in SRAM** | ``host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)` | ``targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/spsc_tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt`` |
+| `SPEC-E906-IPC-04` | **Zero-Copy TLP and Trace Endpoints over RPMsg in SRAM** | ``host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)` | ``targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt`` |
 | `SPEC-E906-CORO-01` | **Zero-Polling Asynchronous RPMsg Awaiter** | ``host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`` | ``targets/allwinner_e906/include/hal/rpmsg.hpp`` |
 | `SPEC-E906-CORO-02` | **MSGBOX ISR-to-Dispatcher Wakeup** | ``e906-disassembly-check` (`fsd f0, 144(sp)`, `lw t0, 128(sp); bltz t0`, `fld f0, 144(sp)`), `e906-build-layout`` | ``targets/allwinner_e906/src/rpmsg.cpp`` |
 | `SPEC-E906-HAL-01` | **Direct FIFO vs. DMA Threshold Balancing** | `unspecified` | ``targets/allwinner_e906/src/{spi,i2c,uart,dma}.cpp`` |
@@ -140,7 +140,7 @@ sequenceDiagram
 
 ### `SPEC-E906-IPC-04`: Zero-Copy TLP and Trace Endpoints over RPMsg in SRAM
 - **Verification Skill**: ``host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)`
-- **Implementation Target**: ``targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/spsc_tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt``
+- **Implementation Target**: ``targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt``
 - **Key Contract Invariants**:
   * **Two channels, two purposes**: remoteproc `trace0` (`.trace_buffer`, debugfs) is
   * **Baseline**: cubie-a5e `testPingRpmsg` / `testPing` are proofs of concept that

@@ -329,7 +329,7 @@ sequenceDiagram
 * **Refines**: `[SPEC-TRACE-07]`
 * **Method**: `Test`
 * **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`), `sanitizer-gate`, `e906-build-layout`, `board-bringup` (not yet run)
-* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/spsc_tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt`
+* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `include/hal/rpmsg.hpp`, `include/abstractx/trace/tracer.hpp`, `src/platform.cpp`, `include/tlp_ring.hpp`, `targets/allwinner_e906/CMakeLists.txt`
 
 ---
 
@@ -555,12 +555,11 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   FIFO, [SPEC-E906-HAL-01]). Rationale with board numbers: one UART register read costs ~0.29 us,
   so interrupt receive costs ~0.5 us per byte (~5 % CPU at 1 Mbit/s, ~25 % at 5 Mbit/s,
   estimated) and leaves under 1 ms before an overrun above 1 Mbit/s.
-* **Requirement (ring)**: 4 receive buffers in SRAM Space 1 (`.sram_c`), linked as a circular DMA
-  descriptor chain (descriptor 3 links to descriptor 0) on one E906 DMAC channel (8..15),
-  source = the UART's RX DRQ (UART3: port 17), destination = memory, byte-wide. Buffer size is
-  set when the port is opened; **default 64 B** (256 B ring: 2,340 wakes/s and 1.7 ms of slack at
-  1.5 Mbit/s, today's maximum with APB1 = 24 MHz); 512 B for multi-Mbit/s links (5 Mbit/s: ~980
-  wakes/s, 4 ms). Each buffer's "package end" interrupt hands the full buffer to the reader.
+* **Requirement (ring)**: 16 receive buffers of 64 B each (1,024 B ring) in SRAM Space 1 (`.sram_c`),
+  linked as a circular DMA descriptor chain (descriptor 15 links to descriptor 0) on one E906 DMAC channel
+  (8..15), source = the UART's RX DRQ (UART3: port 17), destination = memory, byte-wide. The 1,024 B ring
+  provides 88.8 ms of overrun headroom at 115200 baud, guaranteeing zero dropped bytes during MicroPython
+  garbage collection sweeps (5–15 ms). Each buffer's "package end" interrupt hands the full buffer to the reader.
 * **Requirement (end of frame)**: the UART runs in DMA1 mode with `UART_DMA_REQ_EN` = RX + DMA
   timeout (bit 2), so bytes left in the FIFO at the end of a frame are moved by DMA; the RX-timeout
   interrupt then reads `DMAC_CUR_DEST_REG` (+0x114 + N*0x40) and hands the partly filled buffer's

@@ -16,7 +16,7 @@
 #include "i2c_worker.hpp"
 #include "gpio_gpiod.hpp"
 #include "asp_tlp_msg.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 
 #include <atomic>
 #include <array>

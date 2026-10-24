@@ -206,7 +206,7 @@ flowchart TD
   * `abstractx.alive()`: Returns `True` (liveness probe).
   * `abstractx.uart_read()`: Reads pending bytes from UART3 RX ring (u-blox NEO-M8N GPS on Pins 16 & 31, `0x02500C00`).
   * `abstractx.uart_read_into(buf)`: Zero-allocation read of pending UART3 RX bytes into a writable buffer (`bytearray` / `memoryview`), returning bytes copied.
-  * `abstractx.uart_dma([enable])`: Queries or switches UART3 RX between circular 4x64 B DMA mode (`True`) and interrupt FIFO mode (`False`, `[SPEC-E906-HAL-02]`).
+  * `abstractx.uart_dma([enable])`: Queries or switches UART3 RX between circular 16x64 B DMA mode (`True`) and interrupt FIFO mode (`False`, `[SPEC-E906-HAL-02]`).
   * `abstractx.uart_write(data)`: Transmits bytes or string over UART3 to GPS.
   * `abstractx.i2c_scan()`: Probes I2C1 (TWI1, Pins 3 & 5, `0x02502400`) and returns list of responding 7-bit addresses.
   * `abstractx.i2c_read(addr, reg, len)`: Reads `len` bytes from register `reg` on I2C device `addr`.
@@ -346,7 +346,7 @@ flowchart TD
 * **Requirement**: the main loop is only `abstractx::step()`. RPMsg is read after the message box
   interrupt ([SPEC-E906-IRQ-04]); the `abstractx-repl` announcement is retried on each doorbell
   wake, not from a polling loop.
-* **Requirement**: UART3 (GPS) uses circular 4x64 B DMA receive (`UartRxRing<64, 4>` in `.sram_c`,
+* **Requirement**: UART3 (GPS) uses circular 16x64 B DMA receive (`UartRxRing<64, 16>` in `.sram_c`,
   CLIC line 88 package-end + CLIC line 90 RX-timeout / line-status, `[SPEC-E906-HAL-02]`) by
   default, and can be switched at run time to interrupt-driven FIFO receive on CLIC line 90 via
   `abstractx.uart_dma(False)` ([SPEC-E906-IRQ-02]): in ISR mode the handler drains the RX FIFO into

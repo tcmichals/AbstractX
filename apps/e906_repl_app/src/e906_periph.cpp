@@ -17,7 +17,7 @@
 #include "hal/dma.hpp"
 #include "hal/rpmsg.hpp"
 #include "hal/timer.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -70,7 +70,7 @@ constexpr uint32_t kIerLsi = 0x04;  // ELSI: Receiver line status (overrun/frami
 constexpr size_t kUartFifo = 128;   // UART1-7 (T527 manual 8.19.1); UART0 / S_UART are 64
 
 constexpr uint32_t kDmaBufBytes  = 64;
-constexpr uint32_t kDmaNumBufs   = 4;
+constexpr uint32_t kDmaNumBufs   = 16;
 constexpr uint32_t kDmaRingBytes = kDmaBufBytes * kDmaNumBufs;
 
 // Lock-free SPSC byte ring whose control indices live in .bss (zeroed at boot) and whose
@@ -171,16 +171,13 @@ void uart3_dma_sync(bool end_of_frame) noexcept {
     s_uart_rx_ring.produced_from_isr(new_bytes, end_of_frame);
 
     if (!s_uart_rx_ring.reader_waiting()) {
-        uint8_t tmp[kDmaRingBytes];
-        const uint32_t drops_before = s_uart_rx_ring.stats().dropped_bytes;
-        const size_t n = s_uart_rx_ring.copy_out(tmp, sizeof(tmp));
-        const uint32_t drops_after = s_uart_rx_ring.stats().dropped_bytes;
-        if (drops_after > drops_before) {
-            s_uart_rx_dropped = s_uart_rx_dropped + (drops_after - drops_before);
-        }
-        for (size_t i = 0; i < n; ++i) {
-            if (!s_uart_rx.push(tmp[i])) {
-                s_uart_rx_dropped = s_uart_rx_dropped + 1;
+        uint8_t tmp[64];
+        size_t n = 0;
+        while ((n = s_uart_rx_ring.copy_out(tmp, sizeof(tmp))) > 0) {
+            for (size_t i = 0; i < n; ++i) {
+                if (!s_uart_rx.push(tmp[i])) {
+                    s_uart_rx_dropped = s_uart_rx_dropped + 1;
+                }
             }
         }
     }

@@ -537,7 +537,7 @@ class TelemetryState:
             (88.3, "Core 1", "resume()", "attitude_ekf()", "Mahony quaternion kinematics updated", 4.5, "apps/gps_imu_app/include/attitude_filter.hpp", 88),
             (99.1, "Core 1", "yield", "flight_control()", "Quad-X motor demands dispatched", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
             (112.0, "Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e906/main.cpp", 47),
-            (125.4, "Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
+            (125.4, "Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/tlp_ring.hpp", 34),
         ]
         for t_us, core, prim, sym, det, lat, fpath, line in seeds:
             self.simple_trace_events.append({
@@ -1271,7 +1271,7 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                     ("Core 1", "yield", "flight_control()", "quad_mixer.compute_demands(tau)", 2.8, "apps/gps_imu_app/src/main.cpp", 98),
                     ("SPU", "DMA_BURST", "spi_dma_burst()", "Burst 14B from ICM42688P (SPI0)", 0.8, "drivers/include/abstractx/drivers/imu/icm42688p.hpp", 54),
                     ("Core 0", "DOORBELL", "sun6i_msgbox()", "Mailbox interrupt signaled to Core 1", 1.1, "targets/allwinner_e906/main.cpp", 47),
-                    ("Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/spsc_tlp_ring.hpp", 34),
+                    ("Core 1", "RING_PUSH", "telemetry_egress()", "64B TLP frame pushed into g_telemetry_ring", 0.5, "include/tlp_ring.hpp", 34),
                 ]
                 ev = trace_pool[(g_state.packet_count // 25) % len(trace_pool)]
                 g_state.add_trace_event(us_now, ev[0], ev[1], ev[2], ev[3], ev[4], ev[5], ev[6])

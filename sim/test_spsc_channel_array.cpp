@@ -13,7 +13,7 @@
  */
 
 #include "abstractx/coro.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 #include <iostream>
 #include <atomic>
 #include <vector>

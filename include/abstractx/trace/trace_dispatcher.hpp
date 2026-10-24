@@ -15,7 +15,7 @@
 #include "abstractx/trace/tracer.hpp"
 #include "abstractx/trace/sink.hpp"
 #include "abstractx/hal/timer.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 
 namespace abstractx::trace {
 

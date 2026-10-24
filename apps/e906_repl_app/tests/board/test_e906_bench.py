@@ -19,7 +19,14 @@ import bench_e906_runtime as bench  # noqa: E402
 def _link():
     if not os.path.exists("/dev/rpmsg_ctrl0"):
         skip("not an E906 board")
-    sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
+    cur = HERE
+    while cur != os.path.dirname(cur):
+        if os.path.exists(os.path.join(cur, ".git")):
+            t = os.path.join(cur, "tools")
+            if os.path.isdir(t) and t not in sys.path:
+                sys.path.insert(0, t)
+            break
+        cur = os.path.dirname(cur)
     from e906_rpmsg_bridge import find_node
     announced = any(open(os.path.join(d, "name")).read().strip() == bench.BENCH["name"]
                     for d in (os.path.join("/sys/class/rpmsg", e) for e in os.listdir("/sys/class/rpmsg"))

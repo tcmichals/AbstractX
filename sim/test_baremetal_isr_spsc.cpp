@@ -14,8 +14,7 @@
  * 4. Zero dynamic heap allocation (static frame pool).
  */
 
-#include "spsc_tlp_ring.hpp"
-#include "mpsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 #include "asp_tlp_msg.hpp"
 #include <coroutine>
 #include <cstdint>

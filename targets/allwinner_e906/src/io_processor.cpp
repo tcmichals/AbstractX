@@ -21,7 +21,7 @@
 #include "hal/msgbox.hpp"
 #include "hal/timer.hpp"
 #include "asp_tlp_msg.hpp"
-#include "spsc_tlp_ring.hpp"
+#include "tlp_ring.hpp"
 #include "pcie_bar_map.hpp"
 
 #include <atomic>
