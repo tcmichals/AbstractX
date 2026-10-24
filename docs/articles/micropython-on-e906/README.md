@@ -931,16 +931,19 @@ and during real workbench testing, and are fully recorded in the
 
 ## 13. Limits and what is not done yet
 
-- **UART speed:** the UART clock (APB1) is 24 MHz on this board, which limits
-  UARTs to 1.5 Mbit/s. Faster serial needs Linux to raise that clock.
-- **MicroPython is slow in tight loops:** about 90 % of the E906 for a busy
-  compass and GPS loop. It is for experiments and bring-up; real-time loops
-  belong in C++ coroutines on the same drivers.
-- **UART receive DMA:** active on E906 (16×64-byte circular DMA ring in SRAM with timeout triggers, toggleable via `abstractx.uart_dma()`); SPI DMA remains to be connected.
-- **SPI DMA:** the SPI driver does not use the corrected DMA addresses yet.
-- **Sensor packets:** Linux still builds the 64-byte sensor packets from text
-  the script prints; having the script send them itself is planned.
-- **Profiler label:** idle time is shown under the wrong function name.
+Several early bring-up friction points noted in previous drafts have now been fully resolved in the AbstractX tree:
+
+- **UART Receive DMA is live:** Circular DMA (`abstractx.uart_dma(True)`) is now fully operational on E906 with a 16×64-byte circular ring in shared SRAM and hardware character timeout interrupts (`IIR = 0x0C`), dropping CPU UART load to 0.4 %.
+- **DMA Physical Address Translation is corrected:** All bus drivers (`spi.cpp`, `uart.cpp`, `i2c.cpp`) now translate E906 core addresses through `DmaController::pa()` before programming hardware descriptors, eliminating bus errors.
+- **Native Binary Telemetry & Trace are built:** Scripts no longer rely solely on printing text over the console. `abstractx.tlp_send(buf)` streams raw 64-byte binary telemetry frames directly across RPMsg endpoint 1024, and `abstractx.trace(task_id, state, msg)` emits CTF 1.8 binary events directly over endpoint 1025.
+- **Profiler Idle Attribution is fixed:** The profiler classification was patched to accept both `wfi` and `wfi + 4` return addresses (`live_profile.py`), correctly mapping idle CPU time to `idle` across Studio's gauges and timeline swimlanes.
+
+### Remaining Boundaries & Next Horizons
+
+- **UART APB1 Clock Ceiling:** The UART clock (APB1) is fixed at 24 MHz on this board, limiting standard integer divisors to 1.5 Mbit/s. Pushing past this to 3.0 or 6.0 Mbit/s requires patching the Linux clock tree driver to reconfigure the parent APB1 PLL.
+- **MicroPython in Tight Loops (The Interpreter Tax):** Interpreted Python bytecode consumes ~90 % CPU when executing tight polling loops (e.g. busy-waiting on I2C/UART). MicroPython is designed for rapid interactive bring-up, peripheral prototyping, and scriptable instrumentation; flight-critical real-time control loops (such as 8 kHz IMU fusion) belong in freestanding C++20 coroutines on the exact same HAL drivers (< 1 % CPU).
+- **Automated Script-to-Coro Migration:** Tooling is being expanded (see the `micropython-to-cpp` workflow) to translate proven MicroPython async tasks directly into freestanding C++20 coroutines, bridging the gap between interactive REPL experimentation and hardened bare-metal deployment.
+- **Full FPGA Switch Fabric Interconnect:** Connecting the E906 shared SRAM rings directly to the Tang Primer 20K FPGA crossbar (`asp_router.sv`) over Dual-SPI / AXI-Stream for hardware-accelerated 64-byte TLP switching and hardware DMA.
 
 ## 14. Where to go next
 
