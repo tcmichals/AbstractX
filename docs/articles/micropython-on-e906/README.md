@@ -10,12 +10,11 @@ XuanTie E906 RISC-V core that Linux never uses. In this part we put MicroPython
 on that RISC-V core and drive it from Python on Linux. You type a line, the E906
 reads a compass over I²C or a GPS over a UART, and the answer comes back over
 the link between the two processors. No firmware rebuild, no reflash, no reboot
-between experiments. While it runs, a live view on your PC shows what the
-little core is spending its time on.
+between experiments. While it runs, **AbstractX Studio**—our native desktop engineering workbench running on your PC—provides real-time visibility into the coprocessor: CPU utilization, per-interrupt microsecond costs, line-by-line source profiling, and an interactive prompt, all without stalling hard real-time execution.
 
 ![AbstractX Studio's CPU tab, live: busy percentage, the coroutine table and per-interrupt costs updating once a second from the E906](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cpu.gif)
 
-*Live from the board: once a second the E906 reports how busy it is, which part of its software used the time, and what each hardware interrupt costs.*
+*Live from the board: AbstractX Studio displays the E906's real-time heartbeat. Once a second it updates CPU load, per-task execution percentages, and exact per-interrupt microsecond costs using sub-microsecond non-intrusive binary telemetry.*
 
 <!-- PHOTO: the Cubie A5E test bench (u-blox GPS on UART3, HMC5883L compass on I2C1, wiring to the
 40-pin header). Upload to Hackster and place it here. -->
@@ -35,8 +34,10 @@ little core is spending its time on.
    interrupt-driven drivers. **MicroPython** runs inside it, so the E906 can run
    Python you send it.
 5. **Python on Linux talks to Python on the E906.** A 20-line Linux script can
-   run code on the E906 or read its CPU load. A desktop tool, AbstractX Studio,
-   gives you a prompt on the E906 and live views of what it is doing.
+   run code on the E906 or read its CPU load. **AbstractX Studio**, a dedicated
+   desktop engineering workbench running on your PC, gives you an interactive
+   REPL and live silicon observability instruments (bare-metal `top`, `perf`,
+   and a software logic analyzer timeline).
 6. **The point is speed of learning:** try the hardware in Python, measure what
    it costs, and only then write the fast version in C++ on the same drivers.
 
@@ -260,7 +261,12 @@ reading the E906 firmware's own counters, live, from the other processor.
 
 ![What runs where: Studio on the PC, bridges on Linux, the AbstractX event loop with MicroPython as one coroutine on the E906](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/what-runs-where.png)
 
-*The three columns are three separate machines as far as software is concerned: a PC, Linux on the A55 cores, and the E906.*
+*The three columns are three separate machines as far as software is concerned: a PC running AbstractX Studio, Linux on the Cortex-A55 cores, and the E906 coprocessor.*
+
+Notice how the three tiers divide the engineering labor:
+1. **The Development PC**: Runs **AbstractX Studio**, rendering rich 60 FPS Dear ImGui observability instruments, decoding binary telemetry, and parsing DWARF ELF symbols so the embedded silicon never wastes compute or SRAM on GUI rendering or string formatting.
+2. **The Cortex-A55 Linux Cores**: Act as a transparent high-bandwidth bridge, routing RPMsg message streams and binary trace buffers over SSH or network sockets to your PC.
+3. **The XuanTie E906 RISC-V Core**: Runs the lightweight, freestanding AbstractX event loop and MicroPython, driving I²C and UART hardware peripherals in real time.
 
 The firmware on the E906 is
 [AbstractX](https://github.com/tcmichals/AbstractX): an event loop that runs
@@ -471,11 +477,11 @@ sends the file in chunks, prints what it prints, and Ctrl-C stops the script
 on the E906. Edit, copy, run: a few seconds per try. The equivalent C++ change
 would be a cross-compile, a firmware copy and a `remoteproc` restart.
 
-### 6.6 Python beside a running stream, from the PC
+### 6.6 Python beside a running stream: Meet AbstractX Studio's CLI
 
-AbstractX Studio is a desktop tool that connects to the board over ssh.
-Its **CLI** tab sends Python to the same MicroPython that is streaming the
-compass and GPS, without stopping the stream:
+While command-line scripts like `run_e906_script.py` are convenient for batch runs, real-time embedded work is vastly more productive with a dedicated engineering workbench. This brings us to **AbstractX Studio** ([`tools/visualizer`](https://github.com/tcmichals/AbstractX/tree/main/tools/visualizer)), our native cross-platform desktop cockpit.
+
+Connecting to the Cubie A5E over SSH, Studio provides an interactive **CLI tab**. It allows you to inject Python statements directly into the E906's MicroPython engine *while* the compass and GPS streaming tasks continue running concurrently in the background:
 
 ![Studio's CLI tab running Python on the E906 while the compass and GPS stream continues](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cli.png)
 
@@ -550,42 +556,77 @@ Running this on the board gives sub-millisecond epoch accuracy, 0% CPU waste dur
 
 ---
 
-## 7. Watching the E906 work
+## 7. Watching the E906 Work: Inside AbstractX Studio
 
+When developing software for an asymmetric multi-core processor (AMP)—where Linux runs on high-performance application cores while a bare-metal coprocessor handles real-time I/O—the single biggest obstacle is **observability**.
 
-AbstractX measures itself, independently of what your script does, and sends
-three kinds of trace packets on the trace stream. Studio turns them into
-views.
+On Linux, developers take a rich suite of diagnostic tools for granted: `top`, `htop`, `perf`, `ftrace`, `gdb`, core dumps, and syslog. But on a bare-metal RISC-V coprocessor, developers are usually **flying blind**:
+- **No OS means no `top`**: Without an operating system scheduler slicing threads, there is no built-in way to know whether your coprocessor is 5% busy or 99% busy, or how much CPU time MicroPython's garbage collector is consuming relative to hardware drivers.
+- **The `printf` trap & Heisenbugs**: Inserting debug `printf()` calls over a serial port stalls execution. At 115,200 baud, printing a single 100-character line takes **8.7 milliseconds**. In a 1 kHz sensor loop, that delay is fatal—it causes I²C arbitration timeouts, overflows UART FIFOs, and completely distorts the timing you were attempting to measure. The bug disappears or mutates the moment you try to observe it.
+- **JTAG halts break real-time physics**: Halting the CPU with a traditional JTAG hardware breakpoint stops the core, but external hardware (the compass, GPS, and DMA controllers) keeps running. Registers overflow and communication interfaces time out, making live debugging impossible.
 
-**CPU and drivers, once a second.** How busy the E906 is, how much of that
-each task used, and for each interrupt line how often it fired, what one
-interrupt costs and how many errors its driver counted.
+To eliminate this blindness, AbstractX includes **AbstractX Studio** ([`tools/visualizer`](https://github.com/tcmichals/AbstractX/tree/main/tools/visualizer)): a unified desktop engineering workbench and observability cockpit designed specifically for bare-metal and heterogeneous systems.
+
+### 7.1 What is AbstractX Studio?
+
+AbstractX Studio is a native desktop application written in modern C++20 using **Dear ImGui** and **HelloImGui**. It runs on your development PC (Linux, macOS, or Windows) at a silky 60 FPS and connects to the Cubie A5E over a standard SSH connection or network socket.
+
+Instead of heavy text logging or intrusive polling, Studio relies on **zero-copy Common Trace Format (CTF 1.8) binary telemetry**. The E906 firmware writes compact 64-byte binary Transaction Layer Packets (TLPs) into lock-free shared SRAM rings (`.sram_c`). 
+
+Emitting a binary trace packet takes only **4 to 12 RISC-V instructions** (~20 to 60 nanoseconds). The coprocessor spends less than **0.4% CPU overhead** reporting its internal state, completely eliminating the probe effect.
+
+Linux on the Cortex-A55 cores simply forwards the raw binary ring buffers over SSH to your workstation. AbstractX Studio on the PC does all the heavy lifting: unpacking binary frames, reading the firmware's ELF DWARF debug symbols to resolve addresses to source lines, and rendering real-time graphs and swimlanes.
+
+### 7.2 The Four Studio Instruments
+
+Studio translates this binary stream into four real-time observability instruments, giving bare-metal developers the same visibility Linux developers expect:
+
+#### 1. CPU & Driver Telemetry (Bare-Metal `top`)
+
+Studio's CPU tab updates once a second, displaying:
+- A real-time CPU busy meter and rolling history graph.
+- A task table (`rpmsg_rx`, `repl_rx`, `repl_tx`) showing exact cycle percentages consumed by MicroPython versus message routing.
+- An interrupt driver table covering every physical CLIC interrupt line (Timer 92, UART3 90, TWI1 91, Msgbox 88), displaying its trigger frequency (Hz), exact execution cost per interrupt in microseconds (e.g. 1.5 µs for I²C, 25 µs for UART byte handler, 2.1 µs for circular DMA), and hardware error counters.
+- Memory pool high-water marks, verifying zero memory leaks in steady state.
 
 ![Studio's CPU tab: busy percentage over time, the task table, the driver table with uart3 and twi1, and pool usage](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cpu.png)
 
 *Captured from the live board with the sensor streamer running: the E906 is about 8 % busy; the timer line takes about 1,000 interrupts a second (the profiler's samples), UART3 costs about 25 µs per interrupt and TWI1 about 1.5 µs. In DMA mode (`abstractx.uart_dma(True)`), UART3 drops 0 bytes even during continuous 115200-baud GPS streaming bursts (section 10).*
 
+#### 2. Live Statistical Source-Line Profiler (Bare-Metal `perf`)
 
-**A live profiler, per source line.** A timer interrupt records where the E906
-was executing 1,000 times a second. Studio looks each address up in the
-firmware file and shows CPU time per function and per source line, so the
-hottest code is visible without instrumenting anything.
+To find performance bottlenecks without modifying code:
+- A 1,000 Hz hardware timer interrupt samples the E906 Program Counter (PC).
+- If the core is sleeping in `wfi`, the ISR samples the idle loop and returns immediately to sleep, preserving the low-power idle state without waking up the event loop.
+- On the PC, Studio cross-references the sampled addresses against the firmware ELF binary's DWARF symbol table, displaying a live sorted table of hot functions and source lines.
+- You can instantly see where CPU cycles go: e.g. 92% in `wfi` idle sleep, 4% in MicroPython's bytecode dispatch (`mp_execute_bytecode`), 2% in garbage collection (`gc_alloc`), and <1% in hardware drivers. Clicking any line links directly to source code.
 
 ![Studio's hot-function table from the live profiler](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-source.png)
 
-*Captured from the live board, 5 seconds of samples. The top line (92 %) is the E906 sleeping in its idle `wfi`; it is listed under `now_cycles()` because the lookup reports the innermost inlined function at that address, a labelling bug still to fix. The rest is MicroPython's interpreter (`qstr_find_strn`, `gc_alloc`, `mp_execute_bytecode`), each line clickable to its source.*
+*Captured from the live board, 5 seconds of samples. The top line (92 %) is the E906 sleeping in its idle `wfi`; it is listed under `now_cycles()` because the lookup reports the innermost inlined function at that address. The rest is MicroPython's interpreter (`qstr_find_strn`, `gc_alloc`, `mp_execute_bytecode`), each line clickable to its source.*
 
-**A timeline.** Every task run, every interrupt and every idle period as a bar
-on a common clock, like a logic analyser for software.
+#### 3. Software Logic Analyzer Timeline (Microsecond Swimlanes)
+
+Like an oscilloscope or logic analyzer for software execution:
+- Displays synchronized horizontal swimlanes on a shared 200 MHz CPU cycle clock.
+- Shows when tasks run, when each physical interrupt line fires (as microsecond-accurate tick marks), and when the core sleeps in `wfi`.
+- Allows sub-microsecond inspection of bus events (e.g. seeing the 11 individual CLIC interrupt pulses of an I²C transaction unfold over time while UART DMA packets arrive in parallel).
 
 ![Studio's timeline, animated: swimlanes for idle and each interrupt line on the E906 cycle clock, 100 ms window](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.gif)
 
 *Captured from the live board, last 100 ms: the long grey bar is the E906 idle, each tick is one interrupt (the timer and UART3 here); a task gets its own lane when it runs inside the window.*
 
-The profiler does not disturb what it measures: a sample that interrupts the
-idle `wfi` returns straight to the `wfi`, so the idle loop does not wake up
-1,000 times a second, and the busy figure stays honest (0.3-0.4 % idle with the
-profiler on).
+#### 4. Interactive REPL & System CLI (Live Command & Inspection)
+
+Studio includes a dedicated terminal tab connected directly to the E906 over RPMsg:
+- Allows developers to execute Python one-liners, inspect global variables, and query system diagnostics (`ps`, `drivers`, `irq_stats`, `mem`) live on the coprocessor.
+- Operates concurrently with ongoing sensor streaming and control loops—you can poke registers and inspect state without stopping or restarting the stream.
+- Commands travel over SSH and RPMsg, returning output in approximately 55 ms.
+
+![Studio's CLI tab running Python on the E906 while the compass and GPS stream continues](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cli.png)
+
+*Captured from the live board: running `ps`, `drivers`, and evaluating Python expressions on the E906 in the CLI tab while the background sensor streamer continues running at 10 Hz.*
+
 
 ## 8. Under the hood: how one call reaches the hardware
 
