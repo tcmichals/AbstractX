@@ -563,7 +563,8 @@ interrupt costs and how many errors its driver counted.
 
 ![Studio's CPU tab: busy percentage over time, the task table, the driver table with uart3 and twi1, and pool usage](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cpu.png)
 
-*Captured from the live board with the sensor streamer running: the E906 is about 8 % busy; the timer line takes about 1,000 interrupts a second (the profiler's samples), UART3 costs about 25 µs per interrupt and TWI1 about 1.5 µs. UART3's error count is GPS bytes dropped while no script was reading the port, a known gap that the planned UART DMA receive ring closes (section 10).*
+*Captured from the live board with the sensor streamer running: the E906 is about 8 % busy; the timer line takes about 1,000 interrupts a second (the profiler's samples), UART3 costs about 25 µs per interrupt and TWI1 about 1.5 µs. In DMA mode (`abstractx.uart_dma(True)`), UART3 drops 0 bytes even during continuous 115200-baud GPS streaming bursts (section 10).*
+
 
 **A live profiler, per source line.** A timer interrupt records where the E906
 was executing 1,000 times a second. Studio looks each address up in the
@@ -663,12 +664,17 @@ What it buys, measured with `abstractx.dma_bench()` (SRAM to SRAM):
 DMA has a fixed cost of about 4.4 µs, and the CPU is free during the transfer:
 the "done" interrupt itself costs 1.33 µs. The rule we adopted: **a transfer
 bigger than the peripheral's hardware FIFO uses DMA; one that fits uses the
-FIFO.** UART receive streams are always bigger than the FIFO, so the next piece
-of work is UART receive by DMA into four 64-byte buffers, with an end-of-frame
-timeout to deliver partial frames. That ring is designed but **not built yet**;
-today UART3 still receives by interrupt.
+FIFO.**
+
+UART receive streams are always bigger than the FIFO, so we implemented **circular
+UART receive by DMA into a 16×64-byte ring buffer (1,024 B total in `.sram_c`)**
+with hardware RX timeout triggers (`IIR = 0x0C`) to deliver partial NMEA frames immediately.
+At 115,200 baud, this 1,024-byte ring provides **88.8 ms of buffer headroom**, completely
+absorbing any temporary MicroPython GC pauses without dropping a single byte or corrupting
+checksums. You can query or toggle it live from Python with `abstractx.uart_dma(True)`.
 
 ## 11. Measured on the board
+
 
 All on the Cubie A5E with the E906 at 200 MHz, 2026-10-21 to 2026-10-23:
 
