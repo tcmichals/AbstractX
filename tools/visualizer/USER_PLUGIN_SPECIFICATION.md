@@ -17,7 +17,7 @@ AbstractX strictly partitions responsibilities across the heterogeneous compute 
    - Implements the **iNav-standard Auto-Baudrate Manager** (`9600 -> 19200 -> 38400 -> 57600 -> 115200 baud`) and binary `UBX-NAV-PVT` / `UBX-NAV-DOP` state machine with Fletcher-16 CRC, with fallback to NMEA 0183 (`$GxRMC`, `$GxGGA`).
    - Performs magnetic field vector decomposition ($X, Y, Z$), hard-iron/soft-iron offset calibration, and magnetic heading derivation $\psi \in [0^\circ, 359^\circ]$.
    - Computes fused navigation vectors: Course Over Ground (COG), Ground Speed (SOG), and dynamic Wind Drift / crab angle ($\delta = \text{COG} - \psi$).
-   - Renders a 60 FPS vector-based **Compass Rose & Heading Dial** instrument using the Dear ImGui `ImDrawList` API.
+   - Renders a 60 FPS vector-based **Compass Rose & Heading Dial** instrument using the `imgui-bundle` `ImDrawList` (`imgui.get_window_draw_list()`) API.
 3. **Simultaneous High-Speed Peripheral Maximization**:
    - Commands the GPS receiver to maximum operational baud rate (115,200 baud standard, up to 460,800 / 921,600 baud) via `UBX-CFG-PRT` and elevates navigation solution rate up to 10 Hz / 18 Hz via `UBX-CFG-RATE`.
    - Commands the electronic compass to maximum continuous Output Data Rate (200 Hz ODR) on 400 kHz Fast-Mode I2C via `REG_CONTROL_1` (`0x1D`).
@@ -143,7 +143,7 @@ Inside the Studio plugin:
 
 ## 5. Vector-Rendered Compass Rose & HSI Graphics
 
-The instrument is rendered using Dear ImGui `ImDrawList` primitives (matching professional aviation Primary Flight Display / HSI standards):
+The instrument is rendered using `imgui-bundle` `ImDrawList` primitives (matching professional aviation Primary Flight Display / HSI standards):
 
 ```
                      [ 000° N ]  <-- Digital Heading Box
@@ -216,7 +216,7 @@ The instrument is rendered using Dear ImGui `ImDrawList` primitives (matching pr
 * **Implementation Target**: `tools/visualizer/flight_plugin.py`
 
 ### `[SPEC-USER-PLUGIN-05]` Vector-Rendered Rotating Compass Rose & Heading Dial
-* **Description**: The plugin MUST render a high-precision, anti-aliased circular Compass Rose using Dear ImGui `ImDrawList`. The dial face MUST rotate smoothly with magnetic heading, displaying major ticks every $30^\circ$, minor ticks every $10^\circ$, cardinal markers (`N`, `E`, `S`, `W`), and a top-referenced lubber line with digital heading placard.
+* **Description**: The plugin MUST render a high-precision, anti-aliased circular Compass Rose using `imgui-bundle` `ImDrawList`. The dial face MUST rotate smoothly with magnetic heading, displaying major ticks every $30^\circ$, minor ticks every $10^\circ$, cardinal markers (`N`, `E`, `S`, `W`), and a top-referenced lubber line with digital heading placard.
 * **Method**: Demonstration
 * **Refines**: `[SPEC-STUDIO-03]`
 * **Verified by**: `host-tests`

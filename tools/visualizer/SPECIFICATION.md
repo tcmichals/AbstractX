@@ -1,12 +1,12 @@
 # AbstractX Visualizer Studio Specification (`tools/visualizer`)
 
-This document is the **authoritative architectural design specification** for the **AbstractX Visualizer Studio (`tools/visualizer/`)**. It specifies the multi-window HelloImGui docking workbench, the separation between the **AbstractX Core Studio** and **User Domain Instruments**, the 64-byte TLP bus inspection and header decoding pipelines, the dynamic CTF 1.8 schema engine, the core-and-plugin extensibility SDK, and the MemBrowse zero-heap continuous memory observability model.
+This document is the **authoritative architectural design specification** for the **AbstractX Visualizer Studio (`tools/visualizer/`)**. It specifies the multi-window `imgui-bundle` (`hello_imgui` + `imgui` + `implot`) docking workbench, the separation between the **AbstractX Core Studio** and **User Domain Instruments**, the 64-byte TLP bus inspection and header decoding pipelines, the dynamic CTF 1.8 schema engine, the core-and-plugin extensibility SDK, and the MemBrowse zero-heap continuous memory observability model.
 
 ---
 
 ## 1. Studio Overview & Objectives
 
-The AbstractX Visualizer Studio is a real-time hardware-software co-design observability workbench built in Python using **`imgui-bundle`** (`Dear ImGui` + `ImPlot` + `HelloImGui`). It provides:
+The AbstractX Visualizer Studio is a real-time hardware-software co-design observability workbench built in Python using **`imgui-bundle`** (`imgui` [Dear ImGui] + `implot` [ImPlot] + `hello_imgui` [HelloImGui]). It provides:
 1. **Architectural Decoupling**: A clean, physical separation between the low-level **AbstractX Core Studio** (Silicon CPU cores, timeline, SPSC rings, memory budgets, flow integrity, RTL inspection) and high-level **User Domain Instruments** (PFD, 3D attitude wireframe, motor demands, real-time sensor graphs).
 2. **Multi-Viewport Docking** (`enable_viewports = True` by default, `--no-viewports` for a single OS window): any window can be popped out into its own OS window (e.g. on a second monitor), with a prominent **Pop In (Dock to Studio)** button to return.
 3. **Hardware-Level TLP Bus Inspection**: Dedicated live stream table and byte-level breakdown of 64-byte Transaction Layer Packets (`asp_tlp64_t`), including 20-byte wire header extraction and color-coded hex inspection.
@@ -30,7 +30,7 @@ flowchart TD
         STATE_STORE["<b>Thread-Safe TelemetryState</b><br/>Mutex-Guarded Lock-Free History"]
     end
 
-    subgraph DOCKING_WORKBENCH["3. HelloImGui 2-Window Docking Workbench (Single OS Window)"]
+    subgraph DOCKING_WORKBENCH["3. imgui-bundle Docking Workbench (Multi-Viewport Support)"]
         direction TB
         subgraph TOP_DOCK["Top Viewport Split"]
             direction LR
@@ -225,7 +225,7 @@ AbstractX mandates **Freestanding C++20 with Zero Heap** ($0\text{ B}$ dynamic m
 Every requirement below is verified in code with an `@impl` tag:
 
 ### `[SPEC-STUDIO-01]` Full-Screen Multi-Window Docking Layout & Dynamic Management
-The visualizer MUST initialize a Dear ImGui full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting multi-viewport docking (`enable_viewports = True` by default; `--no-viewports` keeps everything in one OS window), multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), clean initialization condition (`layout_condition = hello_imgui.DockingLayoutCondition.application_start`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`, `studio_workbench`; presets select tabs and never open a second copy of one), window pop-out via `decouple_window()`, pop-in via `dock_window()` (resolving parent split nodes to central leaf nodes, re-splitting pruned `LeftSpace` independently without disturbing other floating windows, and committing via `dock_builder_finish`), and layout reset via `restore_default_layout()`.
+The visualizer MUST initialize an `imgui-bundle` (`hello_imgui` + `imgui` + `implot`) full-screen docking workbench using `hello_imgui` (`DefaultImGuiWindowType.provide_full_screen_dock_space`), supporting multi-viewport docking (`enable_viewports = True` by default; `--no-viewports` keeps everything in one OS window), multi-window docking splits (`LeftSpace`, `MainDockSpace`, `BottomSpace`, `BottomRightSpace`), clean initialization condition (`layout_condition = hello_imgui.DockingLayoutCondition.application_start`), dynamic focus layout presets (`balanced`, `user_focus`, `core_focus`, `source_focus`, `fpga_focus`, `studio_workbench`; presets select tabs and never open a second copy of one), window pop-out via `decouple_window()`, pop-in via `dock_window()` (resolving parent split nodes to central leaf nodes, re-splitting pruned `LeftSpace` independently without disturbing other floating windows, and committing via `dock_builder_finish`), and layout reset via `restore_default_layout()`.
 
 Multi-viewport mode (the default) MUST make a popped-out window a real OS window:
 * `io.config_viewports_no_auto_merge = True` is set in `callbacks.post_init`. ImGui's default (`False`) merges any floating window that overlaps the main window back into it, so a pop-out opened inside the Studio window never became its own OS window.
