@@ -22,6 +22,11 @@ complement—not replace—the normative specifications and target build guides.
   async: readable sequential coroutine code over event-driven I/O. It discusses
   the move from Protothreads and puts AbstractX alongside other embedded
   frameworks such as Pigweed without framing them as competitors.
+- **[`articles/micropython-on-e906/`](articles/micropython-on-e906/README.md)**:
+  Experiment First, Compile Later: Python on Both Processors of the Allwinner T527.
+  Demonstrates embedding MicroPython as a non-preemptive C++20 coroutine guest
+  isolated in dormant Cadence HiFi4 DSP SRAM on the XuanTie E906 coprocessor,
+  interfacing with Linux host flight stacks via 3-plane RPMsg and AbstractX Studio.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐

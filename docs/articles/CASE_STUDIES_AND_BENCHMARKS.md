@@ -71,6 +71,7 @@ This document outlines five benchmark case studies demonstrating AbstractX's spe
 ## Article 5: Interactive Hardware Scripting Without Breaking Determinism
 ### *Embedding MicroPython on the XuanTie E906 Coprocessor Using Dormant DSP Memory*
 
+* **Full Article**: [`docs/articles/micropython-on-e906/README.md`](micropython-on-e906/README.md)
 * **Target Hardware**: Allwinner Radxa Cubie A5E (XuanTie E906 RISC-V Coprocessor + HiFi4 Audio DSP SRAM).
 * **Core Problem**:
   * Coprocessor firmware development suffers from painful iteration loops: modifying C++ peripheral drivers (SPI0, TWI0, UART2), recompiling the ELF binary, transferring it to Linux, and reloading via RemoteProc / sysfs takes several minutes per test cycle.

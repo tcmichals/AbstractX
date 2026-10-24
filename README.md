@@ -43,11 +43,11 @@ AbstractX executes a 4-step autonomous closed-loop architecture:
 > 📖 **Read the Deep-Dives**:
 > * [**Architectural Design Philosophy: Pros, Cons & RTOS Comparison**](docs/PROS_CONS.md)
 > * [**Multi-Silicon Benchmark Series & Case Studies (5-Part Deep Dive)**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md):
->   1. *RP2350 Pico 2 W*: Sub-microsecond C++20 coroutines vs. RTOS threads
->   2. *Allwinner Radxa Cubie A5E*: Freestanding E906 coprocessor defeating Linux jitter
->   3. *QMTECH Zynq-7020*: Polymorphic silicon — C++ to SystemVerilog FPGA switch fabric
->   4. *CI Observability*: $0/month embedded memory budget tracking with pure GitHub
->   5. *Interactive Scripting*: MicroPython as a C++20 coroutine on dormant DSP memory
+>   1. *RP2350 Pico 2 W*: [Straight-Line Async: Sub-microsecond C++20 coroutines vs. RTOS threads](docs/articles/gps-compass-straight-line-async/README.md)
+>   2. *Allwinner Radxa Cubie A5E*: [Bare Metal + AbstractX vs. FreeRTOS on XuanTie E906](docs/articles/BAREMETAL_VS_FREERTOS_E906.md)
+>   3. *QMTECH Zynq-7020*: [Polymorphic Silicon — C++ to SystemVerilog FPGA Switch Fabric](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md)
+>   4. *CI Observability*: [Embedded Firmware Observability with Pure GitHub](docs/articles/GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md)
+>   5. *Interactive Scripting*: [Experiment First, Compile Later: MicroPython on XuanTie E906](docs/articles/micropython-on-e906/README.md)
 >
 > AbstractX is **not a flight controller**; it is an **embedded design pattern** that brings **linear, sequential async programming with an ultra-small memory footprint** to embedded systems:
 ## 🚀 The Vision: Emulating a Massive PCIe Fabric for Embedded Silicon
@@ -524,7 +524,7 @@ graph TD
 | **Hardware & Errata Spec** | [`PICO2W_DUAL_CORE_SPEC`](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [`ESP32P4_WAVESHARE_SPEC`](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [`E906_COPROCESSOR_SPEC`](docs/tier3_targets/bsp/E906_COPROCESSOR_ARCHITECTURE.md) | [`A5E_FPGA_XFABRIC_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [`TANG9K_PINOUT_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
 | **Silicon Architecture** | Dual ARM Cortex-M33 @ 150 MHz | Dual RISC-V @ 400 MHz | Quad AArch64 A55 + RISC-V E906 (No FPGA) | Quad AArch64 A55 + E906 + FPGA Fabric | Dual ARM Cortex-A9 + FPGA Fabric |
 | **Floating-Point Engine** | Hardware single-precision FPU | Hardware single/double FPU | Hardware ARM NEON FPU | Hardware ARM NEON FPU + FPGA DSPs | Hardware VFPv3 FPU + FPGA DSPs |
-| **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E906 (On-Chip SPI0/TWI/UART DMA) | FPGA Logic (`asp_imu_auto_dma.sv` + AXI) | FPGA Logic (`asp_imu_auto_dma.sv`) |
+| **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E906 (On-Chip SPI1 Single/Dual DMA, TWI1, UART3 Circular DMA) | FPGA Logic (`asp_imu_auto_dma.sv` + AXI) | FPGA Logic (`asp_imu_auto_dma.sv`) |
 | **Tier 2 Coroutine Engine** | Core 1 (Coroutine Dispatcher) | Core 1 (Coroutine Dispatcher) | Core 0 (Linux PREEMPT_RT Thread) | Core 0 (Linux Userspace / E906) | Core 0 (Linux Userspace / RTOS) |
 | **Inter-Domain Bridge** | Hardware SIO FIFO Doorbell | Hardware IPC Mailbox | Shared SRAM A3/C + `sun6i-msgbox` | AXI-Stream TLP Descriptors & DMA | AXI-Stream DMA Descriptor Rings |
 | **FPGA Requirement** | None (0 LUTs) | None (0 LUTs) | **None (Pure SoC Silicon, 0 LUTs)** | **Gowin / AMD FPGA (~9k–85k LUTs)** | Gowin / AMD FPGA (~9k–85k LUTs) |

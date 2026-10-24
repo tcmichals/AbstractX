@@ -43,7 +43,7 @@ between experiments. While it runs, **AbstractX Studio**—our native desktop en
 
 ### Where this fits in the series
 
-![Allwinner T527 RISC-V Firmware & MicroPython Series](assets/table1-series-roadmap.png)
+![Allwinner T527 RISC-V Firmware & MicroPython Series](assets/table1-series-roadmap.svg)
 
 You do not need the earlier parts to follow this one: each section below
 starts from what you need to know and points back to the part that goes deeper.
@@ -54,7 +54,7 @@ starts from what you need to know and points back to the part that goes deeper.
 
 The Cubie A5E's Allwinner T527 combines:
 
-![Hardware Execution Domains & Peripheral Partitioning](assets/table2-architecture-blocks.png)
+![Hardware Execution Domains & Peripheral Partitioning](assets/table2-architecture-blocks.svg)
 
 On our test bench two sensors are wired to the 40-pin header:
 
@@ -176,7 +176,7 @@ most 496 bytes and arrives whole. Our firmware builds three different
 **streams** on top of that, one per endpoint, so the three kinds of traffic
 never mix:
 
-![Shared SRAM Virtual Endpoints & Wire Protocols](assets/table3-rpmsg-endpoints.png)
+![Shared SRAM Virtual Endpoints & Wire Protocols](assets/table3-rpmsg-endpoints.svg)
 
 Linux creates the `/dev/rpmsgN` file for an endpoint when a program asks for
 it, through `/dev/rpmsg_ctrl0`. The numbers depend on the order, so tools find
@@ -276,7 +276,7 @@ consequences you will see in the experiments:
 Scripts reach the hardware through one built-in module, `abstractx`
 ([`modabstractx.c`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/modabstractx.c)):
 
-![Hardware Peripheral & Telemetry C-Binding Functions](assets/table4-modabstractx-api.png)
+![Hardware Peripheral & Telemetry C-Binding Functions](assets/table4-modabstractx-api.svg)
 
 The board's MicroPython is a minimal build: `bytes.decode` and `bytes.fromhex`
 do not exist (use `str(b, "ascii")` and `int(h, 16)`), and there is no
@@ -307,7 +307,7 @@ An embedded coroutine engine *should never have been a desktop socket scheduler*
 
 #### What an Embedded Coroutine Engine Actually Looks Like (`abstractx_coro.py`)
 
-![Desktop Python vs MicroPython vs AbstractX Coroutines](assets/table5-async-concurrency.png)
+![Desktop Python vs MicroPython vs AbstractX Coroutines](assets/table5-async-concurrency.svg)
 
 Rather than relying on heap-allocating task wrappers, AbstractX brings the exact C++20 coroutine model into MicroPython:
 
@@ -764,7 +764,7 @@ handler (CLIC line 90) has already put in its buffer.
 The E906 runs entirely from on-chip SRAM; nothing is in DRAM (Part 1 maps the
 windows):
 
-![SRAM Space Partitioning for RISC-V Firmware & MicroPython](assets/table6-memory-regions.png)
+![SRAM Space Partitioning for RISC-V Firmware & MicroPython](assets/table6-memory-regions.svg)
 
 Space 0 had filled to 99.3 %. Moving the MicroPython compiler (only needed while
 a script is being compiled) into Space 1 brought it to 85 %; with the profiler
@@ -790,7 +790,7 @@ Sharing it takes three things:
 
 What it buys, measured with `abstractx.dma_bench()` (SRAM to SRAM):
 
-![Hardware DMA Engine vs XuanTie E906 CPU memcpy](assets/table7-dma-benchmark.png)
+![Hardware DMA Engine vs XuanTie E906 CPU memcpy](assets/table7-dma-benchmark.svg)
 
 DMA has a fixed cost of about 4.4 µs, and the CPU is free during the transfer:
 the "done" interrupt itself costs 1.33 µs. The rule we adopted: **a transfer
@@ -808,7 +808,7 @@ checksums. You can query or toggle it live from Python with `abstractx.uart_dma(
 
 All on the Cubie A5E with the E906 at 200 MHz, 2026-10-21 to 2026-10-23:
 
-![Silicon Timings, Interrupt Latency & Resource Utilization](assets/table8-measured-results.png)
+![Silicon Timings, Interrupt Latency & Resource Utilization](assets/table8-measured-results.svg)
 
 The two lessons: the interpreter, not the drivers, is where the time goes in
 Python; and register access from this core is expensive enough that DMA
@@ -875,7 +875,8 @@ and during real workbench testing, and are fully recorded in the
 Several early bring-up friction points noted in previous drafts have now been fully resolved in the AbstractX tree:
 
 - **UART Receive DMA is live:** Circular DMA (`abstractx.uart_dma(True)`) is now fully operational on E906 with a 16×64-byte circular ring in shared SRAM and hardware character timeout interrupts (`IIR = 0x0C`), dropping CPU UART load to 0.4 %.
-- **DMA Physical Address Translation is corrected:** All bus drivers (`spi.cpp`, `uart.cpp`, `i2c.cpp`) now translate E906 core addresses through `DmaController::pa()` before programming hardware descriptors, eliminating bus errors.
+- **Dual-Mode SPI1 DMA Engine is live:** Hardware SPI1 on Port B (PB11..PB14) is fully operational with Single-SPI 1-bit and Dual-SPI 2-bit burst (`BCC[28]`) streaming (`abstractx.spi_init()`, `abstractx.spi_xfer()`, `abstractx.spi_xfer_into()`). Transfers $\le 64$ B use direct FIFO MMIO while bulk transfers use dual-channel DMA.
+- **DMA Physical Address Translation & Firewall Handling:** All bus drivers (`spi.cpp`, `uart.cpp`, `i2c.cpp`) translate E906 addresses through `DmaController::pa()` and stage descriptors in SRAM Space 1 (`.sram_c`). Channels 9 and 10 are identified as hardware-firewalled by SoC security policy, reserving channels 8 and 11..15 for autonomous coprocessor DMA.
 - **Native Binary Telemetry & Trace are built:** Scripts no longer rely solely on printing text over the console. `abstractx.tlp_send(buf)` streams raw 64-byte binary telemetry frames directly across RPMsg endpoint 1024, and `abstractx.trace(task_id, state, msg)` emits CTF 1.8 binary events directly over endpoint 1025.
 - **Profiler Idle Attribution is fixed:** The profiler classification was patched to accept both `wfi` and `wfi + 4` return addresses (`live_profile.py`), correctly mapping idle CPU time to `idle` across Studio's gauges and timeline swimlanes.
 
@@ -884,7 +885,7 @@ Several early bring-up friction points noted in previous drafts have now been fu
 - **UART APB1 Clock Ceiling:** The UART clock (APB1) is fixed at 24 MHz on this board, limiting standard integer divisors to 1.5 Mbit/s. Pushing past this to 3.0 or 6.0 Mbit/s requires patching the Linux clock tree driver to reconfigure the parent APB1 PLL.
 - **MicroPython in Tight Loops (The Interpreter Tax):** Interpreted Python bytecode consumes ~90 % CPU when executing tight polling loops (e.g. busy-waiting on I2C/UART). MicroPython is designed for rapid interactive bring-up, peripheral prototyping, and scriptable instrumentation; flight-critical real-time control loops (such as 8 kHz IMU fusion) belong in freestanding C++20 coroutines on the exact same HAL drivers (< 1 % CPU).
 - **Automated Script-to-Coro Migration:** Tooling is being expanded (see the `micropython-to-cpp` workflow) to translate proven MicroPython async tasks directly into freestanding C++20 coroutines, bridging the gap between interactive REPL experimentation and hardened bare-metal deployment.
-- **Full FPGA Switch Fabric Interconnect:** Connecting the E906 shared SRAM rings directly to the Tang Primer 20K FPGA crossbar (`asp_router.sv`) over Dual-SPI / AXI-Stream for hardware-accelerated 64-byte TLP switching and hardware DMA.
+- **Full FPGA Switch Fabric Loopback:** Exercising physical loopback tests between the E906 Dual-SPI burst DMA engine and the Tang Primer 20K FPGA crossbar (`asp_router.sv`) on real hardware headers.
 
 ## 14. Where to go next
 
