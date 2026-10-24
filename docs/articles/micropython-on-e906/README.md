@@ -367,8 +367,6 @@ def compass_task(channel):
 
 ## 6. Experiments without compiling
 
-
-
 Everything in this section is Python. The firmware stays loaded the whole time.
 
 ### 6.1 Python on Linux runs Python on the E906
@@ -643,14 +641,10 @@ Like an oscilloscope or logic analyzer for software execution:
 
 #### 4. Interactive REPL & System CLI (Live Command & Inspection)
 
-Studio includes a dedicated terminal tab connected directly to the E906 over RPMsg:
+Studio includes a dedicated terminal tab connected directly to the E906 over RPMsg (shown in [Section 6.6](#66-python-beside-a-running-stream-meet-abstractx-studios-cli)):
 - Allows developers to execute Python one-liners, inspect global variables, and query system diagnostics (`ps`, `drivers`, `irq_stats`, `mem`) live on the coprocessor.
 - Operates concurrently with ongoing sensor streaming and control loops—you can poke registers and inspect state without stopping or restarting the stream.
-- Commands travel over SSH and RPMsg, returning output in approximately 55 ms.
-
-![Studio's CLI tab running Python on the E906 while the compass and GPS stream continues](https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cli.png)
-
-*Captured from the live board: running `ps`, `drivers`, and evaluating Python expressions on the E906 in the CLI tab while the background sensor streamer continues running at 10 Hz.*
+- Commands travel over SSH and RPMsg, returning output in approximately 55 ms with variables preserved between statements.
 
 ### 7.3 How Studio is Programmed: Declarative JSON Schemas & Python Plugins
 
@@ -854,7 +848,6 @@ checksums. You can query or toggle it live from Python with `abstractx.uart_dma(
 
 ## 11. Measured on the board
 
-
 All on the Cubie A5E with the E906 at 200 MHz, 2026-10-21 to 2026-10-23:
 
 | What | Result |
@@ -867,7 +860,7 @@ All on the Cubie A5E with the E906 at 200 MHz, 2026-10-21 to 2026-10-23:
 | One UART register read from the E906 | about 0.29 µs |
 | Studio CLI round trip | about 55 ms |
 | DMA "done" interrupt | 1.33 µs |
-| Board self-test | 31 passed, 0 failed, 2 skipped |
+| Board self-test | 32 passed, 0 failed, 2 skipped |
 
 The two lessons: the interpreter, not the drivers, is where the time goes in
 Python; and register access from this core is expensive enough that DMA
