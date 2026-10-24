@@ -1525,9 +1525,9 @@ def decouple_window(window_title: str, default_width: float = 1280.0, default_he
     except Exception:
         pass
 
-def _render_window_sizing_bar(window_title: str, window_key: str, default_w: float = 1280.0, default_h: float = 820.0):
+def _render_window_sizing_bar(window_title: str, window_key: str, default_w: float = 1280.0, default_h: float = 820.0, on_pop_in=None):
     """
-    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     Renders dynamic sizing controls for both docked and popped-out windows.
     When popped out: provides instant size presets (800x600, 1024x720, 1280x820, 1600x960, 1920x1080),
     continuous width & height pixel sliders, and a prominent 1-click Pop In (Dock to Studio) button.
@@ -1577,17 +1577,21 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
         imgui.same_line(0, 14)
         imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.2, 0.7, 0.4, 0.9))
         if imgui.button(f"🗗 Pop In (Dock to Studio)##{window_key}"):
-            restore_default_layout()
+            if on_pop_in is not None:
+                on_pop_in()
+            else:
+                restore_default_layout()
         imgui.pop_style_color()
     else:
         # Window is docked inside workbench
         if imgui.button(f"🗖 Float Canvas##{window_key}"):
             decouple_window(window_title, default_w, default_h)
-        imgui.same_line()
-        if imgui.button(f"🚀 Dedicated Window (2nd Monitor)##{window_key}"):
-            launch_external_flight_canvas()
-        imgui.same_line()
-        imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Single dedicated window or dual monitor")
+        if window_key == "user":
+            imgui.same_line()
+            if imgui.button(f"🚀 Dedicated Window (2nd Monitor)##{window_key}"):
+                launch_external_flight_canvas()
+            imgui.same_line()
+            imgui.text_colored(imgui.ImVec4(0.5, 0.6, 0.7, 0.8), "| Single dedicated window or dual monitor")
 
     imgui.end_group()
     imgui.separator()
@@ -3124,17 +3128,22 @@ def _render_popped_tab_placeholder(display_name: str, key: str, window_title: st
 
 
 def _render_floating_canvas_windows():
-    """Popped-out tools as movable canvas windows, one per tool ([SPEC-STUDIO-16])."""
+    """Popped-out tools as movable canvas windows, one per tool ([SPEC-STUDIO-16], [SPEC-STUDIO-01])."""
     # @impl [SPEC-STUDIO-16] tools/visualizer/SPECIFICATION.md
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
     for key, label, title, fn, _ in available_tools():
         if not g_state.canvas_windows.get(key, False):
             continue
         imgui.set_next_window_size(imgui.ImVec2(1100, 680), imgui.Cond_.first_use_ever)
         expanded, opened = imgui.begin(f"{title}##CanvasWin", True)
         if expanded:
-            if imgui.button(f"🗗 Pop In (Dock to Studio Tab)##{key}_popin"):
-                g_state.canvas_windows[key] = False
-            imgui.separator()
+            def _make_pop_in(k=key):
+                def _do_pop_in():
+                    g_state.canvas_windows[k] = False
+                    g_state.requested_studio_tab = k
+                return _do_pop_in
+
+            _render_window_sizing_bar(f"{title}##CanvasWin", key, 1100.0, 680.0, on_pop_in=_make_pop_in(key))
             globals()[fn]()
         imgui.end()
         if not opened:

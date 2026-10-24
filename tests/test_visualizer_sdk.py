@@ -793,3 +793,4 @@ def test_viewport_popouts_become_os_windows():
     finally:
         imgui.destroy_context(ctx)
     assert "change_window_size" not in inspect.getsource(studio._render_window_sizing_bar)
+    assert "_render_window_sizing_bar" in inspect.getsource(studio._render_floating_canvas_windows)

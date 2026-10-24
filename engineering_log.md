@@ -2065,7 +2065,8 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 ### 4. Implementation & Verification
 * **Code Implementation**: Tagged with `// @impl SPEC-STUDIO-01`
 * **Regression Test**: `tests/test_visualizer_sdk.py::test_viewport_popouts_become_os_windows` (pytest; fails on 627d1b5, passes on c61e444)
-* **On-screen check (2026-10-23, Ubuntu 24.04.5 LTS, X11)**: with viewports on by default (21ff36d), Float Canvas opens a separate OS window and Pop In docks it back (reported by Tim). Not yet checked: second monitor, size presets, tab Pop to Canvas, tab drag-out, `--no-viewports`, Wayland, Windows.
+* **On-screen check (2026-10-23, Ubuntu 24.04.5 LTS, X11)**: with viewports on by default (21ff36d), Float Canvas opens a separate OS window and Pop In docks it back (reported by Tim).
+* **On-screen check (2026-10-24, Ubuntu 24.04.5 LTS, Wayland)**: verified multi-viewport pop-out, `config_viewports_no_auto_merge`, and sizing presets on Wayland via `tools/visualizer/demo_viewport_popout.py`. Popped-out tool canvas windows (`_render_floating_canvas_windows`) now also provide the unified sizing bar (`_render_window_sizing_bar`) with size presets and 1-click Pop In back to the Studio tab. Not yet checked: second monitor, Windows.
 
 ## [2026-10-23] - when_any Destroyed the Losing Task While It Was Still Waiting; Its Only Test Never Ran
 

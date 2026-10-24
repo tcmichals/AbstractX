@@ -230,10 +230,10 @@ The visualizer MUST initialize a Dear ImGui full-screen docking workbench using 
 Multi-viewport mode (the default) MUST make a popped-out window a real OS window:
 * `io.config_viewports_no_auto_merge = True` is set in `callbacks.post_init`. ImGui's default (`False`) merges any floating window that overlaps the main window back into it, so a pop-out opened inside the Studio window never became its own OS window.
 * `io.config_viewports_no_decoration = False`, so popped-out windows get a native title bar and resize borders.
-* The size presets and sliders on a floating window resize only that window (`imgui.set_window_size`). They MUST NOT call `hello_imgui.change_window_size()`, which resizes the main Studio window. Only the status-bar "Window Size" buttons resize the main window.
+* The size presets and sliders on a floating window resize only that window (`imgui.set_window_size`). They MUST NOT call `hello_imgui.change_window_size()`, which resizes the main Studio window. Only the status-bar "Window Size" buttons resize the main window. Popped-out tool canvas windows (`_render_floating_canvas_windows`) provide this same sizing bar (`_render_window_sizing_bar`) with presets, sliders, and a Pop In button that returns the tool to its Studio tab.
 * `--demo` is an alias of `--sim`.
 * **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
-* **Tested on screen**: Ubuntu 24.04.5 LTS, X11 (2026-10-23): pop-out to a separate OS window and Pop In work. Not tested: Wayland, Windows, second monitor.
+* **Tested on screen**: Ubuntu 24.04.5 LTS: X11 (2026-10-23) and Wayland (2026-10-24) pop-out to a separate OS window, size presets, and Pop In work. Not tested: Windows, second monitor.
 
 ### `[SPEC-STUDIO-02]` AbstractX Core Studio Unified Engineering Workbench
 The visualizer MUST provide a dedicated Core Studio window implementing a `CoreStudioTabBar` with integrated diagnostic tabs: Coroutine Inspector, CPU Gauges & Topology, Flow Integrity & Pacing Eye, Simple Trace Viewer, Dual-Plane Timeline, Source Code & RTL Inspector, FPGA Peripherals, MemBrowse CI Report and CLI Console. All tabs share the same `TelemetryState` and respond correctly to `requested_studio_tab` jump requests. The TLP Bus Debugger ([SPEC-STUDIO-04]) and System Event Log ([SPEC-STUDIO-05]) are docked windows and MUST NOT also appear as tabs or pop-out copies: each surface is drawn once. A jump request for `tlp` or `log` shows and focuses the docked window.
