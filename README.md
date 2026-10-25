@@ -44,7 +44,7 @@ AbstractX executes a 4-step autonomous closed-loop architecture:
 > * [**Architectural Design Philosophy: Pros, Cons & RTOS Comparison**](docs/PROS_CONS.md)
 > * [**Multi-Silicon Benchmark Series & Case Studies (5-Part Deep Dive)**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md):
 >   1. *RP2350 Pico 2 W*: [Straight-Line Async: Sub-microsecond C++20 coroutines vs. RTOS threads](docs/articles/gps-compass-straight-line-async/README.md)
->   2. *Allwinner Radxa Cubie A5E*: [Bare Metal + AbstractX vs. FreeRTOS on XuanTie E906](docs/articles/BAREMETAL_VS_FREERTOS_E906.md)
+>   2. *Allwinner Radxa Cubie A5E*: [Bare Metal + AbstractX vs. FreeRTOS on XuanTie E906](docs/articles/baremetal-vs-freertos-e906/README.md)
 >   3. *QMTECH Zynq-7020*: [Polymorphic Silicon — C++ to SystemVerilog FPGA Switch Fabric](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md)
 >   4. *CI Observability*: [Embedded Firmware Observability with Pure GitHub](docs/articles/GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md)
 >   5. *Interactive Scripting*: [Experiment First, Compile Later: MicroPython on XuanTie E906](docs/articles/micropython-on-e906/README.md)

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1004 561" width="1004" height="561" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="1004" height="561" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">RUNTIME ARCHITECTURE • XUANTIE E906 (RV32IMAFC @ 200 MHZ)</text>
+  <text x="32" y="56" class="title">Bare Metal + AbstractX vs FreeRTOS + AbstractX</text>
+  <rect x="32" y="75" width="940" height="450" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 962 Q 972 75 972 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="972" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">Architectural Dimension</text>
+  <text x="266" y="99" class="th">Bare Metal + AbstractX</text>
+  <text x="626" y="99" class="th">FreeRTOS + AbstractX</text>
+  <rect x="32" y="113" width="940" height="38" fill="#141f36"/>
+  <line x1="32" y1="151" x2="972" y2="151" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-bold">Firmware Target</text>
+  <text x="266" y="136" class="cell-mono">apps/e906_bench_app</text>
+  <text x="626" y="136" class="cell-mono">apps/e906_freertos_app</text>
+  <rect x="32" y="151" width="940" height="38" fill="#182540"/>
+  <line x1="32" y1="189" x2="972" y2="189" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="174" class="cell-bold">Concurrency Model</text>
+  <text x="266" y="174" class="cell-mono">Pure cooperative C++20 coroutines</text>
+  <text x="626" y="174" class="cell-mono">Preemptive priority-based RTOS tasks</text>
+  <rect x="32" y="189" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="245" x2="972" y2="245" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="212" class="cell-bold">Who Runs Coroutines</text>
+  <text x="266" y="212" class="cell-mono">abstractx::run() main loop; sleeps in wfi when</text>
+  <text x="266" y="230" class="cell-mono">idle</text>
+  <text x="626" y="212" class="cell-mono">Dedicated 'abstractx' task; blocks on task</text>
+  <text x="626" y="230" class="cell-mono">notification</text>
+  <rect x="32" y="245" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="301" x2="972" y2="301" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="268" class="cell-bold">ISR -&gt; Coroutine Dispatch</text>
+  <text x="266" y="268" class="cell-mono">ISR posts to lock-free SPSC ring; wfi wakes</text>
+  <text x="266" y="286" class="cell-mono">immediately</text>
+  <text x="626" y="268" class="cell-mono">ISR posts to SPSC ring and calls</text>
+  <text x="626" y="286" class="cell-mono">vTaskNotifyGiveFromISR()</text>
+  <rect x="32" y="301" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="357" x2="972" y2="357" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="324" class="cell-bold">Context Switching</text>
+  <text x="266" y="324" class="cell-mono">Zero register save/restore overhead</text>
+  <text x="266" y="342" class="cell-mono">(cooperative frame yield)</text>
+  <text x="626" y="324" class="cell-mono">Full 32-register context switch on task</text>
+  <text x="626" y="342" class="cell-mono">preemption</text>
+  <rect x="32" y="357" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="413" x2="972" y2="413" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="380" class="cell-bold">Timer Overhead</text>
+  <text x="266" y="380" class="cell-mono">Zero tick timer; woke strictly on event</text>
+  <text x="266" y="398" class="cell-mono">interrupts or deadlines</text>
+  <text x="626" y="380" class="cell-mono">1000 Hz kernel tick timer (CLINT mtime, CLIC</text>
+  <text x="626" y="398" class="cell-mono">line 7)</text>
+  <rect x="32" y="413" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="469" x2="972" y2="469" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="436" class="cell-bold">Observability (barectf)</text>
+  <text x="266" y="436" class="cell-mono">Direct CTF Stream 4 (Profile) and Stream 5</text>
+  <text x="266" y="454" class="cell-mono">(Timeline)</text>
+  <text x="626" y="436" class="cell-mono">Native CTF Stream 5 spans for task switches &amp;</text>
+  <text x="626" y="454" class="cell-mono">tick interrupts</text>
+  <rect x="32" y="469" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="525" x2="972" y2="525" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="492" class="cell-bold">Peripheral Driver Reuse</text>
+  <text x="266" y="492" class="cell-mono">Direct freestanding C++20 HAL drivers (SPI,</text>
+  <text x="266" y="510" class="cell-mono">UART, I2C, DMA)</text>
+  <text x="626" y="492" class="cell-mono">Identical HAL drivers via FreeRtosDriverWrapper</text>
+  <text x="626" y="510" class="cell-mono">notification</text>
+</svg>

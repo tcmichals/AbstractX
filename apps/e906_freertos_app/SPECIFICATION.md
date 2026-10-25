@@ -5,7 +5,7 @@ This document is the single source of truth for `apps/e906_freertos_app/`: Abstr
 Allwinner T527/A527 XuanTie E906. It exists to answer one question with measurements:
 when is bare metal + AbstractX the better choice, and when is FreeRTOS + AbstractX?
 The shared benchmark is specified in [`apps/e906_bench/SPECIFICATION.md`](../e906_bench/SPECIFICATION.md);
-the write-up is [`docs/articles/BAREMETAL_VS_FREERTOS_E906.md`](../../docs/articles/BAREMETAL_VS_FREERTOS_E906.md).
+the write-up is [`docs/articles/baremetal-vs-freertos-e906/README.md`](../../docs/articles/baremetal-vs-freertos-e906/README.md).
 
 Each requirement has a tag `[SPEC-E906-RTOS-*]`; code carries `// @impl [SPEC-E906-RTOS-*]`.
 
@@ -95,3 +95,23 @@ flowchart LR
   interrupt handler and the benchmark ISR are integer-only.
 * **Verified by**: `e906-disassembly-check`
 * **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`
+
+### `[SPEC-E906-RTOS-07]` BareCTF / Studio Timeline Trace Integration
+* **Requirement**: FreeRTOS task switches are instrumented via `traceTASK_SWITCHED_IN` and
+  `traceTASK_SWITCHED_OUT` hooks to emit cycle-accurate timeline spans using
+  `abstractx::events::span(...)` over VirtIO RPMsg endpoint 1025 (`abstractx-trace`, CTF Stream 5).
+  AbstractX Studio renders FreeRTOS task execution periods, context switch latencies, and
+  kernel tick interruptions on the Timeline tab.
+* **Verified by**: `e906-board-selftest`, `host-tests`
+* **Implementation Target**: `apps/e906_freertos_app/FreeRTOSConfig.h`, `apps/e906_freertos_app/src/main.cpp`
+
+### `[SPEC-E906-RTOS-08]` FreeRTOS Driver Wrapper Pattern
+* **Requirement**: FreeRTOS tasks interacting with hardware peripherals MUST use synchronous
+  blocking wrapper adapters around AbstractX event-driven HAL drivers (`ISpi`, `IUart`, `II2c`).
+  The wrapper submits the transfer to the driver and suspends the calling FreeRTOS task via
+  `ulTaskNotifyTake(pdTRUE, timeout_ticks)`. The driver ISR completion callback invokes
+  `vTaskNotifyGiveFromISR()` to wake the task. The underlying hardware registers and DMA
+  management remain strictly inside the AbstractX HAL without duplication.
+* **Verified by**: `host-tests`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_freertos_app/include/freertos_driver_wrapper.hpp`
+

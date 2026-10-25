@@ -64,4 +64,17 @@
 #define INCLUDE_xTaskGetSchedulerState          1
 #define INCLUDE_uxTaskGetStackHighWaterMark     1
 
+/* [SPEC-E906-RTOS-07] BareCTF / Studio Timeline Trace Integration */
+#ifdef __cplusplus
+extern "C" {
+#endif
+void abx_trace_task_switched_in(void);
+void abx_trace_task_switched_out(void);
+#ifdef __cplusplus
+}
+#endif
+
+#define traceTASK_SWITCHED_IN()  abx_trace_task_switched_in()
+#define traceTASK_SWITCHED_OUT() abx_trace_task_switched_out()
+
 #endif /* FREERTOS_CONFIG_H */

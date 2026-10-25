@@ -7,10 +7,16 @@
  */
 #include "abstractx/abstractx.hpp"
 #include "bench.hpp"
+#include "hal/clic.hpp"
 #include "hal/trace.hpp"
 
 namespace abstractx::hal {
 extern ::hal::Rpmsg g_rpmsg;
+}
+
+// @impl [SPEC-E906-BENCH-03] apps/e906_bench/SPECIFICATION.md
+extern "C" bool abx_bench_soft_irq_enable(void) {
+    return hal::irq::attach(3, [](void*) { abx_bench_soft_isr(); }, nullptr);
 }
 
 static abstractx::coro::Task<void> bench_main() {
@@ -27,3 +33,4 @@ int main() {
     abstractx::run(bench_main());
     return 0;
 }
+

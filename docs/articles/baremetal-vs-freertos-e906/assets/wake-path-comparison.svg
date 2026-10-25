@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 520" width="980" height="520" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1px; fill: #49d9f4; }
+      .title { font-size: 17px; font-weight: 700; fill: #f4f7ff; }
+      .box-title { font-size: 13px; font-weight: 800; }
+      .box-sub { font-size: 11px; fill: #c0cbe0; }
+      .step-num { font-size: 11px; font-weight: 800; fill: #ffd479; }
+    </style>
+  </defs>
+  <rect width="980" height="520" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">EXECUTION PATH COMPARISON • HARDWARE IRQ TO COROUTINE RESUME</text>
+  <text x="32" y="56" class="title">Bare Metal Event Loop vs FreeRTOS Task Notification</text>
+  <rect x="32" y="75" width="440" height="415" rx="12" fill="#131e33" stroke="#253b5c" stroke-width="1.5"/>
+  <text x="52" y="104" fill="#6fe3ff" class="box-title">Bare Metal + AbstractX (Zero Context Switch)</text>
+  <rect x="52" y="125" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
+  <text x="64" y="145" fill="#f4f7ff" class="box-title">1. Hardware Interrupt (CLIC)</text>
+  <text x="64" y="163" class="box-sub">Level line triggers CPU trap vector in startup.S (15 cycles)</text>
+  <path d="M 252 175 V 185" stroke="#49d9f4" stroke-width="2"/>
+  <polygon points="252,189 248,183 256,183" fill="#49d9f4"/>
+  <rect x="52" y="187" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
+  <text x="64" y="207" fill="#f4f7ff" class="box-title">2. ISR Handler (fc_msgbox_doorbell_isr)</text>
+  <text x="64" y="225" class="box-sub">Drains msgbox FIFO, calls IsrDispatcher::post(h)</text>
+  <path d="M 252 237 V 247" stroke="#49d9f4" stroke-width="2"/>
+  <polygon points="252,251 248,245 256,245" fill="#49d9f4"/>
+  <rect x="52" y="249" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
+  <text x="64" y="269" fill="#f4f7ff" class="box-title">3. Dispatcher SPSC Ring</text>
+  <text x="64" y="287" class="box-sub">Lock-free atomic push into g_isr_ring (no scheduler lock)</text>
+  <path d="M 252 299 V 309" stroke="#49d9f4" stroke-width="2"/>
+  <polygon points="252,313 248,307 256,307" fill="#49d9f4"/>
+  <rect x="52" y="311" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
+  <text x="64" y="331" fill="#f4f7ff" class="box-title">4. WFI Idle Wake</text>
+  <text x="64" y="349" class="box-sub">CPU returns from ISR past wfi directly in platform_idle_wait()</text>
+  <path d="M 252 361 V 371" stroke="#49d9f4" stroke-width="2"/>
+  <polygon points="252,375 248,369 256,369" fill="#49d9f4"/>
+  <rect x="52" y="373" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
+  <text x="64" y="393" fill="#f4f7ff" class="box-title">5. abstractx::run() Resumes</text>
+  <text x="64" y="411" class="box-sub">Pumps Dispatcher::process(), calls coroutine .resume() directly</text>
+  <rect x="508" y="75" width="440" height="415" rx="12" fill="#131e33" stroke="#253b5c" stroke-width="1.5"/>
+  <text x="528" y="104" fill="#a78bfa" class="box-title">FreeRTOS + AbstractX (Preemptive Task Notification)</text>
+  <rect x="528" y="125" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
+  <text x="540" y="145" fill="#f4f7ff" class="box-title">1. Hardware Interrupt (CLIC)</text>
+  <text x="540" y="163" class="box-sub">Trap vector enters freertos_risc_v_trap_handler (portASM_e906.S)</text>
+  <path d="M 728 175 V 185" stroke="#a78bfa" stroke-width="2"/>
+  <polygon points="728,189 724,183 732,183" fill="#a78bfa"/>
+  <rect x="528" y="187" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
+  <text x="540" y="207" fill="#f4f7ff" class="box-title">2. ISR Handler &amp; Post</text>
+  <text x="540" y="225" class="box-sub">Calls fc_msgbox_doorbell_isr() -&gt; IsrDispatcher::post(h)</text>
+  <path d="M 728 237 V 247" stroke="#a78bfa" stroke-width="2"/>
+  <polygon points="728,251 724,245 732,245" fill="#a78bfa"/>
+  <rect x="528" y="249" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
+  <text x="540" y="269" fill="#f4f7ff" class="box-title">3. Task Notification</text>
+  <text x="540" y="287" class="box-sub">vTaskNotifyGiveFromISR(s_ax_task) + portYIELD_FROM_ISR()</text>
+  <path d="M 728 299 V 309" stroke="#a78bfa" stroke-width="2"/>
+  <polygon points="728,313 724,307 732,307" fill="#a78bfa"/>
+  <rect x="528" y="311" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
+  <text x="540" y="331" fill="#f4f7ff" class="box-title">4. Context Switch &amp; Scheduler</text>
+  <text x="540" y="349" class="box-sub">Saves task registers, scheduler switches context to abstractx_task</text>
+  <path d="M 728 361 V 371" stroke="#a78bfa" stroke-width="2"/>
+  <polygon points="728,375 724,369 732,369" fill="#a78bfa"/>
+  <rect x="528" y="373" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
+  <text x="540" y="393" fill="#f4f7ff" class="box-title">5. Task Unblocks &amp; Pumps Loop</text>
+  <text x="540" y="411" class="box-sub">ulTaskNotifyTake() returns -&gt; abstractx::step() resumes coroutine</text>
+</svg>

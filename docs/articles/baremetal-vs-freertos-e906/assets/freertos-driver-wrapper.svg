@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 420" width="980" height="420" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1px; fill: #49d9f4; }
+      .title { font-size: 17px; font-weight: 700; fill: #f4f7ff; }
+      .box-title { font-size: 13px; font-weight: 800; fill: #f4f7ff; }
+      .box-sub { font-size: 11px; fill: #c0cbe0; }
+      .mono { font-size: 11px; font-family: ui-monospace, Menlo, monospace; fill: #8ee3fb; }
+    </style>
+  </defs>
+  <rect width="980" height="420" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">ZERO DUPLICATION DRIVER ARCHITECTURE • SPEC-E906-RTOS-08</text>
+  <text x="32" y="56" class="title">Wrapping Freestanding AbstractX HAL Drivers for FreeRTOS Tasks</text>
+  <rect x="32" y="90" width="260" height="280" rx="12" fill="#1e1833" stroke="#6b46c1" stroke-width="1.5"/>
+  <text x="48" y="120" fill="#d6bcfa" class="box-title">FreeRTOS Task Domain</text>
+  <text x="48" y="145" class="box-sub">Traditional blocking RTOS code</text>
+  <rect x="48" y="170" width="228" height="60" rx="8" fill="#2d224d"/>
+  <text x="58" y="195" class="mono">uart.read(buf, 100);</text>
+  <text x="58" y="215" class="box-sub">Blocks calling task with timeout</text>
+  <text x="48" y="270" class="box-sub">• Task yields CPU immediately</text>
+  <text x="48" y="295" class="box-sub">• Other tasks or wfi run</text>
+  <text x="48" y="320" class="box-sub">• Zero polling / spinloops</text>
+  <rect x="340" y="90" width="280" height="280" rx="12" fill="#13243d" stroke="#3182ce" stroke-width="1.5"/>
+  <text x="356" y="120" fill="#90cdf4" class="box-title">TaskNotifier Wrapper</text>
+  <text x="356" y="145" class="box-sub">Bridge between RTOS and HAL</text>
+  <rect x="356" y="170" width="248" height="75" rx="8" fill="#1a365d"/>
+  <text x="366" y="193" class="mono">notifier.prepare();</text>
+  <text x="366" y="213" class="mono">hal.start_transfer(req);</text>
+  <text x="366" y="233" class="mono">notifier.wait(timeout);</text>
+  <text x="356" y="280" class="box-sub">• Stores xTaskGetCurrentTaskHandle()</text>
+  <text x="356" y="305" class="box-sub">• Calls ulTaskNotifyTake(pdTRUE)</text>
+  <text x="356" y="330" class="box-sub">• Wakes on vTaskNotifyGiveFromISR</text>
+  <rect x="668" y="90" width="280" height="280" rx="12" fill="#132a2f" stroke="#319795" stroke-width="1.5"/>
+  <text x="684" y="120" fill="#81e6d9" class="box-title">AbstractX Freestanding HAL</text>
+  <text x="684" y="145" class="box-sub">Shared silicon driver (Single SSOT)</text>
+  <rect x="684" y="170" width="248" height="75" rx="8" fill="#1d4044"/>
+  <text x="694" y="193" class="mono">Hardware DMA / FIFO Start</text>
+  <text x="694" y="213" class="mono">CLIC ISR Entry (Line 90)</text>
+  <text x="694" y="233" class="mono">notifier.notify_from_isr()</text>
+  <text x="684" y="280" class="box-sub">• Exact same silicon registers</text>
+  <text x="684" y="305" class="box-sub">• Zero duplicated register logic</text>
+  <text x="684" y="330" class="box-sub">• Shared by Coroutines &amp; RTOS</text>
+  <path d="M 292 205 H 336" stroke="#63b3ed" stroke-width="2"/>
+  <polygon points="338,205 330,200 330,210" fill="#63b3ed"/>
+  <path d="M 620 205 H 664" stroke="#4fd1c5" stroke-width="2"/>
+  <polygon points="666,205 658,200 658,210" fill="#4fd1c5"/>
+</svg>

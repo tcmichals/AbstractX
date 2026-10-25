@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1004 485" width="1004" height="485" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="1004" height="485" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">DESIGN GUIDE • RUNTIME SELECTION HEURISTICS</text>
+  <text x="32" y="56" class="title">When to Choose Bare Metal vs FreeRTOS + AbstractX</text>
+  <rect x="32" y="75" width="940" height="374" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 962 Q 972 75 972 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="972" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">System Characteristic / Use Case</text>
+  <text x="346" y="99" class="th">Recommended Runtime</text>
+  <text x="586" y="99" class="th">Architectural Rationale &amp; Tradeoffs</text>
+  <rect x="32" y="113" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="169" x2="972" y2="169" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-bold">High-rate streaming (8 kHz IMU,</text>
+  <text x="46" y="154" class="cell-bold">sensors)</text>
+  <text x="346" y="136" class="cell-mono">Bare Metal + AbstractX</text>
+  <text x="586" y="136" class="cell">Lowest possible latency, zero context-switch jitter,</text>
+  <text x="586" y="154" class="cell">lowest SRAM</text>
+  <rect x="32" y="169" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="225" x2="972" y2="225" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="192" class="cell-bold">MicroPython REPL &amp; scripts on E906</text>
+  <text x="346" y="192" class="cell-mono">Bare Metal + AbstractX</text>
+  <text x="586" y="192" class="cell">MicroPython VM runs cooperatively without preemptive</text>
+  <text x="586" y="210" class="cell">task contention</text>
+  <rect x="32" y="225" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="281" x2="972" y2="281" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="248" class="cell-bold">Long-running compute / FFT / Kalman</text>
+  <text x="46" y="266" class="cell-bold">filters</text>
+  <text x="346" y="248" class="cell-mono">FreeRTOS + AbstractX</text>
+  <text x="586" y="248" class="cell">Background task can be preempted by real-time sensor</text>
+  <text x="586" y="266" class="cell">I/O task</text>
+  <rect x="32" y="281" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="337" x2="972" y2="337" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="304" class="cell-bold">Legacy / 3rd-party blocking vendor</text>
+  <text x="46" y="322" class="cell-bold">stacks</text>
+  <text x="346" y="304" class="cell-mono">FreeRTOS + AbstractX</text>
+  <text x="586" y="304" class="cell">Vendor code can block in traditional APIs without</text>
+  <text x="586" y="322" class="cell">freezing coroutines</text>
+  <rect x="32" y="337" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="393" x2="972" y2="393" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="360" class="cell-bold">Ultra low power / battery operation</text>
+  <text x="346" y="360" class="cell-mono">Bare Metal + AbstractX</text>
+  <text x="586" y="360" class="cell">Zero 1 kHz tick wake-ups; CPU sleeps in wfi until</text>
+  <text x="586" y="378" class="cell">real physical event</text>
+  <rect x="32" y="393" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="449" x2="972" y2="449" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="416" class="cell-bold">Unified Studio Telemetry &amp; Profiling</text>
+  <text x="346" y="416" class="cell-mono">Either (Equal)</text>
+  <text x="586" y="416" class="cell">Both stream cycle-accurate CTF 1.8 spans &amp; stats to</text>
+  <text x="586" y="434" class="cell">Studio</text>
+</svg>

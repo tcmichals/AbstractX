@@ -6,6 +6,7 @@
  * @impl [SPEC-E906-RTOS-03] [SPEC-E906-RTOS-04] [SPEC-E906-RTOS-05] [SPEC-E906-RTOS-06] apps/e906_freertos_app/SPECIFICATION.md
  */
 #include "abstractx/abstractx.hpp"
+#include "abstractx/trace/event_trace.hpp"
 #include "bench.hpp"
 #include "hal/msgbox.hpp"
 #include "hal/trace.hpp"
@@ -73,6 +74,23 @@ void abstractx_task(void *) {
 extern "C" {
 
 const char *abx_bench_platform_name(void) { return "freertos"; }
+
+// @impl [SPEC-E906-RTOS-07] apps/e906_freertos_app/SPECIFICATION.md
+static uint64_t s_task_in_cycles = 0;
+
+void abx_trace_task_switched_in(void) {
+    s_task_in_cycles = abx_bench_mcycle();
+}
+
+void abx_trace_task_switched_out(void) {
+    const uint64_t now = abx_bench_mcycle();
+    if (s_task_in_cycles != 0 && now >= s_task_in_cycles) {
+        const uint64_t duration = now - s_task_in_cycles;
+        TaskHandle_t cur = xTaskGetCurrentTaskHandle();
+        const uint32_t taskId = cur ? static_cast<uint32_t>(reinterpret_cast<uintptr_t>(cur)) : 0;
+        abstractx::events::span(abstractx::events::kResume, taskId, s_task_in_cycles, duration);
+    }
+}
 
 bool abx_bench_soft_irq_enable(void) {
     clic_enable(kLineSoft, true);

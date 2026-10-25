@@ -2425,3 +2425,30 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - Host `ctest --test-dir build_host`: **60/60 passed (100%)**.
   - `python3 tools/audit_specs.py`: **46/46 tagged (100% coverage)**.
   - `python3 tools/spectrace_matrix.py --changes`: **95 hunks governed, 0 untraced**.
+
+## [2026-10-25] - XuanTie E906 Runtime Benchmark: Bare Metal vs FreeRTOS Verified on Silicon
+
+* **Category**: `process-gap` (numbers missing), `product-bug` (line 3 soft-irq bare metal route)
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `apps/e906_bench_app`, `apps/e906_freertos_app`, `docs/articles/baremetal-vs-freertos-e906/`
+* `BAREMETAL_VS_FREERTOS_E906.md` was an unfinished 93-line draft with every table cell marked "not measured yet".
+* Bare-metal bench app lacked `abx_bench_soft_irq_enable()`, preventing measurement of CLIC line 3 soft-interrupt wake latency.
+* FreeRTOS had no connection to barectf CTF 1.8 binary trace, leaving task switches invisible to AbstractX Studio.
+* No reusable driver adapter pattern existed for FreeRTOS tasks to call freestanding AbstractX HAL drivers.
+
+### 2. Root Cause & Solution
+* Added `abx_bench_soft_irq_enable()` in `apps/e906_bench_app/src/main.cpp` using `hal::irq::attach(3, ...)`.
+* Added `[SPEC-E906-RTOS-07]`: hooked `traceTASK_SWITCHED_IN/OUT` in `FreeRTOSConfig.h` to emit cycle-accurate spans via `abstractx::events::span(...)` over RPMsg endpoint 1025 (`abstractx-trace`, CTF Stream 5) into Studio Timeline.
+* Added `[SPEC-E906-RTOS-08]`: created `TaskNotifier` in `apps/e906_freertos_app/include/freertos_driver_wrapper.hpp` for FreeRTOS tasks to synchronously await AbstractX HAL drivers without busy waiting or duplicating driver register logic.
+* Upgraded article to full directory layout `docs/articles/baremetal-vs-freertos-e906/` with generator `tools/generate_bench_svg_assets.py` producing 5 clean dark-themed SVGs.
+
+### 3. Verification & Evidence
+* Both firmwares built and checked against remoteproc windows (`e906-build-layout` PASS).
+* Deployed to Radxa Cubie A5E (`192.168.3.3`) and executed `tests/board/bench_e906_runtime.py`:
+  - `e906_bench_app` (bare metal): yield round-trip 1,961 cycles (9.80 µs), soft-IRQ wake 3,255 cycles (16.28 µs), 0 periodic tick wake-ups, 0.01% idle CPU.
+  - `e906_freertos_app`: yield round-trip 1,997 cycles (9.98 µs), soft-IRQ wake 2,537 cycles (12.69 µs), 4,514 tick wake-ups over run (~5.5% idle tick CPU).
+  - Evidence saved to `docs/verification/evidence/e906_bench_baremetal.json` and `docs/verification/evidence/e906_bench_freertos.json`.
+* `python3 tools/audit_specs.py`: 100% tagged (46/46).
+* `python3 tools/spectrace_matrix.py --changes`: 0 untraced hunks.
+
