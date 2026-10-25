@@ -16,11 +16,12 @@
 9. [C++20 Coroutines & The Static Task Graph](#9-c20-coroutines--the-static-task-graph)
 10. [The Primary-Paced Channel Pattern for Multi-Rate Fusion](#10-the-primary-paced-channel-pattern-for-multi-rate-fusion)
 11. [Cross-Platform Silicon Scaling & Execution Matrix](#11-cross-platform-silicon-scaling--execution-matrix)
-12. [FPGA Switch Fabric, PIO & 64-Byte TLP Integration](#12-fpga-switch-fabric-pio--64-byte-tlp-integration)
-13. [Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio](#13-telemetry-dynamic-barectf-ctf-18--abstractx-studio)
-14. [100% Specification-to-Code Traceability & SpecTrace](#14-100-specification-to-code-traceability--spectrace)
-15. [Repository Architecture & Directory Map](#15-repository-architecture--directory-map)
-16. [Comprehensive Build, Simulation & Verification Guide](#16-comprehensive-build-simulation--verification-guide)
+12. [C++ Framework Driver Architecture & Low-Level Silicon Bring-Up](#12-c-framework-driver-architecture--low-level-silicon-bring-up)
+13. [FPGA Switch Fabric, PIO & 64-Byte TLP Integration](#13-fpga-switch-fabric-pio--64-byte-tlp-integration)
+14. [Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio](#14-telemetry-dynamic-barectf-ctf-18--abstractx-studio)
+15. [100% Specification-to-Code Traceability & SpecTrace](#15-100-specification-to-code-traceability--spectrace)
+16. [Repository Architecture & Directory Map](#16-repository-architecture--directory-map)
+17. [Comprehensive Build, Simulation & Verification Guide](#17-comprehensive-build-simulation--verification-guide)
 
 ---
 
@@ -395,7 +396,64 @@ AbstractX applications are written against the universal `abstractx::` API and c
 
 ---
 
-## 12. FPGA Switch Fabric, PIO & 64-Byte TLP Integration
+## 12. C++ Framework Driver Architecture & Low-Level Silicon Bring-Up
+
+AbstractX enforces a strict boundary between universal asynchronous framework drivers and target silicon peripherals. Drivers operate exclusively via split transactions returning C++20 coroutine tasks, guaranteeing zero CPU busy-waiting, zero dynamic allocations, and zero blocking HAL calls.
+
+### 12.1 The Split-Transaction Coroutine HAL & Polymorphic Decoupling
+* **Universal HAL Interfaces (`include/abstractx/hal/`)**:
+  - `ISpi`: Asynchronous SPI transfer interface (`write_reg_async`, `read_reg_async`, `transfer_async`).
+  - `II2c`: Asynchronous I2C burst interface (`write_async`, `read_async`, `write_read_async`).
+  - `IUart`: Non-blocking packet and byte-stream ingestion interface with driver-owned rings.
+  - `ITimer`: Hardware timestamping and cooperative sleep deadlines (`sleep_async`, `get_ticks`).
+  - `IIoProcessor`: Declarative target hardware channel routing and bus master dispatcher.
+* **Zero Synchronous Bus I/O Mandate (Rule 4)**:
+  - All synchronous blocking transfer methods (`transfer_sync`, `transfer_byte`, `delay_ms`, `while(busy)`) are strictly eliminated.
+  - Drivers yield execution cooperatively via `co_await dev.init_async()`, `co_await dev.read_reg_async()`, and `co_await dev.next_sample_async()`.
+* **Core Framework vs Application Library Boundary (`applib/`) (Rules 13 & 14)**:
+  - AbstractX Core (`include/abstractx/sensor/`) delivers strictly abstract polymorphic interfaces: `IImuDriver`, `IMagDriver`, and `IGpsDriver`.
+  - Concrete chip drivers (ICM-42688-P, QMC5883L, U-Blox GPS) reside exclusively in `applib/` and link as `abstractx_applib`.
+  - Application algorithms consume sensors via pure polymorphic references (`IImuDriver&`), allowing seamless sensor failover and SITL mocking with zero application `#ifdef`s.
+
+### 12.2 RP2350 Pico 2 W Driver Hardening: Full Asyncio & Zero-Overhead Interrupts (`[SPEC-PICO-HAL-01]`)
+During low-level driver audits on the Raspberry Pi Pico 2 W (RP2350 dual Cortex-M33), three critical architectural defects were discovered and resolved:
+1. **Double-Start Defect Elimination**:
+   - *Problem*: The HAL base-class contract mandates that calling `set_hardware_idle_from_isr()` automatically pops and starts the next queued request in the SPSC ring. Earlier implementations in `hal_spi.cpp` (`on_dma_complete_from_isr`), `hal_i2c.cpp` (`on_irq_from_isr`), and `abstractx_pico.hpp` (`PicoTimer` alarm callback) performed a redundant second pop:
+     ```cpp
+     // Legacy Bug: Double pop overwrote active_req_ and dropped completions!
+     push_completion_from_isr(active_req_, result);
+     set_hardware_idle_from_isr(); // Already pops & starts next request
+     if (pop_next_request_from_isr(next_req)) { start_hardware_transfer_from_isr(next_req); } // OVERWRITE!
+     ```
+   - *Fix*: Removed the redundant second pop. Calling `push_completion_from_isr()` followed by `set_hardware_idle_from_isr()` ensures strict 1:1 request-completion parity across all buses.
+2. **Dynamic SPI Mode Formatting**:
+   - `PicoSpi::init` programs CPOL and CPHA directly from `SpiConfig::mode` (fixing broken ICM-42688-P Mode0 operation which previously failed due to hardcoded Mode3 CPOL1/CPHA1).
+   - Validates that `lsb_first` is false: the ARM PrimeCell PL022 SPI controller shifts MSB first only (`spi_set_format` asserts `SPI_MSB_FIRST`), so requests for LSB-first are rejected at initialization.
+3. **Non-Blocking Interrupt-Driven `PicoI2c` State Machine**:
+   - Replaced a previous stub with a fully interrupt-driven hardware state machine based on the Synopsys DesignWare `DW_apb_i2c` IP.
+   - The `I2C0_IRQ` handler queues `IC_DATA_CMD` words (tx bytes, then reads; generates repeated start `RESTART` on first read after a write, and `STOP` on the final byte).
+   - Enforces an in-flight read limit of at most 16 words (matching hardware RX FIFO depth) to prevent FIFO overflow during high-speed sensor bursts.
+   - Completes cleanly on `STOP_DET` (`I2cStatus::Ok`) or `TX_ABRT` (decoding `7B_ADDR_NOACK` to `NackAddress`, `TXDATA_NOACK` to `NackData`, and arbitration loss to `BusError`) with zero CPU busy-waiting.
+
+### 12.3 XuanTie Coprocessor (E906/E902) High-Speed Circular DMA Serial & Bus Synchronization (`[SPEC-E906-HAL-01..03]`)
+On the Allwinner T527 heterogeneous architecture (quad Cortex-A55 Linux + XuanTie E906 RISC-V coprocessor), real-time UART and SPI traffic are offloaded entirely to hardware DMA:
+1. **Circular UART3 DMA RX Ring (`[SPEC-E906-HAL-02]`)**:
+   - *Problem*: Polling or byte-by-byte interrupt receive costs ~0.5 µs per byte (~5% CPU load at 1 Mbit/s, >25% at 5 Mbit/s) and risks hardware FIFO overrun during MicroPython garbage collection sweeps (5–15 ms).
+   - *Architecture*: 16 receive buffers of 64 bytes each (1,024-byte circular ring) allocated in SRAM Space 1 (`.sram_c`). Linked as a circular DMA descriptor chain (LLI 15 links back to LLI 0) mapped to Sunxi DMAC channel 8, triggered by UART3 RX DRQ (port 17).
+   - *Headroom*: The 1,024 B ring provides **88.8 ms of overrun headroom** at 115,200 baud, guaranteeing zero dropped bytes even under heavy host load.
+2. **APB/AHB Clock Domain Crossing Synchronization (`DmaLli::para = 0x40`)**:
+   - When streaming at high baud rates across asynchronous bus clocks, the DMAC peripheral read acknowledge could cause duplicate byte reads. Setting descriptor parameter `DmaLli::para = 0x40` inserts hardware handshake wait states, ensuring exact 1:1 byte transfer fidelity.
+3. **Memory Bus Pipeline Synchronization**:
+   - The destination write pointer is synchronized with the Allwinner MBUS commit pipeline in `uart3_dma_sync()`, eliminating stale FIFO slice reads on partial LLI transitions.
+4. **Sunxi DMAC Channel Allocation & TrustZone Firewall Bypass (`[SPEC-E906-HAL-01]`)**:
+   - The Sunxi DMAC controller reserves channels 9 and 10 for OP-TEE TrustZone / HiFi4 DSP hardware firewalls. The AbstractX DMA allocator skips channels 9 and 10 to prevent bus exceptions, routing completion interrupts directly to CLIC line 88.
+5. **Threshold Balancing (FIFO vs DMA)**:
+   - Payload $\le$ 64 bytes: Uses direct FIFO programmed I/O (latency overhead of setting up DMA descriptors exceeds transfer time).
+   - Payload $>$ 64 bytes: Dispatches autonomous dual-channel Linked-List Item (LLI) DMA burst clocking with zero CPU wait states.
+
+---
+
+## 13. FPGA Switch Fabric, PIO & 64-Byte TLP Integration
 
 In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burning CPU cycles executing software driver routines, autonomous synthesizable SystemVerilog cores act as pure hardware drivers on Wishbone / AXI-Stream buses:
 * **[`rtl/asp_top.sv`](rtl/asp_top.sv)**: Top-level switch fabric wrapper interconnecting Wishbone / AXI-Stream buses.
@@ -429,7 +487,7 @@ In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burn
 
 ---
 
-## 13. Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio
+## 14. Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio
 
 Real-time embedded loops must **never perform string formatting or blocking socket operations**. Instead, AbstractX adopts the **Common Trace Format (CTF 1.8) via Barectf** as the universal binary telemetry format across both silicon and software, rendered at 120 FPS in **AbstractX Studio** via `imgui-bundle`.
 
@@ -451,7 +509,7 @@ Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenG
 
 ---
 
-## 14. 100% Specification-to-Code Traceability & SpecTrace
+## 15. 100% Specification-to-Code Traceability & SpecTrace
 
 AbstractX treats Markdown specifications as the absolute **Single Source of Truth (SSOT)**:
 1. **Authoritative Specification (`[SPEC-*]`)**: Requirements define architecture before code is written.
@@ -464,7 +522,7 @@ For comprehensive details on the SpecTrace methodology, read [`docs/SPECTRACE.md
 
 ---
 
-## 15. Repository Architecture & Directory Map
+## 16. Repository Architecture & Directory Map
 
 ```text
 AbstractX/
@@ -506,7 +564,7 @@ AbstractX/
 
 ---
 
-## 16. Comprehensive Build, Simulation & Verification Guide
+## 17. Comprehensive Build, Simulation & Verification Guide
 
 ### 0. Clone with Submodules
 ```bash
