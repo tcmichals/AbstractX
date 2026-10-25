@@ -184,7 +184,7 @@ Write your application once against `abstractx::` and deploy it across microcont
 | Silicon Target | Architecture | I/O Engine | Latency | Memory Overhead |
 | :--- | :--- | :--- | :--- | :--- |
 | **Raspberry Pi Pico 2 W** | Dual ARM Cortex-M33 @ 150 MHz | Core 0 PIO DMA + CYW43 Wi-Fi | **4.2 µs** | `< 1 KB` SRAM |
-| **Radxa Cubie A5E** | Quad Cortex-A55 + XuanTie E906 | E906 On-Chip DMA + Shared SRAM | **0.8 µs** | `< 1 KB` SRAM |
+| [**Radxa Cubie A5E**](https://github.com/tcmichals/cubie-a5e) | Quad Cortex-A55 + XuanTie E906 | E906 On-Chip DMA + Shared SRAM | **0.8 µs** | `< 1 KB` SRAM |
 | **Espressif ESP32-P4** | Dual RISC-V @ 400 MHz | Core 0 GDMA + Wi-Fi 6 | **1.8 µs** | `< 1 KB` SRAM |
 | **QMTech Zynq / Gowin** | ARM Host + FPGA Fabric | SystemVerilog PIO & Auto-DMA | **0.4 µs** | Hardware Offloaded |
 | **Desktop SITL** | Native Linux x86_64 / AArch64 | POSIX epoll Software Reactor | **0.5 µs** | Desktop Process |
@@ -259,11 +259,16 @@ AbstractX/
 
 Explore the comprehensive engineering series detailing silicon bring-up, coroutine concurrency, and hardware verification:
 
-* **Heterogeneous Architecture & Coprocessors**:
-  * [**Jumpstarting Heterogeneous Silicon: From Python `asyncio` to Freestanding C++20**](docs/articles/INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md) — Architectural pattern for heterogeneous multi-core SoCs, split-transaction drivers, and memory-mapped virtual BARs.
-  * [**Bare Metal + AbstractX vs FreeRTOS on the XuanTie E906 (Radxa Cubie A5E)**](docs/articles/baremetal-vs-freertos-e906/README.md) — Like-for-like empirical comparison of context switch overhead, idle ticks, and VirtIO RPMsg throughput on real hardware.
-  * [**Experiment First, Compile Later: Python on Both Processors (Radxa Cubie A5E)**](docs/articles/micropython-on-e906/README.md) — Bare-metal MicroPython on XuanTie E906, shared SRAM memory map, VirtIO RPMsg streams, and Studio timing timeline.
+* **Heterogeneous Architecture & The XuanTie RISC-V Coprocessor (Hackster.io Series)**:
+  * [**Part 1: Unlocking the XuanTie RISC-V Core on Allwinner T527**](https://www.hackster.io/MichalsTC/unlocking-the-xuantie-risc-v-core-on-allwinner-t527-part-1-976063) (Hackster.io) — Heterogeneous architecture, memory layout, clock trees, and XuanTie E906 boot.
+  * [**Part 2: Bringing Up Heterogeneous RISC-V on Allwinner SoCs**](https://www.hackster.io/MichalsTC/bringing-up-heterogeneous-risc-v-on-allwinner-socs-part-2-53deb8) (Hackster.io) — Linux `remoteproc`, firmware ELF loading, resource tables, and lifecycle management.
+  * [**Part 3: Bare-Metal Firmware, IPC & Coroutines Intro**](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part3_baremetal_firmware_ipc_and_coroutines_intro.md) — Hardware message box (`sun6i-msgbox`), VirtIO RPMsg zero-copy endpoints, and mailbox doorbells.
+  * [**Part 4: Bare Metal + AbstractX vs FreeRTOS on the XuanTie E906**](docs/articles/baremetal-vs-freertos-e906/README.md) ([GitHub Deep-Dive](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md)) — Like-for-like empirical comparison of context switch overhead, idle ticks, and VirtIO RPMsg throughput on real hardware.
+  * [**Part 5: Experiment First, Compile Later: Python on Both Processors**](docs/articles/micropython-on-e906/README.md) — Bare-metal MicroPython on XuanTie E906, shared SRAM memory map, VirtIO RPMsg streams, and Studio timing timeline.
+  * [**Device Tree Overlays: U-Boot & `config.txt` Integration**](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md) — Dynamic pinmuxing, peripheral arbitration between Linux and E906, and Sunxi DMAC channel reservations.
+  * [**Companion Repository: `tcmichals/cubie-a5e`**](https://github.com/tcmichals/cubie-a5e) — Reference repository for Radxa Cubie A5E Linux driver development, kernel buildroot setups, device tree overlays, and E906 coprocessor demo firmware.
 * **Coroutine Concurrency & Zero-Heap Determinism**:
+  * [**Jumpstarting Heterogeneous Silicon: From Python `asyncio` to Freestanding C++20**](docs/articles/INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md) — Architectural pattern for heterogeneous multi-core SoCs, split-transaction drivers, and memory-mapped virtual BARs.
   * [**Straight-Line Async: Sub-Microsecond C++20 Coroutines on Raspberry Pi Pico 2 W**](docs/articles/gps-compass-straight-line-async/README.md) — 8 kHz IMU, GPS, and compass streaming on RP2350 dual Cortex-M33 with zero RTOS stacks.
   * [**Multi-Silicon Benchmark Series & Case Studies**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md) — Empirical speed, memory efficiency, and silicon scaling benchmarks across four architectures.
 * **FPGA Hardware Switch Fabrics & RTL Acceleration**:
