@@ -2528,5 +2528,32 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Specification Audit**: `python3 tools/audit_specs.py`: **46/46 specifications tagged (100.0% coverage)**.
 * **SpecTrace Change Matrix**: `python3 tools/spectrace_matrix.py --changes`: All 7 `[SPEC-PIO-01..07]` requirements mapped.
 
+## [2026-10-25] - Queue Concurrency Semantic Naming Alignment & Handoff from inav-abstractx
+
+* **Category**: `process-gap`, `product-bug`
+* **Target / Subsystem**: `include/tlp_ring.hpp`, `tools/check_queue_concurrency.py`, `docs/QUEUE_CONCURRENCY_NAMING_HANDOFF.md`, `[SPEC-TLP-03]`
+
+### 1. Problem Statement & Hazard Identified
+* In `inav-abstractx` dual-core RP2350 (Pico 2 W) and Allwinner A5E (E906) review, calling shared telemetry sinks or multi-producer queues generic "SPSC queues" was identified as misleading.
+* Concurrent writes to an SPSC queue (`SpscTlpRing`) from multiple cores (Core 0 I/O + Core 1 PIO DMA) or ISRs cause race conditions on `head_` and `tail_`, causing torn writes and index corruption.
+
+### 2. Architectural Standardization under `[SPEC-TLP-03]`
+* **Dedicated 1:1 SPSC Channel (`DedicatedSpscChannel`)**:
+  - Aliased as `template <size_t Cap = 64> using DedicatedSpscChannel = SpscTlpRing<Cap>;`.
+  - Strictly 1 Producer : 1 Consumer for dedicated DMA pipelines (e.g. PIO DMA -> Core 1, UartRxRingBase).
+* **Channel Multiplexer (`TlpChannelMultiplexer`)**:
+  - Aliased as `template <size_t NumChannels = 4, size_t Capacity = 16> using TlpChannelMultiplexer = SpscChannelArray<Tlp64, NumChannels, Capacity>;`.
+  - Each producer owns a dedicated SPSC channel; consumer drains round-robin with zero atomic write contention.
+* **Shared Event Queue (`MpscEventQueue`)**:
+  - Aliased as `template <size_t Cap = 64> using MpscEventQueue = MpscTlpRing<Cap>;`.
+  - N Producers -> 1 Consumer, serialized via nesting-aware `InterruptLock` on bare-metal or hardware spinlocks on RP2350.
+
+### 3. Verification & Evidence
+* `tools/check_queue_concurrency.py`: **225 files checked across C++, Python, SystemVerilog; 0 defects**.
+* Host Test Suite (`ctest --test-dir build_host`): **66/66 tests passed (100%)**.
+* Specification Audit (`python3 tools/audit_specs.py`): **46/46 tagged (100.0% coverage)**.
+* SpecTrace Changes (`python3 tools/spectrace_matrix.py --changes`): **0 untraced hunks**.
+
+
 
 

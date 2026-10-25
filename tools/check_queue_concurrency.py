@@ -45,12 +45,12 @@ EXCLUDE_DIRS = {
 
 # C++ Disallowed SPSC / MPMC Patterns
 CPP_DISALLOWED_PATTERNS = [
-    (re.compile(r"\bSpscTlpRing\b.*?\b(g_telemetry_ring|g_tx_ring|g_sensor_ring|egress_tx_ring|ingress_rx_ring|s_tlp_ingress_ring)\b"),
-     "Shared multi-producer queue must use MpscTlpRing with InterruptLock, not SpscTlpRing"),
-    (re.compile(r"\b(egress_tx_ring|ingress_rx_ring|s_tlp_ingress_ring|g_telemetry_ring)\b.*?\bSpscTlpRing\b"),
-     "Shared multi-producer queue must use MpscTlpRing with InterruptLock, not SpscTlpRing"),
+    (re.compile(r"\b(SpscTlpRing|DedicatedSpscChannel)\b.*?\b(g_telemetry_ring|g_tx_ring|g_sensor_ring|egress_tx_ring|ingress_rx_ring|s_tlp_ingress_ring)\b"),
+     "Shared multi-producer queue must use MpscTlpRing / MpscEventQueue with InterruptLock, not SpscTlpRing / DedicatedSpscChannel"),
+    (re.compile(r"\b(egress_tx_ring|ingress_rx_ring|s_tlp_ingress_ring|g_telemetry_ring)\b.*?\b(SpscTlpRing|DedicatedSpscChannel)\b"),
+     "Shared multi-producer queue must use MpscTlpRing / MpscEventQueue with InterruptLock, not SpscTlpRing / DedicatedSpscChannel"),
     (re.compile(r"\bSpscRingBuffer<[^>]+>\s+(tx_queue_|rx_queue_|g_telemetry_ring)\b"),
-     "Multi-producer queue must use MpscRingBuffer with InterruptLock"),
+     "Multi-producer queue must use MpscRingBuffer / MpscEventQueue with InterruptLock"),
     (re.compile(r"\b(MpmcRingBuffer|MpmcTlpRing|mpmc_queue)\b"),
      "MPMC queues are strictly prohibited in AbstractX; partition into SPSC channels or MPSC sinks"),
 ]

@@ -2,18 +2,23 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX C++20 Ring Buffers: SPSC (Inter-Core / AMP) & MPSC (ISR-Safe / Intra-Core)
- * -------------------------------------------------------------------------------------
- * Provides:
- * 1. SpscRingBuffer<T, Capacity>: Zero-allocation, lock-free, wait-free ring buffer
- *    with cache-line alignment (alignas(64)) to prevent false sharing across cores.
- * 2. SpscTlpRing<Capacity>: Tlp64-specialized alias for single-producer inter-core channels.
- * 3. SpscChannelArray<T, NumChannels, Capacity>: Dedicated per-device lock-free ring array
- *    enabling mutex-free multi-threaded I/O dispatches to a single main consumer loop.
- * 4. MpscRingBuffer<T, Capacity>: ISR-safe multi-producer single-consumer ring buffer backed by
- *    etl::queue_spsc_isr<T, Capacity, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>,
- *    serializing concurrent ISR and coroutine producers via nesting-aware InterruptLock.
- * 5. MpscTlpRing<Capacity>: Tlp64-specialized alias for intra-core multi-producer telemetry.
+ * AbstractX C++20 Ring Buffers: SPSC (1:1 Dedicated), Channel Multiplexer & MPSC (Shared Sinks)
+ * ---------------------------------------------------------------------------------------------
+ * Standardized under [SPEC-TLP-03] into three explicit, non-misleading concurrency topologies:
+ * 
+ * 1. Point-to-Point (1 Producer : 1 Consumer) -> DedicatedSpscChannel<Cap> / SpscRingBuffer<T, Cap>:
+ *    - Strictly for isolated 1:1 hardware DMA channels (e.g. PIO DMA -> Core 1, UartRxRingBase).
+ *    - WARNING: NEVER use for shared telemetry sinks or multi-task queues. Concurrent push()
+ *      causes race conditions on head_ and tail_ resulting in torn writes and queue corruption.
+ * 
+ * 2. Channel Multiplexer (N Private Channels -> 1 Consumer) -> TlpChannelMultiplexer<N, Cap> / SpscChannelArray<T, N, Cap>:
+ *    - Each distinct producer (Core 0 I/O, PIO DMA, I2C coroutines) owns a private SPSC channel.
+ *    - Single consumer drains channels round-robin or via priority with ZERO atomic write contention.
+ * 
+ * 3. Shared Event Queue (N Producers -> 1 Consumer) -> MpscEventQueue<Cap> / MpscRingBuffer<T, Cap>:
+ *    - Shared event sinks where multiple threads, coroutines, or ISRs push into a single queue.
+ *    - Serialized safely via nesting-aware InterruptLock (bare-metal), hardware spinlocks (RP2350),
+ *      or atomic ticket reservation.
  */
 
 #ifndef TLP_RING_HPP
@@ -125,6 +130,12 @@ private:
 template <size_t Capacity = ABSTRACTX_TLP_RING_CAPACITY>
 using SpscTlpRing = SpscRingBuffer<Tlp64, Capacity>;
 
+// Explicit alias for dedicated point-to-point 1:1 SPSC channels ([SPEC-TLP-03])
+// WARNING: Strictly 1 Producer : 1 Consumer. Never use for shared sinks.
+// @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
+template <size_t Capacity = ABSTRACTX_TLP_RING_CAPACITY>
+using DedicatedSpscChannel = SpscTlpRing<Capacity>;
+
 // Dedicated Per-Device Lock-Free Ring Array
 template <typename T, size_t NumChannels = 4, size_t Capacity = 16>
 class SpscChannelArray {
@@ -160,6 +171,12 @@ public:
 private:
     std::array<SpscRingBuffer<T, Capacity>, NumChannels> channels_{};
 };
+
+// First-class abstraction for multiplexing N private dedicated SPSC channels to 1 consumer ([SPEC-TLP-03])
+// Eliminates multi-producer lock contention by giving each producer (e.g. Core 0, PIO DMA, I2C) a private channel.
+// @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
+template <size_t NumChannels = 4, size_t Capacity = 16>
+using TlpChannelMultiplexer = SpscChannelArray<Tlp64, NumChannels, Capacity>;
 
 // ---------------------------------------------------------------------------
 // ISR-Safe Multi-Producer Single-Consumer (MPSC) Ring Buffer
@@ -240,6 +257,12 @@ private:
 // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 template <size_t Capacity = ABSTRACTX_TLP_RING_CAPACITY>
 using MpscTlpRing = MpscRingBuffer<Tlp64, Capacity>;
+
+// Explicit alias for multi-producer shared event queues ([SPEC-TLP-03])
+// Synchronized safely across coroutines and ISRs via nesting-aware InterruptLock.
+// @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
+template <size_t Capacity = ABSTRACTX_TLP_RING_CAPACITY>
+using MpscEventQueue = MpscTlpRing<Capacity>;
 
 } // namespace abstractx
 
