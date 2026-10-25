@@ -152,6 +152,72 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
 * **Resolution**: Monotonic nanosecond hardware clock (`CLOCK_MONOTONIC`).
 * **Asynchronous Delays**: Non-blocking coroutine yields backed by `timerfd` integrated into `epoll`.
 
+### 2.6 AbstractX Reactor: Zero-Heap Asynchronous POSIX Engine (`abstractx::reactor`)
+
+The **AbstractX Reactor** (`abstractx::reactor`) is the standalone, zero-heap event demultiplexer and coroutine engine for Linux and POSIX targets. Rather than pulling in heavy external dependencies like Boost.Asio or spawning thread-per-device worker threads, AbstractX Reactor leverages Linux `epoll` to drive C++20 stackless coroutines across network sockets, inter-core RPMsg-Lite endpoints, FPGA UIO interrupts, and high-resolution timers.
+
+```mermaid
+flowchart TD
+    subgraph SOURCES["Heterogeneous Linux I/O Descriptors (Zero-Copy)"]
+        SOCK["<b>UDP / TCP Sockets</b><br/><code>int sock_fd</code><br/>CTF 1.8 Telemetry • Studio CLI"]
+        RPMSG["<b>Linux RPMsg-Lite</b><br/><code>/dev/rpmsgX (rpmsg_char)</code><br/>E906 / Cortex-M Shared SRAM"]
+        UIO["<b>Hardware FPGA UIO</b><br/><code>/dev/uioX</code><br/>AXI Crossbar IRQ & DMA"]
+        TFD["<b>High-Res Timers</b><br/><code>timerfd / eventfd</code><br/>Nanosecond Flight Deadlines"]
+    end
+
+    subgraph REACTOR["AbstractX Reactor (targets/linux/)"]
+        EPOLL["<b>EpollReactor (epoll_create1)</b><br/><code>epoll_ctl(EPOLLIN | EPOLLOUT | EPOLLET)</code><br/>Zero Heap • Static <code>std::span&lt;epoll_event&gt;</code>"]
+        DISPATCHER["<b>Cooperative Dispatcher (step)</b><br/>Zero thread hops • 15-cycle function pointer jump"]
+    end
+
+    subgraph CORO_ENGINE["AbstractX C++20 Coroutine Flight Stack"]
+        TASK1["<code>co_await socket.recv_async(span)</code>"]
+        TASK2["<code>co_await rpmsg.send_async(tlp)</code>"]
+        TASK3["<code>co_await uio.await_irq_async()</code>"]
+    end
+
+    SOCK & RPMSG & UIO & TFD -->|Register FD| EPOLL
+    EPOLL -->|Non-blocking Wakeup| DISPATCHER
+    DISPATCHER -->|15-Cycle <code>.resume()</code>| TASK1 & TASK2 & TASK3
+```
+
+### `[SPEC-REACTOR-01]` Zero-Heap C++20 AbstractX Reactor Demultiplexer
+The core reactor MUST provide non-blocking event demultiplexing around Linux `epoll_create1(EPOLL_CLOEXEC)`, `epoll_ctl`, and `epoll_wait`.
+* **Zero Dynamic Heap**: The reactor engine MUST NOT perform any dynamic memory allocations (`operator new`, `malloc`). All epoll event buffer slices MUST be passed via `std::span<struct epoll_event>`.
+* **One-Shot Event Registration**: File descriptor subscriptions MUST use `EPOLLONESHOT` or edge-triggered modes to prevent spurious wakeups and stampeding coroutines.
+* **Refines**: `[SPEC-ARCH-01]`
+* **Method**: `Test`
+* **Verified by**: `host-tests`, `sanitizer-gate`
+* **Implementation Target**: `targets/linux/include/abstractx/reactor/epoll_reactor.hpp`
+
+### `[SPEC-REACTOR-02]` Non-Blocking Asynchronous Socket Coroutine Awaiter
+The reactor MUST provide zero-heap C++20 coroutine awaitables for UDP and TCP network sockets (`AsyncUdpSocket`).
+* **Non-Blocking Operation**: Sockets MUST be configured with `SOCK_NONBLOCK` and `SOCK_CLOEXEC`.
+* **Zero-Copy Span API**: Send and receive methods MUST operate directly on caller-provided `std::span<uint8_t>` buffers without intermediate heap buffers.
+* **Symmetric Cancellation**: When a socket coroutine is cancelled or times out, the pending descriptor subscription MUST be deregistered cleanly from `epoll` via `EPOLL_CTL_DEL`.
+* **Refines**: `[SPEC-ARCH-01]`, `[SPEC-ARCH-08]`
+* **Method**: `Test`
+* **Verified by**: `host-tests`, `sanitizer-gate`
+* **Implementation Target**: `targets/linux/include/abstractx/reactor/async_socket.hpp`
+
+### `[SPEC-REACTOR-03]` Non-Blocking Linux RPMsg-Lite Character Device Awaiter
+The reactor MUST provide a C++20 coroutine awaitable (`AsyncRpmsgEndpoint`) for Linux `virtio_rpmsg_bus` character devices (`/dev/rpmsgX` / `/dev/rpmsg_ctrlX`).
+* **Hardware Inter-Core Synchronization**: Reading from `/dev/rpmsgX` MUST suspend the coroutine until the Linux kernel virtio interrupt signals `POLLIN`.
+* **Zero-Copy 64B TLP Transport**: Directly moves 64-byte `Tlp64` datagrams between user memory and shared SRAM coprocessor mailboxes without intermediate serialization.
+* **Refines**: `[SPEC-ARCH-01]`, `[SPEC-ARCH-08]`, `[SPEC-TLP-01]`
+* **Method**: `Test`
+* **Verified by**: `host-tests`, `sanitizer-gate`
+* **Implementation Target**: `targets/linux/include/abstractx/reactor/async_rpmsg.hpp`
+
+### `[SPEC-REACTOR-04]` Non-Blocking Hardware UIO Interrupt Awaiter
+The reactor MUST provide a C++20 coroutine awaitable (`AsyncUioDevice`) for FPGA hardware interrupts exposed via `/dev/uioX`.
+* **Hardware Interrupt Await**: Coroutines await physical FPGA crossbar switch interrupts via `co_await uio.await_irq_async()`.
+* **Zero Polling**: Suspends until the Linux kernel UIO subsystem signals `POLLIN`, unmasking the interrupt vector with zero CPU busy-spinning.
+* **Refines**: `[SPEC-ARCH-01]`, `[SPEC-HAL-01]`
+* **Method**: `Test`
+* **Verified by**: `host-tests`, `sanitizer-gate`
+* **Implementation Target**: `targets/linux/include/abstractx/reactor/async_uio.hpp`
+
 ---
 
 ## 3. Directory Layout
@@ -161,8 +227,13 @@ targets/linux/
 ├── CMakeLists.txt              # Builds abstractx_target_linux (alias abstractx_target_host)
 ├── SPECIFICATION.md            # Authoritative SSOT target contract
 ├── include/
+│   ├── abstractx/reactor/      # Standalone AbstractX Reactor Subsystem
+│   │   ├── epoll_reactor.hpp   # Core zero-heap epoll demultiplexer
+│   │   ├── async_socket.hpp    # Zero-heap UDP/TCP coroutine socket
+│   │   ├── async_rpmsg.hpp     # Zero-copy Linux RPMsg-Lite character endpoint
+│   │   └── async_uio.hpp       # FPGA UIO interrupt awaiter
 │   ├── eventfd.hpp             # Lightweight C++20 EventFd wrapper
-│   ├── epoll_reactor.hpp       # Lightweight C++20 EpollReactor wrapper
+│   ├── epoll_reactor.hpp       # Backward compatibility wrapper
 │   ├── spi_worker.hpp          # Dedicated SPI worker thread
 │   ├── i2c_worker.hpp          # Dedicated I2C worker thread
 │   └── gpio_gpiod.hpp          # libgpiod v2 edge detection wrapper

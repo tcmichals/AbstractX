@@ -68,6 +68,11 @@ add_abstractx_cpputest(test_coro_primitives
     test_coro_primitives.cpp
 )
 
+add_abstractx_cpputest(test_reactor
+    test_main.cpp
+    test_reactor.cpp
+)
+
 # SpecTrace tooling ([SPEC-AUDIT-06..08]): plain python3, no pytest required.
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
@@ -101,7 +106,8 @@ if(Python3_Interpreter_FOUND)
                     RESULT_VARIABLE _pytest_dep OUTPUT_QUIET ERROR_QUIET)
     if(_pytest_dep EQUAL 0)
         foreach(_t test_e906_sensor_protocol.py test_membrowse_tracking.py
-                   test_spec_traceability.py test_tlp_and_ctf_schema.py)
+                   test_spec_traceability.py test_tlp_and_ctf_schema.py
+                   test_visualizer_async_bridge.py)
             get_filename_component(_n ${_t} NAME_WE)
             add_test(NAME py_${_n}
                      COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/${_t}
@@ -135,4 +141,7 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-ZYNQ-PLATFORM-07..11] Zynq Buildroot configuration verification
     add_test(NAME py_test_zynq_buildroot_config
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_buildroot_config.py)
+    # [SPEC-ZYNQ-01..03] Hardware-software register parity auditor
+    add_test(NAME py_test_register_parity
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_register_parity.py)
 endif()
