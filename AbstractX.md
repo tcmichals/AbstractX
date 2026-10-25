@@ -1,48 +1,49 @@
 # AbstractX: Complete Architecture & Deep-Dive Specification
 
-> **The Architectural Deep Dive: Emulating a Packet-Switched PCIe Fabric on Embedded Silicon with Zero Dynamic Heap, C++20 Coroutines, and Closed-Loop AI SpecTrace.**
+> **The Architectural Deep Dive: Hardware-Software Co-Design, C++20 Coroutines, Synthesizable SystemVerilog FPGA Fabrics, and Closed-Loop AI SpecTrace.**
 
 ---
 
 ## Table of Contents
-1. [The Vision: Emulating a Massive PCIe Fabric for Embedded Silicon](#1-the-vision-emulating-a-massive-pcie-fabric-for-embedded-silicon)
-2. [Architectural Principles: Limiting Memory & Maximizing Processor Speed](#2-architectural-principles-limiting-memory--maximizing-processor-speed)
+1. [The Vision: Emulating a High-Speed Bus Fabric on Embedded Silicon](#1-the-vision-emulating-a-high-speed-bus-fabric-on-embedded-silicon)
+2. [Architectural Principles: Limiting Memory & Maximizing Speed](#2-architectural-principles-limiting-memory--maximizing-speed)
 3. [The "Middle Ground": Defeating Vendor SDK & RTOS Bloat](#3-the-middle-ground-defeating-vendor-sdk--rtos-bloat)
 4. [The Zephyr Developer's Rosetta Stone](#4-the-zephyr-developers-rosetta-stone)
-5. [Asymmetric Multiprocessing (AMP) & The "PCIe Switch" I/O Architecture](#5-asymmetric-multiprocessing-amp--the-pcie-switch-io-architecture)
+5. [Asymmetric Multiprocessing (AMP) & The I/O Switch Architecture](#5-asymmetric-multiprocessing-amp--the-io-switch-architecture)
 6. [Why Traditional RTOSes Miss Distributed Multi-Processor I/O](#6-why-traditional-rtoses-miss-distributed-multi-processor-io)
 7. [Polymorphic I/O: From C++ Coroutines to SystemVerilog RTL](#7-polymorphic-io-from-c-coroutines-to-systemverilog-rtl)
 8. [Unified Design Pattern: Hardware-Software Co-Design](#8-unified-design-pattern-hardware-software-co-design)
 9. [C++20 Coroutines & The Static Task Graph](#9-c20-coroutines--the-static-task-graph)
-10. [The Primary-Paced Channel Pattern](#10-the-primary-paced-channel-pattern)
+10. [The Primary-Paced Channel Pattern for Multi-Rate Fusion](#10-the-primary-paced-channel-pattern-for-multi-rate-fusion)
 11. [Cross-Platform Silicon Scaling & Execution Matrix](#11-cross-platform-silicon-scaling--execution-matrix)
-12. [FPGA Switch Fabric & 64-Byte TLP Integration](#12-fpga-switch-fabric--64-byte-tlp-integration)
-13. [Telemetry, Dynamic Barectf CTF 1.8 & Observability](#13-telemetry-dynamic-barectf-ctf-18--observability)
-14. [SpecTrace: 100% Specification-to-Code Traceability](#14-spectrace-100-specification-to-code-traceability)
-15. [Repository Map & Navigation](#15-repository-map--navigation)
+12. [FPGA Switch Fabric, PIO & 64-Byte TLP Integration](#12-fpga-switch-fabric-pio--64-byte-tlp-integration)
+13. [Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio](#13-telemetry-dynamic-barectf-ctf-18--abstractx-studio)
+14. [100% Specification-to-Code Traceability & SpecTrace](#14-100-specification-to-code-traceability--spectrace)
+15. [Repository Architecture & Directory Map](#15-repository-architecture--directory-map)
+16. [Comprehensive Build, Simulation & Verification Guide](#16-comprehensive-build-simulation--verification-guide)
 
 ---
 
-## 1. The Vision: Emulating a Massive PCIe Fabric for Embedded Silicon
+## 1. The Vision: Emulating a High-Speed Bus Fabric on Embedded Silicon
 
-AbstractX is built around a single, game-changing architectural concept: **What if your entire embedded system behaved like a massive PCIe bus topology with switches, endpoints, and transaction packets?**
+AbstractX is built around a single, game-changing architectural concept: **What if your entire embedded system behaved like a massive packet-switched bus topology with switches, endpoints, and transaction packets?**
 
-In high-performance servers, CPUs do not wire point-to-point bespoke GPIOs or poll blocking hardware buses; they communicate across a **packet-switched PCIe fabric** using standardized **Transaction Layer Packets (TLPs)** routed through **PCIe Switches** to dedicated IP endpoints.
+In high-performance computing, CPUs do not wire point-to-point bespoke GPIOs or poll blocking hardware buses; they communicate across a **packet-switched fabric** using standardized **Transaction Layer Packets (TLPs)** routed through **Switches** to dedicated IP endpoints.
 
 AbstractX brings this exact data-center computing model to microcontrollers, coprocessors, and FPGAs:
 * **The Fabric**: Standardized 64-byte TLPs flowing across lock-free SPSC/MPSC rings (in shared SRAM, over SPI, or through FPGA AXI-Stream crossbars).
-* **The Switch**: The I/O Processor (RP2350 Core 0, XuanTie E906 RISC-V, or FPGA `asp_router.sv`) acts as the **PCIe Switch**, decoding virtual BAR addresses and channel tags to forward transactions directly to downstream IP blocks (UART, DMA, SPI, GPIO/LED).
-* **The Endpoints**: Hardware peripherals (IMU Auto-DMA, ESC controllers, LEDs) appear as clean endpoints on a virtual PCIe bus.
+* **The Switch**: The I/O Processor (RP2350 Core 0, XuanTie E906 RISC-V, or FPGA `asp_router.sv`) acts as the **Switch**, decoding virtual BAR addresses and channel tags to forward transactions directly to downstream IP blocks (UART, DMA, SPI, GPIO/LED).
+* **The Endpoints**: Hardware peripherals (IMU Auto-DMA, ESC controllers, LEDs) appear as clean endpoints on a virtual bus.
 * **Split Transactions**: Application loops never wait for slow physical hardware clocking; they fire non-blocking posted writes (`MemWrite`) or await tagged completions (`CplD`).
 
 ---
 
-## 2. Architectural Principles: Limiting Memory & Maximizing Processor Speed
+## 2. Architectural Principles: Limiting Memory & Maximizing Speed
 
 Traditional embedded architectures often rely on a Real-Time Operating System (RTOS) and spawn separate threads for every sensor and I/O bus. While an RTOS is a powerful, proven tool, the "thread-per-bus" approach inherently requires dedicating 2–4 KB of SRAM per task and consumes hundreds of clock cycles for every OS context switch.
 
 AbstractX achieves extreme concurrency differently by introducing the **Coroutine-Native HAL**. Inspired by high-performance server paradigms (like Boost.Asio or epoll), it brings event-driven deterministic scheduling to bare-metal. By replacing OS threads with C++20 compiler-generated state machines, AbstractX achieves two fundamental hardware goals:
-1. **Limit Memory Usage**: A suspended coroutine frame consumes less than 100 bytes of static memory (in `.bss`), running the entire system on a single shared 2 KB stack. It enforces **0 bytes of dynamic heap allocation**.
+1. **Limit Memory Usage**: A suspended coroutine frame consumes less than 120 bytes of static memory (in `.bss`), running the entire system on a single shared 2 KB stack. It enforces **0 bytes of dynamic heap allocation**.
 2. **Maximize Processor Speed**: By removing OS preemption, a context switch becomes a direct 15-cycle function pointer jump. Because the CPU never spins in blocking `while(busy)` loops, 100% of the processor's clock cycles are dedicated to useful work (like AHRS matrix math), extracting maximum theoretical throughput from the silicon.
 
 ---
@@ -71,18 +72,18 @@ If you are coming from **Zephyr RTOS**, the concepts in AbstractX map directly t
 **No.** While Zephyr provides `zbus` for intra-MCU pub/sub messaging and `net_buf` for network packets, these are **pure software abstractions** bound to the local processor's memory space. 
 
 In contrast, the AbstractX **64-byte TLP (Transaction Layer Packet)** is a **unified hardware-software bus routing data plane**:
-* **PCIe Switch Architecture on the I/O Processor**: The I/O Processor (whether Core 0 on RP2350, XuanTie E906 RISC-V, or an FPGA crossbar) functions as an **on-silicon PCIe Root Complex / PCIe Switch**. The Application Processor does not invoke ad-hoc RPCs or poke physical peripheral registers; it emits standard bus TLPs. The I/O Processor inspects the routing header (`channel`, `target_address`, `tag`) and **forwards the transaction directly to the actual hardware IP block** (UART IP, SPI DMA engine, I2C core, GPIO/LED controller).
-* **Virtual BAR Address Map**: Just like PCIe endpoints behind a PCIe switch, peripherals occupy a standardized virtual BAR address map (`bar::LedBase`, `bar::SerialBase`, `bar::ImuBase`, `bar::EscBase`).
+* **Bus Switch Architecture on the I/O Processor**: The I/O Processor (whether Core 0 on RP2350, XuanTie E906 RISC-V, or an FPGA crossbar) functions as an **on-silicon Bus Switch / Root Complex**. The Application Processor does not invoke ad-hoc RPCs or poke physical peripheral registers; it emits standard bus TLPs. The I/O Processor inspects the routing header (`channel`, `target_address`, `tag`) and **forwards the transaction directly to the actual hardware IP block** (UART IP, SPI DMA engine, I2C core, GPIO/LED controller).
+* **Virtual BAR Address Map**: Just like PCIe endpoints behind a bus switch, peripherals occupy a standardized virtual BAR address map (`bar::LedBase`, `bar::SerialBase`, `bar::ImuBase`, `bar::EscBase`).
 * **Synthesizable in Hardware**: The exact same 64-byte routing logic synthesizes into an FPGA AXI-Stream switch fabric (`rtl/asp_router.sv`) with nanosecond hardware timestamps, split-transaction completions (`CplD`), and hardware CRC32.
 * **Silicon-Agnostic Wire Framing**: Moves across cores via zero-copy shared SRAM rings, over physical SPI/UART busses, or directly into high-speed DMA burst engines without any CPU serialization or software `memcpy`.
 
 ---
 
-## 5. Asymmetric Multiprocessing (AMP) & The "PCIe Switch" I/O Architecture
+## 5. Asymmetric Multiprocessing (AMP) & The I/O Switch Architecture
 
 For extreme performance, AbstractX completely decouples application math (AHRS / Flight Control) from hardware peripheral manipulation using **Asymmetric Multiprocessing (AMP)** communicating over lock-free **SPSC Rings** and **64-byte TLPs**:
 * **The App Processor (Core 1 / Linux)**: Runs linear high-speed estimation and flight control algorithms. When it needs to interact with hardware (e.g. transmit an ESC serial command, read a sensor register, or toggle an LED), it constructs a 64-byte TLP and pushes it into the ring.
-* **The I/O Processor (Core 0 / RISC-V / FPGA)**: Acts as the **PCIe Switch / Bus Master**. It consumes TLPs from the ring, decodes the target endpoint from the virtual BAR map or channel ID, and routes the transaction directly onto the destination IP core (UART, SPI DMA, GPIO). If a read is requested, it routes a completion TLP (`CplD`) back to the App Processor.
+* **The I/O Processor (Core 0 / RISC-V / FPGA)**: Acts as the **Bus Switch / Master**. It consumes TLPs from the ring, decodes the target endpoint from the virtual BAR map or channel ID, and routes the transaction directly onto the destination IP core (UART, SPI DMA, GPIO). If a read is requested, it routes a completion TLP (`CplD`) back to the App Processor.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -98,7 +99,7 @@ For extreme performance, AbstractX completely decouples application math (AHRS /
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │          I/O PROCESSOR (Core 0 / XuanTie E906 / asp_router.sv)         │
-│                        [ PCIe SWITCH / ROUTER ]                        │
+│                        [ BUS SWITCH / ROUTER ]                         │
 │   Decodes Channel & BAR Address ────────► Routes to Downstream IP      │
 └───┬───────────────────────────────┬──────────────────────────────┬─────┘
     │                               │                              │
@@ -122,12 +123,12 @@ When developers need to run I/O on a secondary processor in Zephyr:
    * The developer must invent a custom serialization layer, write manual endpoint message handlers, and bridge byte buffers into driver API calls (`uart_tx`, `gpio_pin_set`).
    * **Result**: Massive memory footprint (two full RTOS kernel stacks), heavy serialization overhead, and fragmented, brittle application glue code.
 
-2. **The AbstractX Approach (The Distributed PCIe Bus Fabric)**:
+2. **The AbstractX Approach (The Distributed Bus Fabric)**:
    * AbstractX recognizes that **I/O should not be bound to the application CPU**.
-   * Because the entire interconnect is an emulated **PCIe Bus with a Virtual BAR Map**, the Application Processor has **zero knowledge of where the physical peripheral pins live**.
+   * Because the entire interconnect is an emulated **Bus Fabric with a Virtual BAR Map**, the Application Processor has **zero knowledge of where the physical peripheral pins live**.
    * Whether an ESC UART or IMU SPI peripheral is on-chip, routed to Core 0, running on an external RISC-V coprocessor, or synthesized into an FPGA crossbar:
      * The App Processor simply emits a 64-byte `MemWrite` or `MemRead` TLP to `bar::EscBase` or `bar::ImuBase`.
-     * The **I/O Processor acts as the PCIe Switch**: it drains the ring, decodes the BAR address, and forward-dispatches the transaction directly into the destination hardware IP.
+     * The **I/O Processor acts as the Bus Switch**: it drains the ring, decodes the BAR address, and forward-dispatches the transaction directly into the destination hardware IP.
    * **Result**: Zero serialization code, zero RPC boilerplate, zero dual-OS memory bloat, and total silicon portability.
 
 ---
@@ -157,7 +158,7 @@ flowchart LR
         H1 --- H2 --- H3 --- H4
     end
 
-    subgraph PLANE["THE UNIFIED ABSTRACTX DATA PLANE<br/><b>PCIe-Style 64-Byte Transaction Layer Packets (TLP)</b>"]
+    subgraph PLANE["THE UNIFIED ABSTRACTX DATA PLANE<br/><b>64-Byte Transaction Layer Packets (TLP)</b>"]
         direction TB
         P_HDR["<b>20-Byte TLP Header</b><br/>Type • Flags • Tag • Channel • Target Addr • 64-bit ns Timestamp"]
         P_PAYLOAD["<b>40-Byte Binary CTF 1.8 Event Payload</b><br/>Zero-copy barectf binary frame"]
@@ -292,9 +293,56 @@ sequenceDiagram
     EventLoop->>EventLoop: Executes linear processing & control actuation
 ```
 
+### Linear Code vs Callback Spaghetti
+
+```cpp
+// Legacy Asynchronous Callback Pattern (Brittle, Fragmented & Unreadable)
+void on_sensor_init_complete(bool status) {
+    if (!status) { handle_error(); return; }
+    sensor_start_calibration(&on_cal_complete); // Jump to callback 2
+}
+void on_cal_complete(int cal_val) {
+    sensor_configure_registers(cal_val, &on_cfg_complete); // Jump to callback 3
+}
+void on_cfg_complete() {
+    dma_start_read(&on_dma_complete); // Jump to callback 4
+}
+```
+
+In AbstractX, C++20 coroutines collapse this entire fragmented mess into a single readable straight line:
+
+```cpp
+// AbstractX C++20 Coroutine (100% Linear, Readable & Deterministic)
+Task<void> sensor_lifecycle_task(hal::ISpi& spi, hal::ITimer& timer) {
+    // 1. Linearly configure hardware registers without blocking
+    co_await sensor.write_reg_async(REG_PWR_MGMT, 0x01);
+    co_await timer.sleep_async(5_ms);
+    
+    // 2. Linearly calibrate and await completion
+    int cal = co_await sensor.calibrate_async();
+    co_await sensor.write_reg_async(REG_OFFSET, cal);
+
+    // 3. Continuously stream samples with zero CPU spinloops
+    while (true) {
+        Sample sample = co_await sensor.read_sample_async();
+        process(sample);
+    }
+}
+```
+
+### Structured Parallel Concurrency (`when_all`)
+```cpp
+// Boot SPI, I2C, and UART peripherals simultaneously; await all in parallel
+auto [spi_ok, i2c_ok, uart_ok] = co_await coro::when_all(
+    imu_driver.init_async(),
+    mag_driver.init_async(),
+    gps_driver.init_async()
+);
+```
+
 ---
 
-## 10. The Primary-Paced Channel Pattern
+## 10. The Primary-Paced Channel Pattern for Multi-Rate Fusion
 
 Heterogeneous physical data sources operate at vastly differing hardware sample rates:
 * **Primary High-Rate Stream**: 1 kHz – 8 kHz (SPI DMA / PIO) → The high-speed **Physical Clock Pacer**
@@ -347,7 +395,7 @@ AbstractX applications are written against the universal `abstractx::` API and c
 
 ---
 
-## 12. FPGA Switch Fabric & 64-Byte TLP Integration
+## 12. FPGA Switch Fabric, PIO & 64-Byte TLP Integration
 
 In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burning CPU cycles executing software driver routines, autonomous synthesizable SystemVerilog cores act as pure hardware drivers on Wishbone / AXI-Stream buses:
 * **[`rtl/asp_top.sv`](rtl/asp_top.sv)**: Top-level switch fabric wrapper interconnecting Wishbone / AXI-Stream buses.
@@ -381,7 +429,7 @@ In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burn
 
 ---
 
-## 13. Telemetry, Dynamic Barectf CTF 1.8 & Observability
+## 13. Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio
 
 Real-time embedded loops must **never perform string formatting or blocking socket operations**. Instead, AbstractX adopts the **Common Trace Format (CTF 1.8) via Barectf** as the universal binary telemetry format across both silicon and software, rendered at 120 FPS in **AbstractX Studio** via `imgui-bundle`.
 
@@ -392,13 +440,22 @@ The telemetry format is completely self-describing via [`trace/barectf_config.ya
 * Physical engineering units (`deg`, `m`, `m/s`, `g`, `deg/s`, `us`)
 * UI widget bindings (`artificial_horizon`, `altimeter`, `compass`, `oscilloscope`, `throttle_bar`)
 
+### AbstractX Studio Observability Framework
+Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenGL):
+* **Platform Topology**: Live graph of discovered processor cores, hardware coprocessors, clock frequencies, and lock-free queue saturation.
+* **Dual-Plane Execution Timeline**: Correlating hardware driver latency (Plane 1) against cooperative coroutine tasks (Plane 2), with interactive one-click jumping to exact C++ source locations (`__FILE__` : `__LINE__`).
+* **Multi-Core Utilization**: Real-time breakdown of CPU/SPU cores, host process load, and mailbox doorbell latency.
+* **Continuous Memory Observability**: Real-time SRAM and Flash footprint gauges powered by MemBrowse.
+* **Dynamic CTF / TLP Inspector**: Byte-level inspection of 64-byte binary frames and decoded fields.
+* **Interactive CLI Console & Hardware REPL**: Live target console (`abstractx> `) and MicroPython REPL (`>>> `) with register peek/poke, real-time command macros (`ps`, `ping`, `tasks`, `peek MTIME`), and Pop-to-Canvas movable window support.
+
 ---
 
-## 14. SpecTrace: 100% Specification-to-Code Traceability
+## 14. 100% Specification-to-Code Traceability & SpecTrace
 
 AbstractX treats Markdown specifications as the absolute **Single Source of Truth (SSOT)**:
 1. **Authoritative Specification (`[SPEC-*]`)**: Requirements define architecture before code is written.
-2. **AI Prompts & Workspace Invariants (`AGENTS.md`)**: Automatically loaded by AI coding agents on every turn.
+2. **AI Prompts & Workspace Invariants (`AGENTS.md`)**: Automatically loaded by AI coding assistants on every turn.
 3. **In-Code Implementation Traceability (`@impl`)**: Code tags tie directly to specification requirements.
 4. **Automated Verification (`tools/audit_specs.py`)**: CI gate proving 100% specification-to-code parity.
 5. **SpecTrace Closed Loop**: When bugs or defects occur, the mistake is cataloged in `engineering_log.md`, classified, and fed back into the specification *first* so AI agents never repeat the same error.
@@ -407,13 +464,96 @@ For comprehensive details on the SpecTrace methodology, read [`docs/SPECTRACE.md
 
 ---
 
-## 15. Repository Map & Navigation
+## 15. Repository Architecture & Directory Map
 
-* **Architectural Handbook & Polymorphic Design**: [`docs/ARCHITECTURE_AND_EXTENSIBILITY.md`](docs/ARCHITECTURE_AND_EXTENSIBILITY.md)
-* **AI Agent Invariants & Rules**: [`AGENTS.md`](AGENTS.md)
-* **SpecTrace Guide**: [`docs/SPECTRACE_GUIDE.md`](docs/SPECTRACE_GUIDE.md)
-* **Application Library (`applib/`)**: Concrete peripheral chip drivers (C++ and Python) in [`applib/`](applib/)
-* **AbstractX Core Headers**: [`include/abstractx/`](include/abstractx/)
-* **Hardware RTL**: [`rtl/`](rtl/) and [`rtl/pio/`](rtl/pio/)
-* **Target BSPs**: [`targets/`](targets/)
-* **AbstractX Studio**: [`tools/visualizer/abstractx_studio.py`](tools/visualizer/abstractx_studio.py)
+```text
+AbstractX/
+├── AGENTS.md                         # Non-negotiable AI agent invariants & architecture rules
+├── AbstractX.md                      # Comprehensive architecture deep-dive & specification
+├── applib/                           # Reusable concrete peripheral drivers (C++ & Python)
+│   ├── include/applib/drivers/       # Concrete chip implementations (ICM-42688-P, QMC5883L, U-Blox GPS)
+│   └── python/drivers/               # Python counterparts for rapid prototyping & testing
+├── apps/                             # Hardware-agnostic C++20 applications
+│   ├── gps_imu_app/                  # Reference multi-rate sensor fusion & control application
+│   ├── serial_loopback_app/          # Bus loopback & dual-core verification
+│   └── e906_repl_app/                # E906 Coprocessor Scripting Application (isolated DSP SRAM heap)
+├── include/abstractx/                # Freestanding C++20 core framework (0 heap allocations)
+│   ├── abstractx.hpp                 # Master runtime API (init, spawn, step, run)
+│   ├── coro.hpp                      # C++20 stackless coroutine task primitives
+│   ├── sensor/                       # Pure polymorphic sensor abstractions (IImuDriver, IMagDriver, IGpsDriver)
+│   ├── hal/                          # Universal split-transaction asynchronous HAL interfaces
+│   └── trace/                        # CTF 1.8 binary telemetry & Barectf logging
+├── targets/                          # Concrete silicon target BSPs and I/O processors
+│   ├── pico2w_rp2350/                # Raspberry Pi Pico 2 W (Dual Cortex-M33 / Core 0 PIO DMA)
+│   ├── linux/                        # Linux Host / SITL / Radxa Cubie A5E (POSIX epoll reactor)
+│   ├── allwinner_e906/               # XuanTie E906 RISC-V coprocessor BSP & shared SRAM
+│   └── esp32p4/                      # ESP32-P4 dual-core RISC-V BSP
+├── rtl/                              # Synthesizable SystemVerilog FPGA switch fabric
+│   ├── asp_top.sv                    # Top-level switch fabric wrapper
+│   ├── asp_router.sv                 # AXI-Stream packet router
+│   ├── pio/asp_pio_tile.sv           # Quad-SM Autonomous PIO tile (RP2040 ISA)
+│   ├── imu/asp_imu_auto_dma.sv       # Hardware IMU Auto-DMA core
+│   └── motor/asp_dshot_core.sv       # 4-Channel hardware DShot motor core
+├── tools/                            # Developer tooling, schema compilers & auditors
+│   ├── spectrace.py                  # SpecTrace master CLI (round-tripping & review)
+│   ├── audit_specs.py                # Specification-to-code traceability auditor
+│   ├── audit_boundaries.py           # Core framework architectural purity gate
+│   ├── audit_interfaces.py           # Polymorphic driver compliance auditor
+│   ├── check_queue_concurrency.py    # Queue concurrency & naming invariant checker
+│   └── visualizer/                   # Observability Studio & dynamic CTF schema loader
+└── tests/                            # Test suite (CppUTest, Cocotb, pytest)
+```
+
+---
+
+## 16. Comprehensive Build, Simulation & Verification Guide
+
+### 0. Clone with Submodules
+```bash
+git clone --recursive https://github.com/tcmichals/AbstractX.git
+cd AbstractX
+```
+
+### 1. Set Up Python Virtual Environment
+```bash
+./tools/setup_venv.sh
+source .venv/bin/activate
+```
+
+### 2. Build Host SITL Application & Test Suite
+```bash
+cmake -B build_host -DCMAKE_BUILD_TYPE=Release
+cmake --build build_host -j
+```
+
+### 3. Run the Verification Suite
+```bash
+ctest --test-dir build_host --output-on-failure
+```
+
+### 4. Run SpecTrace, Boundary & Concurrency Audits
+```bash
+# 1. Spec-to-code traceability
+python3 tools/audit_specs.py
+
+# 2. Architectural boundary audit (core framework purity)
+python3 tools/audit_boundaries.py
+
+# 3. Polymorphic driver & interface compliance audit
+python3 tools/audit_interfaces.py
+
+# 4. Queue concurrency & naming invariant audit
+python3 tools/check_queue_concurrency.py
+```
+
+### 5. Launch AbstractX Studio
+```bash
+# Terminal 1: Run the reference flight application
+./build_host/apps/gps_imu_app/gps_imu_app
+
+# Terminal 2: Launch Studio (listening on UDP port 9870)
+python3 tools/visualizer/abstractx_studio.py --port 9870
+
+# Or launch in standalone simulation mode without hardware
+python3 tools/visualizer/abstractx_studio.py --sim
+```
