@@ -22,6 +22,7 @@
 #include "abstractx/hal/spi.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/trace/tracer.hpp"
+#include "abstractx/drivers/sensor_interface.hpp"
 #include "asp_tlp64.hpp"
 
 namespace abstractx::drivers::imu {
@@ -42,18 +43,9 @@ namespace IcmRegs {
 
 constexpr uint8_t TLP_TAG_IMU = 0x01;
 
-/* Calibrated Engineering Units Data */
-struct ImuSample {
-    float    accel_g[3]{0.0f, 0.0f, 0.0f};  // X, Y, Z in Gs (±16g range)
-    float    gyro_dps[3]{0.0f, 0.0f, 0.0f}; // X, Y, Z in deg/sec (±2000 dps range)
-    float    temp_deg_c{0.0f};
-    uint64_t timestamp_us{0};
-    bool     valid{false};
-};
-
 // @impl [SPEC-IMU-01] [SPEC-IMU-02] docs/DESIGN_SPECIFICATION.md#spec-imu-01
 // @status Complete
-class Icm42688p {
+class Icm42688p : public IImuDriver {
 public:
     explicit Icm42688p(hal::ISpi& spi_driver) : spi_(spi_driver) {}
 
@@ -75,7 +67,7 @@ public:
     /*
      * C++20 Coroutine Async Lifecycle Initialization [SPEC-IMU-01]
      */
-    coro::Task<bool> init_async() {
+    coro::Task<bool> init_async() override {
         hal::SpiConfig config;
         config.frequency_hz = 24'000'000; // 24 MHz Max SPI clock
         config.mode = hal::SpiMode::Mode0;
@@ -203,8 +195,15 @@ public:
         }
     };
 
-    AsyncSampleAwaiter next_sample_async() noexcept {
+    AsyncSampleAwaiter sample_awaiter() noexcept {
         return AsyncSampleAwaiter(*this);
+    }
+
+    /*
+     * Polymorphic C++20 Coroutine Async Next Sample Ingestion (IImuDriver)
+     */
+    coro::Task<ImuSample> next_sample_async() override {
+        co_return co_await sample_awaiter();
     }
 
 private:

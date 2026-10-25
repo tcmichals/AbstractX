@@ -209,3 +209,17 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 * Every commit uses `Tim Michals <tcmichals@gmail.com>` (never an `@verityinst.com` address).
 * Commits never include `Co-Authored-By` trailers for AI assistants or any other AI metadata (same rule as cubie-a5e; decided 2026-10-15). Earlier commits that carry one are left as they are.
 * Work happens on more than one PC: commit and push `main` when a piece of work is done.
+
+## 13. Driver & Target Extensibility Mandate (Polymorphic OOP & Zero Heap)
+To ensure code is reusable across bare-metal MCUs, FPGA offloads, and Linux hosts:
+* **Sensor Driver Abstraction**:
+  - All hardware IMU drivers MUST inherit from `IImuDriver` (`drivers/include/abstractx/drivers/sensor_interface.hpp`) and implement `coro::Task<bool> init_async()` and `coro::Task<imu::ImuSample> next_sample_async()`.
+  - All Magnetometer drivers MUST inherit from `IMagDriver` and implement `coro::Task<mag::MagSample> read_sample_async()`.
+  - All GPS/GNSS drivers MUST inherit from `IGpsDriver` and implement `coro::Task<gps::GpsFix> next_fix_async()`.
+  - Application fusion loops MUST ingest sensors via abstract references (`IImuDriver&`), enabling transparent sensor failover and SITL mocking without application `#ifdef`s.
+* **Target I/O Processor Abstraction**:
+  - Target I/O processors MUST implement `IIoProcessor` (`include/abstractx/hal/io_processor.hpp`).
+* **Python Visualizer SDK**:
+  - All domain instruments and visualizer tools in Python MUST inherit from `AbstractXStudioPlugin` (`tools/visualizer/sdk/plugin.py`).
+* **Automated Audit**:
+  - Run `python3 tools/audit_interfaces.py` to confirm 100% compliance.

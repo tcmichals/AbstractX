@@ -23,38 +23,16 @@
 #include "abstractx/hal/uart.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/trace/tracer.hpp"
+#include "abstractx/drivers/sensor_interface.hpp"
 #include "asp_tlp64.hpp"
 
 namespace abstractx::drivers::gps {
 
 constexpr uint8_t TLP_TAG_GPS = 0x02;
 
-enum class GpsFixType : uint8_t {
-    NoFix = 0,
-    DeadReckoning = 1,
-    Fix2D = 2,
-    Fix3D = 3,
-    GnssPlusDeadReckoning = 4,
-    TimeOnly = 5
-};
-
-/* Calibrated GPS Navigation Solution */
-struct GpsFix {
-    int32_t    lat_1e7{0};         // Latitude (degrees * 1e7)
-    int32_t    lon_1e7{0};         // Longitude (degrees * 1e7)
-    int32_t    alt_msl_mm{0};      // Altitude MSL (mm)
-    int32_t    ground_speed_mm_s{0}; // Ground Speed (mm/s)
-    int32_t    heading_1e5{0};     // Heading of motion (degrees * 1e5)
-    uint8_t    satellites{0};      // Number of satellites tracked
-    GpsFixType fix_type{GpsFixType::NoFix};
-    uint32_t   itow_ms{0};         // GPS Time of Week
-    uint64_t   timestamp_us{0};
-    bool       valid{false};
-};
-
 // @impl [SPEC-GPS-01] [SPEC-GPS-02] docs/DESIGN_SPECIFICATION.md#spec-gps-01
 // @status Complete
-class UbloxGps {
+class UbloxGps : public IGpsDriver {
 public:
     explicit UbloxGps(hal::IUart& uart_driver) : uart_(uart_driver) {}
 
@@ -66,7 +44,11 @@ public:
     /*
      * C++20 Coroutine Async Lifecycle Initialization [SPEC-GPS-01]
      */
-    coro::Task<bool> init_async(uint32_t baudrate = 115200) {
+    coro::Task<bool> init_async() override {
+        return init_async(115200);
+    }
+
+    coro::Task<bool> init_async(uint32_t baudrate) {
         uart_.init(baudrate);
         reset_parser();
         co_return true;
@@ -190,8 +172,15 @@ public:
         }
     };
 
-    AsyncFixAwaiter next_fix_async() noexcept {
+    AsyncFixAwaiter fix_awaiter() noexcept {
         return AsyncFixAwaiter(*this);
+    }
+
+    /*
+     * Polymorphic C++20 Coroutine Async Next Fix Ingestion (IGpsDriver)
+     */
+    coro::Task<GpsFix> next_fix_async() override {
+        co_return co_await fix_awaiter();
     }
 
     void on_uart_rx_ready() noexcept {

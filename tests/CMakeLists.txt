@@ -144,4 +144,10 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-ZYNQ-01..03] Hardware-software register parity auditor
     add_test(NAME py_test_register_parity
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_register_parity.py)
+    # [SPEC-TLP-03] Multi-producer MPSC and dedicated SPSC queue concurrency auditor
+    add_test(NAME py_test_queue_concurrency
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_queue_concurrency.py)
+    # [SPEC-ARCH-01] Hardware driver and visualizer plugin interface compliance auditor
+    add_test(NAME py_test_interface_compliance
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/audit_interfaces.py)
 endif()

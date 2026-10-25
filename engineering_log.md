@@ -2554,6 +2554,39 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * Specification Audit (`python3 tools/audit_specs.py`): **46/46 tagged (100.0% coverage)**.
 * SpecTrace Changes (`python3 tools/spectrace_matrix.py --changes`): **0 untraced hunks**.
 
+## [2026-10-25] - Universal Sensor Driver Abstraction & Extensibility Handbook
+
+* **Category**: `process-gap`, `product-bug`
+* **Target / Subsystem**: `drivers/include/abstractx/drivers/sensor_interface.hpp`, `sensor_types.hpp`, `docs/ARCHITECTURE_AND_EXTENSIBILITY.md`, `AGENTS.md`, `tools/audit_interfaces.py`, `[SPEC-ARCH-01]`, `[SPEC-IMU-01]`, `[SPEC-MAG-01]`, `[SPEC-GPS-01]`
+
+### 1. Problem Statement
+* Hardware sensor drivers (`Icm42688p`, `Qmc5883l`, `UbloxGps`) were concrete standalone classes without a unified abstract interface.
+* This prevented polymorphic driver swapping, mock injection for SITL testing, and redundant multi-sensor failover without modifying application-level fusion loops.
+* Furthermore, developers and AI coding agents lacked an authoritative architecture handbook illustrating how to extend drivers, targets, and visualizer plugins using standard object-oriented programming.
+
+### 2. Architectural Standardization
+* **Domain Sensor Data Structures (`sensor_types.hpp`)**: Standardized `ImuSample`, `MagSample`, and `GpsFix` engineering unit data structures decoupled from individual chip registers.
+* **Polymorphic C++20 Sensor Interfaces (`sensor_interface.hpp`)**:
+  - `ISensorDriver`: Asynchronous lifecycle `init_async()`.
+  - `IImuDriver`: Asynchronous sample ingestion `next_sample_async()`.
+  - `IMagDriver`: Asynchronous magnetic vector ingestion `read_sample_async()`.
+  - `IGpsDriver`: Asynchronous PVT navigation solution `next_fix_async()`.
+* **Hardware Drivers Updated**:
+  - `Icm42688p` derives from `IImuDriver`.
+  - `Qmc5883l` derives from `IMagDriver`.
+  - `UbloxGps` derives from `IGpsDriver`.
+* **Architecture & Extensibility Handbook (`docs/ARCHITECTURE_AND_EXTENSIBILITY.md`)**:
+  - Comprehensive guide with copy-pasteable recipes for writing sensor drivers, HAL bus drivers, Studio Python plugins, and using the AbstractX Reactor.
+* **Automated Compliance Auditor (`tools/audit_interfaces.py`) & Skill**:
+  - Created `.agents/skills/interface-compliance/SKILL.md` and integrated `audit_interfaces.py` into CMake CTest.
+* **Agent Guidelines (`AGENTS.md`)**: Added Rule 13 enforcing driver and target extensibility.
+
+### 3. Verification & Evidence
+* Interface Auditor (`python3 tools/audit_interfaces.py`): **All 4 components compliant (100%)**.
+* Queue Concurrency Linter (`python3 tools/check_queue_concurrency.py`): **225 files checked, 0 defects**.
+* SITL IMU Polymorphic Test (`test_sitl_imu`): **5/5 tests passed**.
+* Host Regression Suite (`ctest --test-dir build_host`): **68/68 tests passed (100%)**.
+
 
 
 

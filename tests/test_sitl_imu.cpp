@@ -184,3 +184,19 @@ TEST(SitlImuTestGroup, RepeatedAsyncInitDoesNotGrowFramePool) {
     LONGS_EQUAL(high_water, coro::coro_pool_high_water());
     LONGS_EQUAL(live, coro::coro_pool_used());
 }
+
+TEST(SitlImuTestGroup, PolymorphicIImuDriverNextSampleAsync) {
+    mock().ignoreOtherCalls();
+    drivers::IImuDriver& polymorphic_imu = *imu;
+
+    ImuSample received_sample{};
+    auto sample_consumer = [&]() -> coro::Task<void> {
+        received_sample = co_await polymorphic_imu.next_sample_async();
+    };
+
+    auto task = sample_consumer();
+    CHECK_TRUE(run_to_completion(task));
+    CHECK_TRUE(received_sample.valid);
+    DOUBLES_EQUAL(1.0, received_sample.accel_g[2], 0.01);
+    DOUBLES_EQUAL(10.0, received_sample.gyro_dps[0], 0.1);
+}

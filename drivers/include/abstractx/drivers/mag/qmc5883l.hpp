@@ -24,6 +24,7 @@
 #include "abstractx/hal/i2c.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/trace/tracer.hpp"
+#include "abstractx/drivers/sensor_interface.hpp"
 #include "asp_tlp64.hpp"
 
 namespace abstractx::drivers::mag {
@@ -46,15 +47,8 @@ namespace QmcRegs {
 constexpr uint8_t TLP_TAG_MAG = 0x03;
 constexpr uint8_t DEFAULT_QMC_I2C_ADDR = 0x0D;
 
-/* Calibrated Magnetometer Sample */
-struct MagSample {
-    float    mag_mgauss[3]{0.0f, 0.0f, 0.0f}; // X, Y, Z in milliGauss
-    float    heading_deg{0.0f};                // Uncompensated 2D heading (0..360 deg)
-    uint64_t timestamp_us{0};
-    bool     valid{false};
-};
-
-class Qmc5883l {
+// @impl [SPEC-MAG-01] docs/DESIGN_SPECIFICATION.md
+class Qmc5883l : public IMagDriver {
 public:
     explicit Qmc5883l(hal::II2c& i2c_driver, uint8_t slave_addr = DEFAULT_QMC_I2C_ADDR)
         : i2c_(i2c_driver), slave_addr_(slave_addr) {}
@@ -62,7 +56,7 @@ public:
     /*
      * C++20 Coroutine Async Lifecycle Initialization [SPEC-MAG-01]
      */
-    coro::Task<bool> init_async() {
+    coro::Task<bool> init_async() override {
         hal::I2cConfig config{};
         config.frequency_hz = 400'000; // 400 kHz Fast Mode
         config.speed = hal::I2cSpeed::Fast_400k;
@@ -89,9 +83,9 @@ public:
     }
 
     /*
-     * Asynchronously read 6-byte magnetic vector (X, Y, Z)
+     * Asynchronously read 6-byte magnetic vector (X, Y, Z) (IMagDriver)
      */
-    coro::Task<MagSample> read_sample_async() {
+    coro::Task<MagSample> read_sample_async() override {
         MagSample s{};
         if (!initialized_) {
             co_return s;
