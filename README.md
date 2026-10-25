@@ -1,1032 +1,205 @@
-# AbstractX: The Agentic Framework for Hardware-Software Co-Design
-
-> **Welcome to AbstractX, an AI-native, specification-driven architecture built from the ground up for agentic programming.**
->
-> AbstractX pairs **C++20 stackless coroutines** with **FPGA hardware auto-DMA engines** and **PCIe-style Transaction Layer Packets (TLPs)**, but its true superpower is **how it is built**. This framework is engineered to eliminate the hallucination, drift, and memory leaks that typically plague AI-generated firmware.
->
-> By treating Markdown specifications as the absolute **Single Source of Truth (SSOT)** and enforcing a rigid set of zero-heap invariants, AbstractX creates a perfect, tightly constrained playground for autonomous coding agents.
->
-> **Here, humans design the architecture, and AI agents write the implementation.**
-
-### AbstractX is three projects
-
-| Project | What it is | Start here |
-| :--- | :--- | :--- |
-| **SpecTrace** | Spec-driven development with AI agents: requirements, skills, testing, evidence in git, feedback loop (testTrac / sizeTrac / perfTrac) | [`docs/TOOLING.md`](docs/TOOLING.md), [`docs/SPECTRACE_GUIDE.md`](docs/SPECTRACE_GUIDE.md) |
-| **Framework** | C++20 coroutine runtime, zero-copy transports, HAL/targets (E906, Pico 2 W, ESP32-P4, Linux) and the `asp_*` RTL fabric | [`docs/DESIGN_SPECIFICATION.md`](docs/DESIGN_SPECIFICATION.md), [`rtl/README.md`](rtl/README.md), [`rtl/pio/README.md`](rtl/pio/README.md) |
-| **Studio** | Observability GUI | [`tools/visualizer/SPECIFICATION.md`](tools/visualizer/SPECIFICATION.md) |
-
-License: GPLv3 (`LICENSE`); a commercial license is also available.
-
----
-
-### 🤖 The Agentic Development Loop & SpecTrace
-
-AbstractX executes a 4-step autonomous closed-loop architecture:
-* **1. Specs Anchor the Agent**: Humans specify system contracts, hardware memory maps, and coroutine lifecycles in Markdown first (`SPECIFICATION.md`) with formal requirement tags (`[SPEC-*]`).
-* **2. AI Implements with Grand Traceability**: Coding agents implement freestanding C++20 and RTL, tagging every function with matching `// @impl [SPEC-*]` annotations.
-* **3. SpecTrace Adversarial Audits**: The 6-stage SpecTrace Adversarial Review ([`tools/run_adversarial_audit.py`](tools/run_adversarial_audit.py)) and bidirectional traceability checker ([`tools/audit_specs.py`](tools/audit_specs.py)) ruthlessly verify that code obeys zero-heap invariants, avoids blocking delays, and achieves 100% spec-to-code parity without drift.
-* **4. Autonomous Closed-Loop Learning Gate**: When a test fails or a design flaw is found, the AI classifies the root cause, chronicles it in [`engineering_log.md`](engineering_log.md), and autonomously updates the Markdown specification and agent rules *first*—preventing recurrence permanently.
-
-> [!IMPORTANT]
-> **SpecTrace: The Missing Link in Aerospace Rigor & Static Analysis**:
-> Traditional aerospace standards (NASA Class A, DO-178C Level A) mandate end-to-end traceability, but rely on static spreadsheets and slow CCB review cycles, leading to "specification rot". Meanwhile, traditional static analysis tools (Clang-Tidy, Cppcheck) only check AST syntax and grammar—they are **architecturally blind** to coroutine lifecycles, hardware contracts, and system intent.
-> 
-> **SpecTrace** ([`docs/SPECTRACE.md`](docs/SPECTRACE.md)) solves both: it uses AI not just to write code, but to **semantically audit architectural invariants**, classify whether defects are *code bugs* or *specification flaws*, and autonomously **full round-trip** changes between Markdown specifications and code.
-
----
-
-## Deterministic Concurrency for Hardware-Software Co-Design
-
-### 💡 Core Design Philosophy: Linear Programming with a Minimal Footprint
-
-> 📖 **Read the Deep-Dives**:
-> * [**Architectural Design Philosophy: Pros, Cons & RTOS Comparison**](docs/PROS_CONS.md)
-> * [**Multi-Silicon Benchmark Series & Case Studies (5-Part Deep Dive)**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md):
->   1. *RP2350 Pico 2 W*: [Straight-Line Async: Sub-microsecond C++20 coroutines vs. RTOS threads](docs/articles/gps-compass-straight-line-async/README.md)
->   2. *Allwinner Radxa Cubie A5E*: [Bare Metal + AbstractX vs. FreeRTOS on XuanTie E906](docs/articles/baremetal-vs-freertos-e906/README.md)
->   3. *QMTECH Zynq-7020*: [Polymorphic Silicon — C++ to SystemVerilog FPGA Switch Fabric](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md)
->   4. *CI Observability*: [Embedded Firmware Observability with Pure GitHub](docs/articles/GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md)
->   5. *Interactive Scripting*: [Experiment First, Compile Later: MicroPython on XuanTie E906](docs/articles/micropython-on-e906/README.md)
->
-> AbstractX is **not a flight controller**; it is an **embedded design pattern** that brings **linear, sequential async programming with an ultra-small memory footprint** to embedded systems:
-## 🚀 The Vision: Emulating a Massive PCIe Fabric for Embedded Silicon
-
-AbstractX is built around a single, game-changing architectural concept: **What if your entire embedded system behaved like a massive PCIe bus topology with switches, endpoints, and transaction packets?**
-
-In high-performance servers, CPUs do not wire point-to-point bespoke GPIOs or poll blocking hardware buses; they communicate across a **packet-switched PCIe fabric** using standardized **Transaction Layer Packets (TLPs)** routed through **PCIe Switches** to dedicated IP endpoints.
-
-AbstractX brings this exact data-center computing model to microcontrollers, coprocessors, and FPGAs:
-* **The Fabric**: Standardized 64-byte TLPs flowing across lock-free SPSC rings (in shared SRAM, over SPI, or through FPGA AXI-Stream crossbars).
-* **The Switch**: The I/O Processor (RP2350 Core 0, XuanTie E906 RISC-V, or FPGA `asp_router.sv`) acts as the **PCIe Switch**, decoding virtual BAR addresses and channel tags to forward transactions directly to downstream IP blocks (UART, DMA, SPI, GPIO/LED).
-* **The Endpoints**: Hardware peripherals (IMU Auto-DMA, ESC controllers, LEDs) appear as clean endpoints on a virtual PCIe bus.
-* **Split Transactions**: Application loops never wait for slow physical hardware clocking; they fire non-blocking posted writes (`MemWrite`) or await tagged completions (`CplD`).
-
-### 💡 The Goal: Limiting Memory & Maximizing Processor Speed
-Traditional embedded architectures often rely on a Real-Time Operating System (RTOS) and spawn separate threads for every sensor and I/O bus. While an RTOS is a powerful, proven tool, the "thread-per-bus" approach inherently requires dedicating 2–4 KB of SRAM per task and consumes hundreds of clock cycles for every OS context switch.
-
-AbstractX achieves extreme concurrency differently by introducing the **Coroutine-Native HAL**. Inspired by high-performance server paradigms (like Boost.Asio or epoll), it brings event-driven deterministic scheduling to bare-metal. By replacing OS threads with C++20 compiler-generated state machines, AbstractX achieves two fundamental hardware goals:
-1. **Limit Memory Usage**: A suspended coroutine frame consumes less than 100 bytes of static memory (in `.bss`), running the entire system on a single shared 2 KB stack. It enforces **0 bytes of dynamic heap allocation**.
-2. **Maximize Processor Speed**: By removing OS preemption, a context switch becomes a direct 15-cycle function pointer jump. Because the CPU never spins in blocking `while(busy)` loops, 100% of the processor's clock cycles are dedicated to useful work (like AHRS matrix math), extracting maximum theoretical throughput from the silicon.
-
-### 💡 The "Middle Ground": Defeating Vendor SDK & RTOS Bloat
-Modern RTOSes (like **Zephyr**) attempt to fix thread bloat using event-driven "Workqueues". However, this forces developers into a painful compromise: write unreadable callback spaghetti to save memory, or spawn heavy threads to get readable, linear code. Furthermore, vendor-provided RTOS environments (like the **Allwinner SDK for the E906 RISC-V core**) often introduce massive binary footprints that suffocate tight silicon.
-
-AbstractX occupies the perfect **"Middle Ground"**: It provides the extreme, ultra-low memory footprint of raw bare-metal callbacks, but delivers the linear, highly-concurrent readability of a modern RTOS thread. AbstractX can run entirely bare-metal to replace a bloated vendor SDK, or it can drop smoothly inside a *single* Zephyr/FreeRTOS thread to handle ultra-high-speed sensor fusion without exhausting the system's memory budget.
-
-### 🧭 The Zephyr Developer's Rosetta Stone
-
-If you are coming from **Zephyr RTOS**, the concepts in AbstractX map directly to the tools you already know—elevated with modern C++20 language features and hardware synthesis:
-
-| Zephyr Concept | AbstractX Equivalent | Key Difference & Advantage |
-| :--- | :--- | :--- |
-| **Workqueue (`k_work_q`)** | **`abstractx::step()` Event Loop** | Single cooperative loop; runs the entire system on a shared 2 KB stack with zero heap allocation. |
-| **Work Item (`k_work`) & Callback** | **C++20 Coroutine (`Task<T>`)** | **No callback spaghetti**: instead of breaking algorithms into `void (*handler)(struct k_work*)`, C++20 `co_await` preserves local state and reads as a sequential, linear function. |
-| **Message Queue (`k_msgq`)** | **Lock-Free SPSC Ring (`AsyncQueue`)** | Single-Producer Single-Consumer static lock-free circular ring; zero mutexes, zero kernel critical sections, ISR/DMA-safe. |
-| **Zephyr Bus (`zbus`)** | **64-Byte TLP + Switch Fabric** | `zbus` is a pure **software-in-RAM** pub/sub bus passing C structs. AbstractX's **TLP** is a **hardware-synthesizable, PCIe-style data plane** (20B header, 40B payload, 4B CRC32) routable across FPGA crossbars, shared SRAM, and DMA. |
-| **Thread Sleep (`k_sleep`)** | **Async Yield (`co_await timer.sleep()`)** | Never blocks the CPU or yields thread context; simply registers a timestamp deadline and returns execution to the event loop. |
-
-#### Does Zephyr Have a TLP-like Structure?
-**No.** While Zephyr provides `zbus` for intra-MCU pub/sub messaging and `net_buf` for network packets, these are **pure software abstractions** bound to the local processor's memory space. 
-In contrast, the AbstractX **64-byte TLP (Transaction Layer Packet)** is a **unified hardware-software bus routing data plane**:
-* **PCIe Switch Architecture on the I/O Processor**: The I/O Processor (whether Core 0 on RP2350, XuanTie E906 RISC-V, or an FPGA crossbar) functions as an **on-silicon PCIe Root Complex / PCIe Switch**. The Application Processor does not invoke ad-hoc RPCs or poke physical peripheral registers; it emits standard bus TLPs. The I/O Processor inspects the routing header (`channel`, `target_address`, `tag`) and **forwards the transaction directly to the actual hardware IP block** (UART IP, SPI DMA engine, I2C core, GPIO/LED controller).
-* **Virtual BAR Address Map**: Just like PCIe endpoints behind a PCIe switch, peripherals occupy a standardized virtual BAR address map (`bar::LedBase`, `bar::SerialBase`, `bar::ImuBase`, `bar::EscBase`).
-* **Synthesizable in Hardware**: The exact same 64-byte routing logic synthesizes into an FPGA AXI-Stream switch fabric (`rtl/asp_router.sv`) with nanosecond hardware timestamps, split-transaction completions (`CplD`), and hardware CRC32.
-* **Silicon-Agnostic Wire Framing**: Moves across cores via zero-copy shared SRAM rings, over physical SPI/UART busses, or directly into high-speed DMA burst engines without any CPU serialization or software `memcpy`.
-
-### 💡 Asymmetric Multiprocessing (AMP) & The "PCIe Switch" I/O Architecture
-For extreme performance, AbstractX completely decouples application math (AHRS / Flight Control) from hardware peripheral manipulation using **Asymmetric Multiprocessing (AMP)** communicating over lock-free **SPSC Rings** and **64-byte TLPs**:
-* **The App Processor (Core 1 / Linux)**: Runs linear high-speed estimation and flight control algorithms. When it needs to interact with hardware (e.g. transmit an ESC serial command, read a sensor register, or toggle an LED), it constructs a 64-byte TLP and pushes it into the ring.
-* **The I/O Processor (Core 0 / RISC-V / FPGA)**: Acts as the **PCIe Switch / Bus Master**. It consumes TLPs from the ring, decodes the target endpoint from the virtual BAR map or channel ID, and routes the transaction directly onto the destination IP core (UART, SPI DMA, GPIO). If a read is requested, it routes a completion TLP (`CplD`) back to the App Processor.
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                   APPLICATION PROCESSOR (Core 1 / Linux)               │
-│         High-Speed Sensor Fusion Loop / Flight Control Math            │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ 64-Byte TLP (target_address, tag)
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                 LOCK-FREE SPSC RING (Shared SRAM / Mailbox)            │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Dequeue TLP
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│          I/O PROCESSOR (Core 0 / XuanTie E906 / asp_router.sv)         │
-│                        [ PCIe SWITCH / ROUTER ]                        │
-│   Decodes Channel & BAR Address ────────► Routes to Downstream IP      │
-└───┬───────────────────────────────┬──────────────────────────────┬─────┘
-    │                               │                              │
-    ▼                               ▼                              ▼
-┌────────────────┐          ┌────────────────┐             ┌────────────────┐
-│  UART / ESC IP │          │  SPI / DMA IP  │             │  GPIO / LED IP │
-│  (bar::EscBase)│          │  (bar::ImuBase)│             │  (bar::LedBase)│
-└────────────────┘          └────────────────┘             └────────────────┘
-```
-
-### 💡 Why Traditional RTOSes (and Zephyr) Miss Distributed Multi-Processor I/O
-
-Modern SoCs are inherently asymmetric (e.g. Raspberry Pi Pico 2 dual-core RP2350, ESP32-P4 dual RISC-V, Allwinner Radxa Cubie A5E Linux + XuanTie E906 RISC-V, or Zynq ARM + FPGA). Yet traditional RTOSes were conceived for a **single monolithic CPU executing local driver APIs**.
-
-When developers need to run I/O on a secondary processor in Zephyr:
-1. **The Zephyr Approach (The RPC Trap)**:
-   * Zephyr requires running an independent kernel instance on each core.
-   * To interact with hardware on Core 0 from Core 1, Zephyr relies on **OpenAMP / RPMsg**.
-   * The developer must invent a custom serialization layer, write manual endpoint message handlers, and bridge byte buffers into driver API calls (`uart_tx`, `gpio_pin_set`).
-   * **Result**: Massive memory footprint (two full RTOS kernel stacks), heavy serialization overhead, and fragmented, brittle application glue code.
-
-2. **The AbstractX Approach (The Distributed PCIe Bus Fabric)**:
-   * AbstractX recognizes that **I/O should not be bound to the application CPU**.
-   * Because the entire interconnect is an emulated **PCIe Bus with a Virtual BAR Map**, the Application Processor has **zero knowledge of where the physical peripheral pins live**.
-   * Whether an ESC UART or IMU SPI peripheral is on-chip, routed to Core 0, running on an external RISC-V coprocessor, or synthesized into an FPGA crossbar:
-     * The App Processor simply emits a 64-byte `MemWrite` or `MemRead` TLP to `bar::EscBase` or `bar::ImuBase`.
-     * The **I/O Processor acts as the PCIe Switch**: it drains the ring, decodes the BAR address, and forward-dispatches the transaction directly into the destination hardware IP.
-   * **Result**: Zero serialization code, zero RPC boilerplate, zero dual-OS memory bloat, and total silicon portability.
-
-### 💡 The Crown Jewel: Polymorphic I/O (C++ to SystemVerilog)
-Because the boundary between the App Processor and the I/O Processor is a standardized 64-byte TLP lock-free ring, the I/O layer is completely **Polymorphic**. You can scale your architecture seamlessly:
-1. **Tier 1 (MCU C++ Coroutines)**: The I/O Processor runs C++20 coroutines on a secondary microcontroller core (e.g., Pico 2 Core 0 or ESP32-P4 Core 0), dispatching to chip peripherals.
-2. **Tier 2 (FPGA SystemVerilog)**: The exact same I/O design pattern drops into Silicon on an FPGA (e.g., Zynq 7000, Gowin). The C++ I/O coroutines are replaced by the hardware crossbar switch fabric (`asp_router.sv`) and hardware state machines.
-
-To the Application Processor, a C++ coroutine I/O switch and a SystemVerilog hardware crossbar look identical. Both are formally verified by the **SpecTrace AI Anti-Drift Engine** to guarantee 100% architectural compliance.
-
----
-
-## End-to-End Specification-Driven Hardware / Software Mirror
+# AbstractX: The High-Speed Agentic Framework for Hardware-Software Co-Design
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/media/end_to_end_walkthrough.gif" alt="AbstractX End-to-End Specification-Driven Hardware / Software Mirror Walkthrough" width="100%" />
+  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/media/end_to_end_walkthrough.gif" alt="AbstractX Co-Design Walkthrough" width="100%" />
 </p>
 
 <p align="center">
-  <em>(Specification-driven dual synthesis: C++20 Processor Firmware &amp; FPGA SystemVerilog RTL Mirror)</em>
+  <strong>C++20 Coroutines • Zero Dynamic Heap • HOT MicroPython • Closed-Loop SpecTrace</strong>
 </p>
 
-> **Specification-First Development**: A single markdown specification (`SPECIFICATION.md`) drives dual target synthesis:
-> 1. **Target A (Processor)**: Freestanding C++20 coroutines, lock-free SPSC channels, and zero dynamic heap.
-> 2. **Target B (FPGA RTL)**: Autonomous SystemVerilog Auto-DMA state machine, hardware DRDY pin trigger, and 9.57 µs doorbell.
-> 3. **SpecTrace Closed-Loop**: 6-stage automated adversarial invariant verification and 100% grand traceability ([`docs/SPECTRACE.md`](docs/SPECTRACE.md)).
-> 4. **Dual Verification**: 100% pass rate across CppUTest SITL suites (under 3 ms) and Cocotb Verilator co-simulations.
-> 5. **Continuous Running Profile in Git**: Immutable target memory footprints (MemBrowse), 16 verified examples, and quality trends tracked commit-over-commit ([`docs/verification/RUNNING_PROFILE.md`](docs/verification/RUNNING_PROFILE.md)).
-> 6. **AbstractX Studio GUI (Dear ImGui Bundle)**: Real-time 120 FPS hardware-software observability suite mirroring both pipelines identically over UDP port 9870.
-
-### 🖥️ Real-Time Observability: AbstractX Studio
-AbstractX includes **AbstractX Studio**, a high-performance, hardware-accelerated GUI built on **`imgui-bundle`** (`Dear ImGui` + `ImPlot` + GLFW/OpenGL):
-* **Level 1 (Core System Platform Observability)**: Dynamic target topology discovery, Dual-Plane Gantt execution timeline (ISR/DMA vs C++20 coroutines) with interactive source jumping (`__FILE__ : __LINE__`), live SPU/CPU & process utilization, and continuous zero-heap **MemBrowse** memory tracking.
-* **Level 2 (Extensible Application Plugins)**: Pluggable domain instruments (e.g. [`flight_plugin.py`](tools/visualizer/flight_plugin.py) featuring vector Primary Flight Display artificial horizon, 3D attitude perspective wireframe, Quad-X motor mixer, navigation tapes, and 8 kHz IMU oscilloscope).
-* **Zero Hardcoded Offsets**: Dynamic runtime schema compilation from CTF 1.8 schemas (`trace_schema.json` and `trace/barectf_config.yaml`).
+<p align="center">
+  <a href="#-quickstart-in-30-seconds"><img src="https://img.shields.io/badge/Quickstart-30s-brightgreen.svg" alt="Quickstart"></a>
+  <a href="AbstractX.md"><img src="https://img.shields.io/badge/Deep--Dive-AbstractX.md-blue.svg" alt="Deep Dive"></a>
+  <a href="docs/SPECTRACE_GUIDE.md"><img src="https://img.shields.io/badge/SpecTrace-Aerospace--Grade-purple.svg" alt="SpecTrace"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3%20%2F%20Commercial-yellow.svg" alt="License"></a>
+</p>
 
 ---
 
-## 1. The Unified Design Pattern (Hardware + Software Co-Design)
+## ⚡ What is AbstractX?
 
-In AbstractX, **hardware and software share the exact same asynchronous, non-blocking execution model**:
+**AbstractX** is an AI-native embedded framework engineered for **extreme speed**, **zero architectural drift**, and **rapid hardware-software co-design**.
+
+By pairing **C++20 stackless coroutines** with **on-silicon PCIe-style Transaction Layer Packets (TLPs)**, **freestanding MicroPython**, and an autonomous **AI closed-loop learning gate (SpecTrace)**, AbstractX eliminates the thread bloat, memory fragmentation, and AI hallucinations that plague traditional embedded firmware.
+
+> 📖 **Looking for the deep architectural essays, Zephyr comparison, or PCIe switch specs?**  
+> Check out [**AbstractX.md**](AbstractX.md) and [**docs/ARCHITECTURE_AND_EXTENSIBILITY.md**](docs/ARCHITECTURE_AND_EXTENSIBILITY.md).
+
+---
+
+## 🚀 The 4 Pillars of AbstractX
 
 ```mermaid
 flowchart LR
-    subgraph HW["FPGA / HARDWARE SWITCH FABRIC"]
-        direction TB
-        H1["<b>Autonomous AXI-Stream Router</b><br/><code>rtl/asp_router.sv</code><br/>Non-blocking crossbar packet routing"]
-        H2["<b>Auto-DMA Burst Engines</b><br/><code>rtl/asp_imu_auto_dma.sv</code><br/>Autonomous SPI burst clocking & DRDY latching"]
-        H3["<b>Split-Transaction Handshakes</b><br/><code>tvalid</code> / <code>tready</code> hardware credit flow"]
-        H4["<b>64-Byte TLP Packetization</b><br/>Hardware nanosecond timestamps & CRC32"]
-        H1 --- H2 --- H3 --- H4
-    end
+    A["<b>1. BLAZING FAST</b><br/>• 15-cycle context switch<br/>• 0 Bytes dynamic heap<br/>• Sub-µs event steps<br/>• Zero-copy 64B TLPs"]
+    B["<b>2. EXPERIMENT FIRST</b><br/>• Rapid Python PoC<br/>• Interactive REPL<br/>• Test hardware in minutes"]
+    C["<b>3. HOT MICROPYTHON</b><br/>• Bare-metal E906 / RP2350<br/>• Quarantined SRAM heap<br/>• Direct native DMA<br/>• Zero RTOS overhead"]
+    D["<b>4. AI SPECTRACE</b><br/>• SSOT Markdown specs<br/>• Closed-loop learning<br/>• 0 Architectural drift<br/>• 100% Traceability"]
 
-    subgraph PLANE["THE UNIFIED ABSTRACTX DATA PLANE<br/><b>PCIe-Style 64-Byte Transaction Layer Packets (TLP)</b>"]
-        direction TB
-        P_HDR["<b>20-Byte TLP Header</b><br/>Type • Flags • Tag • Channel • Target Addr • 64-bit ns Timestamp"]
-        P_PAYLOAD["<b>40-Byte Binary CTF 1.8 Event Payload</b><br/>Zero-copy barectf binary frame"]
-        P_CRC["<b>4-Byte IEEE 802.3 CRC32</b><br/>End-to-end hardware integrity validation"]
-        P_HDR --> P_PAYLOAD --> P_CRC
-    end
-
-    subgraph SW["PROCESSOR / FIRMWARE DOMAIN"]
-        direction TB
-        S1["<b>C++20 Stackless Coroutines</b><br/><code>include/asp_coro.hpp</code><br/>Linear sequential task graphs"]
-        S2["<b>Async Lock-Free Channels</b><br/><code>AsyncQueue(T, N)</code> & <code>SpscTlpRing(64)</code><br/>Bounded static circular buffers"]
-        S3["<b>Non-Blocking Suspension</b><br/><code>co_await</code> cooperative yield without thread sleep"]
-        S4["<b>Deterministic Zero-Heap Model</b><br/>0 Bytes dynamic allocation • 2 KB shared stack"]
-        S1 --- S2 --- S3 --- S4
-    end
-
-    H4 <-->|Hardware AXI-Stream Bus| P_HDR
-    P_CRC <-->|Lock-Free Ring Buffers| S1
-
-    classDef hwStyle fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
-    classDef planeStyle fill:#312e81,stroke:#c084fc,stroke-width:2px,color:#ffffff;
-    classDef swStyle fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
-
-    class H1,H2,H3,H4 hwStyle;
-    class P_HDR,P_PAYLOAD,P_CRC planeStyle;
-    class S1,S2,S3,S4 swStyle;
+    A <--> B <--> C <--> D
+    classDef col fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
+    class A,B,C,D col;
 ```
 
-```mermaid
-flowchart TD
-    subgraph DRIVER_DOMAIN["Event-Driven Hardware & Drivers (Non-Blocking Dispatch)"]
-        direction LR
-        PIN_INT["<b>Physical DIO / ISR Trigger</b><br/>Sensor DRDY / External Pin Event"]
-        DMA_ENG["<b>Autonomous Hardware DMA / PIO</b><br/>Hardware burst clocking • Zero CPU wait states<br/><i>Latches nanosecond hardware timestamp</i>"]
-        TLP_GEN["<b>64B TLP Packetizer</b><br/>Encapsulates binary event payload<br/>Direct hardware framing"]
-        PIN_INT --> DMA_ENG --> TLP_GEN
-    end
+### 1. ⚡ BLAZING FAST: Sub-Microsecond C++20 Coroutines
+* **15-Cycle Context Switches**: Replaces heavy preemptive RTOS threads with compiler-generated stackless state machines. No thread stack bloat, no cache thrashing.
+* **0 Bytes Dynamic Heap (`0 B`)**: 100% freestanding C++20. All coroutine frames, SPSC queues, and memory buffers are statically allocated in `.bss` at compile time.
+* **Shared 2 KB Stack**: Runs the entire application on a single shared 2 KB stack.
+* **64-Byte Zero-Copy TLPs**: Point-to-point and crossbar communication via hardware-synthesizable 64-byte packets.
 
-    subgraph INTERCONNECT["Lock-Free Inter-Domain Bridge (Static Memory)"]
-        direction LR
-        SPSC_RING["<b>Lock-Free SPSC Ring (SpscTlpRing(64))</b><br/>Atomic head/tail pointers • Zero mutex locks"]
-        DOORBELL["<b>Event Signal / Doorbell</b><br/>Wakes event loop without thread preemption"]
-        TLP_GEN -->|push| SPSC_RING
-        TLP_GEN -->|signal| DOORBELL
-    end
+### 2. 🐍 Rapid Prototyping: Python for Experiments & PoC
+* **Experiment First, Compile Later**: Bring up unfamiliar sensors, test register maps, and tune filtering algorithms in Python before writing a single line of C++.
+* **Interactive Silicon REPL**: Direct register peek/poke and live interactive experimentation via the AbstractX Studio CLI console.
+* **Unified Sensor Contracts**: Python drivers in `applib/python/` mirror C++ interfaces 1:1.
 
-    subgraph EVENT_LOOP["Simple Poll Event Loop (abstractx::step())"]
-        direction TB
-        DISPATCHER["<b>Event Dispatcher & Poll Loop</b><br/>Processes events • Sole caller of <code>.resume()</code>"]
-        
-        subgraph TASKS["Linear C++20 Coroutine Task Graph"]
-            direction LR
-            T_PRIMARY["<b>primary_ingress_task</b><br/><code>co_await sensor.next_sample_async()</code>"]
-            T_PROCESS["<b>stream_processor_task</b><br/><code>co_await g_primary_channel.pop()</code><br/>Deterministic Processing & Control Loop"]
-            T_EGRESS["<b>telemetry_egress_task</b><br/>Decimated TLP UDP egress"]
-            T_PRIMARY -->|try_push| T_PROCESS --> T_EGRESS
-        end
-        
-        DISPATCHER --> TASKS
-    end
+### 3. 🔥 HOT / Fast MicroPython on Embedded Silicon
+* **Bare-Metal Coprocessor Scripting**: Run high-speed MicroPython directly on coprocessors like the **XuanTie E906 RISC-V** (Radxa Cubie A5E) and **RP2350** (Raspberry Pi Pico 2 W).
+* **Quarantined SRAM Heaps**: MicroPython runs inside an isolated, bounded SRAM window—never contaminating the deterministic C++20 real-time flight loops.
+* **Direct Native DMA Bindings**: MicroPython scripts trigger native on-chip DMA burst transactions directly over shared SRAM rings.
 
-    DOORBELL -.->|Wakes without OS preemption| DISPATCHER
-    SPSC_RING -.->|Zero-copy dequeue| T_PRIMARY
+### 4. 🔄 Autonomous Python-to-C++ Translation (`micropython-to-cpp`)
+* **AI-Powered Code Synthesis**: Once your sensor driver or algorithm is validated in Python, the specialized `.agents/skills/micropython-to-cpp/` skill autonomously transforms the async Python code into deterministic, freestanding C++20 coroutines.
+* **Zero Boilerplate**: Translates async iterators into awaitable drivers adhering to `IImuDriver`, `IMagDriver`, and `IGpsDriver` abstractions.
 
-    classDef hwStyle fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
-    classDef ringStyle fill:#14532d,stroke:#4ade80,stroke-width:2px,color:#ffffff;
-    classDef swStyle fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
-
-    class PIN_INT,DMA_ENG,TLP_GEN hwStyle;
-    class SPSC_RING,DOORBELL ringStyle;
-    class DISPATCHER,T_PRIMARY,T_PROCESS,T_EGRESS swStyle;
-```
-
-### The Core Architecture: The Event Loop, Non-Blocking Drivers & Hardware FPGA Fabric
-
-At its architectural core, AbstractX is built on **two simple software basics** paired symmetrically with **hardware FPGA drivers**:
-
-#### 1. AbstractX Software: The Main Dispatch Event Loop & Non-Blocking Drivers
-* **The Main Event Loop (`abstractx::step()`)**:
-  - There is **always an event loop that consumes events**.
-  - This is the main cooperative dispatch loop that drives the **C++20 stackless coroutines**.
-  - It provides 100% linear, sequential, deterministic execution with **0 OS task stacks, 0 mutex locks, and 0 bytes dynamic heap (`0 B`)** on a single shared 2 KB stack.
-  - It is the **sole context that invokes `.resume()`**.
-* **Non-Blocking Driver API (DMA & ISR Event Retriggering)**:
-  - All drivers **must be completely non-blocking**.
-  - When a driver issues an I/O request (SPI, I2C, UART), it dispatches the operation directly to the hardware engine (DMA, PIO, or DIO edge triggers) and suspends via `co_await`.
-  - When hardware finishes (DMA transfer complete, or an ISR on a DIO pin like sensor DRDY), the DMA/ISR triggers, packetizes the data, and **places the event back onto the main event loop**.
-  - **ISRs never resume coroutines directly**, preventing stack blowouts, priority inversions, and cache thrashing.
-
-#### 2. AbstractX FPGA: Hardware as Pure Drivers
-* In the FPGA domain, hardware is **really just all drivers**:
-  - **The X-Fabric (`asp_router.sv` / `asp_top.sv`)**: A full-crossbar switch fabric interconnecting Wishbone / AXI-Stream buses that routes 64-byte Transaction Layer Packets (TLPs) to the bus.
-  - **Autonomous Auto-DMA & DIO Engines**: Hardware cores (`asp_imu_auto_dma.sv`, `asp_dshot_core.sv`) act as pure hardware drivers. On physical DIO pin triggers (e.g. sensor DRDY), they latch nanosecond hardware timestamps, clock the bus autonomously via auto-DMA, packetize the payload into a 64-byte TLP, and route it across the X-fabric directly to the bus with **zero CPU wait states or bus stalling**.
-  - Hardware backpressure (`tvalid`/`tready`) prevents buffer overflow without dropping frame boundaries.
-
-#### Universal Silicon Deployment
-Because AbstractX is founded on these principles, it scales effortlessly across any hardware topology:
-* **Single-Core MCUs (ARM Cortex-M0+/M33/M4/M7, RISC-V)**: Main event loop and drivers run on the single core; hardware ISRs/DMA push events to the ring; `abstractx::step()` consumes them cooperatively.
-* **Dual-Core MCUs (Raspberry Pi Pico 2 W RP2350, ESP32-P4)**: The main event loop runs on Core 1; Core 0 runs autonomous DMA/networking drivers and signals a hardware doorbell.
-* **Linux + Coprocessor (Radxa Cubie A5E Linux + XuanTie E906)**: Linux userspace thread runs the main event loop over `epoll`; the real-time E906 RISC-V coprocessor services hardware I/O over shared SRAM rings.
-* **FPGA SoCs (AMD Zynq, Gowin Tang)**: Host CPU runs the main dispatch event loop; the FPGA hardware drivers (X-Fabric, Auto-DMA cores, Wishbone/AXI bus, and DIO pin triggers) handle all bus clocking and routing.
+### 5. 🛡️ SpecTrace: Closed-Loop AI Learning Gate
+* **Markdown is the Single Source of Truth (SSOT)**: Requirements (`[SPEC-*]`) live in Markdown before any code is generated.
+* **100% Grand Traceability**: Every C++ class and RTL module carries `// @impl [SPEC-*]` tags, verified by automated CI gates (`tools/audit_specs.py`).
+* **Closed-Loop Feedback**: When a test fails or silicon errata is discovered, AI agents log the lesson into `engineering_log.md` and evolve the specification *first*—preventing recurring bugs permanently.
 
 ---
 
-## 2. C++20 Coroutines & The Static Task Graph
+## 🌐 Polymorphic Silicon: One Codebase, Any Chip
 
-### Why Coroutines Replace Preemptive RTOS Threads
-In traditional embedded systems (e.g. FreeRTOS, Zephyr), developers frequently spawn separate preemptive threads for high-rate sensor acquisition, auxiliary communication, data filtering, and telemetry streaming:
-
-```mermaid
-flowchart LR
-    subgraph RTOS["Traditional Preemptive RTOS (Heavyweight & Jitter-Prone)"]
-        direction TB
-        T1["<b>Thread 1: High-Rate Ingress</b><br/>4 KB Dedicated Stack"]
-        T2["<b>Thread 2: Auxiliary Comms</b><br/>2 KB Dedicated Stack"]
-        T3["<b>Thread 3: State Estimation</b><br/>4 KB Dedicated Stack"]
-        T4["<b>Thread 4: Digital Filtering</b><br/>8 KB Dedicated Stack"]
-        T5["<b>Thread 5: Telemetry Egress</b><br/>4 KB Dedicated Stack"]
-        SCHED["<b>Preemptive RTOS Scheduler</b><br/>• Periodic timer tick interruptions<br/>• Expensive context switches & cache thrashing<br/>• Mutex priority inversion hazards<br/>• <b>over 22 KB SRAM wasted on idle stacks</b>"]
-        T1 --> SCHED
-        T2 --> SCHED
-        T3 --> SCHED
-        T4 --> SCHED
-        T5 --> SCHED
-    end
-
-    subgraph CORO["AbstractX Static Coroutine Graph (Deterministic & Zero-Heap)"]
-        direction TB
-        STACK["<b>Single Shared CPU Stack</b><br/>Only 2 KB total stack space allocated"]
-        FRAMES["<b>Static Coroutine Frames (BSS)</b><br/>under 120 Bytes per suspended task<br/>Statically pooled in data segment"]
-        DISP["<b>Cooperative Event Dispatcher</b><br/>• Microsecond awakening via doorbells<br/>• 0 OS context switch overhead<br/>• 0 Bytes dynamic heap allocation<br/>• <b>100% Deterministic execution</b>"]
-        STACK --> DISP
-        FRAMES --> DISP
-    end
-
-    classDef rtosNode fill:#450a0a,stroke:#f87171,stroke-width:2px,color:#ffffff;
-    classDef coroNode fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#ffffff;
-
-    class T1,T2,T3,T4,T5,SCHED rtosNode;
-    class STACK,FRAMES,DISP coroNode;
-```
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant HW as Hardware Bus (SPI DMA / PIO)
-    participant Driver as Non-Blocking Driver (DMA/ISR)
-    participant Ring as Lock-Free SPSC Ring
-    participant EventLoop as Main Dispatch Event Loop (Coroutines)
-
-    EventLoop->>EventLoop: stream_processor_task awaits next sample
-    Note over EventLoop: co_await g_primary_channel.pop()<br/>Task suspends cooperatively (0 CPU wasted)
-    
-    HW->>Driver: Physical Sensor DRDY Interrupt (DIO)
-    Driver->>HW: Dispatches autonomous DMA burst clocking
-    HW-->>Driver: Burst transfer complete
-    Driver->>Ring: Places 64B TLP event onto event ring
-    Driver->>EventLoop: Signals event loop doorbell
-    
-    Note over EventLoop: Event loop prioritizes & awakens coroutine handle
-    Ring-->>EventLoop: pop() -> SampleData
-    EventLoop->>EventLoop: Executes linear processing & control actuation
-```
-
-### The Software Advantage: Linear Code, Cooperative Priorities & C++20 Coroutines
-
-The true power of AbstractX software is how C++20 stackless coroutines combine **100% linear, sequential code readability** with **deterministic cooperative priorities**:
-
-#### 1. 100% Linear Code (Death to Callback Spaghetti & Fragmented State Machines)
-In traditional event-driven firmware, asynchronous operations force developers to fragment logic across disparate callback functions, global volatile state flags, and convoluted `switch(state)` blocks:
-
-```cpp
-// Legacy Asynchronous Callback Pattern (Brittle, Fragmented & Unreadable)
-void on_sensor_init_complete(bool status) {
-    if (!status) { handle_error(); return; }
-    sensor_start_calibration(&on_cal_complete); // Jump to callback 2
-}
-void on_cal_complete(int cal_val) {
-    sensor_configure_registers(cal_val, &on_cfg_complete); // Jump to callback 3
-}
-void on_cfg_complete() {
-    dma_start_read(&on_dma_complete); // Jump to callback 4
-}
-// State variables scattered across volatile globals, prone to race conditions!
-```
-
-In AbstractX, C++20 coroutines collapse this entire fragmented mess into **a single readable straight line**:
-
-```cpp
-// AbstractX C++20 Coroutine (100% Linear, Readable & Deterministic)
-Task<void> sensor_lifecycle_task(hal::ISpi& spi, hal::ITimer& timer) {
-    // 1. Linearly configure hardware registers without blocking
-    co_await sensor.write_reg_async(REG_PWR_MGMT, 0x01);
-    co_await timer.sleep_async(5_ms);
-    
-    // 2. Linearly calibrate and await completion
-    int cal = co_await sensor.calibrate_async();
-    co_await sensor.write_reg_async(REG_OFFSET, cal);
-
-    // 3. Continuously stream samples with zero CPU spinloops
-    while (true) {
-        Sample sample = co_await sensor.read_sample_async();
-        process(sample);
-    }
-}
-```
-* **Compiler-Generated State Machines**: The C++20 compiler automatically transforms the coroutine into a tiny static state machine (under 120 bytes in BSS). 
-* **Zero Dynamic Heap (`0 B`)**: Frame memory is statically pooled at compile time.
-
-#### 2. Cooperative Priorities Without Preemption Jitter
-In preemptive RTOS architectures, priorities mean preemption: an interrupt or higher-priority thread preempts lower-priority execution mid-instruction, causing cache-line invalidation, context-switch jitter, and priority inversions requiring complex mutex inheritance protocols.
-
-In AbstractX, **priorities are cooperative**:
-* **Prioritized Event Queuing**: The main event loop drains and dispatches high-priority event rings (e.g. physical sensor DRDY, real-time control loops, actuator demands) before servicing lower-priority background queues (telemetry egress, flash logging, CLI commands).
-* **Deterministic Yielding**: Because coroutines suspend cooperatively at explicit `co_await` points, tasks execute atomically to completion between suspension points—**eliminating mutexes and race conditions** while ensuring microsecond reaction times for high-priority events.
-
-#### 3. Structured Parallel Concurrency (`when_all`)
-C++20 coroutines enable clean structured concurrency without thread overhead. Multiple hardware buses can be initialized in parallel:
-```cpp
-// Boot SPI, I2C, and UART peripherals simultaneously; await all in parallel
-auto [spi_ok, i2c_ok, uart_ok] = co_await coro::when_all(
-    imu_driver.init_async(),
-    mag_driver.init_async(),
-    gps_driver.init_async()
-);
-```
-
-### The Primary-Paced Channel Pattern
-Heterogeneous physical data sources operate at vastly differing hardware sample rates:
-* **Primary High-Rate Stream**: 1 kHz – 8 kHz (SPI DMA / PIO) → The high-speed **Physical Clock Pacer**
-* **Auxiliary Medium-Rate Stream**: 50 Hz – 100 Hz (I2C / CAN) → Periodic auxiliary telemetry / reference
-* **Low-Rate Configuration / Navigation Stream**: 5 Hz – 10 Hz (UART) → Low-frequency updates
-
-AbstractX eliminates the legacy nightmare of modulus tick counters (`if (++tick % 80 == 0)`), fragmented callback state machines, and spinlocks by introducing the **Primary-Paced Channel Pattern**:
-
-```cpp
-// 100% Linear, Deterministic Multi-Rate Stream Processing (0 Bytes Dynamic Heap)
-Task<void> stream_processor_task(hal::ITimer& timer, StateEstimator& estimator) {
-    while (true) {
-        // 1. Asynchronously await next high-rate packet (Physical Clock Pacer)
-        PrimarySample sample = co_await g_primary_channel.pop();
-        estimator.update_primary(sample, dt);
-
-        // 2. Non-blockingly drain whatever auxiliary stream packets arrived
-        AuxSample aux;
-        while (g_aux_channel.try_pop(aux)) {
-            estimator.update_aux(aux);
-        }
-
-        NavSample nav;
-        while (g_nav_channel.try_pop(nav)) {
-            estimator.update_nav(nav);
-        }
-
-        // 3. Emit 64-byte TLP into telemetry stream
-        g_telemetry_ring.push(StateEstimator::to_tlp(estimator.state()));
-    }
-}
-```
-
----
-
-## 3. Cross-Platform Silicon Scaling
-
-AbstractX applications are written against the universal `abstractx::` API and compile identically with **zero application-level `#ifdef` directives** across:
-
-```mermaid
-graph TD
-    subgraph APP["Universal Application (e.g. apps/gps_imu_app)"]
-        APP_CODE["<b>Single C++20 Application Codebase</b><br/>• Structured Concurrency (co_await coro::when_all)<br/>• Primary-Paced Multi-Rate Processing<br/>• Zero #ifdef Directives"]
-    end
-
-    subgraph TARGETS["Supported Target Platforms"]
-        direction LR
-        
-        subgraph T_PICO["1. Raspberry Pi Pico 2 W"]
-            direction TB
-            P_C1["<b>Core 1: Coroutine Engine</b><br/>Cortex-M33 @ 150 MHz (FPU)"]
-            P_SIO["<b>SIO Hardware FIFO</b><br/>Cross-core doorbell"]
-            P_C0["<b>Core 0: I/O Processor</b><br/>PIO SPI DMA + CYW43 Wi-Fi"]
-            P_C1 <--> P_SIO <--> P_C0
-        end
-
-        subgraph T_ESP["2. Espressif ESP32-P4"]
-            direction TB
-            E_C1["<b>Core 1: Coroutine Engine</b><br/>RV32IMAFDC @ 400 MHz (FPU)"]
-            E_IPC["<b>Hardware IPC Mailbox</b><br/>Inter-core doorbell"]
-            E_C0["<b>Core 0: I/O Processor</b><br/>GDMA SPI + Wi-Fi 6"]
-            E_C1 <--> E_IPC <--> E_C0
-        end
-
-        subgraph T_LINUX["3. Radxa Cubie A5E (Allwinner A5E)"]
-            direction TB
-            L_A55["<b>Quad Cortex-A55 @ 1.4 GHz</b><br/>Host Linux (PREEMPT_RT)"]
-            L_SRAM["<b>Shared SRAM A3/C + msgbox</b><br/>Lock-free descriptor rings"]
-            L_E906["<b>XuanTie E906 RISC-V @ 600 MHz</b><br/>Real-Time I/O Reactor & DMA"]
-            L_A55 <--> L_SRAM <--> L_E906
-        end
-
-        subgraph T_FPGA["4. FPGA Switch Fabric (Tang / Zynq)"]
-            direction TB
-            Z_HOST["<b>Host ARM / Linux</b><br/>Application Coroutine Thread"]
-            Z_AXI["<b>AXI-Stream / PCIe DMA</b><br/>Credit-based flow control"]
-            Z_RTL["<b>SystemVerilog Fabric (rtl/asp_top.sv)</b><br/>Sensor Auto-DMA, Actuator PWM Core"]
-            Z_HOST <--> Z_AXI <--> Z_RTL
-        end
-    end
-
-    APP --> TARGETS
-
-    classDef appStyle fill:#1e3a8a,stroke:#60a5fa,stroke-width:2px,color:#ffffff;
-    classDef picoStyle fill:#4c0519,stroke:#fb7185,stroke-width:2px,color:#ffffff;
-    classDef espStyle fill:#431407,stroke:#fb923c,stroke-width:2px,color:#ffffff;
-    classDef linuxStyle fill:#3b0764,stroke:#c084fc,stroke-width:2px,color:#ffffff;
-    classDef fpgaStyle fill:#042f2e,stroke:#2dd4bf,stroke-width:2px,color:#ffffff;
-
-    class APP_CODE appStyle;
-    class P_C1,P_SIO,P_C0 picoStyle;
-    class E_C1,E_IPC,E_C0 espStyle;
-    class L_A55,L_SRAM,L_E906 linuxStyle;
-    class Z_HOST,Z_AXI,Z_RTL fpgaStyle;
-```
-
-### Target Hardware Execution Matrix
-
-| Metric | [Raspberry Pi Pico 2 W](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [Espressif ESP32-P4 (Waveshare)](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [Radxa Cubie A5E (Pure Silicon)](docs/tier3_targets/bsp/E906_COPROCESSOR_ARCHITECTURE.md) | [Radxa Cubie A5E + FPGA](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [AMD Zynq / Gowin Tang](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Hardware & Errata Spec** | [`PICO2W_DUAL_CORE_SPEC`](docs/tier3_targets/bsp/PICO2W_DUAL_CORE_ARCHITECTURE.md) | [`ESP32P4_WAVESHARE_SPEC`](docs/tier3_targets/hardware/ESP32P4_WAVESHARE_WIFI6_AND_ERRATA_SPEC.md) | [`E906_COPROCESSOR_SPEC`](docs/tier3_targets/bsp/E906_COPROCESSOR_ARCHITECTURE.md) | [`A5E_FPGA_XFABRIC_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) | [`TANG9K_PINOUT_SPEC`](docs/tier3_targets/hardware/TANG9K_PINOUT.md) |
-| **Silicon Architecture** | Dual ARM Cortex-M33 @ 150 MHz | Dual RISC-V @ 400 MHz | Quad AArch64 A55 + RISC-V E906 (No FPGA) | Quad AArch64 A55 + E906 + FPGA Fabric | Dual ARM Cortex-A9 + FPGA Fabric |
-| **Floating-Point Engine** | Hardware single-precision FPU | Hardware single/double FPU | Hardware ARM NEON FPU | Hardware ARM NEON FPU + FPGA DSPs | Hardware VFPv3 FPU + FPGA DSPs |
-| **Tier 1 I/O Engine** | Core 0 (PIO DMA + CYW43) | Core 0 (GDMA + Wi-Fi 6) | XuanTie E906 (On-Chip SPI1 Single/Dual DMA, TWI1, UART3 Circular DMA) | FPGA Logic (`asp_imu_auto_dma.sv` + AXI) | FPGA Logic (`asp_imu_auto_dma.sv`) |
-| **Tier 2 Coroutine Engine** | Core 1 (Coroutine Dispatcher) | Core 1 (Coroutine Dispatcher) | Core 0 (Linux PREEMPT_RT Thread) | Core 0 (Linux Userspace / E906) | Core 0 (Linux Userspace / RTOS) |
-| **Inter-Domain Bridge** | Hardware SIO FIFO Doorbell | Hardware IPC Mailbox | Shared SRAM A3/C + `sun6i-msgbox` | AXI-Stream TLP Descriptors & DMA | AXI-Stream DMA Descriptor Rings |
-| **FPGA Requirement** | None (0 LUTs) | None (0 LUTs) | **None (Pure SoC Silicon, 0 LUTs)** | **Gowin / AMD FPGA (~9k–85k LUTs)** | Gowin / AMD FPGA (~9k–85k LUTs) |
-| **Static Memory Footprint** | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) | `< 1 KB` SRAM (Estimator + Rings) |
-| **Loop Step Latency** | **4.2 µs** | **1.8 µs** | **0.8 µs** | **0.4 µs** (Hardware Offloaded) | **0.4 µs** (Hardware Offloaded) |
-
----
-
-## 4. FPGA Switch Fabric & 64-Byte TLP Integration
-
-> 📖 **Read the Hardware Guides**:
-> * [**FPGA SystemVerilog Fabric Architecture Guide**](rtl/README.md)
-> * [**Autonomous Programmable I/O (ASP-PIO) Developer Guide**](rtl/pio/README.md) (`rtl/pio/SPECIFICATION.md`)
-
-### Symmetrical Switch Fabric: Hardware as Pure Drivers
-In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burning CPU cycles executing software driver routines, autonomous synthesizable SystemVerilog cores act as pure hardware drivers on Wishbone / AXI-Stream buses:
-* **[`rtl/asp_top.sv`](rtl/asp_top.sv)**: Top-level switch fabric wrapper interconnecting Wishbone / AXI-Stream buses.
-* **[`rtl/asp_router.sv`](rtl/asp_router.sv)**: Full-crossbar AXI-Stream router switching packets based on 64B TLP channel tags.
-* **[`rtl/pio/asp_pio_tile.sv`](rtl/pio/asp_pio_tile.sv)**: **Autonomous Programmable I/O Tile** with 4 concurrent state machines running RP2040/RP2350 ISA microcode. Delivers **0.0% CPU overhead** for 8 kHz IMU sampling with single-cycle 512-bit TLP auto-DMA, saving **~45% FPGA logic** (~940 LUTs / ~700 FFs vs separate hardwired cores).
-* **[`rtl/imu/asp_imu_auto_dma.sv`](rtl/imu/asp_imu_auto_dma.sv)**: Dedicated hardware Auto-DMA driver core latching DIO pin triggers (IMU DRDY) and clocking SPI bursts without CPU intervention.
-* **[`rtl/motor/asp_dshot_core.sv`](rtl/motor/asp_dshot_core.sv)**: 4-Channel hardware DShot actuator driver with bidirectional telemetry & PWM generation.
-* **[`rtl/serial/asp_uart_core.sv`](rtl/serial/asp_uart_core.sv)**: High-speed full-duplex UART core for GPS and RC receiver telemetry.
-* **[`rtl/led/asp_neopixel_core.sv`](rtl/led/asp_neopixel_core.sv)**: WS2812B NeoPixel RGB string driver.
-* **[`rtl/pwm/asp_pwm_decoder.sv`](rtl/pwm/asp_pwm_decoder.sv)**: 8-Channel RC PWM decoder.
-
-```mermaid
-flowchart TD
-    subgraph SENSORS["Physical Peripherals & Sensors"]
-        SPI_DEV["High-Speed SPI Sensors<br/><i>e.g. 8 kHz IMU</i>"]
-        I2C_DEV["Auxiliary Bus Sensors<br/><i>e.g. Magnetometer, Baro</i>"]
-        PWM_ACT["Actuator Controllers<br/><i>DShot / Motor ESCs</i>"]
-        SER_DEV["Serial & Status<br/><i>GPS / CRSF / NeoPixel</i>"]
-    end
-
-    subgraph FPGA["Synthesizable SystemVerilog FPGA Fabric (rtl/asp_top.sv)"]
-        direction TB
-        
-        subgraph CORES["Autonomous Hardware Offload Engines"]
-            direction LR
-            PIO_CORE["<b>asp_pio_tile.sv</b><br/>Quad-SM RP2040 ISA<br/>Auto-DMA (0.0% CPU)"]
-            AUTO_DMA["<b>asp_imu_auto_dma.sv</b><br/>DRDY edge latch • Auto SPI clocking"]
-            DSHOT_CORE["<b>asp_dshot_core.sv</b><br/>4-Channel bidirectional DShot"]
-            UART_CORE["<b>asp_uart_core.sv</b><br/>Full-Duplex Serial"]
-        end
-
-        subgraph SWITCH["Full-Crossbar AXI-Stream Router (rtl/asp_router.sv)"]
-            ROUTER["<b>AXI-Stream Packet Router</b><br/>Channel tag routing • Credit flow control (tvalid/tready)<br/>Hardware CRC32 generation & error flagging"]
-        end
-
-        subgraph EGRESS["Host Interconnect & DMA FIFO"]
-            AXI_FIFO["<b>asp_axis_fifo.sv</b><br/>Synchronous AXI-Stream FIFO buffer"]
-            PCIE_DMA["<b>PCIe / AXI DMA Engine</b><br/>Direct memory write into host SPSC rings"]
-        end
-
-        PIO_CORE -->|512-bit AXI-Stream TLP| ROUTER
-        AUTO_DMA -->|AXI-Stream 64B TLP| ROUTER
-        ROUTER <-->|Actuator Commands & Telemetry| DSHOT_CORE
-        ROUTER <-->|Serial Stream| UART_CORE
-        ROUTER -->|Routed 64B TLPs| AXI_FIFO --> PCIE_DMA
-    end
-
-    subgraph HOST["Host Processor Domain (C++20 Coroutine Engine)"]
-        SPSC_HOST["<b>Lock-Free SPSC Rings (SpscTlpRing(64))</b><br/>Zero-copy shared memory queue"]
-        CORO_HOST["<b>Cooperative Task Graph</b><br/><code>co_await</code> linear stream processing"]
-        PCIE_DMA --> SPSC_HOST --> CORO_HOST
-    end
-
-    SPI_DEV <--> AUTO_DMA
-    I2C_DEV <--> I2C_CORE
-    DSHOT_CORE <--> PWM_ACT
-
-    classDef devStyle fill:#1f2937,stroke:#9ca3af,stroke-width:2px,color:#ffffff;
-    classDef coreStyle fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
-    classDef routerStyle fill:#312e81,stroke:#c084fc,stroke-width:2px,color:#ffffff;
-    classDef egressStyle fill:#14532d,stroke:#4ade80,stroke-width:2px,color:#ffffff;
-    classDef hostStyle fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
-
-    class SPI_DEV,I2C_DEV,PWM_ACT,SER_DEV devStyle;
-    class AUTO_DMA,PIO_CORE,DSHOT_CORE,UART_CORE coreStyle;
-    class ROUTER routerStyle;
-    class AXI_FIFO,PCIE_DMA egressStyle;
-    class SPSC_HOST,CORO_HOST hostStyle;
-```
+Write your application once against `abstractx::` and deploy it across microcontrollers, coprocessors, and FPGAs with **zero `#ifdef` directives**:
 
 ```text
-0                   1                   2                   3
- 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|  Type (1B)    |  Flags (1B)   |   Tag (1B)    | Channel (1B)  |  Header (20B)
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                    Target Address (32-bit)                    |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|       Length DW (16-bit)      |      Sequence ID (16-bit)     |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                    Timestamp Low (32-bit ns)                  |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                    Timestamp High (32-bit ns)                 |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                                                               |
-|             Payload (40 Bytes CTF 1.8 Binary Event)           |  Payload (40B)
-|                                                               |
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-|                       IEEE 802.3 CRC32                        |  CRC (4B)
-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+┌────────────────────────────────────────────────────────────────────────┐
+│               Universal C++20 Application (e.g. apps/gps_imu_app)       │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+       ┌────────────────────────────┼────────────────────────────┐
+       ▼                            ▼                            ▼
+┌──────────────┐             ┌──────────────┐             ┌──────────────┐
+│ Pico 2 W     │             │ Radxa Cubie  │             │ ESP32-P4     │
+│ (RP2350)     │             │ A5E (E906)   │             │ (RV32 Dual)  │
+│ Dual Cortex  │             │ Linux + RISCV│             │ 400 MHz FPU  │
+└──────────────┘             └──────────────┘             └──────────────┘
+       │                            │                            │
+       └────────────────────────────┼────────────────────────────┘
+                                    │
+       ┌────────────────────────────┴────────────────────────────┐
+       ▼                                                         ▼
+┌──────────────────────────────┐          ┌──────────────────────────────┐
+│ QMTech Zynq-7020 / Gowin     │          │ Desktop SITL (Linux)         │
+│ FPGA Hardware Switch Fabric  │          │ POSIX epoll Software Reactor │
+└──────────────────────────────┘          └──────────────────────────────┘
 ```
 
-### Backpressure & Bounded Ring Flow Control
-* **In FPGA Hardware**: AXI-Stream `tvalid` / `tready` handshakes provide hardware backpressure. If software consumer queues fill up, `tready` deasserts, buffering packets in `asp_axis_fifo.sv` or safely incrementing hardware drop counters without corrupting frame boundaries (`tlast`).
-* **In Processor Software**: All ring buffers (`AsyncQueue`, `SpscTlpRing`) are fixed power-of-two circular buffers. `try_push()` returns `false` on saturation, updating CTF telemetry drop statistics rather than blocking the real-time processing loop.
+| Silicon Target | Architecture | I/O Engine | Latency |
+| :--- | :--- | :--- | :--- |
+| **Raspberry Pi Pico 2 W** | Dual ARM Cortex-M33 @ 150 MHz | Core 0 PIO DMA + Wi-Fi | **4.2 µs** |
+| **Radxa Cubie A5E** | Quad Cortex-A55 + XuanTie E906 | E906 On-Chip DMA + SRAM | **0.8 µs** |
+| **Espressif ESP32-P4** | Dual RISC-V @ 400 MHz | Core 0 GDMA + Wi-Fi 6 | **1.8 µs** |
+| **QMTech Zynq / Gowin** | ARM Host + FPGA Fabric | SystemVerilog Auto-DMA | **0.4 µs** |
+| **Desktop SITL** | Native Linux x86_64 / AArch64 | POSIX epoll Reactor | **0.5 µs** |
 
 ---
 
-## 5. Telemetry, Dynamic Barectf CTF 1.8 & AbstractX Studio (Dear ImGui Bundle)
+## 🖥️ AbstractX Studio: Real-Time Observability
 
-Real-time embedded loops must **never perform string formatting or blocking socket operations**. Instead, AbstractX adopts the **Common Trace Format (CTF 1.8) via Barectf** as the universal binary telemetry format across both silicon and software, rendered at 120 FPS in **AbstractX Studio** via `imgui-bundle`.
+AbstractX includes **AbstractX Studio**, a GPU-accelerated desktop engineering workbench built with `imgui-bundle` (Dear ImGui + ImPlot):
 
-### Unified Design Pattern & Tooling Across FPGA and Software
-By utilizing the exact same 64-byte `Tlp64` CTF 1.8 binary structure across both domains:
-1. **Identical Design Pattern**: FPGA hardware drivers (`asp_imu_auto_dma.sv`) and software coroutines emit the **exact same binary event structure**. Neither side uses ad-hoc proprietary packets; both emit structured, typed binary events governed by a single schema.
-2. **Unified Tooling Ecosystem**: The exact same tools decode, analyze, and visualize events regardless of whether they originated from an FPGA hardware state machine or a C++20 software coroutine.
-3. **End-to-End Nanosecond Co-Verification**: Because physical DIO pin triggers latch 64-bit nanosecond hardware timestamps into the TLP header, developers can trace a physical sensor pulse from the FPGA DIO pin through the Wishbone/AXI switch fabric, into software ring buffers, through coroutine resumption, and out to actuator actuation on a **single, synchronized nanosecond timeline** using AbstractX Studio, Babeltrace 2, or Eclipse Trace Compass.
-
-```mermaid
-flowchart LR
-    subgraph SOURCES["Unified Event Sources (Same Binary Design Pattern)"]
-        direction TB
-        FPGA_SRC["<b>FPGA Hardware Drivers</b><br/><code>asp_imu_auto_dma.sv</code><br/>Hardware-packetized CTF 1.8 events"]
-        SW_SRC["<b>C++20 Software Tasks</b><br/><code>main_task()</code><br/>Zero-copy binary CTF 1.8 events"]
-        FPGA_SRC -->|64-Byte TLP Packets| TLP_BUS["<b>Lock-Free Telemetry Bus</b><br/>PCIe / UDP Stream (Port 9870)"]
-        SW_SRC -->|64-Byte TLP Packets| TLP_BUS
-    end
-
-    subgraph SCHEMA["Dynamic Schema Decoupling (Single Source of Truth)"]
-        direction TB
-        YAML["<b>barectf_config.yaml</b><br/>Authoritative CTF 1.8 Schema<br/>Stream IDs • Bit layouts • Units"]
-        JSON["<b>trace_schema.json</b><br/>UI Widget bindings • Scales • Multipliers"]
-        LOADER["<b>ctf_schema_loader.py</b><br/>Compiles <code>struct.Struct</code> decoders<br/><i>Zero hardcoded payload offsets</i>"]
-        YAML --> LOADER
-        JSON --> LOADER
-    end
-
-    subgraph TOOLS["Unified Tooling Ecosystem (Hardware + Software)"]
-        direction TB
-        STUDIO["<b>AbstractX Studio</b><br/><code>abstractx_studio.py</code><br/>Platform topology • Timeline • Oscilloscope"]
-        VISUALIZER["<b>Domain Visualizer Displays</b><br/><code>flight_display.py</code><br/>3D Orientation wireframe • PFD • Gauges"]
-        BABEL["<b>Industry CTF Tooling</b><br/>Babeltrace 2 • Trace Compass<br/>Unified ns-accurate hardware-software trace"]
-    end
-
-    TLP_BUS ==>|Streaming 64B CTF TLPs| LOADER
-    LOADER --> STUDIO
-    LOADER --> VISUALIZER
-    LOADER --> BABEL
-
-    classDef srcStyle fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
-    classDef busStyle fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
-    classDef schemaStyle fill:#312e81,stroke:#c084fc,stroke-width:2px,color:#ffffff;
-    classDef toolStyle fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#ffffff;
-
-    class FPGA_SRC,SW_SRC srcStyle;
-    class TLP_BUS busStyle;
-    class YAML,JSON,LOADER schemaStyle;
-    class STUDIO,VISUALIZER,BABEL toolStyle;
-```
-
-### 1. Dynamic YAML/JSON Trace Schema
-The telemetry format is completely self-describing via [`trace/barectf_config.yaml`](trace/barectf_config.yaml) and [`apps/gps_imu_app/trace_schema.json`](apps/gps_imu_app/trace_schema.json). Every field specifies:
-* Primitive binary types (`uint32`, `int16`, `int32`, `uint8`)
-* Scaling multipliers (e.g. `0.01` for centidegrees → degrees, `1e-7` for coordinates)
-* Physical engineering units (`deg`, `m`, `m/s`, `g`, `deg/s`, `us`)
-* UI widget bindings (`artificial_horizon`, `altimeter`, `compass`, `oscilloscope`, `throttle_bar`)
-
-### 2. The AbstractX Studio GUI Framework (`imgui-bundle`)
-Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenGL) for zero-overhead, 120 FPS desktop rendering:
-* **Two-Level Modular Architecture**:
-  * **Level 1 (Core System Platform Observability)**:
-    - **Platform Topology Tab**: Live graph of discovered processor cores, hardware coprocessors, clock frequencies, and lock-free SPSC ring queue saturation.
-    - **Dual-Plane Execution Timeline & Source Scanner**: Correlating hardware driver latency (Plane 1) against cooperative coroutine tasks (Plane 2), with interactive one-click jumping to exact C++ source locations (`__FILE__` : `__LINE__`).
-    - **Multi-Core Utilization**: Real-time breakdown of CPU/SPU cores, host process load, and mailbox doorbell latency.
-    - **Continuous Memory Observability**: Real-time SRAM and Flash footprint gauges powered by MemBrowse.
-    - **Dynamic CTF / TLP Inspector**: Byte-level inspection of 64-byte binary frames and decoded fields.
-    - **Interactive CLI Console & Hardware REPL (Tab 11)**: Live target console (`abstractx> `) and MicroPython REPL (`>>> `) with register peek/poke, real-time command macros (`ps`, `ping`, `tasks`, `peek MTIME`), and Pop-to-Canvas movable window support.
-  * **Level 2 (Extensible Application Plugins)**:
-    - Domain-specific instruments plug directly into the studio tab bar. For example, the reference flight plugin ([`tools/visualizer/flight_plugin.py`](tools/visualizer/flight_plugin.py)) adds:
-      * **Primary Flight Display (PFD)**: Vector-rendered artificial horizon with sky/ground polygons, roll reticle, and pitch ladder.
-      * **3D Quadcopter Perspective Wireframe**: Real-time 3D Tait-Bryan rotation matrix projecting quadcopter arms and spinning motor discs.
-      * **Quad-X Motor Mixer Demands**: Real-time M1–M4 throttle levels (1000..2000 µs) with hover reference lines.
-      * **High-Rate Sensor Oscilloscope**: 8 kHz accelerometer and gyroscope waveform plotting via `ImPlot`.
+* **Coroutine Inspector**: Live status of all suspended/active C++20 coroutine tasks.
+* **Dual-Plane Gantt Timeline**: Hardware DMA & ISR latency correlated directly with coroutine task execution. Interactive click-to-source jumping (`__FILE__ : __LINE__`).
+* **TLP Bus Debugger**: Byte-level sniffing of 64-byte transaction packets.
+* **Interactive CLI & MicroPython REPL**: Live target control, register peek/poke, and telemetry inspection.
+* **Extensible Floating Visualizers**: Pluggable 3D attitude wireframe, artificial horizon (PFD), and 8 kHz oscilloscope.
 
 ```bash
-# Launch AbstractX Studio (listening on UDP port 9870)
+# Launch AbstractX Studio (listening on UDP telemetry stream)
 python3 tools/visualizer/abstractx_studio.py --port 9870
 
 # Or launch in standalone simulation mode without hardware
 python3 tools/visualizer/abstractx_studio.py --sim
 ```
 
-### 3. Standalone Domain Displays (Launcher Mode)
-Downstream applications can also launch their domain visualizers as standalone applications. For example, [`apps/gps_imu_app/tools/flight_display.py`](apps/gps_imu_app/tools/flight_display.py) launches the Level 2 flight instruments directly in a dedicated window:
+---
 
+## ⚡ Quickstart in 30 Seconds
+
+### 1. Clone & Set Up Environment
 ```bash
-# Launch standalone flight display
-python3 apps/gps_imu_app/tools/flight_display.py --port 9870
-
-# Or run in simulated telemetry mode
-python3 apps/gps_imu_app/tools/flight_display.py --sim
-```
-
-### 4. Continuous Firmware Footprint Tracking with MemBrowse
-Because AbstractX strictly enforces **Freestanding C++20 with Zero Dynamic Heap**, all task frames, queues, and SPSC rings reside in static `.bss` and `.data` sections. We integrate **MemBrowse** to track memory consumption over time and block pull requests that exceed hardware SRAM/Flash budgets:
-* **Local Audit Tool ([`tools/track_memory_membrowse.py`](tools/track_memory_membrowse.py))**: Extracts symbol footprints across target ELFs (`build-pico2w`, `build-e906`, `build-host`), verifies zero heap references, and exports JSON metrics.
-* **MemBrowse GitHub Action ([`.github/workflows/membrowse.yml`](.github/workflows/membrowse.yml))**: Automatically runs `membrowse/membrowse-action@main` on every PR/push to visualize firmware growth.
-* **Studio Memory Tab**: Visualizes RAM/Flash budget gauges live in `abstractx_studio.py`.
-
-> [!TIP]
-> **Complete Observability Guide**: For end-to-end architecture documentation, the 3-pillar pipeline, two-level visualizer plugins, MemBrowse setup, and Python `.venv` instructions, read [`docs/tier2_contracts/observability/README.md`](docs/tier2_contracts/observability/README.md).
-
----
-
-## 6. 100% Specification-to-Code Traceability & AI Design Prompts
-
-A core architectural invariant of AbstractX is that **Markdown drives the code (Single Source of Truth - SSOT)**. To eliminate architectural drift and AI hallucination, every design constraint, memory map, bus timing, and multi-rate channel contract is formally defined in a specification first:
-
-```mermaid
-flowchart LR
-    subgraph SPEC["1. Authoritative Specification (SSOT)"]
-        direction TB
-        SPEC_MD["<b>docs/DESIGN_SPECIFICATION.md</b><br/><b>apps/gps_imu_app/SPECIFICATION.md</b><br/>Defines normative tags: <code>[SPEC-APP-01..10]</code>, <code>[SPEC-ARCH-01..07]</code>"]
-    end
-
-    subgraph PROMPT["2. AI Guidance & Invariant Rules"]
-        direction TB
-        AGENTS_RULE["<b>AGENTS.md / Prompt Creator</b><br/>• Auto-loaded by AI agents on every turn<br/>• Enforces 0-heap & Primary-Paced channels<br/>• Scaffolds specs via <code>create_app_spec.py</code>"]
-    end
-
-    subgraph CODE["3. Freestanding C++20 Implementation"]
-        direction TB
-        CPP_IMPL["<b>Source Code (apps/, include/, targets/)</b><br/>Tagged with implementation markers:<br/><code>// @impl [SPEC-APP-01] apps/.../main.cpp</code>"]
-    end
-
-    subgraph AUDIT["4. Automated CI/CD Audit (100% Verified)"]
-        direction TB
-        AUDIT_PY["<b>tools/audit_specs.py</b><br/>Scans codebase & proves 100% coverage<br/><i>Rejects any PR with untagged or missing specs</i>"]
-    end
-
-    SPEC --> PROMPT --> CODE --> AUDIT
-    AUDIT -.->|Validates 100% Coverage| SPEC
-
-    classDef specStyle fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
-    classDef ruleStyle fill:#4c1d95,stroke:#c084fc,stroke-width:2px,color:#ffffff;
-    classDef codeStyle fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
-    classDef auditStyle fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#ffffff;
-
-    class SPEC_MD specStyle;
-    class AGENTS_RULE ruleStyle;
-    class CPP_IMPL codeStyle;
-    class AUDIT_PY auditStyle;
-```
-
-### How the Traceability Pipeline Works:
-1. **Authoritative Specification (`[SPEC-*]`)**:
-   Every architectural requirement receives a globally unique identifier (e.g. `[SPEC-APP-01]` for Parallel Boot, `[SPEC-APP-02]` for Primary-Paced Ingestion, `[SPEC-ARCH-05]` for Dual-Core Asymmetric Multiprocessing).
-2. **AI Prompts & Workspace Invariants (`AGENTS.md`)**:
-    The root [`AGENTS.md`](AGENTS.md) is automatically discovered and loaded into the AI coding assistant's context on every interaction. It strictly enforces:
-   * Mandatory Markdown specification before code creation.
-   * Zero dynamic heap allocation (`0 B`).
-   * Primary-Paced Multi-Rate Coroutine Channel pattern.
-   * Multi-target portability across Pico 2 W, ESP32-P4, and ARM A55 with zero `#ifdef`s.
-3. **In-Code Implementation Traceability (`@impl`)**:
-   Every class, function, ring buffer, and task in C++ carries an explicit traceability annotation:
-   ```cpp
-   // @impl [SPEC-APP-01] apps/gps_imu_app/SPECIFICATION.md
-   auto [imu_ok, gps_ok, mag_ok] = co_await coro::when_all(...);
-   ```
-4. **Automated Verification (`tools/audit_specs.py`)**:
-   The automated Python auditor verifies 100% coverage across the repository:
-   ```bash
-   $ python3 tools/audit_specs.py
-   Total Specifications: 25 | Implemented: 25 | Coverage: 100.0% [SUCCESS]
-
-   $ python3 tools/audit_specs.py apps/gps_imu_app/SPECIFICATION.md
-   Total Specifications: 10 | Implemented: 10 | Coverage: 100.0% [SUCCESS]
-   ```
-5. **SpecTrace Anti-Drift Adversarial Review (`tools/run_adversarial_audit.py`)**:
-   Eliminates AI hallucinations, specification omissions, and subtle driver regressions by enforcing a 6-stage adversarial review gate across **both Markdown Specifications (`.md`) and C++/RTL source code** (see [`docs/SPECTRACE.md`](docs/SPECTRACE.md)):
-   ```bash
-   $ python3 tools/run_adversarial_audit.py
-   [PASS] Stage 0 (Specification Markdown & SSOT): 0 issues found
-   [PASS] Stage 1 (Zero-Heap & Freestanding C++20): 0 issues found
-   [PASS] Stage 2 (Non-Blocking HAL & Lifecycle): 0 issues found
-   [PASS] Stage 3 (ISR Boundary & Dispatch Safety): 0 issues found
-   [PASS] Stage 4 (Endianness & Wire Framing): 0 issues found
-   [PASS] Stage 5 (Test Verification): 0 issues found
-   VERDICT: [PASS FOR COMMIT] (0 Issues)
-   ```
-
-6. **SpecTrace: Continuous Learning Loop & Defect-to-Spec Evolution (`docs/SPECTRACE.md`)**:
-   When bugs, timing errors, or silicon errata occur, they are never patched ad-hoc in code. AbstractX treats every mistake as a deficiency in the specification:
-    * **Episodic Memory Chronicle**: Use `tools/log_mistake.py` to record the failure, root cause, and lesson learned into [`engineering_log.md`](engineering_log.md):
-     ```bash
-     python3 tools/log_mistake.py --title "SPI CS Early Deassertion" --spec targets/SPECIFICATION.md --tag SPEC-HAL-02 --append
-     ```
-   * **Fault Classification (Code Defect vs. Spec Flaw)**: The system diagnoses whether the bug was a simple coding slip or a failure of the specification to capture a hardware constraint (e.g. FIFO overrun, interrupt race, bus latency).
-   * **Full Round-Tripping (Spec <-> Code Reconciliation)**: SpecTrace provides true bidirectional round-tripping. Whether designing in Markdown first or implementing C++/RTL code first, `tools/spectrace.py` harmonizes both domains in a single atomic pass:
-     ```bash
-     # Inspect real-time bidirectional synchronization matrix:
-     python3 tools/spectrace.py --status
-
-     # Reconcile both directions (Code -> Spec and Spec -> Code):
-     python3 tools/spectrace.py --roundtrip --apply
-     ```
-   * **Spec-First Evolution (SSOT Defense)**: The AI updates the Markdown specification ([`SPECIFICATION.md`](targets/SPECIFICATION.md)) *first* with explicit `[SPEC-*]` requirements and Mermaid diagrams so the mistake can never repeat.
-   * **Agent Invariant Codification**: Systemic architectural traps are codified into [`AGENTS.md`](AGENTS.md) and [`.agents/rules/`](.agents/rules/engineering-log-spec-learning.md) as non-negotiable agent invariants.
-   * **Grand Traceability Gate**: C++20 / RTL implementations carry matching `// @impl [SPEC-*]` annotations, verified with `python3 tools/audit_specs.py` (100% bidirectional coverage) and `python3 tools/run_adversarial_audit.py --all` (0 invariant violations).
-   * 📖 **Read the Full Specification**: [**SpecTrace: Autonomous Closed-Loop Architecture & Invariant Engineering**](docs/SPECTRACE.md)
-
-
-
-
-
----
-
-## 7. Repository Architecture & Directory Map
-
-```text
-AbstractX/
-├── AGENTS.md                         # Non-negotiable AI agent invariants & architecture rules
-├── apps/                             # Hardware-agnostic C++20 applications
-│   ├── gps_imu_app/                  # Reference multi-rate sensor fusion & control application
-│   │   ├── README.md                 # Reference app documentation & multi-rate dataflows
-│   │   ├── SPECIFICATION.md          # Normative design specification ([SPEC-APP-01..10])
-│   │   ├── trace_schema.json         # Dynamic CTF 1.8 telemetry schema
-│   │   ├── tools/flight_display.py   # 3D attitude & instrument visualizer display
-│   │   ├── platforms/
-│   │   │   └── allwinner_e906/       # Companion XuanTie E906 coprocessor firmware (Allwinner A5E)
-│   │   └── src/main.cpp              # 100% linear C++20 coroutine application code
-│   ├── serial_loopback_app/          # TLP bus loopback & dual-core verification
-│   └── e906_repl_app/                # E906 Coprocessor Scripting Application (isolated DSP SRAM heap)
-├── ports/                            # Language runtimes & external engine bindings
-│   └── abstractx/                    # MicroPython C++20 coroutine adapter & native 'abstractx' module
-├── docs/                             # 3-Tier specification & architecture hierarchy
-│   ├── README.md                     # Central documentation hub index (3-tier navigation)
-│   ├── articles/                     # Architectural deep-dives & 5-part benchmark case studies
-│   ├── DESIGN_SPECIFICATION.md       # Root system specification (SSOT)
-│   ├── SPECTRACE.md                  # SpecTrace closed-loop architecture & invariant methodology
-│   ├── SPEC_TEMPLATE.md              # Standard application & driver specification template
-│   ├── tier1_vision/                 # Tier 1: Abstract vision, mathematical models & system invariants
-│   ├── tier2_contracts/              # Tier 2: Protocol contracts, HAL interfaces & observability schemas
-│   ├── tier3_targets/                # Tier 3: Concrete silicon BSPs, hardware pinouts & errata
-│   └── verification/                 # Adversarial review gates, CppUTest contracts & evidence
-├── include/abstractx/                # Freestanding C++20 public headers (0 heap allocations)
-│   ├── abstractx.hpp                 # Unified runtime master API (init, spawn, step, run)
-│   ├── coro.hpp                      # C++20 stackless coroutine task primitives
-│   ├── fusion/attitude_filter.hpp    # Multi-rate attitude estimation & control filtering
-│   ├── hal/                          # Universal split-transaction asynchronous HAL interfaces
-│   │   ├── spi.hpp                   # Async SPI with awaitable register access
-│   │   ├── i2c.hpp                   # Async I2C with awaitable burst transfers
-│   │   ├── uart.hpp                  # Async UART with awaitable packet streaming
-│   │   └── io_processor.hpp          # Autonomous target I/O processor interface
-│   └── drivers/                      # Awaitable device drivers (ICM-42688-P, QMC5883L, U-Blox)
-├── targets/                          # Concrete silicon target BSPs and I/O processors
-│   ├── pico2w_rp2350/                # Raspberry Pi Pico 2 W (Dual Cortex-M33 / Core 0 PIO DMA)
-│   │   └── io_processor.yaml         # Declarative target hardware channel config
-│   ├── linux/                        # Linux Host / SITL / Radxa Cubie A5E (POSIX epoll reactor)
-│   │   └── io_processor.yaml         # Declarative target hardware channel config
-│   ├── allwinner_e906/               # XuanTie E906 RISC-V coprocessor BSP & shared SRAM
-│   └── esp32p4/                      # ESP32-P4 dual-core RISC-V BSP
-├── rtl/                              # Synthesizable SystemVerilog FPGA switch fabric
-│   ├── asp_top.sv                    # Top-level switch fabric wrapper
-│   ├── asp_router.sv                 # AXI-Stream packet router
-│   ├── imu/asp_imu_auto_dma.sv       # Hardware IMU Auto-DMA core
-│   └── motor/asp_dshot_core.sv       # 4-Channel hardware DShot motor core
-├── third_party/                      # Upstream submodules & third-party libraries
-│   ├── etl/                          # Embedded Template Library (freestanding containers)
-│   └── micropython/                  # Upstream MicroPython core (tracked via Git submodule)
-├── tools/                            # Developer tooling, schema compilers & auditors
-│   ├── spectrace.py                  # SpecTrace master CLI (full bidirectional round-tripping & sync)
-│   ├── audit_specs.py                # Automated specification-to-code traceability auditor
-│   ├── run_adversarial_audit.py      # 6-Stage SpecTrace adversarial firmware & spec audit tool
-│   ├── sync_code_to_spec.py          # Reverse-syncs code implementations back into specifications
-│   ├── log_mistake.py                # Automated engineering log & mistake reflection logger
-│   ├── create_app_spec.py            # Automated SPECIFICATION.md generator
-│   ├── generate_io_config.py         # Compiles io_processor.yaml -> constexpr C++ headers
-│   ├── setup_venv.sh                 # Automated Python venv & dependency installer
-│   ├── track_memory_membrowse.py     # Continuous zero-heap & ELF footprint tracker
-│   └── visualizer/                   # Observability Studio & dynamic CTF schema loader
-│       ├── abstractx_studio.py       # Real-time dashboard + Tab 11 CLI & REPL ([SPEC-STUDIO-13])
-│       ├── flight_plugin.py          # Level 2 flight instruments & 3D wireframe plugin
-│       ├── sdk/plugin.py             # AbstractXStudioPlugin standard base class SDK
-│       └── ctf_schema_loader.py      # Dynamic barectf YAML/JSON binary decoder
-├── tests/                            # Python pytest suite (invariants, TLP, CTF, SDK & GUI)
-├── pytest.ini                       # Pytest test execution configuration
-└── trace/                            # Trace subsystem specifications
-    └── barectf_config.yaml           # Authoritative Common Trace Format 1.8 schema
-```
-
----
-
-## 8. Quickstart: Building & Running
-
-### 0. Clone with Submodules & Recursive Pull
-AbstractX depends on Git submodules for embedded template libraries and runtime engines (`third_party/etl` and `third_party/micropython`). Ensure submodules are fetched recursively:
-
-```bash
-# Clone repository recursively:
 git clone --recursive https://github.com/tcmichals/AbstractX.git
 cd AbstractX
 
-# Or initialize submodules in an existing clone:
-git submodule update --init --recursive
-
-# When pulling updates to sync all submodules recursively:
-git pull --recurse-submodules
-```
-
-### 1. Set Up Python Virtual Environment (`.venv`)
-Modern Linux distributions (Ubuntu 24.04/Debian 12, PEP 668) require virtual environments for Python packages (`imgui-bundle`, `numpy`). You can set up the environment automatically:
-
-```bash
-# Automated setup (creates .venv, installs dependencies, verifies import):
+# Set up Python virtual environment for tools & visualizer
 ./tools/setup_venv.sh
 source .venv/bin/activate
 ```
 
-Or manually:
+### 2. Build & Verify
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r tools/visualizer/requirements.txt
-```
-*(For detailed architecture notes, two-level visualizer plugins, and MemBrowse integration, see the [Observability & Tooling Guide](docs/tier2_contracts/observability/README.md).)*
+# Configure & compile host SITL build
+cmake -B build_host -DCMAKE_BUILD_TYPE=Release
+cmake --build build_host -j
 
-### 2. Build Host SITL Application & Test Suite
-```bash
-# Configure Release build
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build gps_imu_app and test suite
-cmake --build build --target gps_imu_app
+# Run the full test suite (100% pass rate)
+ctest --test-dir build_host --output-on-failure
 ```
 
-### 3. Run the 23-Test Verification Suite
+### 3. Verify SpecTrace & Architectural Boundaries
 ```bash
-ctest --test-dir build --output-on-failure
-```
-*Result: 100% tests passed (0 failures) in under 0.9 seconds.*
-
-### 4. SpecTrace Full Round-Trip Synchronization & Invariant Audit
-```bash
-# 1. Inspect bidirectional synchronization matrix (Spec <-> Code)
-python3 tools/spectrace.py --status
-
-# 2. Execute full two-way round-trip synchronization
-python3 tools/spectrace.py --roundtrip --apply
-
-# 3. Run full 6-stage adversarial audit across specs and code
-python3 tools/spectrace.py --audit
-
-# 4. Log a defect / architectural lesson into engineering_log.md
-python3 tools/log_mistake.py --title "SPI CS Early Deassertion" --spec targets/SPECIFICATION.md --tag SPEC-HAL-02 --append
-
-# 5. Display the 6 SpecTrace adversarial prompts for AI code & spec review
-python3 tools/run_adversarial_audit.py --prompts
-```
-
-
-### 5. Verify Spec-to-Code Traceability
-```bash
-# Global design specification audit (25 requirements)
+# Verify 100% specification-to-code traceability
 python3 tools/audit_specs.py
 
-# Application specification audit (10 requirements)
-python3 tools/audit_specs.py apps/gps_imu_app/SPECIFICATION.md
-```
-*Result: 100.0% traceability coverage verified.*
+# Verify core framework purity (no concrete drivers in core)
+python3 tools/audit_boundaries.py
 
-### 6. Track Memory Footprints with MemBrowse
-```bash
-# Audit target ELF footprints against zero-heap budgets
-python3 tools/track_memory_membrowse.py
+# Verify queue concurrency contracts ([SPEC-TLP-03])
+python3 tools/check_queue_concurrency.py
 ```
 
-### 7. Run the Python Pytest Invariants & Observability Suite
+### 4. Run the Reference Application & Studio
 ```bash
-# Run all 16 architecture invariant, TLP framing, CTF schema, and visualizer tests
-pytest
-```
-*Result: 16 passed in under 0.6 seconds (Zero-heap, non-blocking HAL, 64B TLP framing, dynamic CTF 1.8 schema decoding, plugin SDK contracts, and Dear ImGui headless render).*
+# In terminal 1: run the reference flight application
+./build_host/apps/gps_imu_app/gps_imu_app
 
-### 8. Run the Reference Application
-```bash
-./build/apps/gps_imu_app/gps_imu_app
-```
-
-### 9. Launch AbstractX Studio or Flight Display
-In a separate terminal (with `.venv` activated):
-```bash
-# Launch AbstractX Studio (Level 1: System Topology + Level 2: Flight Plugin)
+# In terminal 2: launch the visualizer workbench
 python3 tools/visualizer/abstractx_studio.py --port 9870
-
-# Or launch standalone Level 2 Flight Display
-python3 apps/gps_imu_app/tools/flight_display.py --port 9870
-
-# Or test in standalone simulation mode without hardware
-python3 tools/visualizer/abstractx_studio.py --sim
 ```
+
+---
+
+## 📁 Repository Structure
+
+```text
+AbstractX/
+├── AGENTS.md                  # Non-negotiable AI agent rules & invariants
+├── AbstractX.md               # Complete architectural deep dive & specifications
+├── applib/                    # Reusable concrete peripheral drivers (C++ & Python)
+│   ├── include/applib/drivers # ICM-42688-P, QMC5883L, U-Blox GPS
+│   └── python/drivers/        # Python counterparts for rapid prototyping
+├── apps/                      # Hardware-agnostic applications (e.g. gps_imu_app)
+├── include/abstractx/         # Core framework headers (coro, dispatcher, HAL interfaces)
+├── targets/                   # Silicon BSPs (Pico 2 W, Cubie A5E E906, ESP32-P4, Linux)
+├── rtl/                       # Synthesizable SystemVerilog FPGA switch fabric & PIO
+├── tools/                     # Developer tooling, auditors, and AbstractX Studio
+└── docs/                      # Aerospace-grade specifications and guides
+```
+
+---
+
+## 📚 Learn More
+
+* [**AbstractX.md**](AbstractX.md) — Exhaustive technical deep-dive, PCIe fabric vision, and Zephyr Rosetta Stone.
+* [**docs/ARCHITECTURE_AND_EXTENSIBILITY.md**](docs/ARCHITECTURE_AND_EXTENSIBILITY.md) — Polymorphic driver inheritance and extensible system design.
+* [**docs/SPECTRACE_GUIDE.md**](docs/SPECTRACE_GUIDE.md) — The SpecTrace development cycle and closed-loop learning.
+* [**rtl/README.md**](rtl/README.md) — Synthesizable SystemVerilog FPGA switch fabric guide.
+
+---
+
+<p align="center">
+  Licensed under <strong>GPLv3</strong> (Commercial licensing available).<br/>
+  Designed by Tim Michals &amp; built for agentic AI co-design.
+</p>
