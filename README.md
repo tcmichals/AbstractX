@@ -124,11 +124,15 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 ### 5. 📊 AbstractX Studio: Hardware-Accurate Timing & Latency Profiling
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.gif" alt="AbstractX Studio Sub-Microsecond Timeline" width="100%" />
+  <video src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-live.mp4" controls="controls" width="100%"></video>
 </p>
 
 <p align="center">
-  <em>Live hardware capture from XuanTie E906: synchronized horizontal swimlanes on a 200 MHz CPU cycle clock showing idle <code>wfi</code>, coroutine task execution windows, and microsecond-accurate interrupt tick lines.</em>
+  <a href="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-live.mp4">
+    <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.gif" alt="AbstractX Studio Sub-Microsecond Timeline Video Walkthrough" width="100%" />
+  </a>
+  <br/>
+  <em>▶️ Live timing capture from XuanTie E906 (video: <a href="docs/articles/micropython-on-e906/assets/studio-live.mp4"><code>docs/articles/micropython-on-e906/assets/studio-live.mp4</code></a>). Synchronized horizontal swimlanes on a 200 MHz CPU cycle clock showing idle <code>wfi</code> sleep, coroutine task execution windows, and microsecond-accurate interrupt tick lines.</em>
 </p>
 
 * **Synchronized CPU Cycle Clock Swimlanes**: Displays execution windows on a shared cycle clock (200 MHz on E906, 150 MHz on RP2350). Correlate hardware DMA burst completions directly with coroutine resumption.
@@ -251,17 +255,29 @@ AbstractX/
 
 ---
 
-## 📚 Technical Deep Dives & Benchmark Series
+## 📖 Published Technical Articles & Deep Dives
 
-Explore the full 5-part engineering series and architectural guides:
+Explore the comprehensive engineering series detailing silicon bring-up, coroutine concurrency, and hardware verification:
 
-* [**AbstractX.md**](AbstractX.md) — Comprehensive technical manual: emulating bus fabrics on silicon, Zephyr Rosetta Stone, AMP architecture, and sequence diagrams.
-* [**Multi-Silicon Benchmark Series & Case Studies**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md):
-  1. *RP2350 Pico 2 W*: [Straight-Line Async: Sub-microsecond C++20 coroutines vs RTOS threads](docs/articles/gps-compass-straight-line-async/README.md)
-  2. *Radxa Cubie A5E*: [Bare Metal + AbstractX vs FreeRTOS on XuanTie E906](docs/articles/baremetal-vs-freertos-e906/README.md)
-  3. *QMTech Zynq-7020*: [Polymorphic Silicon — C++ to SystemVerilog FPGA Switch Fabric](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md)
-  4. *CI Observability*: [Embedded Firmware Observability with Pure GitHub & MemBrowse](docs/articles/GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md)
-  5. *Interactive Scripting*: [Experiment First, Compile Later: MicroPython on XuanTie E906](docs/articles/micropython-on-e906/README.md)
+* **Heterogeneous Architecture & Coprocessors**:
+  * [**Jumpstarting Heterogeneous Silicon: From Python `asyncio` to Freestanding C++20**](docs/articles/INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md) — Architectural pattern for heterogeneous multi-core SoCs, split-transaction drivers, and memory-mapped virtual BARs.
+  * [**Bare Metal + AbstractX vs FreeRTOS on the XuanTie E906 (Radxa Cubie A5E)**](docs/articles/baremetal-vs-freertos-e906/README.md) — Like-for-like empirical comparison of context switch overhead, idle ticks, and VirtIO RPMsg throughput on real hardware.
+  * [**Experiment First, Compile Later: Python on Both Processors (Radxa Cubie A5E)**](docs/articles/micropython-on-e906/README.md) — Bare-metal MicroPython on XuanTie E906, shared SRAM memory map, VirtIO RPMsg streams, and Studio timing timeline.
+* **Coroutine Concurrency & Zero-Heap Determinism**:
+  * [**Straight-Line Async: Sub-Microsecond C++20 Coroutines on Raspberry Pi Pico 2 W**](docs/articles/gps-compass-straight-line-async/README.md) — 8 kHz IMU, GPS, and compass streaming on RP2350 dual Cortex-M33 with zero RTOS stacks.
+  * [**Multi-Silicon Benchmark Series & Case Studies**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md) — Empirical speed, memory efficiency, and silicon scaling benchmarks across four architectures.
+* **FPGA Hardware Switch Fabrics & RTL Acceleration**:
+  * [**Polymorphic Silicon: C++ to SystemVerilog FPGA Switch Fabric (QMTech Zynq-7020)**](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md) — Offloading the C++ I/O processor into SystemVerilog AXI-Stream crossbars and auto-DMA.
+  * [**Scalable X-Fabric: From 4K FPGA Logic to Multi-Core Silicon**](docs/articles/SCALABLE_X_FABRIC_4K_TO_BIG.md) — Scalable crossbar switch fabrics, Wishbone/AXI routing, and PIO tiles.
+* **Agentic Co-Design & Observability**:
+  * [**Deterministic HW/SW Co-Design: Structuring Knowledge Bases for Agentic AI**](docs/articles/AGENTIC_AI_AND_RAG_COMPARISON.md) — Why traditional LLM RAG fails on firmware concurrency and how closed-loop SpecTrace eliminates hallucinations.
+  * [**Embedded Firmware Observability with Pure GitHub & MemBrowse**](docs/articles/GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md) — Static RAM/Flash budget tracking, dynamic CTF 1.8 schemas, and PR gates without cloud lock-in.
+
+---
+
+## 📚 Technical Architecture Specifications & Handbooks
+
+* [**AbstractX.md**](AbstractX.md) — Master architecture specification: bus switch topology, Zephyr Rosetta Stone, AMP memory mapping, sequence diagrams, and directory map.
 * [**docs/ARCHITECTURE_AND_EXTENSIBILITY.md**](docs/ARCHITECTURE_AND_EXTENSIBILITY.md) — Polymorphic driver inheritance, `applib/` boundary contracts, and interface design.
 * [**docs/SPECTRACE_GUIDE.md**](docs/SPECTRACE_GUIDE.md) — Aerospace-grade SpecTrace development loop and closed-loop AI learning gate.
 * [**rtl/README.md**](rtl/README.md) — Synthesizable SystemVerilog FPGA switch fabric architecture.
