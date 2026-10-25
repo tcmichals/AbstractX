@@ -182,6 +182,17 @@ using TlpChannelMultiplexer = SpscChannelArray<Tlp64, NumChannels, Capacity>;
 // ISR-Safe Multi-Producer Single-Consumer (MPSC) Ring Buffer
 // ---------------------------------------------------------------------------
 
+// Explicit alias exposing ETL's interrupt-locked queue under true MPSC semantics ([SPEC-TLP-03]).
+// Note: ETL names this template `queue_spsc_isr`, but when instantiated with `InterruptLock`,
+// all non-ISR push() operations acquire InterruptLock, serializing concurrent producers.
+// On bare-metal, InterruptLock disables interrupts, preventing ISR preemption during push.
+// Hence, it functions as a true Multi-Producer Single-Consumer (MPSC) queue.
+template <typename T, size_t Capacity = 64>
+using EtlMpscQueue = etl::queue_spsc_isr<T,
+                                         Capacity,
+                                         InterruptLock,
+                                         etl::memory_model::MEMORY_MODEL_SMALL>;
+
 // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 template <typename T, size_t Capacity = 64>
 class MpscRingBuffer {
@@ -189,10 +200,7 @@ class MpscRingBuffer {
 
 public:
     using value_type = T;
-    using QueueType = etl::queue_spsc_isr<T,
-                                          Capacity,
-                                          InterruptLock,
-                                          etl::memory_model::MEMORY_MODEL_SMALL>;
+    using QueueType = EtlMpscQueue<T, Capacity>;
 
     constexpr MpscRingBuffer() noexcept = default;
 
