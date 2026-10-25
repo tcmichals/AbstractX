@@ -33,6 +33,10 @@ else ifeq ($(TOPLEVEL), asp_pwm_decoder)
     VERILOG_SOURCES = $(RTL_DIR)/pwm/asp_pwm_decoder.sv
 else ifeq ($(TOPLEVEL), asp_neopixel_core)
     VERILOG_SOURCES = $(RTL_DIR)/led/asp_neopixel_core.sv
+else ifeq ($(TOPLEVEL), asp_pio_tile)
+    VERILOG_SOURCES = $(RTL_DIR)/pio/asp_pio_sm.sv \
+                      $(RTL_DIR)/pio/asp_pio_tlp_shim.sv \
+                      $(RTL_DIR)/pio/asp_pio_tile.sv
 else ifeq ($(TOPLEVEL), asp_top)
     VERILOG_SOURCES = $(RTL_DIR)/asp_top.sv \
                       $(RTL_DIR)/asp_axis_fifo.sv \
@@ -43,7 +47,11 @@ else ifeq ($(TOPLEVEL), asp_top)
                       $(RTL_DIR)/imu/asp_imu_auto_dma.sv \
                       $(RTL_DIR)/motor/asp_dshot_core.sv \
                       $(RTL_DIR)/pwm/asp_pwm_decoder.sv \
-                      $(RTL_DIR)/led/asp_neopixel_core.sv
+                      $(RTL_DIR)/led/asp_neopixel_core.sv \
+                      $(RTL_DIR)/serial/asp_uart_core.sv \
+                      $(RTL_DIR)/pio/asp_pio_sm.sv \
+                      $(RTL_DIR)/pio/asp_pio_tlp_shim.sv \
+                      $(RTL_DIR)/pio/asp_pio_tile.sv
 endif
 
 # Module parameter overrides for a test variant, e.g. SIM_PARAMS=-GDUAL_SPI_ENABLE=0

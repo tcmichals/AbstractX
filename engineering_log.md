@@ -2494,4 +2494,39 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `python3 tools/audit_specs.py`: **46/46 tagged (100.0% coverage)**.
 * `python3 tools/spectrace_matrix.py --changes`: **99 hunks governed, 0 untraced**.
 
+## [2026-10-25] - Autonomous PIO Tile Subsystem, RP2040/RP2350 ISA & TLP Auto-DMA
+
+### 1. Context & Motivation
+* **Category**: `product-bug`, `process-gap`, `hardware-fact`
+* **Target / Subsystem**: `rtl/pio/`, `rtl/asp_router.sv`, `rtl/asp_top.sv`, `sim/cocotb/`
+* **Architectural Goal**: Implement an autonomous FPGA Programmable I/O (PIO) subsystem with a Supervisor/Worker pattern for zero-CPU primary-paced sensor ingestion and actuator control, compatible with standard RP2040/RP2350 instruction encodings and `pioasm`.
+
+### 2. Architecture & Root Causes Resolved
+1. **Instruction Set & Register Parity (`[SPEC-PIO-01]`, `[SPEC-PIO-02]`, `[SPEC-PIO-05]`)**:
+   - Implemented `asp_pio_sm.sv` supporting all 9 core RP2040/RP2350 instructions: `SET`, `MOV`, `IN`, `OUT`, `PUSH`, `PULL`, `JMP`, `WAIT`, `IRQ`, with optional side-set, 16.8 fractional clock dividers, and dynamic `OUT/MOV EXEC`.
+   - Fixed `EXECCTRL` decoding: aligned `WRAP_BOTTOM` to bits `[11:7]` and `WRAP_TOP` to bits `[16:12]` per RP2040 hardware specifications (preventing premature execution wraparound).
+   - Fixed `IRQ` instruction bit decoding verified with compiled `pioasm` (`bit 6 = clr`, `bit 5 = wait`, `bit 4 = rel`).
+2. **Autonomous TLP Shim & Zero-Copy DMA (`[SPEC-PIO-04]`, `[SPEC-PIO-06]`, `[SPEC-PIO-07]`)**:
+   - Developed `asp_pio_tlp_shim.sv`: automatically pops sensor burst words directly from the state machine RX FIFO, latches 64-bit nanosecond timestamp at the DRDY trigger edge, and emits 64-byte `Tlp64` datagrams into `asp_router.sv` across a 512-bit AXI-Stream in 1 clock cycle (0.0% CPU overhead).
+   - Resolved 1-cycle synchronous FIFO pop latency in `asp_pio_tlp_shim.sv` using `fifo_popping` handshake throttle, preventing double-sampling of unretired words.
+   - Fixed big-endian 512-bit vector layout matching `asp_imu_auto_dma.sv` and `asp_tlp64.hpp` (DW0 at `[511:480]`).
+   - Integrated barectf CTF 1.8 timeline trace spans (Stream 5) for cycle-accurate hardware observability in AbstractX Studio.
+3. **Wishbone B4 Integration**:
+   - Integrated `asp_pio_tile.sv` into `asp_top.sv` at base address `0x40000700`.
+   - Connected egress AXI-Stream into `asp_router.sv` with fixed-priority preemption.
+
+### 3. Verification & Evidence
+* **Verilator RTL Lint**: `verilator --lint-only -Wall rtl/pio/*.sv`: **0 warnings, 0 errors**.
+* **Cocotb Regression Suite (`sim/cocotb/test_asp_pio_cocotb.py`)**:
+  - `test_wishbone_iram_and_registers`: **PASS**
+  - `test_sm_gpio_set_and_jmp`: **PASS**
+  - `test_tx_fifo_pull_and_out`: **PASS**
+  - `test_supervisor_worker_irq_chaining`: **PASS**
+  - `test_tlp_packetizer_and_trace_stream`: **PASS**
+  - **Result**: `TESTS=5 PASS=5 FAIL=0 SKIP=0 (100% passing)`
+* **Official `pioasm` Verification**: Built from Pico SDK (`~/.tools/pico-sdk/tools/pioasm/build/pioasm`) and verified machine code parity.
+* **Specification Audit**: `python3 tools/audit_specs.py`: **46/46 specifications tagged (100.0% coverage)**.
+* **SpecTrace Change Matrix**: `python3 tools/spectrace_matrix.py --changes`: All 7 `[SPEC-PIO-01..07]` requirements mapped.
+
+
 

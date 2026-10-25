@@ -50,7 +50,11 @@ module asp_router (
 
     input  wire [511:0]  s_esc_stream_tdata, // ESC Serial Stream TLP
     input  wire          s_esc_stream_tvalid,
-    output logic         s_esc_stream_tready
+    output logic         s_esc_stream_tready,
+
+    input  wire [511:0]  s_pio_stream_tdata, // PIO Tile Stream TLP
+    input  wire          s_pio_stream_tvalid,
+    output logic         s_pio_stream_tready
 );
 
     localparam logic [7:0] CH_CONTROL   = 8'h01;
@@ -88,11 +92,12 @@ module asp_router (
         endcase
     end
 
-    // Egress Mux Arbitration (Fixed Priority: Control CplD > IMU Telemetry > Serial ESC)
+    // Egress Mux Arbitration (Fixed Priority: Control CplD > IMU Telemetry > Serial ESC > PIO Stream)
     always_comb begin
         s_wb_cpl_tready     = 1'b0;
         s_imu_stream_tready = 1'b0;
         s_esc_stream_tready = 1'b0;
+        s_pio_stream_tready = 1'b0;
 
         if (s_wb_cpl_tvalid) begin
             m_egr_tdata     = s_wb_cpl_tdata;
@@ -106,6 +111,10 @@ module asp_router (
             m_egr_tdata         = s_esc_stream_tdata;
             m_egr_tvalid        = 1'b1;
             s_esc_stream_tready = m_egr_tready;
+        end else if (s_pio_stream_tvalid) begin
+            m_egr_tdata         = s_pio_stream_tdata;
+            m_egr_tvalid        = 1'b1;
+            s_pio_stream_tready = m_egr_tready;
         end else begin
             m_egr_tdata  = 512'd0;
             m_egr_tvalid = 1'b0;
@@ -114,6 +123,7 @@ module asp_router (
 
 `ifndef SYNTHESIS
     // Formal SystemVerilog Assertions (SVA) for HW/SW Co-Design Verification
+    /* verilator lint_off SYNCASYNCNET */
     // Invariant: Ingress demux routing must be mutually exclusive (at most one channel valid)
     property p_ingress_demux_mutual_exclusion;
         @(posedge clk) disable iff (!rst_n)
@@ -129,6 +139,7 @@ module asp_router (
     endproperty
     assert property (p_egress_priority_control)
         else $error("[SVA-ROUTER-02] Egress arbiter failed to prioritize Control CplD!");
+    /* verilator lint_on SYNCASYNCNET */
 `endif
 
 endmodule

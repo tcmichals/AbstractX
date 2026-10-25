@@ -313,3 +313,13 @@ metadata:
             channel: uint8
             target_addr: uint32
             len_dw: uint16
+
+        # @impl [SPEC-PIO-07] rtl/pio/SPECIFICATION.md
+        pio_event:
+          fields:
+            tile_id: uint8
+            sm_id: uint8
+            event_type: uint8 # 0=TRIGGER, 1=BURST_START, 2=BURST_DONE, 3=STALL_WAIT, 4=OVERRUN
+            pc: uint8
+            duration_ns: uint32
+

@@ -59,8 +59,15 @@ target_include_directories(test_pico_zero_copy_trace PRIVATE ${PICO_DIR}/include
 target_link_libraries(test_pico_zero_copy_trace PRIVATE abstractx_core)
 add_test(NAME sim_test_pico_zero_copy_trace COMMAND test_pico_zero_copy_trace)
 
-
-
+# Zynq-7000 UIO Bridge & Target IoProcessor data plane test ([SPEC-ZYNQ-01..03])
+set(ZYNQ_DIR ${PROJECT_SOURCE_DIR}/targets/zynq7000)
+add_executable(test_zynq_target
+    test_zynq_target.cpp
+    ${ZYNQ_DIR}/src/io_processor.cpp
+)
+target_include_directories(test_zynq_target PRIVATE ${ZYNQ_DIR}/include)
+target_link_libraries(test_zynq_target PRIVATE abstractx_core)
+add_test(NAME sim_test_zynq_target COMMAND test_zynq_target)
 # Common macro to generate a test target for a specific module
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
     add_custom_target(${TARGET_NAME}
@@ -89,10 +96,11 @@ add_cocotb_test(sim-test-dshot-50m    asp_dshot_core    test_asp_dshot_core_coco
 add_cocotb_test(sim-test-neopixel-27m asp_neopixel_core test_asp_neopixel_core_cocotb SIM_PARAMS=-GCLK_FREQ_HZ=27000000)
 add_cocotb_test(sim-test-neopixel-12m asp_neopixel_core test_asp_neopixel_core_cocotb SIM_PARAMS=-GCLK_FREQ_HZ=12000000)
 add_cocotb_test(sim-test-neopixel-50m asp_neopixel_core test_asp_neopixel_core_cocotb)
+add_cocotb_test(sim-test-pio-tile     asp_pio_tile      test_asp_pio_cocotb)
 
 # Run all defined simulation targets
 add_custom_target(sim-test-all
-    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite sim-test-dshot-27m sim-test-dshot-12m sim-test-dshot-50m sim-test-neopixel-27m sim-test-neopixel-12m sim-test-neopixel-50m
+    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite sim-test-dshot-27m sim-test-dshot-12m sim-test-dshot-50m sim-test-neopixel-27m sim-test-neopixel-12m sim-test-neopixel-50m sim-test-pio-tile
     COMMENT "All simulation regression suites complete."
 )
 

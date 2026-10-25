@@ -55,6 +55,10 @@ module asp_top #(
     // PWM Receiver / Input Capture Pins (NUM_PWM_INPUTS channels)
     input  wire  [NUM_PWM_INPUTS-1:0] i_pwm_pins,
 
+    // High-Speed Serial Transceiver Pins (0x40000500 base, 256-byte FIFOs)
+    input  wire        i_uart_rx = 1'b1,
+    output logic       o_uart_tx,
+
     // Linux-Controllable Onboard LEDs (0..5)
     output logic [5:0] o_led,
 
@@ -155,6 +159,18 @@ module asp_top #(
     logic         imu_stream_tvalid;
     logic         imu_stream_tready;
 
+    logic [511:0] serial_ingress_tdata;
+    logic         serial_ingress_tvalid;
+    logic         serial_ingress_tready;
+
+    logic [511:0] serial_stream_tdata;
+    logic         serial_stream_tvalid;
+    logic         serial_stream_tready;
+
+    logic [511:0] pio_stream_tdata;
+    logic         pio_stream_tvalid;
+    logic         pio_stream_tready;
+
     asp_router u_router (
         .clk                 (clk),
         .rst_n               (sync_rst_n),
@@ -167,9 +183,9 @@ module asp_top #(
         .m_tel_tdata         (),
         .m_tel_tvalid        (),
         .m_tel_tready        (1'b1),
-        .m_esc_tdata         (),
-        .m_esc_tvalid        (),
-        .m_esc_tready        (1'b1),
+        .m_esc_tdata         (serial_ingress_tdata),
+        .m_esc_tvalid        (serial_ingress_tvalid),
+        .m_esc_tready        (serial_ingress_tready),
         .m_egr_tdata         (tlp_tx_data),
         .m_egr_tvalid        (tlp_tx_valid),
         .m_egr_tready        (tlp_tx_ready),
@@ -179,9 +195,12 @@ module asp_top #(
         .s_imu_stream_tdata  (imu_stream_tdata),
         .s_imu_stream_tvalid (imu_stream_tvalid),
         .s_imu_stream_tready (imu_stream_tready),
-        .s_esc_stream_tdata  (512'd0),
-        .s_esc_stream_tvalid (1'b0),
-        .s_esc_stream_tready ()
+        .s_esc_stream_tdata  (serial_stream_tdata),
+        .s_esc_stream_tvalid (serial_stream_tvalid),
+        .s_esc_stream_tready (serial_stream_tready),
+        .s_pio_stream_tdata  (pio_stream_tdata),
+        .s_pio_stream_tvalid (pio_stream_tvalid),
+        .s_pio_stream_tready (pio_stream_tready)
     );
 
     // ------------------------------------------------------------------------
@@ -221,24 +240,30 @@ module asp_top #(
     // IMU:      0x400001xx (IMU Auto-DMA & Timestamping Engine)
     // DShot:    0x400002xx (Motor Channel 1..4 Control)
     // PWM Dec:  0x400003xx (PWM Receiver Decoder / Input Capture)
+    // Serial:   0x400005xx (High-Speed UART with 256B FIFOs & Auto-TLP)
     // NeoPixel: 0x400006xx (WS2812B RGB Status LED)
+    // PIO:      0x400007xx (Quad-State Machine Tile with RP2040/RP2350 ISA)
     // ------------------------------------------------------------------------
-    logic sys_sel, imu_sel, dshot_sel, pwm_dec_sel, neopixel_sel;
+    logic sys_sel, imu_sel, dshot_sel, pwm_dec_sel, serial_sel, neopixel_sel, pio_sel;
     assign sys_sel      = (wb_adr[31:8] == 24'h400000);
     assign imu_sel      = (wb_adr[31:8] == 24'h400001);
     assign dshot_sel    = (wb_adr[31:8] == 24'h400002);
     assign pwm_dec_sel  = (wb_adr[31:8] == 24'h400003);
+    assign serial_sel   = (wb_adr[31:8] == 24'h400005);
     assign neopixel_sel = (wb_adr[31:8] == 24'h400006);
+    assign pio_sel      = (wb_adr[31:8] == 24'h400007) || (wb_adr[31:8] == 24'h400008);
 
-    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, pwm_dec_wb_dat_r, neopixel_wb_dat_r;
-    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   pwm_dec_wb_ack,   neopixel_wb_ack;
+    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, pwm_dec_wb_dat_r, serial_wb_dat_r, neopixel_wb_dat_r, pio_wb_dat_r;
+    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   pwm_dec_wb_ack,   serial_wb_ack,   neopixel_wb_ack,   pio_wb_ack;
 
-    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | pwm_dec_wb_ack | neopixel_wb_ack;
+    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | pwm_dec_wb_ack | serial_wb_ack | neopixel_wb_ack | pio_wb_ack;
     assign wb_dat_r = sys_sel      ? sys_wb_dat_r :
                       imu_sel      ? imu_wb_dat_r :
                       dshot_sel    ? dshot_wb_dat_r :
                       pwm_dec_sel  ? pwm_dec_wb_dat_r :
-                      neopixel_sel ? neopixel_wb_dat_r : 32'd0;
+                      serial_sel   ? serial_wb_dat_r :
+                      neopixel_sel ? neopixel_wb_dat_r :
+                      pio_sel      ? pio_wb_dat_r : 32'd0;
 
     // System Control, PCIe ID & Master Timestamp Registers (Base: 0x40000000)
     asp_sys_regs u_sys_regs (
@@ -327,6 +352,57 @@ module asp_top #(
         .wb_data_o      (neopixel_wb_dat_r),
         .wb_ack         (neopixel_wb_ack),
         .o_neopixel_pin (o_neopixel_pin)
+    );
+
+    // High-Speed UART / Serial Core with 256-Byte FIFOs (Base: 0x40000500)
+    asp_uart_core #(
+        .CLK_FREQ_HZ (CLK_FREQ_HZ),
+        .DEFAULT_BAUD(115_200),
+        .FIFO_DEPTH  (256)
+    ) u_uart_core (
+        .clk             (clk),
+        .rst_n           (sync_rst_n),
+        .i_sys_timestamp (sys_timestamp),
+        .i_uart_rx       (i_uart_rx),
+        .o_uart_tx       (o_uart_tx),
+        .wb_cyc_i        (wb_cyc && serial_sel),
+        .wb_stb_i        (wb_stb && serial_sel),
+        .wb_we_i         (wb_we),
+        .wb_adr_i        (wb_adr[7:0]),
+        .wb_dat_i        (wb_dat_w),
+        .wb_dat_o        (serial_wb_dat_r),
+        .wb_ack_o        (serial_wb_ack),
+        .s_tlp_tdata     (serial_ingress_tdata),
+        .s_tlp_tvalid    (serial_ingress_tvalid),
+        .s_tlp_tready    (serial_ingress_tready),
+        .m_tlp_tdata     (serial_stream_tdata),
+        .m_tlp_tvalid    (serial_stream_tvalid),
+        .m_tlp_tready    (serial_stream_tready),
+        .o_uart_irq      ()
+    );
+
+    // PIO Subsystem Tile 0 (Base: 0x40000700)
+    asp_pio_tile #(
+        .BASE_ADDR(32'h40000700),
+        .TILE_ID  (0)
+    ) u_pio_tile (
+        .clk             (clk),
+        .rst_n           (sync_rst_n),
+        .i_sys_timestamp (sys_timestamp),
+        .i_gpio          ({16'd0, i_pwm_pins, imu_int, imu_miso, 10'd0}),
+        .o_gpio_out      (),
+        .o_gpio_pindir   (),
+        .wb_cyc_i        (wb_cyc && pio_sel),
+        .wb_stb_i        (wb_stb && pio_sel),
+        .wb_we_i         (wb_we),
+        .wb_adr_i        (wb_adr),
+        .wb_dat_i        (wb_dat_w),
+        .wb_dat_o        (pio_wb_dat_r),
+        .wb_ack_o        (pio_wb_ack),
+        .m_tlp_tdata     (pio_stream_tdata),
+        .m_tlp_tvalid    (pio_stream_tvalid),
+        .m_tlp_tready    (pio_stream_tready),
+        .o_pio_irq       ()
     );
 
 endmodule
