@@ -18,14 +18,14 @@
 
 ---
 
-## ⚡ What Developers & AI Love About AbstractX
+## ⚡ Core Technical Capabilities & Invariants
 
-Traditional embedded systems force a painful compromise: bloat your memory with **20+ KB of preemptive RTOS thread stacks and mutexes**, or drown in **unreadable callback spaghetti and volatile flags**.
+Traditional embedded systems force an undesirable trade-off: allocate **20+ KB of preemptive RTOS thread stacks and mutexes**, or write **unreadable callback state machines with volatile flags**.
 
-**AbstractX gives you the holy grail**:
+AbstractX replaces both approaches with a unified event-driven coroutine architecture:
 * **Sub-microsecond, 15-cycle context switches** with C++20 stackless coroutines.
 * **0 Bytes dynamic heap (`0 B`)** on a single shared 2 KB stack.
-* **Parallel in-flight sensor ingestion** (8 kHz IMU, 100 Hz Mag, 10 Hz GPS) without a single lock or spinloop.
+* **Parallel in-flight sensor ingestion** (8 kHz IMU, 100 Hz Mag, 10 Hz GPS) without locks or spinloops.
 * **Bare-metal MicroPython with native DMA** for interactive hardware REPL and rapid bring-up on coprocessors.
 * **Autonomous FPGA PIO & SystemVerilog** hardware engines delivering **0.0% CPU overhead**.
 * **AbstractX Studio GUI** to profile exact sub-microsecond timing and test applications with or without hardware.
@@ -35,7 +35,7 @@ Traditional embedded systems force a painful compromise: bloat your memory with 
 
 ---
 
-## 🚀 The 5 Superpowers of AbstractX
+## 🏛️ Architecture Invariants & Core Subsystems
 
 ```mermaid
 flowchart LR
@@ -121,11 +121,24 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 
 ---
 
-### 5. 📊 AbstractX Studio: Test Apps & Profile Exact Timing
-* **Test With or Without Hardware**: Launch Studio in simulation mode (`--sim`) to test application logic, sensor failover, and telemetry streaming on your laptop without physical silicon connected.
-* **Sub-Microsecond Timing & Latency Profiling**: Dual-Plane execution timeline directly correlates hardware DMA/ISR latency against coroutine task execution.
-* **Interactive Source Code Jumping**: Click any task or event in the timeline to jump directly to the exact C++ source file and line (`__FILE__ : __LINE__`).
-* **Dynamic 120 FPS Telemetry**: Dynamic decoding via Common Trace Format (CTF 1.8 / Barectf) with zero hardcoded offsets. Includes 3D attitude perspective wireframe, Primary Flight Display (PFD) artificial horizon, and 8 kHz oscilloscope.
+### 5. 📊 AbstractX Studio: Hardware-Accurate Timing & Latency Profiling
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.gif" alt="AbstractX Studio Sub-Microsecond Timeline" width="100%" />
+</p>
+
+<p align="center">
+  <em>Live hardware capture from XuanTie E906: synchronized horizontal swimlanes on a 200 MHz CPU cycle clock showing idle <code>wfi</code>, coroutine task execution windows, and microsecond-accurate interrupt tick lines.</em>
+</p>
+
+* **Synchronized CPU Cycle Clock Swimlanes**: Displays execution windows on a shared cycle clock (200 MHz on E906, 150 MHz on RP2350). Correlate hardware DMA burst completions directly with coroutine resumption.
+* **Sub-Microsecond Interrupt Inspection**: Inspect individual physical interrupt lines (Timer, UART3 RX, TWI1 Compass, SPI DMA) as precise tick marks unfolding over a 100 ms sliding window.
+* **Interactive Click-to-Source**: Click any task or event in the timeline to jump directly to the exact C++ source file and line (`__FILE__ : __LINE__`).
+* **Live System CLI & Diagnostics**: Inspect system state (`ps`, `drivers`, `irq_stats`, `mem`) over VirtIO RPMsg concurrently with active high-rate sensor streaming.
+* **Test in Simulation**: Launch Studio in simulation mode (`--sim`) to test application logic, sensor failovers, and CTF 1.8 decoding without physical hardware.
+* 📖 **Read the Full Observability Deep Dives**:
+  * [**MicroPython on XuanTie E906: Studio Timeline & Profiler Case Study**](docs/articles/micropython-on-e906/README.md#7-firmware-observability-with-abstractx-studio)
+  * [**Embedded Firmware Observability with Pure GitHub & MemBrowse**](docs/articles/GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md)
 
 ```bash
 # Launch AbstractX Studio connected to live telemetry stream
