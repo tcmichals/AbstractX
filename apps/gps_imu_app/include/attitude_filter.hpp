@@ -6,9 +6,7 @@
 #include <cstring>
 #include <algorithm>
 
-#include "abstractx/drivers/imu/icm42688p.hpp"
-#include "abstractx/drivers/mag/qmc5883l.hpp"
-#include "abstractx/drivers/gps/ublox_gps.hpp"
+#include "abstractx/sensor/sensor_types.hpp"
 #include "asp_tlp64.hpp"
 
 namespace abstractx::fusion {

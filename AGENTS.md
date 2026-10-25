@@ -213,7 +213,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 ## 13. Driver & Target Extensibility Mandate (Polymorphic OOP & Zero Heap)
 To ensure code is reusable across bare-metal MCUs, FPGA offloads, and Linux hosts:
 * **Sensor Driver Abstraction**:
-  - All hardware IMU drivers MUST inherit from `IImuDriver` (`drivers/include/abstractx/drivers/sensor_interface.hpp`) and implement `coro::Task<bool> init_async()` and `coro::Task<imu::ImuSample> next_sample_async()`.
+  - All hardware IMU drivers MUST inherit from `IImuDriver` (`include/abstractx/sensor/sensor_interface.hpp`) and implement `coro::Task<bool> init_async()` and `coro::Task<imu::ImuSample> next_sample_async()`.
   - All Magnetometer drivers MUST inherit from `IMagDriver` and implement `coro::Task<mag::MagSample> read_sample_async()`.
   - All GPS/GNSS drivers MUST inherit from `IGpsDriver` and implement `coro::Task<gps::GpsFix> next_fix_async()`.
   - Application fusion loops MUST ingest sensors via abstract references (`IImuDriver&`), enabling transparent sensor failover and SITL mocking without application `#ifdef`s.
@@ -223,3 +223,14 @@ To ensure code is reusable across bare-metal MCUs, FPGA offloads, and Linux host
   - All domain instruments and visualizer tools in Python MUST inherit from `AbstractXStudioPlugin` (`tools/visualizer/sdk/plugin.py`).
 * **Automated Audit**:
   - Run `python3 tools/audit_interfaces.py` to confirm 100% compliance.
+
+## 14. Core Framework vs. Application Library Boundary Mandate (`applib/`)
+AbstractX enforces a strict separation between the Core Framework and the Application Library (`applib/`):
+* **AbstractX Core (`include/abstractx/`, `src/`, `targets/`, `rtl/`)**:
+  - Delivers strictly framework primitives: coroutines, dispatcher, event reactors, memory pools, TLP crossbar switch fabric, and pure abstract HAL interfaces (`ISpi`, `II2c`, `IUart`, `IImuDriver`, `IIoProcessor`).
+  - **STRICTLY PROHIBITED**: Concrete peripheral chip implementations (e.g. ICM-42688-P, QMC5883L, U-Blox GPS, BMP388). No concrete off-chip sensor code may be committed to Core or `targets/`.
+* **Application Library (`applib/`)**:
+  - Houses reusable, concrete peripheral drivers (C++ in `applib/include/applib/drivers/`, MicroPython in `applib/python/drivers/`), fusion algorithms, and application utilities.
+  - Built as a separate library (`abstractx_applib`) that links against `abstractx_core`.
+* **Automated Boundary Gate**:
+  - Run `python3 tools/audit_boundaries.py` to confirm 100% core purity.

@@ -9,16 +9,16 @@
  * All lifecycle and sampling methods are asynchronous C++20 coroutines.
  */
 
-#ifndef ABSTRACTX_DRIVERS_SENSOR_INTERFACE_HPP
-#define ABSTRACTX_DRIVERS_SENSOR_INTERFACE_HPP
+#ifndef ABSTRACTX_SENSOR_SENSOR_INTERFACE_HPP
+#define ABSTRACTX_SENSOR_SENSOR_INTERFACE_HPP
 
-#include "sensor_types.hpp"
+#include "abstractx/sensor/sensor_types.hpp"
 #include "abstractx/coro.hpp"
 
-namespace abstractx::drivers {
+namespace abstractx::sensor {
 
 /*
- * Base Lifecycle Contract for all AbstractX Peripheral Drivers
+ * Base Lifecycle Contract for all Peripheral Drivers
  * @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md#spec-arch-01
  */
 class ISensorDriver {
@@ -75,6 +75,10 @@ public:
     virtual coro::Task<gps::GpsFix> next_fix_async() = 0;
 };
 
+} // namespace abstractx::sensor
+
+namespace abstractx::drivers {
+    using namespace abstractx::sensor;
 } // namespace abstractx::drivers
 
-#endif // ABSTRACTX_DRIVERS_SENSOR_INTERFACE_HPP
+#endif // ABSTRACTX_SENSOR_SENSOR_INTERFACE_HPP

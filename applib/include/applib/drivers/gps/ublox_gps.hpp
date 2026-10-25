@@ -9,8 +9,8 @@
  * emitting timestamped 64B PCIe-style TLP packets.
  */
 
-#ifndef ABSTRACTX_DRIVERS_GPS_UBLOX_GPS_HPP
-#define ABSTRACTX_DRIVERS_GPS_UBLOX_GPS_HPP
+#ifndef APPLIB_DRIVERS_GPS_UBLOX_GPS_HPP
+#define APPLIB_DRIVERS_GPS_UBLOX_GPS_HPP
 
 #include <cstdint>
 #include <cstddef>
@@ -23,10 +23,20 @@
 #include "abstractx/hal/uart.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/trace/tracer.hpp"
-#include "abstractx/drivers/sensor_interface.hpp"
+#include "abstractx/sensor/sensor_interface.hpp"
 #include "asp_tlp64.hpp"
 
-namespace abstractx::drivers::gps {
+namespace applib::drivers::gps {
+
+namespace hal = abstractx::hal;
+namespace coro = abstractx::coro;
+namespace trace = abstractx::trace;
+using abstractx::Tlp64;
+using abstractx::Channel;
+using abstractx::IsrDispatcher;
+using abstractx::sensor::IGpsDriver;
+using abstractx::sensor::gps::GpsFix;
+using abstractx::sensor::gps::GpsFixType;
 
 constexpr uint8_t TLP_TAG_GPS = 0x02;
 
@@ -260,6 +270,11 @@ private:
     std::coroutine_handle<> pending_handle_{nullptr};
 };
 
+} // namespace applib::drivers::gps
+
+namespace abstractx::drivers::gps {
+    using applib::drivers::gps::UbloxGps;
+    using applib::drivers::gps::TLP_TAG_GPS;
 } // namespace abstractx::drivers::gps
 
-#endif // ABSTRACTX_DRIVERS_GPS_UBLOX_GPS_HPP
+#endif // APPLIB_DRIVERS_GPS_UBLOX_GPS_HPP

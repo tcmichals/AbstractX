@@ -1,8 +1,8 @@
 // @verifies [SPEC-TLP-01] [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md (TLP codecs, Linux SPI/I2C workers)
 #include "asp_tlp_msg.hpp"
 #include "abstractx/trace/tracer.hpp"
-#include "abstractx/drivers/imu/icm42688p.hpp"
-#include "abstractx/drivers/gps/ublox_gps.hpp"
+#include "applib/drivers/imu/icm42688p.hpp"
+#include "applib/drivers/gps/ublox_gps.hpp"
 #include "abstractx/hal/spi.hpp"
 #include "abstractx/hal/i2c.hpp"
 #include "eventfd.hpp"

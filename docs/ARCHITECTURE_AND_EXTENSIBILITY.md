@@ -43,16 +43,19 @@ AbstractX strictly distinguishes between three non-misleading queue topologies:
 
 ---
 
-## 3. Recipe 1: Writing a New Hardware Sensor Driver (C++)
+## 3. Recipe 1: Writing a New Hardware Sensor Driver (C++ in `applib/`)
 
-All sensor drivers in AbstractX inherit from the standardized abstract base classes defined in [`drivers/include/abstractx/drivers/sensor_interface.hpp`](../drivers/include/abstractx/drivers/sensor_interface.hpp).
+All concrete sensor drivers live in the **Application Library (`applib/include/applib/drivers/`)** and inherit from the standardized abstract base classes defined in [`include/abstractx/sensor/sensor_interface.hpp`](../include/abstractx/sensor/sensor_interface.hpp).
 
 ### Template: 6-Axis IMU Driver (`IImuDriver`)
 ```cpp
-#include "abstractx/drivers/sensor_interface.hpp"
+#include "abstractx/sensor/sensor_interface.hpp"
 #include "abstractx/hal/spi.hpp"
 
-namespace abstractx::drivers::imu {
+namespace applib::drivers::imu {
+
+using abstractx::sensor::IImuDriver;
+using abstractx::sensor::imu::ImuSample;
 
 class Bmi088 : public IImuDriver {
 public:
@@ -186,6 +189,7 @@ Before proposing or committing changes touching drivers, HAL, or transports:
 2. **Zero Synchronous Bus I/O**: NO `delay_ms()` or spinloops inside drivers; all methods MUST return `coro::Task<T>`.
 3. **Queue Concurrency Contract**: Shared sinks MUST use `MpscEventQueue` / `EtlMpscQueue`; dedicated 1:1 streams MUST use `DedicatedSpscChannel`.
 4. **Verification Gates**:
+   * `python3 tools/audit_boundaries.py` $\rightarrow$ 100% Core Framework purity (no concrete drivers in core).
+   * `python3 tools/audit_interfaces.py` $\rightarrow$ 100% polymorphic interface compliance.
    * `python3 tools/check_queue_concurrency.py` $\rightarrow$ 0 defects.
-   * `python3 tools/audit_interfaces.py` $\rightarrow$ 100% compliance.
    * `ctest --test-dir build_host` $\rightarrow$ 100% passing tests.

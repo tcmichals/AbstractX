@@ -24,6 +24,11 @@ namespace abstractx::reactor {
  */
 class AsyncRpmsgEndpoint {
 public:
+    struct RecvAwaiter;
+    struct SendAwaiter;
+    friend struct RecvAwaiter;
+    friend struct SendAwaiter;
+
     explicit AsyncRpmsgEndpoint(EpollReactor& reactor) noexcept
         : reactor_(reactor), fd_(-1) {}
 

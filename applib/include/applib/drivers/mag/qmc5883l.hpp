@@ -11,8 +11,8 @@
  * - Standard 64-byte TLP telemetry packaging
  */
 
-#ifndef ABSTRACTX_DRIVERS_MAG_QMC5883L_HPP
-#define ABSTRACTX_DRIVERS_MAG_QMC5883L_HPP
+#ifndef APPLIB_DRIVERS_MAG_QMC5883L_HPP
+#define APPLIB_DRIVERS_MAG_QMC5883L_HPP
 
 #include <cstdint>
 #include <cstddef>
@@ -24,10 +24,18 @@
 #include "abstractx/hal/i2c.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/trace/tracer.hpp"
-#include "abstractx/drivers/sensor_interface.hpp"
+#include "abstractx/sensor/sensor_interface.hpp"
 #include "asp_tlp64.hpp"
 
-namespace abstractx::drivers::mag {
+namespace applib::drivers::mag {
+
+namespace hal = abstractx::hal;
+namespace coro = abstractx::coro;
+namespace trace = abstractx::trace;
+using abstractx::Tlp64;
+using abstractx::Channel;
+using abstractx::sensor::IMagDriver;
+using abstractx::sensor::mag::MagSample;
 
 namespace QmcRegs {
     constexpr uint8_t DATA_X_LSB = 0x00;
@@ -155,6 +163,13 @@ private:
     bool       initialized_{false};
 };
 
+} // namespace applib::drivers::mag
+
+namespace abstractx::drivers::mag {
+    using applib::drivers::mag::Qmc5883l;
+    using applib::drivers::mag::TLP_TAG_MAG;
+    using applib::drivers::mag::DEFAULT_QMC_I2C_ADDR;
+    namespace QmcRegs = applib::drivers::mag::QmcRegs;
 } // namespace abstractx::drivers::mag
 
-#endif // ABSTRACTX_DRIVERS_MAG_QMC5883L_HPP
+#endif // APPLIB_DRIVERS_MAG_QMC5883L_HPP

@@ -150,4 +150,7 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-ARCH-01] Hardware driver and visualizer plugin interface compliance auditor
     add_test(NAME py_test_interface_compliance
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/audit_interfaces.py)
+    # [SPEC-ARCH-01] [SPEC-ARCH-12] Core framework vs Application Library (applib) boundary auditor
+    add_test(NAME py_test_boundary_enforcement
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/audit_boundaries.py)
 endif()

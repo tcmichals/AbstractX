@@ -11,14 +11,14 @@
 // Temporarily disable CppUTest memory macros around ETL includes
 #undef new
 #undef delete
-#include "abstractx/drivers/imu/icm42688p.hpp"
+#include "applib/drivers/imu/icm42688p.hpp"
 #include "abstractx/hal/spi.hpp"
 #include "CppUTest/MemoryLeakDetectorNewMacros.h"
 
 using namespace abstractx;
-using namespace abstractx::drivers::imu;
+using namespace applib::drivers::imu;
 
-// @verifies [SPEC-HAL-02] [SPEC-IMU-01] [SPEC-IMU-02] drivers/include/abstractx/drivers/imu/icm42688p.hpp
+// @verifies [SPEC-HAL-02] [SPEC-IMU-01] [SPEC-IMU-02] applib/include/applib/drivers/imu/icm42688p.hpp
 class MockSpi : public hal::ISpi {
 public:
     bool init(const hal::SpiConfig& config) override {

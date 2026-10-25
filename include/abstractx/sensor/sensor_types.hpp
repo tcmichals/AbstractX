@@ -8,13 +8,13 @@
  * Magnetometer, and GNSS/GPS devices across all supported silicon.
  */
 
-#ifndef ABSTRACTX_DRIVERS_SENSOR_TYPES_HPP
-#define ABSTRACTX_DRIVERS_SENSOR_TYPES_HPP
+#ifndef ABSTRACTX_SENSOR_SENSOR_TYPES_HPP
+#define ABSTRACTX_SENSOR_SENSOR_TYPES_HPP
 
 #include <cstdint>
 #include <cstddef>
 
-namespace abstractx::drivers {
+namespace abstractx::sensor {
 
 namespace imu {
 
@@ -77,6 +77,19 @@ struct GpsFix {
 
 } // namespace gps
 
+} // namespace abstractx::sensor
+
+namespace abstractx::drivers {
+namespace imu {
+    using abstractx::sensor::imu::ImuSample;
+}
+namespace mag {
+    using abstractx::sensor::mag::MagSample;
+}
+namespace gps {
+    using abstractx::sensor::gps::GpsFix;
+    using abstractx::sensor::gps::GpsFixType;
+}
 } // namespace abstractx::drivers
 
-#endif // ABSTRACTX_DRIVERS_SENSOR_TYPES_HPP
+#endif // ABSTRACTX_SENSOR_SENSOR_TYPES_HPP

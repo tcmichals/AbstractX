@@ -1,4 +1,4 @@
-// @verifies [SPEC-HAL-03] [SPEC-GPS-01] [SPEC-GPS-02] drivers/include/abstractx/drivers/gps/ublox_gps.hpp
+// @verifies [SPEC-HAL-03] [SPEC-GPS-01] [SPEC-GPS-02] applib/include/applib/drivers/gps/ublox_gps.hpp
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -11,14 +11,14 @@
 
 #undef new
 #undef delete
-#include "abstractx/drivers/gps/ublox_gps.hpp"
+#include "applib/drivers/gps/ublox_gps.hpp"
 #include "abstractx/hal/uart.hpp"
 #include "CppUTest/MemoryLeakDetectorNewMacros.h"
 
 #include <vector>
 
 using namespace abstractx;
-using namespace abstractx::drivers::gps;
+using namespace applib::drivers::gps;
 
 class MockUart : public hal::IUart {
 public:

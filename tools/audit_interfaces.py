@@ -22,10 +22,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def audit_cpp_drivers():
-    drivers_dir = REPO_ROOT / "drivers" / "include" / "abstractx" / "drivers"
+    drivers_dir = REPO_ROOT / "applib" / "include" / "applib" / "drivers"
     if not drivers_dir.exists():
         print(f"Error: {drivers_dir} does not exist.")
-        return 1
+        return 0, [f"Missing applib drivers directory: {drivers_dir}"]
 
     errors = []
     audited = 0

@@ -12,17 +12,17 @@
 #define APPS_GPS_IMU_APP_GPS_IMU_TASKS_HPP
 
 #include "abstractx/abstractx.hpp"
-#include "abstractx/drivers/imu/icm42688p.hpp"
-#include "abstractx/drivers/gps/ublox_gps.hpp"
-#include "abstractx/drivers/mag/qmc5883l.hpp"
+#include "applib/drivers/imu/icm42688p.hpp"
+#include "applib/drivers/gps/ublox_gps.hpp"
+#include "applib/drivers/mag/qmc5883l.hpp"
 #include "attitude_filter.hpp"
 #include <cstdio>
 
 using namespace abstractx;
 using namespace abstractx::coro;
-using namespace abstractx::drivers::imu;
-using namespace abstractx::drivers::gps;
-using namespace abstractx::drivers::mag;
+using namespace applib::drivers::imu;
+using namespace applib::drivers::gps;
+using namespace applib::drivers::mag;
 using namespace abstractx::fusion;
 
 // Lock-free static TLP rings for inter-domain communication

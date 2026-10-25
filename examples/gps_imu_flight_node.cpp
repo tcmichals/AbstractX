@@ -12,8 +12,8 @@
  */
 
 #include "abstractx/coro.hpp"
-#include "abstractx/drivers/imu/icm42688p.hpp"
-#include "abstractx/drivers/gps/ublox_gps.hpp"
+#include "applib/drivers/imu/icm42688p.hpp"
+#include "applib/drivers/gps/ublox_gps.hpp"
 #include "tlp_ring.hpp"
 #include "asp_tlp64.hpp"
 
@@ -23,8 +23,8 @@
 
 using namespace abstractx;
 using namespace abstractx::coro;
-using namespace abstractx::drivers::imu;
-using namespace abstractx::drivers::gps;
+using namespace applib::drivers::imu;
+using namespace applib::drivers::gps;
 
 // @impl [SPEC-HAL-02] docs/DESIGN_SPECIFICATION.md#spec-hal-02
 /* Mock Loopback SPI Driver for ICM-42688-P simulation */

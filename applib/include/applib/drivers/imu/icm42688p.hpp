@@ -9,8 +9,8 @@
  * and zero-allocation C++20 coroutine awaiters.
  */
 
-#ifndef ABSTRACTX_DRIVERS_IMU_ICM42688P_HPP
-#define ABSTRACTX_DRIVERS_IMU_ICM42688P_HPP
+#ifndef APPLIB_DRIVERS_IMU_ICM42688P_HPP
+#define APPLIB_DRIVERS_IMU_ICM42688P_HPP
 
 #include <cstdint>
 #include <cstddef>
@@ -22,10 +22,19 @@
 #include "abstractx/hal/spi.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/trace/tracer.hpp"
-#include "abstractx/drivers/sensor_interface.hpp"
+#include "abstractx/sensor/sensor_interface.hpp"
 #include "asp_tlp64.hpp"
 
-namespace abstractx::drivers::imu {
+namespace applib::drivers::imu {
+
+namespace hal = abstractx::hal;
+namespace coro = abstractx::coro;
+namespace trace = abstractx::trace;
+using abstractx::Tlp64;
+using abstractx::Channel;
+using abstractx::IsrDispatcher;
+using abstractx::sensor::IImuDriver;
+using abstractx::sensor::imu::ImuSample;
 
 /* Register Definitions */
 namespace IcmRegs {
@@ -210,6 +219,12 @@ private:
     hal::ISpi& spi_;
 };
 
+} // namespace applib::drivers::imu
+
+namespace abstractx::drivers::imu {
+    using applib::drivers::imu::Icm42688p;
+    using applib::drivers::imu::TLP_TAG_IMU;
+    namespace IcmRegs = applib::drivers::imu::IcmRegs;
 } // namespace abstractx::drivers::imu
 
-#endif // ABSTRACTX_DRIVERS_IMU_ICM42688P_HPP
+#endif // APPLIB_DRIVERS_IMU_ICM42688P_HPP

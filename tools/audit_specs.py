@@ -46,7 +46,7 @@ def run_traceability_audit(spec_file=None, root_dir=None):
     # 2. Scan codebase for @impl tags
     # drivers/ and src/ were missing until 2026-10-23: tags in them were silently not counted
     # (engineering_log.md 2026-10-23, [SPEC-ARCH-12]).
-    scan_dirs = ["include", "src", "drivers", "targets", "apps", "examples", "sim", "tools", "rtl", "hw", "trace"]
+    scan_dirs = ["include", "src", "applib", "targets", "apps", "examples", "sim", "tools", "rtl", "hw", "trace"]
     valid_exts = {
         ".hpp", ".cpp", ".h", ".c", ".S", ".s", ".sv", ".py", ".xdc",
         ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml", ".cmake",

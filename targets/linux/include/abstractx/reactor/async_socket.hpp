@@ -26,6 +26,11 @@ namespace abstractx::reactor {
  */
 class AsyncUdpSocket {
 public:
+    struct RecvAwaiter;
+    struct SendAwaiter;
+    friend struct RecvAwaiter;
+    friend struct SendAwaiter;
+
     explicit AsyncUdpSocket(EpollReactor& reactor) noexcept
         : reactor_(reactor), fd_(-1) {}
 

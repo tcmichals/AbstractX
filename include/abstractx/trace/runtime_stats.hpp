@@ -25,8 +25,8 @@ inline constexpr uint8_t  kVersion    = 1;
 // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
 #pragma pack(push, 1)
 struct RuntimeStatsHeader {
-    uint8_t  event_id{kEventId};
-    uint8_t  version{kVersion};
+    uint8_t  event_id{abstractx::stats::kEventId};
+    uint8_t  version{abstractx::stats::kVersion};
     uint8_t  n_tasks{0};
     uint8_t  n_drivers{0};
     uint64_t timestamp_us{0};
