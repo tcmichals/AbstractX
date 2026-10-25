@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Fast C++20 Coroutines • Zero Dynamic Heap • Parallel Sensor Ingestion • Hot MicroPython • Autonomous PIO &amp; SystemVerilog • Studio Observability</strong>
+  <strong>Fast C++20 Coroutines • Zero Dynamic Heap • Parallel Sensor Ingestion • Bare-Metal MicroPython • Autonomous PIO &amp; SystemVerilog • Studio Observability</strong>
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@ Traditional embedded systems force a painful compromise: bloat your memory with 
 * **Sub-microsecond, 15-cycle context switches** with C++20 stackless coroutines.
 * **0 Bytes dynamic heap (`0 B`)** on a single shared 2 KB stack.
 * **Parallel in-flight sensor ingestion** (8 kHz IMU, 100 Hz Mag, 10 Hz GPS) without a single lock or spinloop.
-* **Hot bare-metal MicroPython** for instant live experiments (`>>>`) on silicon coprocessors.
+* **Bare-metal MicroPython with native DMA** for interactive hardware REPL and rapid bring-up on coprocessors.
 * **Autonomous FPGA PIO & SystemVerilog** hardware engines delivering **0.0% CPU overhead**.
 * **AbstractX Studio GUI** to profile exact sub-microsecond timing and test applications with or without hardware.
 
@@ -41,7 +41,7 @@ Traditional embedded systems force a painful compromise: bloat your memory with 
 flowchart LR
     A["<b>1. FAST C++20 COROS</b><br/>• 15-cycle switch<br/>• 0 Bytes heap (0 B)<br/>• 2 KB shared stack<br/>• Zero RTOS jitter"]
     B["<b>2. PARALLEL SENSORS</b><br/>• 8 kHz IMU + Mag + GPS<br/>• co_await when_all<br/>• Primary-Paced channels<br/>• Zero locks or spinloops"]
-    C["<b>3. HOT MICROPYTHON</b><br/>• Bare-metal E906 / RP2350<br/>• Quarantined SRAM heap<br/>• Live REPL experimentation<br/>• Python-to-C++ AI skill"]
+    C["<b>3. BARE-METAL MICROPYTHON</b><br/>• XuanTie E906 / RP2350<br/>• Quarantined SRAM heap<br/>• Direct DMA burst bindings<br/>• Python-to-C++ AI skill"]
     D["<b>4. PIO & SYSTEMVERILOG</b><br/>• FPGA PIO tile (RP2040 ISA)<br/>• 0.0% CPU Auto-DMA<br/>• AXI-Stream crossbar router<br/>• 64B hardware framing"]
     E["<b>5. STUDIO WORKBENCH</b><br/>• Sub-µs timing breakdown<br/>• Test with / without silicon<br/>• Interactive source jump<br/>• CTF 1.8 120 FPS trace"]
 
@@ -100,7 +100,7 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 
 ---
 
-### 3. 🔥 Hot Bare-Metal MicroPython for Rapid Experiments & PoC
+### 3. 🐍 Bare-Metal MicroPython with Native DMA for Rapid Prototyping
 * **Experiment First, Compile Later**: Bring up new sensor ICs, inspect registers, and test filtering math in MicroPython before committing to C++.
 * **Bare-Metal Silicon REPL**: Run interactive MicroPython directly on coprocessors like the **XuanTie E906 RISC-V** (Radxa Cubie A5E) and **RP2350** (Pico 2 W).
 * **Quarantined SRAM Heaps**: MicroPython runs inside an isolated, strictly bounded SRAM partition—it can never corrupt or fragment the deterministic C++20 real-time flight loops.

@@ -2590,3 +2590,31 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 
 
 
+
+---
+
+## 2026-10-25: Hardware Verification on Radxa Cubie A5E & Technical Tone Standardization
+
+* **Category**: `process-gap`, `hardware-fact`
+* **Target / Subsystem**: `README.md`, `tests/board/run_board_tests.py`, `docs/verification/evidence/e906_selftest.json`, `[SPEC-E906-REPL-15]`
+
+### 1. Context & Technical Tone Alignment
+* Eliminated sales-oriented hype terminology (e.g., "HOT") from top-level documentation in favor of concrete engineering descriptions: "Bare-Metal MicroPython with Native DMA", "Quarantined SRAM Heaps", "Sub-microsecond Context Switching".
+* Elevated concrete empirical benchmark tables directly into `README.md` to prove performance on real silicon rather than hypothetical claims.
+
+### 2. Empirical Verification on Physical Silicon (Radxa Cubie A5E)
+* Executed `.agents/skills/e906-board-selftest/` against physical hardware: Radxa Cubie A5E (Allwinner T527 XuanTie E906 @ 200 MHz, Linux 7.1.0 PREEMPT_RT on quad Cortex-A55).
+* Remoteproc state verified running `e906_repl_app.elf`.
+* Results from `run_board_tests.py` recorded in `docs/verification/evidence/e906_selftest.json`:
+  - Total tests executed: 35
+  - **Passed**: 33
+  - **Failed**: 0
+  - **Skipped**: 2 (Bench echo tests skipped because REPL firmware loaded rather than bench image)
+* Key verified board invariants:
+  - CLIC trap configuration & message box interrupt handling (`test_mtvec_is_clic_mode`, `test_rpmsg_wakes_on_message_box_interrupt`).
+  - UART3 and TWI1 (QMC5883L compass) non-blocking interrupt streaming (`test_uart3_rx_by_interrupt`, `test_twi1_compass_by_interrupt`).
+  - DMA burst completion interrupts (`test_dma_copy_completes_by_interrupt`, `test_spi1_dma_and_dual_mode`).
+  - Three VirtIO RPMsg channels operational: REPL (1024), Trace (1025), TLP (1026).
+  - Streamer watchdog heartbeat and line-buffered REPL isolation.
+  - Interactive CLI responsive beside full-rate sensor streaming (5 commands in 101 ms).
+  - Idle profiler verified at 0.36% busy under baseline conditions.
