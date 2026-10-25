@@ -57,6 +57,7 @@ flowchart TD
 
 ### `[SPEC-PIO-01]` Quad-State Machine Tile Architecture
 * **Requirement**: The PIO block MUST instantiate four (4) independent, concurrent State Machines (SM0..SM3) sharing a 32-word x 16-bit dual-port instruction memory. Each state machine operates on an independent fractional 16-bit clock divider (`div_int[15:0]`, `div_frac[7:0]`), supporting execution speeds from the full fabric clock (e.g. 100 MHz) down to sub-kHz rates.
+* **Implementation Target**: `rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_sm.sv`
 * **Verified by**: `cocotb-regression`, `rtl-lint`
 
 ### `[SPEC-PIO-02]` Standard RP2040 16-Bit Instruction Set Compatibility
@@ -70,11 +71,13 @@ flowchart TD
   7. `IRQ` (`110`): Set, clear, and wait on internal IRQ flags.
   8. `SET` (`111`): Direct immediate 5-bit write to pins, pindirs, X, or Y.
 * All instructions MUST support concurrent 5-bit delay and side-set pin driving.
+* **Implementation Target**: `rtl/pio/asp_pio_sm.sv`
 * **Verified by**: `cocotb-regression`
 
 ### `[SPEC-PIO-03]` Internal IRQ Bus & Supervisor/Worker State Machine Chaining
 * **Requirement**: The tile MUST provide an internal 8-bit IRQ flag register (`irq[7:0]`). State machines can set flags (`irq set N`), clear flags (`irq clear N`), and block until cleared (`irq wait N` / `wait 1 irq N`).
 * **Supervisor Pattern**: High-level sequencer state machines (e.g. IMU Auto-DMA) trigger low-level bus transceivers (e.g. SPI Worker) via internal IRQs without invoking the main CPU or generating interrupt storms.
+* **Implementation Target**: `rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_sm.sv`
 * **Verified by**: `cocotb-regression`
 
 ### `[SPEC-PIO-04]` Integrated 64-Byte TLP Framing & Nanosecond Timestamping
@@ -82,6 +85,7 @@ flowchart TD
   1. The shim latches the 64-bit monotonic system timestamp (`i_sys_timestamp`) sampled at the exact cycle of the triggering event.
   2. The shim frames the payload into a standard 64-byte `Tlp64` datagram (`Type=0x10`, Target Address, Sequence ID, Timestamp, Sensor Payload).
   3. The shim drives `m_tlp_tdata[511:0]` and `m_tlp_tvalid` into `asp_router.sv` via AXI-Stream with zero CPU intervention.
+* **Implementation Target**: `rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`
 * **Verified by**: `cocotb-regression`, `sanitizer-gate`
 
 ### `[SPEC-PIO-05]` Wishbone B4 Slave Bus Interface & Register Map
@@ -96,6 +100,7 @@ flowchart TD
   * `0x110 + 0x20 * N`: SM `N` TX FIFO (write).
   * `0x114 + 0x20 * N`: SM `N` RX FIFO (read).
 * Software MUST be able to execute manual SPI or UART byte transfers through SM0 TX/RX FIFOs when autonomous sequencing is idle.
+* **Implementation Target**: `rtl/pio/asp_pio_tile.sv`
 * **Verified by**: `cocotb-regression`, `hw-sw-register-parity`
 
 ### `[SPEC-PIO-06]` Multi-Rate Primary-Paced IMU Auto-DMA Sequence
@@ -105,6 +110,7 @@ flowchart TD
   3. Command SPI worker to execute multi-register burst (Status $\rightarrow$ Accel $\rightarrow$ Gyro $\rightarrow$ Clear IRQ).
   4. Stream 64B TLP to host ring buffer.
 * Total CPU utilization during continuous 8 kHz streaming MUST remain **0.0%**.
+* **Implementation Target**: `rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`
 * **Verified by**: `cocotb-regression`, `board-bringup`
 
 ### `[SPEC-PIO-07]` barectf CTF 1.8 Hardware Observability & Timeline Integration
@@ -112,5 +118,6 @@ flowchart TD
   1. The hardware packetizer formats compact binary trace spans for SM execution states (Trigger event, Burst active, Stall/Wait, and FIFO Overrun).
   2. Each event embeds `tile_id`, `sm_id`, `event_type`, `pc[4:0]`, and duration in clock cycles, timestamped by the 64-bit nanosecond monotonic clock.
   3. The events flow into the observability plane to display cycle-accurate hardware execution blocks alongside software coroutine lifecycles in the AbstractX Studio Timeline.
+* **Implementation Target**: `rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`
 * **Verified by**: `cocotb-regression`, `host-tests`
 
