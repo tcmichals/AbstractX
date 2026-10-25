@@ -18,6 +18,7 @@ import math
 import subprocess
 import signal
 import threading
+import asyncio
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [_HERE, os.path.join(_HERE, "..", "apps", "e906_repl_app")]
@@ -55,88 +56,121 @@ def find_repl_node():
 
 
 def main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    main_task = loop.create_task(async_main())
+
+    def on_term():
+        main_task.cancel()
+
+    for s in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(s, on_term)
+        except (NotImplementedError, RuntimeError):
+            pass
+
+    try:
+        loop.run_until_complete(main_task)
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        pass
+    finally:
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            pass
+        loop.close()
+
+
+async def async_main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    print(f"[BRIDGE] Forwarding live telemetry to AbstractX Studio at {HOST_IP}:{HOST_PORT}...")
+    print(f"[BRIDGE] Forwarding live telemetry to AbstractX Studio at {HOST_IP}:{HOST_PORT} (asyncio mode)...")
 
     # Ensure /dev/rpmsg0 is not locked by a stale process
     repl_node = find_repl_node()
     if repl_node:
         os.system(f"fuser -k {repl_node} 2>/dev/null")
-    time.sleep(0.2)
+    await asyncio.sleep(0.2)
 
     # Launch E906 raw sensor streamer via verified RPMsg runner
     # Pass the duration through: run_e906_script.py defaults to 15 s, which ended every
     # live Studio session after 15 s. 0 = until stopped. @impl [SPEC-E906-REPL-14]
     cmd = ["python3", "-u", os.path.join(_HERE, "run_e906_script.py"), os.path.join(_HERE, "raw_sensor_streamer.py"),
            str(DURATION_S + 5.0 if DURATION_S > 0 else 0)]
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
 
     # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
     def interrupt_e906():
         try:
-            if proc.stdin:
-                proc.stdin.write("STOP\n\x03\x03\x02")
-                proc.stdin.flush()
-                time.sleep(0.15)
+            if proc.stdin and not proc.stdin.is_closing():
+                proc.stdin.write(b"STOP\n\x03\x03\x02")
         except Exception:
             pass
         try:
             proc.terminate()
-            proc.wait(timeout=1.5)
         except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+            pass
+        try:
+            proc.kill()
+        except Exception:
+            pass
         # Guarantee E906 script loop is interrupted so RPMsg messages cease
         try:
-            import glob
             node = find_repl_node()
             if node:
+                os.system(f"fuser -k {node} 2>/dev/null")
                 with open(node, "wb", buffering=0) as f:
                     f.write(b'\x03\x03\x02')
         except Exception:
             pass
 
-    def handle_sig(sig, frame):
-        interrupt_e906()
-        sys.exit(0)
+    async def heartbeat_loop():
+        """Periodic independent watchdog heartbeat to XuanTie E906."""
+        while proc.returncode is None:
+            await asyncio.sleep(1.0)
+            try:
+                if proc.stdin and not proc.stdin.is_closing():
+                    proc.stdin.write(b"PING\n")
+                    await proc.stdin.drain()
+            except Exception:
+                break
 
-    signal.signal(signal.SIGINT, handle_sig)
-    signal.signal(signal.SIGTERM, handle_sig)
-
-    # One writer at a time to the runner: heartbeat (main loop) and CLI commands (stdin thread).
-    runner_lock = threading.Lock()
-
-    def send_runner(text):
-        with runner_lock:
-            if proc.stdin:
-                proc.stdin.write(text)
-                proc.stdin.flush()
+    stdin_queue: asyncio.Queue[str | None] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
 
     # Studio's stdin: "CLI <id> <hex>" lines are forwarded to the streamer as EXEC commands.
     # @impl [SPEC-E906-REPL-19] apps/e906_repl_app/SPECIFICATION.md
-    # Started by Studio over ssh with a stdin pipe: when Studio exits, the session closes,
-    # stdin hits EOF and the bridge stops cleanly instead of holding the REPL forever.
-    # @impl [SPEC-E906-REPL-18] apps/e906_repl_app/SPECIFICATION.md
     def _read_stdin():
         for raw in sys.stdin:
+            loop.call_soon_threadsafe(stdin_queue.put_nowait, raw)
+        loop.call_soon_threadsafe(stdin_queue.put_nowait, None)
+
+    threading.Thread(target=_read_stdin, daemon=True).start()
+
+    async def stdin_dispatch_loop():
+        while proc.returncode is None:
+            raw = await stdin_queue.get()
+            if raw is None:
+                if os.environ.get("EXIT_ON_STDIN_EOF") == "1":
+                    interrupt_e906()
+                    return
+                break
             parts = raw.split()
             if len(parts) == 3 and parts[0] == "CLI":
                 try:
-                    send_runner(f"EXEC {parts[1]} {parts[2]}\n")
+                    if proc.stdin and not proc.stdin.is_closing():
+                        proc.stdin.write(f"EXEC {parts[1]} {parts[2]}\n".encode())
+                        await proc.stdin.drain()
                 except Exception:
                     pass
-        if os.environ.get("EXIT_ON_STDIN_EOF") == "1":
-            os.kill(os.getpid(), signal.SIGTERM)
-    threading.Thread(target=_read_stdin, daemon=True).start()
+            stdin_queue.task_done()
+
+    hb_task = asyncio.create_task(heartbeat_loop())
+    stdin_task = asyncio.create_task(stdin_dispatch_loop())
     cli_open = None  # id of the CLI command whose output is arriving
 
     print("[BRIDGE] E906 raw_sensor_streamer running on XuanTie E906. Streaming to Studio...")
@@ -144,7 +178,6 @@ def main():
     seq = 0
     gps_nmea_acc = ""
     start_time = time.time()
-    last_ping_time = time.time()
 
     gps_lat = 0.0
     gps_lon = 0.0
@@ -156,22 +189,14 @@ def main():
 
     try:
         while DURATION_S <= 0 or (time.time() - start_time < DURATION_S):
-            # Heartbeat Ping: keep E906 flight controller watchdog alive every 1.0s
-            if time.time() - last_ping_time >= 1.0:
-                last_ping_time = time.time()
-                try:
-                    send_runner("PING\n")
-                except Exception:
-                    pass
-
-            line = proc.stdout.readline()
-            if not line:
-                if proc.poll() is not None:
+            line_bytes = await proc.stdout.readline()
+            if not line_bytes:
+                if proc.returncode is not None:
                     break
-                time.sleep(0.01)
+                await asyncio.sleep(0.01)
                 continue
 
-            line = line.strip()
+            line = line_bytes.decode(errors="replace").strip()
             # CLI output framed by the streamer: passed to Studio on stdout ([SPEC-E906-REPL-19]).
             cli_at = line.find("!CLI:")
             if cli_at >= 0:
@@ -286,7 +311,16 @@ def main():
                     print(f"[PROC] {line}")
 
     finally:
+        hb_task.cancel()
+        stdin_task.cancel()
         interrupt_e906()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=1.0)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
         sock.close()
         print("[BRIDGE] Streaming complete.")
 

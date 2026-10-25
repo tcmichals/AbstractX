@@ -1288,6 +1288,11 @@ def udp_receiver_thread(port: int, sim_mode: bool):
     else:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            # 2 MB receive buffer to absorb high-throughput 8 kHz burst telemetry without kernel drops
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2 * 1024 * 1024)
+        except OSError:
+            pass
         sock.bind(("0.0.0.0", port))
         sock.settimeout(1.0)
         print(f"[UDP Receiver] Listening for AbstractX 64-Byte TLPs on UDP 0.0.0.0:{port}...")

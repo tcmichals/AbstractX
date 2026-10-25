@@ -22,6 +22,7 @@ Usage (on the Cubie A5E):
 # @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
 
 import argparse
+import asyncio
 import fcntl
 import glob
 import os
@@ -121,6 +122,108 @@ class Bridge:
         return moved
 
 
+class AsyncBridge:
+    """Asynchronous RPMsg-to-UDP Bridge using asyncio and OS epoll event notifications.
+    Eliminates select.select() thread polling and enables zero-copy event-driven dispatch."""
+
+    def __init__(
+        self,
+        mode: str,
+        dev_fd: int,
+        out_sock: socket.socket,
+        out_addr: tuple[str, int],
+        in_sock: socket.socket = None,
+        loop: asyncio.AbstractEventLoop = None,
+    ):
+        self.mode = mode
+        self.dev_fd = dev_fd
+        self.out_sock = out_sock
+        self.out_addr = out_addr
+        self.in_sock = in_sock
+        self.loop = loop
+        self.stats = {"to_udp": 0, "to_e906": 0, "rejected": 0}
+        self._running = False
+        self._renew_task: asyncio.Task = None
+
+    def hello(self):
+        os.write(self.dev_fd, HELLO)
+
+    def _on_dev_readable(self):
+        try:
+            data = os.read(self.dev_fd, 512)
+        except (BlockingIOError, OSError):
+            return
+        if not data:
+            return
+        if self.mode == "tlp" and not Bridge.valid_tlp_batch(data):
+            self.stats["rejected"] += 1
+        else:
+            self.out_sock.sendto(data, self.out_addr)
+            self.stats["to_udp"] += 1
+
+    def _on_udp_readable(self):
+        if not self.in_sock:
+            return
+        try:
+            data, _ = self.in_sock.recvfrom(2048)
+        except (BlockingIOError, OSError):
+            return
+        if not data:
+            return
+        if Bridge.valid_tlp_batch(data):
+            os.write(self.dev_fd, data)
+            self.stats["to_e906"] += 1
+        else:
+            self.stats["rejected"] += 1
+
+    async def _renew_lease_loop(self):
+        while self._running:
+            await asyncio.sleep(1.0)
+            try:
+                self.hello()
+            except OSError:
+                break
+
+    async def run(self):
+        self._running = True
+        loop = self.loop or asyncio.get_running_loop()
+        self.loop = loop
+        self.hello()
+
+        # Configure non-blocking file descriptors for epoll event notifications
+        os.set_blocking(self.dev_fd, False)
+        loop.add_reader(self.dev_fd, self._on_dev_readable)
+
+        if self.in_sock:
+            self.in_sock.setblocking(False)
+            loop.add_reader(self.in_sock.fileno(), self._on_udp_readable)
+
+        self._renew_task = asyncio.create_task(self._renew_lease_loop())
+        try:
+            while self._running:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.stop()
+
+    def stop(self):
+        self._running = False
+        if self._renew_task:
+            self._renew_task.cancel()
+            self._renew_task = None
+        if self.loop:
+            try:
+                self.loop.remove_reader(self.dev_fd)
+            except Exception:
+                pass
+            if self.in_sock:
+                try:
+                    self.loop.remove_reader(self.in_sock.fileno())
+                except Exception:
+                    pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("mode", choices=sorted(ENDPOINTS))
@@ -131,6 +234,8 @@ def main() -> int:
     ap.add_argument("--listen-port", type=int, default=9872, help="tlp: UDP port for TLPs to the E906")
     ap.add_argument("--exit-on-stdin-eof", action="store_true",
                     help="exit when stdin closes (run over ssh: ends with the session) [SPEC-E906-REPL-18]")
+    ap.add_argument("--sync", dest="use_async", action="store_false", default=True,
+                    help="use legacy synchronous select() polling loop instead of asyncio")
     args = ap.parse_args()
 
     if args.exit_on_stdin_eof:
@@ -148,9 +253,22 @@ def main() -> int:
     if args.mode == "tlp":
         in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         in_sock.bind(("0.0.0.0", args.listen_port))
+
+    print(f"[bridge] {args.mode} (asyncio={args.use_async}): {dev} (endpoint {ep['addr']}) -> udp {args.udp_host}:{port}", file=sys.stderr)
+
+    if args.use_async:
+        async_bridge = AsyncBridge(args.mode, dev_fd, out, (args.udp_host, port), in_sock)
+        try:
+            asyncio.run(async_bridge.run())
+        except KeyboardInterrupt:
+            pass
+        finally:
+            print(f"[bridge] {async_bridge.stats}", file=sys.stderr)
+            os.close(dev_fd)
+        return 0
+
     bridge = Bridge(args.mode, dev_fd, out, (args.udp_host, port), in_sock)
     bridge.hello()
-    print(f"[bridge] {args.mode}: {dev} (endpoint {ep['addr']}) -> udp {args.udp_host}:{port}", file=sys.stderr)
     # Renew the trace lease once a second; without it the E906 stops sending ([SPEC-E906-IPC-05]).
     # @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
     next_hello = time.monotonic() + 1.0

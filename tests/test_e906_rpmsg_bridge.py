@@ -71,6 +71,39 @@ def test_tlp_bridge_both_ways_and_validation():
     assert b.stats == {"to_udp": 1, "to_e906": 1, "rejected": 2}
 
 
+def test_async_bridge_event_driven_dispatch():
+    """Verifies that AsyncBridge dispatches datagrams using asyncio epoll readers."""
+    import asyncio
+
+    async def run_test():
+        e906, host = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        out, studio = udp_pair()
+        loop = asyncio.get_running_loop()
+        b = br.AsyncBridge("trace", host.fileno(), out, studio.getsockname(), loop=loop)
+        
+        # Start async run in a task
+        task = asyncio.create_task(b.run())
+        await asyncio.sleep(0.05)  # allow epoll registration
+
+        assert e906.recv(64) == br.HELLO
+
+        pkt = struct.pack("<I", 0xC1FC1FC1) + bytes(range(60))
+        e906.send(pkt)
+        await asyncio.sleep(0.05)
+
+        assert studio.recv(2048) == pkt
+        assert b.stats["to_udp"] == 1
+
+        b.stop()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(run_test())
+
+
 if __name__ == "__main__":
     test_ioctl_encoding_matches_linux()
     test_trace_messages_become_udp_datagrams()
