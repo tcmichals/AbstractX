@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="#-quickstart-in-30-seconds"><img src="https://img.shields.io/badge/Quickstart-30s-brightgreen.svg" alt="Quickstart"></a>
+  <a href="#-proven-on-real-silicon-empirical-benchmarks"><img src="https://img.shields.io/badge/Hardware%20Verified-Radxa%20Cubie%20A5E%20%2F%20Pico%202-success.svg" alt="Verified on Hardware"></a>
   <a href="AbstractX.md"><img src="https://img.shields.io/badge/Deep--Dive-AbstractX.md-blue.svg" alt="Deep Dive"></a>
   <a href="docs/SPECTRACE_GUIDE.md"><img src="https://img.shields.io/badge/SpecTrace-Aerospace--Grade-purple.svg" alt="SpecTrace"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3%20%2F%20Commercial-yellow.svg" alt="License"></a>
@@ -29,7 +30,7 @@ Traditional embedded systems force a painful compromise: bloat your memory with 
 * **Autonomous FPGA PIO & SystemVerilog** hardware engines delivering **0.0% CPU overhead**.
 * **AbstractX Studio GUI** to profile exact sub-microsecond timing and test applications with or without hardware.
 
-> 📖 **Want the exhaustive technical deep dives, bus switch design, or Zephyr comparison?**  
+> 📖 **Looking for the exhaustive technical deep dives, bus switch design, or Zephyr comparison?**  
 > Read [**AbstractX.md**](AbstractX.md) and [**docs/ARCHITECTURE_AND_EXTENSIBILITY.md**](docs/ARCHITECTURE_AND_EXTENSIBILITY.md).
 
 ---
@@ -136,6 +137,29 @@ python3 tools/visualizer/abstractx_studio.py --sim
 
 ---
 
+## 📈 Proven on Real Silicon: Empirical Benchmarks
+
+All metrics below are measured on physical hardware: **Radxa Cubie A5E** (Allwinner T527 XuanTie E906 @ 200 MHz), **Raspberry Pi Pico 2 W** (RP2350 @ 150 MHz), and **QMTech Zynq-7020 FPGA**.  
+Evidence logged in [`docs/verification/evidence/e906_bench_baremetal.json`](docs/verification/evidence/e906_bench_baremetal.json) and [`docs/articles/CASE_STUDIES_AND_BENCHMARKS.md`](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md).
+
+| Performance Metric | Bare-Metal AbstractX (E906 / RP2350) | FreeRTOS + AbstractX (E906) | Traditional Thread-per-Bus RTOS |
+| :--- | :--- | :--- | :--- |
+| **Yield Loop Round-Trip** | **1,961 cycles (9.80 µs)** | 1,997 cycles (9.98 µs) | 6,000+ cycles (> 30 µs) |
+| **Context Switch Overhead** | **15 cycles (~100 ns)** | ~60 cycles (300 ns) | 300–500 cycles (2–3 µs) |
+| **Dynamic Heap Allocation** | **0 Bytes (`0 B`)** | **0 Bytes (`0 B`)** | Dynamic Heap Required |
+| **RAM per Sensor Task** | **< 100 Bytes** (in `.bss`) | ~1 KB (Static Task Control) | 2,048–4,096 Bytes per thread |
+| **Idle Baseline CPU Load** | **0.01%** (0 background wakeups) | 5.5% (4,514 tick wakeups) | 5–8% (Tick-driven) |
+| **RPMsg / Bus Throughput** | **2.98 MB/s** (VirtIO zero-copy) | **2.98 MB/s** | < 800 KB/s (Serialized RPC) |
+| **Hardware DMA Bus Overhead**| **0.0% CPU wait states** (FPGA/PIO)| **0.0% CPU wait states** | CPU polling `while(busy)` |
+
+> 🔬 **Reproduce on Hardware**:
+> ```bash
+> # Run automated benchmark suite directly on Radxa Cubie A5E:
+> ssh root@192.168.3.3 "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json baremetal.json"
+> ```
+
+---
+
 ## 🌐 Polymorphic Silicon Scaling
 
 Write your application once against `abstractx::` and deploy it across microcontrollers, coprocessors, and FPGAs with **zero `#ifdef` directives**:
@@ -168,7 +192,7 @@ source .venv/bin/activate
 cmake -B build_host -DCMAKE_BUILD_TYPE=Release
 cmake --build build_host -j
 
-# Run verification suite (100% pass rate)
+# Run verification suite (100% pass rate across 69 tests)
 ctest --test-dir build_host --output-on-failure
 ```
 
@@ -214,12 +238,20 @@ AbstractX/
 
 ---
 
-## 📚 Technical Deep Dives & Handbooks
+## 📚 Technical Deep Dives & Benchmark Series
 
-* [**AbstractX.md**](AbstractX.md) — Comprehensive architectural manual, bus switch design, and Zephyr Rosetta Stone.
-* [**docs/ARCHITECTURE_AND_EXTENSIBILITY.md**](docs/ARCHITECTURE_AND_EXTENSIBILITY.md) — Polymorphic driver inheritance and extensible system design.
-* [**docs/SPECTRACE_GUIDE.md**](docs/SPECTRACE_GUIDE.md) — The SpecTrace development cycle and closed-loop AI learning.
-* [**rtl/README.md**](rtl/README.md) — Synthesizable SystemVerilog FPGA switch fabric guide.
+Explore the full 5-part engineering series and architectural guides:
+
+* [**AbstractX.md**](AbstractX.md) — Comprehensive technical manual: emulating bus fabrics on silicon, Zephyr Rosetta Stone, AMP architecture, and sequence diagrams.
+* [**Multi-Silicon Benchmark Series & Case Studies**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md):
+  1. *RP2350 Pico 2 W*: [Straight-Line Async: Sub-microsecond C++20 coroutines vs RTOS threads](docs/articles/gps-compass-straight-line-async/README.md)
+  2. *Radxa Cubie A5E*: [Bare Metal + AbstractX vs FreeRTOS on XuanTie E906](docs/articles/baremetal-vs-freertos-e906/README.md)
+  3. *QMTech Zynq-7020*: [Polymorphic Silicon — C++ to SystemVerilog FPGA Switch Fabric](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md)
+  4. *CI Observability*: [Embedded Firmware Observability with Pure GitHub & MemBrowse](docs/articles/GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md)
+  5. *Interactive Scripting*: [Experiment First, Compile Later: MicroPython on XuanTie E906](docs/articles/micropython-on-e906/README.md)
+* [**docs/ARCHITECTURE_AND_EXTENSIBILITY.md**](docs/ARCHITECTURE_AND_EXTENSIBILITY.md) — Polymorphic driver inheritance, `applib/` boundary contracts, and interface design.
+* [**docs/SPECTRACE_GUIDE.md**](docs/SPECTRACE_GUIDE.md) — Aerospace-grade SpecTrace development loop and closed-loop AI learning gate.
+* [**rtl/README.md**](rtl/README.md) — Synthesizable SystemVerilog FPGA switch fabric architecture.
 * [**rtl/pio/README.md**](rtl/pio/README.md) — Autonomous Programmable I/O (ASP-PIO) tile developer guide.
 
 ---
