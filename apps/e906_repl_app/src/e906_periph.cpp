@@ -693,9 +693,15 @@ void dma_bench_done(uint8_t, bool ok) noexcept {
 // -2 when no channel is free. Releases the allocated DMA channel before returning.
 int e906_dma_bench(uint32_t n, uint32_t port, uint32_t* dma_cycles, uint32_t* cpu_cycles) {
     if (n == 0 || n > sizeof(s_dma_src)) return 0;
+    static int s_bench_ch = -1;
+    if (s_bench_ch >= 0) {
+        hal::DmaController::release_channel(static_cast<uint8_t>(s_bench_ch));
+        s_bench_ch = -1;
+    }
     hal::DmaController::init();
     const int ch = hal::DmaController::allocate_channel();
     if (ch < 0) return -2;
+    s_bench_ch = ch;
 
     for (uint32_t i = 0; i < n; ++i) {
         s_dma_src[i] = static_cast<uint8_t>(i * 7U + 3U);
@@ -718,6 +724,7 @@ int e906_dma_bench(uint32_t n, uint32_t port, uint32_t* dma_cycles, uint32_t* cp
     while (!s_dma_done && hal::Timer::get_ticks() < deadline) {
         wait_step(deadline);
     }
+    s_bench_ch = -1;
     if (!s_dma_done) {
         hal::DmaController::release_channel(static_cast<uint8_t>(ch));
         return -1;

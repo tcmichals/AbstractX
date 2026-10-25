@@ -2452,3 +2452,46 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `python3 tools/audit_specs.py`: 100% tagged (46/46).
 * `python3 tools/spectrace_matrix.py --changes`: 0 untraced hunks.
 
+## [2026-10-25] - Coroutine Contract Hardening, HAL Concurrency Invariant Auditing & Linter Skills
+
+* **Category**: `product-bug` (coro combinator atomics, WFI sleep-check race, NOP spinloops), `process-gap` (lacking automated linters for coroutine contracts and HAL concurrency)
+
+### 1. Mistake / Gap Observed
+* **Target / Subsystem**: `include/asp_coro.hpp`, `targets/allwinner_e906/`, `apps/e906_repl_app/`
+* **Concurrency & Lifetime Issues Found in Review**:
+  1. `when_all` and `when_any` combinators lacked atomic state counters and called `caller.resume()` directly instead of deferring to `abstractx::Dispatcher::push()`, violating the single-context resumption contract ([SPEC-ARCH-10], [SPEC-ARCH-11]).
+  2. `coro_frame_alloc` size matching logic allowed smaller allocations to slice larger blocks without tracking true block size, leading to pool high-water mark growth across steady-state iterations.
+  3. `irq_dispatcher.cpp` had a bare `wfi` sleep-check race where interrupts arriving between queue check and `wfi` execution could cause an unhandled sleep hang.
+  4. Drivers (`spi.cpp`, `uart.cpp`, `i2c.cpp`, `dma.cpp`) contained uncalibrated `for (int timeout = 100000; ...)` NOP spinloops rather than hardware timer deadlines (`Timer::get_ticks()`).
+  5. Cross-domain register `DMA_IRQ_CPU_EN_REG` underwent 32-bit RMW, risking race conditions with concurrent Linux DMA operations on channels 0..7.
+  6. REPL native bindings `mod_abstractx_peek` and `mod_abstractx_poke` permitted unaligned or out-of-bounds pointer dereferences, risking fatal CPU misalignment/bus traps.
+
+### 2. Root Cause & Solution
+* **Coroutine Primitives (`include/asp_coro.hpp`)**:
+  - Implemented lock-free atomic barrier pattern for `WhenAllAwaiter` (`remaining_` initialized to $N+1$, exactly one participant sees 1 to resume caller via `Dispatcher::push()` or skip suspension inline).
+  - Implemented atomic state exchange for `WhenAnyAwaiter` (`stage_` exchange between await_suspend and winner callback, detaching losing task safely).
+  - Added RAII intrusive awaiter destructors to `Event`, `Semaphore`, and `BusLock` to guarantee unlinking upon coroutine cancellation.
+  - Enforced exact-size frame reuse in `coro_frame_alloc` (`(*link)->size == aligned_sz`) preserving the invariant that steady-state loops do not expand pool high-water mark.
+  - Modernized `AsyncQueue` to power-of-two bitmasking and added `empty()`, `full()`, and `size()` accessors.
+* **HAL Concurrency (`targets/allwinner_e906/`, `apps/e906_repl_app/`)**:
+  - Masked MIE before evaluating dispatcher queues in `irq_dispatcher.cpp` to prevent check-then-sleep races.
+  - Replaced all uncalibrated NOP loops with `Timer::get_ticks()` timeouts.
+  - Protected DMA CPU interrupt registers from clobbering Linux domains.
+  - Validated memory alignment and SRAM/peripheral address bounds in `modabstractx.c`.
+  - Added reentrancy guard flag to `abstractx_repl_vm_hook` in `mphalport.cpp`.
+* **Autonomous Learning & Auditing Skills**:
+  - Created `tools/audit_coro_contracts.py` and registered check skill `.agents/skills/coro-contract-lint/SKILL.md`.
+  - Created `tools/audit_hal_invariants.py` and registered check skill `.agents/skills/hal-concurrency-audit/SKILL.md`.
+  - Created unit tests `tests/test_coro_primitives.cpp` and `tests/test_ring_wraparound.cpp`.
+
+### 3. Verification & Evidence
+* `tools/audit_coro_contracts.py`: **100% Pass** (0 violations across repo).
+* `tools/audit_hal_invariants.py`: **100% Pass** (0 violations across repo).
+* Host Test Suite (`build_host`): **62/62 passed (100%)**.
+* ASan/UBSan Suite (`build_asan`, `-fsanitize=address,undefined -fno-sanitize-recover=all`): **62/62 passed (100%)**.
+* ThreadSanitizer Suite (`build_tsan`, `-fsanitize=thread -O1 -g`): **62/62 passed (100%)**.
+* E906 Cross-Compilation (`build_e906`, `riscv-none-elf-gcc`): **100% clean build, all remoteproc SRAM spaces verified**.
+* `python3 tools/audit_specs.py`: **46/46 tagged (100.0% coverage)**.
+* `python3 tools/spectrace_matrix.py --changes`: **99 hunks governed, 0 untraced**.
+
+

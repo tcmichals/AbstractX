@@ -104,10 +104,11 @@ public:
     size_t size() const noexcept {
         const size_t current_head = head_.load(std::memory_order_relaxed);
         const size_t current_tail = tail_.load(std::memory_order_relaxed);
-        return (current_tail >= current_head) ? (current_tail - current_head) : 0;
+        return current_tail - current_head;
     }
 
     bool empty() const noexcept { return size() == 0; }
+    bool full() const noexcept { return size() >= Capacity; }
 
     void clear() noexcept {
         head_.store(0, std::memory_order_relaxed);

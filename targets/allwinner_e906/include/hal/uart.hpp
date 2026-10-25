@@ -36,6 +36,7 @@ public:
         bool completed{false};
 
         AsyncTxAwaiter(const uint8_t *d, size_t l) : data(d), len(l) {}
+        ~AsyncTxAwaiter() noexcept;
         bool await_ready() const noexcept { return len == 0; }
         bool await_suspend(std::coroutine_handle<> handle) noexcept;
         bool await_resume() noexcept { return completed; }
@@ -52,8 +53,9 @@ public:
         size_t   bytes_received;
 
         AsyncRxPacketAwaiter(uint8_t *buf, size_t len);
+        ~AsyncRxPacketAwaiter() noexcept;
         bool await_ready() const noexcept;
-        void await_suspend(std::coroutine_handle<> handle) noexcept;
+        bool await_suspend(std::coroutine_handle<> handle) noexcept;
         size_t await_resume() noexcept;
     };
 

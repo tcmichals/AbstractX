@@ -86,11 +86,18 @@ mp_uint_t mp_hal_ticks_cpu(void) {
 // Non-preemptive VM Hook: called on every bytecode loop iteration
 // @impl [SPEC-E906-REPL-04] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
 void abstractx_repl_vm_hook(void) {
+    static bool s_running = false;
+    if (s_running) {
+        return;
+    }
+    s_running = true;
+
     // Runs on every backward jump: return at once unless an interrupt posted work,
     // or every 64th call (aged output, TLP batches).
     static uint32_t s_calls = 0;
     if (!::hal::rpmsg_doorbell_pending() && !abstractx::Dispatcher::has_pending_resumes() &&
         (++s_calls & 63U) != 0) {
+        s_running = false;
         return;
     }
     // Cooperatively pump the dispatcher
@@ -103,8 +110,9 @@ void abstractx_repl_vm_hook(void) {
     if (abstractx::g_repl_console) {
         abstractx::g_repl_console->flush_if_older(hal::Timer::get_ticks(), 20ULL * hal::Timer::TICKS_PER_MS);
     }
-    // Ctrl-C was taken out of the input when it arrived (RpmsgConsole::on_rx_data); the
-    // input queue itself is left alone so scripts still read their own bytes (PING).
+    // Clear reentrancy guard BEFORE mp_handle_pending so an NLR longjmp (KeyboardInterrupt)
+    // does not leave s_running stuck as true!
+    s_running = false;
     mp_handle_pending(MP_HANDLE_PENDING_CALLBACKS_AND_EXCEPTIONS);
 }
 

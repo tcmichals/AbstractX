@@ -58,6 +58,16 @@ add_abstractx_cpputest(test_sitl_serial_loopback
     test_sitl_serial_loopback.cpp
 )
 
+add_abstractx_cpputest(test_ring_wraparound
+    test_main.cpp
+    test_ring_wraparound.cpp
+)
+
+add_abstractx_cpputest(test_coro_primitives
+    test_main.cpp
+    test_coro_primitives.cpp
+)
+
 # SpecTrace tooling ([SPEC-AUDIT-06..08]): plain python3, no pytest required.
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)

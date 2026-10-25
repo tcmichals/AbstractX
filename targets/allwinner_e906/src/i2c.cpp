@@ -15,6 +15,7 @@
 // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 // @impl [SPEC-E906-IRQ-02] targets/allwinner_e906/SPECIFICATION.md
 #include "hal/timer.hpp"
+#include "abstractx/interrupt_lock.hpp"
 #include "memory_map.h"
 #include <atomic>
 
@@ -227,9 +228,16 @@ bool E906I2c::write_read_sync(uint8_t slave_addr,
     start_fsm(slave_addr, false, !rx_data.empty(), tx_data, rx_data);
 
     // Sleep in WFI until FSM completion ISR triggers
+    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
     while (busy_) {
-        __asm__ volatile("wfi");
+#if defined(__riscv)
+        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
+        abstractx::disable_interrupts_save_flags();
+#else
+        break;
+#endif
     }
+    abstractx::restore_interrupts_flags(flags);
     return success_;
 }
 
@@ -244,9 +252,16 @@ bool E906I2c::write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) {
         start_fsm(slave_addr, false, false, tx_data, {});
     }
 
+    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
     while (busy_) {
-        __asm__ volatile("wfi");
+#if defined(__riscv)
+        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
+        abstractx::disable_interrupts_save_flags();
+#else
+        break;
+#endif
     }
+    abstractx::restore_interrupts_flags(flags);
     return success_;
 }
 
@@ -261,9 +276,16 @@ bool E906I2c::read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) {
         start_fsm(slave_addr, true, false, {}, rx_data);
     }
 
+    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
     while (busy_) {
-        __asm__ volatile("wfi");
+#if defined(__riscv)
+        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
+        abstractx::disable_interrupts_save_flags();
+#else
+        break;
+#endif
     }
+    abstractx::restore_interrupts_flags(flags);
     return success_;
 }
 

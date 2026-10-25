@@ -14,6 +14,8 @@
 #include "hal/pio.hpp"
 #include "hal/dma.hpp"
 #include "hal/ccu.hpp"
+#include "hal/timer.hpp"
+#include "abstractx/interrupt_lock.hpp"
 // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 // @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
 #include "memory_map.h"
@@ -90,8 +92,8 @@ void Spi1::init(uint32_t speed_hz) {
 
     // 3. Soft reset controller
     SPI1_GCR = (1U << 31);
-    for (int timeout = 10000; timeout > 0 && (SPI1_GCR & (1U << 31)); --timeout) {
-        __asm__ volatile("nop");
+    const uint64_t rst_deadline = ::hal::Timer::get_ticks() + 5ULL * ::hal::Timer::TICKS_PER_MS;
+    while ((SPI1_GCR & (1U << 31)) && (::hal::Timer::get_ticks() < rst_deadline)) {
     }
 
     // 4. Enable Master Mode & Transmit Pause Enable & Bus Enable
@@ -157,9 +159,14 @@ bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_bu
     // 6. Start transfer (XCH bit 31)
     SPI1_TCR |= (1U << 31);
 
-    // 7. Wait for transfer complete (XCH self-clears)
-    for (int timeout = 100000; timeout > 0 && (SPI1_TCR & (1U << 31)); --timeout) {
-        __asm__ volatile("nop");
+    // 7. Wait for transfer complete with bounded hardware timer (XCH self-clears)
+    const uint64_t deadline = ::hal::Timer::get_ticks() + 10ULL * ::hal::Timer::TICKS_PER_MS;
+    while ((SPI1_TCR & (1U << 31)) && (::hal::Timer::get_ticks() < deadline)) {
+    }
+    if (SPI1_TCR & (1U << 31)) {
+        if (cs_id == 0) Pio::set_cs0(false);
+        else if (cs_id == 1) Pio::set_cs1(false);
+        return false;
     }
 
     // 8. Drain RX FIFO
@@ -261,9 +268,16 @@ bool Spi1::transceive_imu_single_sync(const uint8_t *tx_buf, uint8_t *rx_buf, si
         return transceive_fifo_sync(0 /* CS0: PB11 */, tx_buf, rx_buf, length, false);
     }
     start_dma_transfer(0 /* CS0: PB11 */, tx_buf, rx_buf, length, {}, false);
+    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
     while (is_busy()) {
-        __asm__ volatile("wfi");
+#if defined(__riscv)
+        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
+        abstractx::disable_interrupts_save_flags();
+#else
+        break;
+#endif
     }
+    abstractx::restore_interrupts_flags(flags);
     return true;
 }
 
@@ -273,9 +287,16 @@ bool Spi1::transceive_fpga_dual_sync(const uint8_t *tx_buf, uint8_t *rx_buf, siz
         return transceive_fifo_sync(0 /* CS0: PB11 */, tx_buf, rx_buf, length, true);
     }
     start_dma_transfer(0 /* CS0: PB11 */, tx_buf, rx_buf, length, {}, true);
+    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
     while (is_busy()) {
-        __asm__ volatile("wfi");
+#if defined(__riscv)
+        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
+        abstractx::disable_interrupts_save_flags();
+#else
+        break;
+#endif
     }
+    abstractx::restore_interrupts_flags(flags);
     return true;
 }
 

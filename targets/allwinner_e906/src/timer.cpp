@@ -196,6 +196,10 @@ void Timer::handle_irq() noexcept {
 // Non-Blocking Coroutine Sleep Implementation
 // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
 // ----------------------------------------------------------------------------
+Timer::SleepAwaiter::~SleepAwaiter() noexcept {
+    Timer::cancel_waiter(this);
+}
+
 bool Timer::SleepAwaiter::await_ready() const noexcept {
     return Timer::get_ticks() >= target_ticks;
 }

@@ -194,6 +194,13 @@ bool Uart2::is_tx_busy() noexcept {
     return g_uart_tx_dma_busy || !g_uart_tx_ring.empty();
 }
 
+Uart2::AsyncTxAwaiter::~AsyncTxAwaiter() noexcept {
+    if (!completed && g_uart_tx_completed_ptr == &completed) {
+        g_uart_tx_coro_handle = nullptr;
+        g_uart_tx_completed_ptr = nullptr;
+    }
+}
+
 bool Uart2::AsyncTxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
     // Threshold Balancing:
     // If len <= DMA_TX_THRESHOLD (32 bytes) or DMA not available:
@@ -273,13 +280,21 @@ void Uart2::handle_irq() {
 Uart2::AsyncRxPacketAwaiter::AsyncRxPacketAwaiter(uint8_t *buf, size_t len)
     : dest_buf(buf), max_len(len), bytes_received(0) {}
 
+Uart2::AsyncRxPacketAwaiter::~AsyncRxPacketAwaiter() noexcept {
+    g_uart_rx_coroutine.store(nullptr, std::memory_order_release);
+}
+
 bool Uart2::AsyncRxPacketAwaiter::await_ready() const noexcept {
     return g_uart_packet_ready && !g_uart_rx_ring.empty();
 }
 
-void Uart2::AsyncRxPacketAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
+bool Uart2::AsyncRxPacketAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
     g_uart_rx_coroutine.store(handle, std::memory_order_release);
-    g_uart_packet_ready = false;
+    if (g_uart_packet_ready && !g_uart_rx_ring.empty()) {
+        g_uart_rx_coroutine.store(nullptr, std::memory_order_relaxed);
+        return false;
+    }
+    return true;
 }
 
 size_t Uart2::AsyncRxPacketAwaiter::await_resume() noexcept {

@@ -465,7 +465,9 @@ private:
 // Standard Asynchronous Yield Awaiter (Yields to let other coroutines run)
 struct YieldAwaiter {
     bool await_ready() const noexcept { return false; }
-    void await_suspend(std::coroutine_handle<>) noexcept {}
+    void await_suspend(std::coroutine_handle<> h) noexcept {
+        abstractx::Dispatcher::push(h);
+    }
     void await_resume() noexcept {}
 };
 
@@ -542,10 +544,15 @@ public:
     // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
     void set() noexcept {
         state_ = true;
-        if (waiter_) {
-            auto h = waiter_;
-            waiter_ = nullptr;
-            abstractx::Dispatcher::push(h);  // never inline: only step() resumes
+        while (waiters_) {
+            auto* next = waiters_->next_;
+            auto h = waiters_->handle_;
+            waiters_->handle_ = nullptr;
+            waiters_->next_ = nullptr;
+            waiters_ = next;
+            if (h) {
+                abstractx::Dispatcher::push(h);  // never inline: only step() resumes
+            }
         }
     }
 
@@ -554,16 +561,36 @@ public:
 
     struct Awaiter {
         Event& event_;
+        std::coroutine_handle<> handle_{nullptr};
+        Awaiter* next_{nullptr};
+
         bool await_ready() const noexcept { return event_.state_; }
-        void await_suspend(std::coroutine_handle<> h) noexcept { event_.waiter_ = h; }
+        void await_suspend(std::coroutine_handle<> h) noexcept {
+            handle_ = h;
+            next_ = event_.waiters_;
+            event_.waiters_ = this;
+        }
         void await_resume() noexcept {}
+
+        ~Awaiter() {
+            if (handle_) {
+                Awaiter** curr = &event_.waiters_;
+                while (*curr) {
+                    if (*curr == this) {
+                        *curr = next_;
+                        break;
+                    }
+                    curr = &(*curr)->next_;
+                }
+            }
+        }
     };
 
     Awaiter operator co_await() noexcept { return Awaiter{*this}; }
 
 private:
     bool state_{false};
-    std::coroutine_handle<> waiter_{nullptr};
+    Awaiter* waiters_{nullptr};
 };
 
 // Cooperative Counting Semaphore (replaces pt-sem.h PT_SEM_WAIT / PT_SEM_SIGNAL)
@@ -573,38 +600,78 @@ public:
 
     // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
     void release() noexcept {
-        ++count_;
-        if (waiter_) {
-            auto h = waiter_;
-            waiter_ = nullptr;
+        if (waiters_head_) {
+            auto* w = waiters_head_;
+            waiters_head_ = w->next_;
+            if (!waiters_head_) {
+                waiters_tail_ = nullptr;
+            }
+            auto h = w->handle_;
+            w->handle_ = nullptr;
+            w->next_ = nullptr;
             abstractx::Dispatcher::push(h);  // the waiter takes the count in await_resume()
+        } else {
+            ++count_;
         }
     }
 
     struct AcquireAwaiter {
         Semaphore& sem_;
+        std::coroutine_handle<> handle_{nullptr};
+        AcquireAwaiter* next_{nullptr};
+
         bool await_ready() const noexcept { return sem_.count_ > 0; }
         void await_suspend(std::coroutine_handle<> h) noexcept {
-            sem_.waiter_ = h;
+            handle_ = h;
+            next_ = nullptr;
+            if (sem_.waiters_tail_) {
+                sem_.waiters_tail_->next_ = this;
+            } else {
+                sem_.waiters_head_ = this;
+            }
+            sem_.waiters_tail_ = this;
         }
         void await_resume() noexcept {
             if (sem_.count_ > 0) --sem_.count_;
         }
+
+        ~AcquireAwaiter() {
+            if (handle_) {
+                AcquireAwaiter** curr = &sem_.waiters_head_;
+                AcquireAwaiter* prev = nullptr;
+                while (*curr) {
+                    if (*curr == this) {
+                        *curr = next_;
+                        if (sem_.waiters_tail_ == this) {
+                            sem_.waiters_tail_ = prev;
+                        }
+                        break;
+                    }
+                    prev = *curr;
+                    curr = &(*curr)->next_;
+                }
+            }
+        }
     };
 
     AcquireAwaiter acquire() noexcept { return AcquireAwaiter{*this}; }
+    AcquireAwaiter operator co_await() noexcept { return acquire(); }
 
     size_t count() const noexcept { return count_; }
 
 private:
     size_t count_{0};
-    std::coroutine_handle<> waiter_{nullptr};
+    AcquireAwaiter* waiters_head_{nullptr};
+    AcquireAwaiter* waiters_tail_{nullptr};
 };
 
 // Cooperative Lock-Free SPSC Queue (replaces raw circular buffers)
 // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
 template <typename T, size_t Capacity = 16>
 class AsyncQueue {
+    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two");
+    static constexpr size_t kMask = Capacity - 1;
+
 public:
     struct PushAwaiter {
         AsyncQueue& q_;
@@ -625,12 +692,15 @@ public:
     PopAwaiter pop() noexcept { return PopAwaiter{*this}; }
 
     bool is_empty() const noexcept { return head_ == tail_; }
-    bool is_full() const noexcept { return ((head_ + 1) % (Capacity + 1)) == tail_; }
+    bool is_full() const noexcept { return (head_ - tail_) >= Capacity; }
+    bool empty() const noexcept { return is_empty(); }
+    bool full() const noexcept { return is_full(); }
+    size_t size() const noexcept { return head_ - tail_; }
 
     bool try_push(T val) noexcept {
         if (is_full()) return false;
-        buffer_[head_] = std::move(val);
-        head_ = (head_ + 1) % (Capacity + 1);
+        buffer_[head_ & kMask] = std::move(val);
+        ++head_;
         if (pop_waiter_) {
             auto h = pop_waiter_;
             pop_waiter_ = nullptr;
@@ -641,8 +711,8 @@ public:
 
     bool try_pop(T& out) noexcept {
         if (is_empty()) return false;
-        out = std::move(buffer_[tail_]);
-        tail_ = (tail_ + 1) % (Capacity + 1);
+        out = std::move(buffer_[tail_ & kMask]);
+        ++tail_;
         if (push_waiter_) {
             auto h = push_waiter_;
             push_waiter_ = nullptr;
@@ -653,8 +723,8 @@ public:
 
     T try_pop() noexcept {
         if (is_empty()) return T{};
-        T item = std::move(buffer_[tail_]);
-        tail_ = (tail_ + 1) % (Capacity + 1);
+        T item = std::move(buffer_[tail_ & kMask]);
+        ++tail_;
         if (push_waiter_) {
             auto h = push_waiter_;
             push_waiter_ = nullptr;
@@ -665,17 +735,18 @@ public:
 
     bool try_peek(T& out) const noexcept {
         if (is_empty()) return false;
-        out = buffer_[tail_];
+        out = buffer_[tail_ & kMask];
         return true;
     }
 
 private:
-    std::array<T, Capacity + 1> buffer_{};
+    std::array<T, Capacity> buffer_{};
     size_t head_{0};
     size_t tail_{0};
     std::coroutine_handle<> push_waiter_{nullptr};
     std::coroutine_handle<> pop_waiter_{nullptr};
 };
+
 
 // ============================================================================
 // 3. Coroutine I/O Engine & TLP Split-Transaction Dispatcher
@@ -773,7 +844,11 @@ public:
 
             // Construct and enqueue MemRd 64-byte TLP into TX ring
             Tlp64 req = Tlp64::make_mem_read(address, tag);
-            return engine.tx_ring_.push(req);
+            if (!engine.tx_ring_.push(req)) {
+                engine.pending_requests_[tag].active = false;
+                return false;
+            }
+            return true;
         }
 
         Tlp64 await_resume() noexcept {
@@ -799,7 +874,11 @@ public:
 
             engine.register_awaiter(tag, address, coro);
             Tlp64 req = Tlp64::make_mem_write(address, value, tag);
-            return engine.tx_ring_.push(req);
+            if (!engine.tx_ring_.push(req)) {
+                engine.pending_requests_[tag].active = false;
+                return false;
+            }
+            return true;
         }
 
         Tlp64 await_resume() noexcept {
@@ -873,7 +952,7 @@ template <typename... Tasks>
 class WhenAllAwaiter {
 public:
     explicit WhenAllAwaiter(Tasks&&... tasks)
-        : tasks_(std::forward<Tasks>(tasks)...), remaining_(sizeof...(Tasks)) {}
+        : tasks_(std::forward<Tasks>(tasks)...), remaining_(sizeof...(Tasks) + 1) {}
 
     bool await_ready() const noexcept {
         return sizeof...(Tasks) == 0;
@@ -881,10 +960,8 @@ public:
 
     bool await_suspend(std::coroutine_handle<> caller) noexcept {
         caller_ = caller;
-        starting_ = true;
         start_all(std::index_sequence_for<Tasks...>{});
-        starting_ = false;
-        return remaining_ > 0;
+        return remaining_.fetch_sub(1, std::memory_order_acq_rel) > 1;
     }
 
     auto await_resume() {
@@ -911,11 +988,11 @@ private:
     }
 
     void notify_done() noexcept {
-        if (--remaining_ == 0) {
-            if (!starting_ && caller_) {
-                auto caller = caller_;
-                caller_ = nullptr;
-                caller.resume();
+        if (remaining_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            auto caller = caller_;
+            caller_ = nullptr;
+            if (caller) {
+                abstractx::Dispatcher::push(caller);
             }
         }
     }
@@ -926,8 +1003,7 @@ private:
     }
 
     std::tuple<Tasks...> tasks_;
-    size_t remaining_;
-    bool starting_{false};
+    std::atomic<size_t> remaining_;
     std::coroutine_handle<> caller_{nullptr};
 };
 
@@ -941,7 +1017,7 @@ template <typename T1, typename T2>
 class WhenAnyAwaiter {
 public:
     WhenAnyAwaiter(Task<T1>&& t1, Task<T2>&& t2)
-        : t1_(std::move(t1)), t2_(std::move(t2)), ready_index_(-1) {}
+        : t1_(std::move(t1)), t2_(std::move(t2)), ready_index_(-1), stage_(0) {}
 
     bool await_ready() const noexcept {
         return t1_.done() || t2_.done();
@@ -949,7 +1025,6 @@ public:
 
     bool await_suspend(std::coroutine_handle<> caller) noexcept {
         caller_ = caller;
-        starting_ = true;
 
         // Register callbacks BEFORE starting either task.
         t1_.handle().promise().on_complete_ = {
@@ -959,25 +1034,27 @@ public:
 
         // Start t1.
         t1_.resume();
-        if (ready_index_ != -1) {
-            starting_ = false;
+        if (ready_index_.load(std::memory_order_acquire) != -1) {
             return false;
         }
 
         // Start t2.
         t2_.resume();
-        if (ready_index_ != -1) {
-            starting_ = false;
+
+        int prev = stage_.exchange(1, std::memory_order_acq_rel);
+        if (prev == 2) {
             return false;
         }
-
-        starting_ = false;
+        if (ready_index_.load(std::memory_order_acquire) != -1) {
+            return false;
+        }
         return true;
     }
 
     // @impl [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md
     std::variant<T1, T2> await_resume() {
-        if (ready_index_ == 0 || (ready_index_ == -1 && t1_.done())) {
+        int idx = ready_index_.load(std::memory_order_acquire);
+        if (idx == 0 || (idx == -1 && t1_.done())) {
             std::variant<T1, T2> r{std::in_place_index<0>, t1_.await_resume()};
             t2_.detach();   // the loser runs on and frees itself; never destroyed while suspended
             return r;
@@ -989,20 +1066,23 @@ public:
 
 private:
     void notify_winner(int idx) noexcept {
-        if (ready_index_ == -1) {
-            ready_index_ = idx;
-            if (!starting_ && caller_) {
+        int expected = -1;
+        if (ready_index_.compare_exchange_strong(expected, idx, std::memory_order_acq_rel)) {
+            int prev = stage_.exchange(2, std::memory_order_acq_rel);
+            if (prev == 1) {
                 auto caller = caller_;
                 caller_ = nullptr;
-                caller.resume();
+                if (caller) {
+                    abstractx::Dispatcher::push(caller);
+                }
             }
         }
     }
 
     Task<T1> t1_;
     Task<T2> t2_;
-    int ready_index_{-1};
-    bool starting_{false};
+    std::atomic<int> ready_index_{-1};
+    std::atomic<int> stage_{0};
     std::coroutine_handle<> caller_{nullptr};
 };
 

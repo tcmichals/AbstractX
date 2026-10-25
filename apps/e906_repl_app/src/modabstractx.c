@@ -12,10 +12,29 @@
 // Shared staging buffer in SRAM Space 1 (.sram_c) to avoid 256-512 B C stack frames.
 static uint8_t s_mod_io_buf[512] __attribute__((section(".sram_c")));
 
+static inline bool is_valid_e906_addr(uintptr_t addr) {
+    if ((addr & 0x3) != 0) {
+        return false;
+    }
+    // SRAM ranges:
+    // SRAM Space 0 / 1 / B / C: 0x00020000 - 0x00080000
+    // Remoteproc shared SRAM: 0x3FFC0000 - 0x40040000
+    // Peripheral registers: 0x02000000 - 0x08000000
+    if ((addr >= 0x00020000 && addr < 0x00080000) ||
+        (addr >= 0x3FFC0000 && addr < 0x40040000) ||
+        (addr >= 0x02000000 && addr < 0x08000000)) {
+        return true;
+    }
+    return false;
+}
+
 // abstractx.peek(addr) -> uint32 (full 32-bit unsigned value)
 // @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_peek(mp_obj_t addr_in) {
     uintptr_t addr = (uintptr_t)mp_obj_get_int_truncated(addr_in);
+    if (!is_valid_e906_addr(addr)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("unaligned or invalid address"));
+    }
     volatile uint32_t *reg = (volatile uint32_t *)addr;
     uint32_t val = *reg;
     return mp_obj_new_int_from_uint(val);
@@ -26,6 +45,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_peek_obj, mod_abstractx_peek);
 // @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_peek_hex(mp_obj_t addr_in) {
     uintptr_t addr = (uintptr_t)mp_obj_get_int_truncated(addr_in);
+    if (!is_valid_e906_addr(addr)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("unaligned or invalid address"));
+    }
     volatile uint32_t *reg = (volatile uint32_t *)addr;
     uint32_t val = *reg;
     char hex_str[12];
@@ -44,6 +66,9 @@ static MP_DEFINE_CONST_FUN_OBJ_1(mod_abstractx_peek_hex_obj, mod_abstractx_peek_
 // @impl [SPEC-E906-REPL-06] apps/e906_repl_app/SPECIFICATION.md
 static mp_obj_t mod_abstractx_poke(mp_obj_t addr_in, mp_obj_t val_in) {
     uintptr_t addr = (uintptr_t)mp_obj_get_int_truncated(addr_in);
+    if (!is_valid_e906_addr(addr)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("unaligned or invalid address"));
+    }
     uint32_t val = (uint32_t)mp_obj_get_int_truncated(val_in);
     volatile uint32_t *reg = (volatile uint32_t *)addr;
     *reg = val;

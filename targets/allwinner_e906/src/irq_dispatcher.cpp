@@ -15,7 +15,11 @@ void hal_crash_dispatcher(const hal::CrashFrame* f) noexcept {
         hal::CrashHandler::handle(*f);
     }
     while (true) {
-        __asm__ volatile("wfi");
+#if defined(__riscv)
+        __asm__ volatile("csrc mstatus, 8\nwfi\n" ::: "memory");
+#else
+        break;
+#endif
     }
 }
 

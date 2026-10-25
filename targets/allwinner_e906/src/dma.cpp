@@ -36,7 +36,8 @@ void DmaController::init() noexcept {
     // dma-channels = <8>); only register 1 (channels 8..15) is written here.
     // Route 8..15 to the E906 and away from Linux before any of them can interrupt: Linux's one
     // DMA interrupt covers all 16 channels and its handler only clears register 0.
-    DMA_IRQ_CPU_EN_REG = DMA_IRQ_CPU_EN_REG & 0x00FFU;
+    // Write byte 1 (channels 8..15) without reading/writing Linux's byte 0 (channels 0..7)
+    *(reinterpret_cast<volatile uint8_t*>(&DMA_IRQ_CPU_EN_REG) + 1) = 0;
     DMA_IRQ_MCU_EN_REG = 0xFF00U;
     clic::enable(clic::kLineDma);
     if (s_inited) {
@@ -97,8 +98,6 @@ bool DmaController::start_transfer(
 
     // Per-channel nibble: bit0 half package, bit1 package end, bit2 queue end.
     const uint8_t ch_idx = channel - 8;
-    DMA_IRQ_CPU_EN_REG = DMA_IRQ_CPU_EN_REG & 0x00FFU;
-    DMA_IRQ_MCU_EN_REG = 0xFF00U;
     clic::enable(clic::kLineDma);
     DMA_IRQ_STAT_REG1 = (0x0FU << (ch_idx * 4));
     DMA_IRQ_EN_REG1 = (DMA_IRQ_EN_REG1 & ~(0x0FU << (ch_idx * 4))) |

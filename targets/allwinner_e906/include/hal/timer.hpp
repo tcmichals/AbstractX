@@ -50,6 +50,7 @@ public:
 
         constexpr SleepAwaiter() noexcept = default;
         constexpr explicit SleepAwaiter(uint64_t ticks) noexcept : target_ticks(ticks) {}
+        ~SleepAwaiter() noexcept;
 
         bool await_ready() const noexcept;
         bool await_suspend(std::coroutine_handle<> h) noexcept;

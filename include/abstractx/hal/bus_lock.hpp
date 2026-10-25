@@ -83,6 +83,33 @@ public:
         }
     }
 
+    bool remove(Waiter* w) noexcept {
+        if (w == nullptr || head_ == nullptr) {
+            return false;
+        }
+        if (head_ == w) {
+            head_ = w->next;
+            if (tail_ == w) {
+                tail_ = nullptr;
+            }
+            w->next = nullptr;
+            return true;
+        }
+        Waiter* curr = head_;
+        while (curr->next != nullptr && curr->next != w) {
+            curr = curr->next;
+        }
+        if (curr->next == w) {
+            curr->next = w->next;
+            if (tail_ == w) {
+                tail_ = curr;
+            }
+            w->next = nullptr;
+            return true;
+        }
+        return false;
+    }
+
     bool has_waiters() const noexcept { return head_ != nullptr; }
 
 private:
@@ -151,6 +178,12 @@ struct BusLockAwaiter {
     BusLock&        lock;
     BusLock::Waiter node{};
     uint32_t        token{0};
+
+    ~BusLockAwaiter() noexcept {
+        if (token == 0 && node.granted == 0) {
+            lock.remove(&node);
+        }
+    }
 
     bool await_ready() noexcept {
         token = lock.try_acquire();
