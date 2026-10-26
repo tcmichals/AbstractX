@@ -2660,3 +2660,36 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * Queue Concurrency Linter: **228 files audited, 0 concurrency defects**.
 * Dynamic Plugin Loader: Verified live instantiation of both `INAV Configurator 2.0` and `ESC Configurator 0.3.0-dev`.
 
+---
+
+## 2026-10-25: Multi-Device SPI Auto-DMA Chaining, I2C 9-Clock Recovery & Bus Arbitration Architecture
+
+* **Category**: `architecture`, `avionics-parity`, `hal-spec`
+* **Target / Subsystem**: `include/abstractx/hal/spi.hpp`, `include/abstractx/hal/i2c.hpp`, `targets/allwinner_e906/`, `targets/pico2w_rp2350/`, `targets/zynq7000/`
+
+### 1. Context & Problem Statement
+* High-rate avionics pipelines (such as 8 kHz dual-IMU flight controllers) require sampling multiple sensors over shared or dedicated buses without CPU blocking, data corruption, or phase jitter.
+* Analysis of Linux (`spidev`/`spi.c`) and RTOS flight stacks (PX4/ArduPilot) confirmed that while single-device transactions are ordered, unmanaged independent Auto-DMA (where two unsynchronized external DRDY pins fire transfers on the same SPI peripheral) causes MISO bus contention and data corruption.
+* Standard I2C devices frequently hang when an MCU resets mid-read while the slave holds SDA low; host-only controller soft-resets cannot recover the bus without physical 9-pulse SCL clocking and STOP generation.
+
+### 2. Resolution & Architectural Specifications
+* **I2C 9-Clock Recovery Protocol (`[SPEC-HAL-09]`)**:
+  - Formalized hardware recovery in `II2c::recover_bus_async()`:
+    1. Soft-reset host TWI engine (`TWI0_SRST = 1`).
+    2. Dynamically re-mux SCL and SDA pins to software GPIO mode (`Pn_CFG`).
+    3. Pulse SCL up to 9 times at 100 kHz (5 µs half-cycles via `csrr rdtime`) while monitoring SDA.
+    4. Issue hardware STOP condition (SDA low $\rightarrow$ SCL high $\rightarrow$ SDA high).
+    5. Restore pin multiplexer to TWI mode and re-enable peripheral interrupts.
+  - Specified across Allwinner E906 (`targets/allwinner_e906/src/i2c.cpp`) and RP2350 Pico 2 (`targets/pico2w_rp2350/src/i2c.cpp`).
+* **Multi-Device Chained SPI Auto-DMA Architecture (`[SPEC-HAL-13]`)**:
+  - Specified extension of `AsyncSpiDriver` in `include/abstractx/hal/spi.hpp` with `arm_chained_triggered_read()` accepting `std::span<const TriggeredTarget>` to support hardware-chained multi-CS DMA.
+  - **Allwinner E906 Target**: Configures Sunxi DMA scatter-gather linked-list descriptors (`sunxi_dma_lli_t`) linking Descriptor 0 (CS0 + 13 bytes) to Descriptor 1 (CS1 + 13 bytes). Total transfer completes in $20.8\,\mu\text{s}$ at 10 MHz SPI with 0.00% CPU overhead.
+  - **RP2350 Target**: Implements hardware DMA channel chaining (`channel_config_set_chain_to()`) and PIO state machine arbitration.
+  - **ESP32-P4 Target**: Implements Event Task Matrix (ETM) crossbar mapping to GDMA linked lists.
+* **FPGA Parallel Multi-SPI Core Architecture (QMTECH Zynq-7000 / Artix-7)**:
+  - Eliminates bus sharing entirely by instantiating dual dedicated AXI SPI master cores in fabric (~180 LUTs each).
+  - Captures 64-bit nanosecond hardware timestamps on DRDY edges (<10 ns jitter) and packs dual-IMU bursts into aligned 64-byte TLP frames (`Tlp64`) streamed directly into host DDR SPSC ring buffers via AXI DMA.
+* **Multi-Transaction Mutual Exclusion (`[SPEC-HAL-14]`)**:
+  - Formalized usage of `BusLock` and `BusLockGuard` (`co_await bus.lock_async()`) with `.under(guard)` to provide atomic multi-transfer isolation across independent coroutines without OS context-switch overhead.
+
+
