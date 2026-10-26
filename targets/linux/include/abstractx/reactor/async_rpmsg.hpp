@@ -7,7 +7,9 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <cerrno>
 #include <cstdint>
+#include <type_traits>
 #include <span>
 #include <coroutine>
 #include "asp_coro.hpp"
@@ -24,13 +26,8 @@ namespace abstractx::reactor {
  */
 class AsyncRpmsgEndpoint {
 public:
-    struct RecvAwaiter;
-    struct SendAwaiter;
-    friend struct RecvAwaiter;
-    friend struct SendAwaiter;
-
     explicit AsyncRpmsgEndpoint(EpollReactor& reactor) noexcept
-        : reactor_(reactor), fd_(-1) {}
+        : reactor_(&reactor), fd_(-1) {}
 
     ~AsyncRpmsgEndpoint() noexcept {
         close();
@@ -39,6 +36,8 @@ public:
     AsyncRpmsgEndpoint(const AsyncRpmsgEndpoint&) = delete;
     AsyncRpmsgEndpoint& operator=(const AsyncRpmsgEndpoint&) = delete;
 
+    // Moving carries the reactor the fd is registered with. Do not move or close
+    // while an awaiter is suspended: its coroutine would never be resumed.
     AsyncRpmsgEndpoint(AsyncRpmsgEndpoint&& other) noexcept
         : reactor_(other.reactor_), fd_(other.fd_) {
         other.fd_ = -1;
@@ -47,6 +46,7 @@ public:
     AsyncRpmsgEndpoint& operator=(AsyncRpmsgEndpoint&& other) noexcept {
         if (this != &other) {
             close();
+            reactor_ = other.reactor_;
             fd_ = other.fd_;
             other.fd_ = -1;
         }
@@ -61,7 +61,7 @@ public:
 
     void close() noexcept {
         if (fd_ >= 0) {
-            reactor_.remove_fd(fd_);
+            reactor_->remove_fd(fd_);
             ::close(fd_);
             fd_ = -1;
         }
@@ -70,57 +70,69 @@ public:
     [[nodiscard]] int fd() const noexcept { return fd_; }
     [[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
 
-    /**
-     * @brief Asynchronous Recv Awaiter for RPMsg Datagrams
-     */
-    struct RecvAwaiter {
+    // One registration per fd (EPOLLONESHOT carries one handle): a second
+    // concurrent awaiter would overwrite the first, so it fails with EBUSY.
+    // errno is saved in the awaiter: by resume time other code has run.
+    // @impl [SPEC-REACTOR-03] targets/linux/SPECIFICATION.md#spec-reactor-03
+    template <bool kWrite>
+    struct IoAwaiter {
         AsyncRpmsgEndpoint& endpoint;
-        std::span<uint8_t> buffer;
+        std::span<std::conditional_t<kWrite, const uint8_t, uint8_t>> buffer;
         ssize_t result{0};
+        int err{0};
+        bool registered{false};
 
-        bool await_ready() noexcept {
-            result = ::read(endpoint.fd_, buffer.data(), buffer.size());
-            return (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK));
-        }
-
-        bool await_suspend(std::coroutine_handle<> handle) noexcept {
-            return endpoint.reactor_.modify_fd(endpoint.fd_, EPOLLIN | EPOLLONESHOT, handle.address()) ||
-                   endpoint.reactor_.add_fd(endpoint.fd_, EPOLLIN | EPOLLONESHOT, handle.address());
-        }
-
-        ssize_t await_resume() noexcept {
-            if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+        void attempt() noexcept {
+            if constexpr (kWrite) {
+                result = ::write(endpoint.fd_, buffer.data(), buffer.size());
+            } else {
                 result = ::read(endpoint.fd_, buffer.data(), buffer.size());
             }
-            return result;
+            err = result < 0 ? errno : 0;
         }
-    };
-
-    /**
-     * @brief Asynchronous Send Awaiter for RPMsg Datagrams
-     */
-    struct SendAwaiter {
-        AsyncRpmsgEndpoint& endpoint;
-        std::span<const uint8_t> buffer;
-        ssize_t result{0};
+        [[nodiscard]] bool would_block() const noexcept {
+            return result < 0 && (err == EAGAIN || err == EWOULDBLOCK);
+        }
 
         bool await_ready() noexcept {
-            result = ::write(endpoint.fd_, buffer.data(), buffer.size());
-            return (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK));
+            attempt();
+            return !would_block();
         }
 
         bool await_suspend(std::coroutine_handle<> handle) noexcept {
-            return endpoint.reactor_.modify_fd(endpoint.fd_, EPOLLOUT | EPOLLONESHOT, handle.address()) ||
-                   endpoint.reactor_.add_fd(endpoint.fd_, EPOLLOUT | EPOLLONESHOT, handle.address());
+            if (endpoint.waiting_) {
+                result = -1;
+                err = EBUSY;
+                return false;
+            }
+            const uint32_t events = (kWrite ? EPOLLOUT : EPOLLIN) | EPOLLONESHOT;
+            if (!endpoint.reactor_->modify_fd(endpoint.fd_, events, handle.address()) &&
+                !endpoint.reactor_->add_fd(endpoint.fd_, events, handle.address())) {
+                result = -1;
+                err = errno;
+                return false;
+            }
+            endpoint.waiting_ = registered = true;
+            return true;
         }
 
+        // Returns bytes moved, or -1 with the saved errno restored (EAGAIN after a
+        // spurious wakeup: the caller awaits again).
         ssize_t await_resume() noexcept {
-            if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                result = ::write(endpoint.fd_, buffer.data(), buffer.size());
+            if (registered) {
+                endpoint.waiting_ = registered = false;
+                if (would_block()) {
+                    attempt();
+                }
+            }
+            if (result < 0) {
+                errno = err;
             }
             return result;
         }
     };
+    using RecvAwaiter = IoAwaiter<false>;
+    using SendAwaiter = IoAwaiter<true>;
 
     RecvAwaiter recv_async(std::span<uint8_t> buf) noexcept {
         return RecvAwaiter{*this, buf};
@@ -131,8 +143,9 @@ public:
     }
 
 private:
-    EpollReactor& reactor_;
+    EpollReactor* reactor_;
     int fd_{-1};
+    bool waiting_{false};
 };
 
 } // namespace abstractx::reactor

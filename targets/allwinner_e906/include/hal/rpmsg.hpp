@@ -58,10 +58,13 @@ public:
     virtual uint32_t get_host_kicks() noexcept = 0;
 
     /* C++20 Asynchronous Coroutine Awaiter: Suspends until Linux kicks MSGBOX */
+    // One waiter at a time ([SPEC-E906-CORO-01]): await_suspend() returns false
+    // (no suspend) if another coroutine already holds the wake slot.
     struct AsyncRxAwaiter {
         IRpmsg *driver;
+        void   *registered{nullptr};
         bool await_ready() const noexcept;
-        void await_suspend(std::coroutine_handle<> handle) noexcept;
+        bool await_suspend(std::coroutine_handle<> handle) noexcept;
         bool await_resume() noexcept;
     };
 
@@ -74,9 +77,9 @@ public:
  * ============================================================================
  * Rpmsg: Standard Linux Kernel VirtIO RemoteProc Driver
  * ============================================================================
- * Full compliance with Linux virtio_rpmsg_bus (/dev/rpmsg0).
- * Handles DDR DRAM payload buffers with full XuanTie L1 D-Cache maintenance
- * (dcache.cpa write-back on TX, dcache.iva invalidate on RX).
+ * Linux virtio_rpmsg_bus over the SRAM RPMsg pool ([SPEC-E906-IPC-02]). The
+ * D-cache is off ([SPEC-E906-CACHE-02]), so there is no cache maintenance.
+ * Every wait is bounded; host addresses and lengths are validated.
  */
 // @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
 class Rpmsg : public IRpmsg {
@@ -106,6 +109,10 @@ public:
     // in place, then commit. Several buffers may be outstanding.
     RpmsgTxBuffer tx_acquire(uint16_t min_free_after = 0) noexcept;
     bool tx_commit(const RpmsgTxBuffer &buf, uint16_t used_len, uint32_t src, uint32_t dst) noexcept;
+    // Hand back the most recently acquired, unused buffer (never commit 0 bytes).
+    bool tx_cancel(const RpmsgTxBuffer &buf) noexcept;
+    // Retry a kick the full message box FIFO refused ([SPEC-E906-IPC-02]); call every loop.
+    void flush_kick() noexcept;
     // Host buffers posted in vring[0] and not yet taken.
     uint16_t tx_free_buffers() noexcept;
 
@@ -158,5 +165,11 @@ bool rpmsg_take_doorbell() noexcept;
 void rpmsg_arm_doorbell() noexcept;
 bool rpmsg_doorbell_pending() noexcept;
 uint32_t rpmsg_doorbell_irqs() noexcept;
+
+#if !defined(__riscv)
+// Host tests only: the host-physical == local window that vrings and buffers may use
+// (on the E906 it is the fixed RPMsg pool, [SPEC-E906-IPC-02]).
+void rpmsg_set_host_window(uintptr_t base, size_t size) noexcept;
+#endif
 
 } // namespace hal

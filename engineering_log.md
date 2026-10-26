@@ -2694,3 +2694,40 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - Formalized usage of `BusLock` and `BusLockGuard` (`co_await bus.lock_async()`) with `.under(guard)` to provide atomic multi-transfer isolation across independent coroutines without OS context-switch overhead.
 
 
+
+---
+
+## 2026-10-26: RPMsg / Linux transport review: 11 bugs that every check passed
+
+* **Category**: `product-bug` (firmware, Linux C++, Linux Python), `process-gap` (checks and tests)
+* **Target / Subsystem**: `targets/allwinner_e906/src/rpmsg*.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`, `targets/linux/include/abstractx/reactor/async_{rpmsg,socket}.hpp`, `tools/e906_rpmsg_bridge.py`, `apps/e906_repl_app/tests/board/e906_link.py`, `hw/zynq7000/**` UIO tools
+
+### 1. Mistakes / bugs observed (found by reading the code, none reproduced on hardware)
+* **product-bug**: `notify_host()` and `reply()` spun with no limit; a MicroPython `print` hung the E906 when Linux stopped reading (open since P0-06).
+* **product-bug**: one bad descriptor index or a persistent bad avail index stopped RX for good.
+* **product-bug**: `translate_da()` passed unknown host addresses through; `hdr->len` and `desc->len` were read twice (the length used was not the one checked); `tx_acquire()` had no upper bound on `desc->len`.
+* **product-bug**: the REPL console built its `RpmsgMessage` with its own endpoint in `.src`; `reply()` swapped it. Hidden because the Linux tools create endpoints with `src == dst == 1026`.
+* **product-bug**: `RpmsgLiteMetal::poll()` left `NO_NOTIFY` set (the lost wakeup already fixed in `Rpmsg`); the two copies had drifted.
+* **product-bug**: the awaiter wake handle was a plain global shared with the ISR, with a single slot that a second waiter overwrote.
+* **product-bug**: 0-byte commits were used to "return" buffers (malformed NS message on Linux).
+* **product-bug**: the Linux awaiters tested `errno` in `await_resume`, long after the syscall.
+* **product-bug**: `AsyncBridge` stopped renewing the trace lease for good after one `BlockingIOError`; `e906_link._write_all` retried forever.
+* **product-bug**: the Zynq UIO tools used Wishbone register offsets in the AXI-Lite bridge window (aliases onto STATUS / IRQ_STATUS / CONTROL), mapped a DMA map1 that does not exist in the BRAM build, and accessed MMIO through memcpy-width slices.
+* **process-gap**: the tests asserted the unbounded waits as correct ("waits instead of dropping") with fakes that always recovered; one test claimed `@verifies [SPEC-E906-CORO-01]` but never ran the awaiter or the ISR; `MAP_32BIT` made the sims x86-only.
+
+### 2. Root cause & lesson
+* The peer (Linux, FPGA) was trusted to be correct and alive. Every check looked at tag presence or at happy paths. **A transport test that cannot see a dead or lying peer is not evidence.**
+* Copy-paste drivers drift: one copy got the fix and the other did not.
+
+### 3. Specification update (SSOT)
+* `[SPEC-E906-IPC-02]`: bounded backpressure (`kMboxSendTries`, `kReplyWaitRounds`, owed kick), ring error recovery (skip and resync), untrusted host addresses and lengths (`translate_buf` window, read once, bounded), no zero-length give-back (`tx_cancel`).
+* `[SPEC-E906-IPC-03]`: one shared virtio core, so Lite has the same kick re-enable.
+* `[SPEC-E906-IPC-04]`: reply addressing; address window replaces the cubie-a5e `translate_da`.
+* `[SPEC-E906-CORO-01]`: atomic single-owner wake slot.
+* `[SPEC-E906-REPL-05]`: reply addressing, non-blocking output, drop counters.
+
+### 4. Implementation & checks
+* Code tagged `// @impl [SPEC-E906-IPC-02]` etc. New regression cases 12-20 in `sim/test_e906_rpmsg_flow_control.cpp`; `rpmsg_set_host_window()` for host tests; `MAP_32BIT` guarded.
+* New check skill `ipc-transport-audit` (`tools/audit_ipc_invariants.py`), one check per bug class above, with `--git-rev` to show it fails on the pre-fix revision. `host-tests` SKILL.md gains the test quality rules.
+* **Not verified**: nothing was built or run in this change (the user asked for no test runs): no host, ASan or TSan build, no `audit_ipc_invariants.py` run (old or new revision), no E906 cross-build or `analyze_elf_size.sh`, no board, no Zynq hardware.
+* **Still open**: UIO tools need CONTROL-TLP Wishbone access (or a direct RTL window) before the SYS/IMU tests can run; DMA backend needs a DDR-profile bitstream; REPL upload has no flow control (drops are now counted); `host_addr_` lease (P4-03) unchanged.

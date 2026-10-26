@@ -54,13 +54,25 @@ def parse_raw_repl(reply: bytes):
     return parts[0].decode("utf-8", "replace"), parts[1].decode("utf-8", "replace")
 
 
-def _write_all(fd: int, data: bytes) -> None:
+def _write_all(fd: int, data: bytes, timeout_s: float = 5.0) -> None:
+    """Write everything or raise TimeoutError: a dead E906 never returns RPMsg buffers."""
+    deadline = time.monotonic() + timeout_s
     while data:
         try:
             n = os.write(fd, data)
             data = data[n:]
         except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"E906 accepted no RPMsg buffer for {timeout_s}s")
             time.sleep(0.005)
+
+
+def _hello(fd: int) -> None:
+    """Lease renewal ([SPEC-E906-IPC-05]); a full ring is retried on the next renewal."""
+    try:
+        os.write(fd, HELLO)
+    except BlockingIOError:
+        pass
 
 
 def _drain(fd: int, quiet_s: float = 0.1, max_s: float = 1.0) -> bytes:
@@ -117,7 +129,9 @@ def repl_exec(code: str, timeout_s: float = 10.0, interrupt_after_s: float = Non
         raise TimeoutError(f"no complete raw-REPL reply in {timeout_s}s; got {reply[-200:]!r}")
     finally:
         try:
-            _write_all(fd, b"\x03\x03\x02")
+            _write_all(fd, b"\x03\x03\x02", timeout_s=1.0)
+        except TimeoutError:
+            pass
         finally:
             os.close(fd)
 
@@ -129,7 +143,7 @@ class Plane:
         ep = ENDPOINTS[mode]
         self.node = create_endpoint(RPMSG_CTRL, ep["name"], ep["addr"])
         self.fd = os.open(self.node, os.O_RDWR | os.O_NONBLOCK)
-        os.write(self.fd, HELLO)
+        _hello(self.fd)
         _drain(self.fd, 0.05)  # discard anything queued before this test
 
     def read_messages(self, duration_s: float) -> list:
@@ -138,7 +152,7 @@ class Plane:
         next_hello = time.monotonic() + 1.0
         while time.monotonic() < deadline:
             if time.monotonic() >= next_hello:  # renew the trace lease [SPEC-E906-IPC-05]
-                os.write(self.fd, HELLO)
+                _hello(self.fd)
                 next_hello = time.monotonic() + 1.0
             if select.select([self.fd], [], [], 0.05)[0]:
                 try:

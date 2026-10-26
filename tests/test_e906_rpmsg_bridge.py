@@ -68,7 +68,7 @@ def test_tlp_bridge_both_ways_and_validation():
     assert e906.recv(2048) == tlps, "UDP TLPs written to the E906"
     sender.sendto(bytes(8 * br.TLP_BYTES), inbound.getsockname())  # > 7 TLPs
     b.pump(0.5)
-    assert b.stats == {"to_udp": 1, "to_e906": 1, "rejected": 2}
+    assert b.stats == {"to_udp": 1, "to_e906": 1, "rejected": 2, "dropped": 0}
 
 
 def test_async_bridge_event_driven_dispatch():

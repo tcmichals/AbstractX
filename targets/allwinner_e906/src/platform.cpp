@@ -324,6 +324,7 @@ void platform_poll_network() noexcept {
     }
     ::hal::rpmsg_arm_doorbell();
     g_tlp_channel.flush();
+    g_rpmsg.flush_kick();  // a kick the full FIFO refused is retried, never spun on ([SPEC-E906-IPC-02])
 }
 
 volatile uint32_t g_telemetry_dropped{0};

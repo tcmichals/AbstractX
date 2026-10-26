@@ -11,6 +11,7 @@ from collections import deque
 from datetime import timedelta
 import mmap
 import os
+from pathlib import Path
 import select
 import struct
 import time
@@ -234,6 +235,7 @@ class AbstractXDmaBackend:
         self.fd: int | None = None
         self.csr: mmap.mmap | None = None
         self.dma: mmap.mmap | None = None
+        self._csr_words: memoryview | None = None
         self.pending: deque[tuple[int, int, int, bytes]] = deque()
         self.irq_masked = False
         self.dma_started = False
@@ -245,6 +247,14 @@ class AbstractXDmaBackend:
         self.effective_spi_hz = PL_CLOCK_HZ // (2 * self.half_period)
 
     def open(self) -> None:
+        # The DDR ring is UIO map1 and needs asp_axi_dma in the bitstream. The QMTECH BRAM
+        # build ties m_axi_hp_* off and its overlay has one reg, so fail clearly, not with
+        # EINVAL from mmap (or by writing "RX_BASE" into TLP_IN_PORT).
+        map1 = Path("/sys/class/uio") / Path(self.uio_device).name / "maps" / "map1" / "size"
+        if not map1.exists():
+            raise BackendError(
+                f"{self.uio_device} has no DMA map (map1): this bitstream/overlay has no "
+                "asp_axi_dma; the DMA backend needs the DDR profile")
         try:
             self.fd = os.open(self.uio_device, os.O_RDWR | os.O_SYNC | os.O_NONBLOCK)
             page_size = os.sysconf("SC_PAGE_SIZE")
@@ -266,6 +276,9 @@ class AbstractXDmaBackend:
             self.close()
             raise BackendError(f"cannot map AbstractX UIO and DMA resources: {exc}") from exc
 
+        # One aligned 32-bit access per register: struct.*_from on mmap is a memcpy of
+        # unspecified width, and the bridge ignores wstrb.
+        self._csr_words = memoryview(self.csr).cast("I")
         if self.read32(DMA_HARDWARE_ID) != DMA_HARDWARE_MAGIC:
             self.close()
             raise BackendError("AbstractX hardware ID mismatch (expected ASP6)")
@@ -283,14 +296,14 @@ class AbstractXDmaBackend:
         self.spi_rate_source = "100MHz-fabric-divider"
 
     def read32(self, offset: int) -> int:
-        if self.csr is None or offset < 0 or offset + 4 > DMA_CSR_SIZE or offset % 4:
+        if self._csr_words is None or offset < 0 or offset + 4 > DMA_CSR_SIZE or offset % 4:
             raise BackendError(f"invalid or unmapped CSR read at 0x{offset:X}")
-        return struct.unpack_from("<I", self.csr, offset)[0]
+        return self._csr_words[offset // 4]
 
     def write32(self, offset: int, value: int) -> None:
-        if self.csr is None or offset < 0 or offset + 4 > DMA_CSR_SIZE or offset % 4:
+        if self._csr_words is None or offset < 0 or offset + 4 > DMA_CSR_SIZE or offset % 4:
             raise BackendError(f"invalid or unmapped CSR write at 0x{offset:X}")
-        struct.pack_into("<I", self.csr, offset, value & 0xFFFFFFFF)
+        self._csr_words[offset // 4] = value & 0xFFFFFFFF
 
     def _direct_transaction(self, address: int, *, value: int | None) -> int:
         if self.csr is None:
@@ -370,7 +383,7 @@ class AbstractXDmaBackend:
             raise BackendError("short read from AbstractX UIO interrupt")
         self.irq_masked = True
 
-    def _drain_ring(self) -> None:
+    def _drain_ring(self, rearm: bool = True) -> None:
         if self.dma is None:
             raise BackendError("AbstractX DMA ring is not mapped")
         head = self.read32(DMA_RX_HEAD)
@@ -390,7 +403,7 @@ class AbstractXDmaBackend:
             if tail >= DMA_RING_CAPACITY:
                 raise BackendError("AbstractX DMA tail is outside configured capacity")
 
-        if self.irq_masked:
+        if self.irq_masked and rearm:
             self.write32(DMA_IRQ_STATUS, 1)
             self._unmask_irq()
 
@@ -434,7 +447,7 @@ class AbstractXDmaBackend:
         else:
             raise TimeoutError("PL Auto-DMA or its DMA write did not stop")
         if self.dma_started:
-            self._drain_ring()
+            self._drain_ring(rearm=False)  # stopping: do not unmask before IRQ_ENABLE=0
         if self.dma_started:
             self.write32(DMA_IRQ_ENABLE, 0)
             self.write32(DMA_CONTROL, 0)
@@ -449,6 +462,9 @@ class AbstractXDmaBackend:
         except (BackendError, OSError, TimeoutError) as exc:
             close_error = exc
         finally:
+            if self._csr_words is not None:  # mmap.close() refuses while a view is exported
+                self._csr_words.release()
+                self._csr_words = None
             for mapping_name in ("dma", "csr"):
                 mapping = getattr(self, mapping_name)
                 if mapping is not None:

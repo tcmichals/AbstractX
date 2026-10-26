@@ -89,7 +89,7 @@ class Bridge:
         self.out_sock = out_sock
         self.out_addr = out_addr
         self.in_sock = in_sock
-        self.stats = {"to_udp": 0, "to_e906": 0, "rejected": 0}
+        self.stats = {"to_udp": 0, "to_e906": 0, "rejected": 0, "dropped": 0}
 
     def hello(self):
         os.write(self.dev_fd, HELLO)
@@ -114,17 +114,21 @@ class Bridge:
         if self.in_sock is not None and self.in_sock in ready:
             data, _ = self.in_sock.recvfrom(2048)
             if self.valid_tlp_batch(data):
-                os.write(self.dev_fd, data)
-                self.stats["to_e906"] += 1
-                moved += 1
+                try:
+                    os.write(self.dev_fd, data)
+                except OSError:  # no host buffer / E906 gone: count it, keep bridging
+                    self.stats["dropped"] += 1
+                else:
+                    self.stats["to_e906"] += 1
+                    moved += 1
             else:
                 self.stats["rejected"] += 1
         return moved
 
 
 class AsyncBridge:
-    """Asynchronous RPMsg-to-UDP Bridge using asyncio and OS epoll event notifications.
-    Eliminates select.select() thread polling and enables zero-copy event-driven dispatch."""
+    """RPMsg-to-UDP bridge on asyncio readers. The fd is non-blocking, so every write
+    can raise BlockingIOError (no free RPMsg buffer); that is counted, never fatal."""
 
     def __init__(
         self,
@@ -141,7 +145,7 @@ class AsyncBridge:
         self.out_addr = out_addr
         self.in_sock = in_sock
         self.loop = loop
-        self.stats = {"to_udp": 0, "to_e906": 0, "rejected": 0}
+        self.stats = {"to_udp": 0, "to_e906": 0, "rejected": 0, "dropped": 0, "hello_retries": 0}
         self._running = False
         self._renew_task: asyncio.Task = None
 
@@ -157,8 +161,12 @@ class AsyncBridge:
             return
         if self.mode == "tlp" and not Bridge.valid_tlp_batch(data):
             self.stats["rejected"] += 1
-        else:
+            return
+        try:
             self.out_sock.sendto(data, self.out_addr)
+        except OSError:
+            self.stats["dropped"] += 1
+        else:
             self.stats["to_udp"] += 1
 
     def _on_udp_readable(self):
@@ -170,17 +178,26 @@ class AsyncBridge:
             return
         if not data:
             return
-        if Bridge.valid_tlp_batch(data):
-            os.write(self.dev_fd, data)
-            self.stats["to_e906"] += 1
-        else:
+        if not Bridge.valid_tlp_batch(data):
             self.stats["rejected"] += 1
+            return
+        try:
+            os.write(self.dev_fd, data)
+        except OSError:  # BlockingIOError: no free RPMsg buffer right now
+            self.stats["dropped"] += 1
+        else:
+            self.stats["to_e906"] += 1
 
     async def _renew_lease_loop(self):
+        # A full TX ring (BlockingIOError) is transient: retry next second. Stopping
+        # here would let the 3 s lease lapse for good ([SPEC-E906-IPC-05]).
+        # @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
         while self._running:
             await asyncio.sleep(1.0)
             try:
                 self.hello()
+            except BlockingIOError:
+                self.stats["hello_retries"] += 1
             except OSError:
                 break
 
@@ -276,7 +293,10 @@ def main() -> int:
         while True:
             bridge.pump(0.2)
             if time.monotonic() >= next_hello:
-                bridge.hello()
+                try:
+                    bridge.hello()
+                except BlockingIOError:
+                    pass  # retried next second
                 next_hello = time.monotonic() + 1.0
     except KeyboardInterrupt:
         pass

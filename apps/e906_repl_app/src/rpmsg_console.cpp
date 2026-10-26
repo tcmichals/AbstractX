@@ -52,7 +52,9 @@ void RpmsgConsole::on_rx_data(const uint8_t *data, size_t len) noexcept {
             mp_sched_keyboard_interrupt();
             continue;
         }
-        m_rx_channel.try_push(static_cast<char>(data[i]));
+        if (!m_rx_channel.try_push(static_cast<char>(data[i]))) {
+            ++m_rx_dropped;  // [SPEC-E906-REPL-05]: counted, not lost silently
+        }
     }
 }
 
@@ -83,11 +85,17 @@ void RpmsgConsole::flush() noexcept {
     // @impl [SPEC-E906-REPL-05] apps/e906_repl_app/SPECIFICATION.md
     if (m_out_len == 0) return;
 
+    // reply() answers a message *from* the host: .src = host, .dst = us ([SPEC-E906-REPL-05]).
+    // It waits a bounded time for a host buffer, then drops ([SPEC-E906-IPC-02]).
+    bool sent = false;
     if (m_host_known && m_rpmsg.is_driver_ready()) {
-        ::hal::RpmsgMessage reply_msg{};
-        reply_msg.src = REPL_ENDPOINT_ADDR;
-        reply_msg.dst = m_host_addr;
-        m_rpmsg.reply(reply_msg, m_out_buf, static_cast<uint16_t>(m_out_len));
+        ::hal::RpmsgMessage from_host{};
+        from_host.src = m_host_addr;
+        from_host.dst = REPL_ENDPOINT_ADDR;
+        sent = m_rpmsg.reply(from_host, m_out_buf, static_cast<uint16_t>(m_out_len));
+    }
+    if (!sent) {
+        m_tx_dropped += static_cast<uint32_t>(m_out_len);
     }
     m_out_len = 0;
 }

@@ -50,7 +50,20 @@ std::span<uint8_t> RpmsgTraceTransport::acquire(size_t max_bytes) noexcept {
 
 void RpmsgTraceTransport::commit(std::span<uint8_t> buffer, size_t used_bytes) noexcept {
     (void)buffer; // always cur_.payload (or a prefix of it)
-    (void)rpmsg_.tx_commit(cur_, static_cast<uint16_t>(used_bytes), address(), host_addr_);
+    // @impl [SPEC-E906-IPC-04] targets/allwinner_e906/SPECIFICATION.md
+    if (!cur_) {
+        return;
+    }
+    if (used_bytes == 0 || used_bytes > cur_.payload.size()) {
+        // Nothing to send: hand the buffer back. If a TLP was acquired since, cancel
+        // is refused; an empty commit then still returns the buffer to Linux.
+        if (!rpmsg_.tx_cancel(cur_)) {
+            // ipc-audit: allow IPC-ZEROLEN (cancel refused; losing the host buffer is worse)
+            (void)rpmsg_.tx_commit(cur_, 0, address(), host_addr_);
+        }
+    } else {
+        (void)rpmsg_.tx_commit(cur_, static_cast<uint16_t>(used_bytes), address(), host_addr_);
+    }
     cur_ = {};
 }
 
@@ -67,7 +80,7 @@ asp_tlp64_unaligned_t* RpmsgTlpChannel::emplace() noexcept {
         count_ = 0;
         if (cur_.payload.size() < kTlpBytes) {
             if (cur_) {
-                (void)rpmsg_.tx_commit(cur_, 0, address(), host_addr_);
+                (void)rpmsg_.tx_cancel(cur_);  // [SPEC-E906-IPC-04]: never a 0-byte message
                 cur_ = {};
             }
             ++tx_dropped_;

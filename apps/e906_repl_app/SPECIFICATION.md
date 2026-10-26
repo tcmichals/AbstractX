@@ -193,7 +193,14 @@ flowchart TD
   2. Text payloads emitted by MicroPython (`mp_hal_stdout_tx_strn`) are batched into
      RPMsg reply frames and kicked over MSGBOX Channel 1.
   3. Seamlessly interoperates with AbstractX Studio Tab 11 ([SPEC-STUDIO-13]) `>>> ` mode.
-* **Verified by**: `host-tests`, `e906-board-selftest`
+  4. Output goes to the host address learned from the last message on 1026, and is sent from
+     1026 (`hdr.dst = host`, `hdr.src = 1026`) whatever address the host endpoint has. The
+     console builds its `RpmsgMessage` as if it came from the host (`.src = host`,
+     `.dst = 1026`), because `reply()` swaps them ([SPEC-E906-IPC-04]).
+  5. Output never blocks the E906. When no host buffer frees up within the bounded wait of
+     [SPEC-E906-IPC-02], the staged text is dropped and counted (`tx_dropped()`). Input that
+     does not fit the 512-character queue is counted (`rx_dropped()`), not lost silently.
+* **Verified by**: `host-tests`, `ipc-transport-audit`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_repl_app/src/rpmsg_console.cpp`
 
 ### `[SPEC-E906-REPL-06]` Native `abstractx` Module Hardware Bindings

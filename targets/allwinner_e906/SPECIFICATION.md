@@ -206,13 +206,39 @@ sequenceDiagram
   * The pending count is checked via `avail_pending()`: if $(avail\_idx - last\_avail\_idx) > num$,
     the index is corrupted or torn; the driver increments `s_ring_errors` and rejects processing.
   * Ring slots must be computed with a power-of-two bitmask (`idx & mask`) instead of division.
-* **Flow Control & Non-Dropping Backpressure**:
-  * **Reply buffer starvation**: In `reply()`, if host free buffers in `s_tx_vq` are exhausted
-    ($free\_bufs == 0$), the driver MUST NOT drop the packet. It must clear `s_tx_vq.used->flags = 0`,
-    increment `s_tx_full_waits`, notify the host, drain incoming host doorbells, and wait until
-    buffers are restored.
-  * **Hardware Mailbox FIFO space**: When kicking the host (`notify_host()`), the driver must poll in a
-    loop until hardware FIFO space is available (`s_mbox_full_waits`), never dropping a doorbell.
+* **Bounded Backpressure (no wait without a limit)** (2026-10-26, replaces the earlier "wait until
+  restored" rule that let the E906 hang inside `step()` when Linux stopped draining):
+  * **Reply buffer starvation**: In `reply()`, if no host buffer is free, the driver clears
+    `s_tx_vq.used->flags = 0` (so Linux kicks when it returns one), increments `s_tx_full_waits`,
+    kicks the host and drains doorbells, at most `kReplyWaitRounds` (64) times. It then returns
+    `false`: the caller decides whether to drop or retry. `tx_acquire()` never waits.
+  * **Hardware Mailbox FIFO space**: `notify_host()` tries `MsgBox::send` at most `kMboxSendTries`
+    (256) times, counting each full FIFO in `s_mbox_full_waits`. If the FIFO stays full, the kick is
+    *owed*, not lost: the used ring is already published, and the owed kick is retried by the next
+    `poll()`, `tx_commit()`, `reply()` or `flush_kick()` (called every loop by
+    `platform_poll_network()`).
+* **Ring Error Recovery (no permanent stall)**:
+  * A descriptor index `>= num` in either ring is skipped (`last_avail_idx` advances; no used entry is
+    written because the id is invalid) and counted in `s_ring_errors`.
+  * A pending count `> num` is treated first as a torn read and rejected. After `kRingResyncAfter` (3)
+    such reads in a row, the driver resyncs `last_avail_idx = avail->idx` and counts the error.
+* **Host-Controlled Addresses and Lengths Are Untrusted**:
+  * `translate_buf(host_addr, len)` maps a host physical range to an E906 pointer only if the *whole*
+    range lies inside the RPMsg pool (host `0x072E0000`–`0x072FFFFF`, core `0x40020000`+,
+    [SPEC-E906-MEM-01]). Otherwise it returns `nullptr` and the descriptor is a ring error. Addresses
+    outside the pool (firmware SRAM, MMIO, DRAM) are never passed through. Host test builds
+    (non-RISC-V) register their own test window with `rpmsg_set_host_window()`.
+  * Every length that the host can change (`desc->len`, `rpmsg_hdr::len`) is read **once** into a
+    local, bounded (`desc->len` to `RPMSG_BUFFER_SIZE`, `hdr->len` to `desc_len - sizeof(rpmsg_hdr)`),
+    and only the local copy is used afterwards.
+  * `tx_commit()` checks that the driver is ready and that the token's descriptor is in range before
+    writing anything.
+* **No Zero-Length Give-Back**: a buffer taken by `tx_acquire()` that turns out to be unusable is
+  handed back with `tx_cancel()`, which un-takes the most recently acquired buffer, instead of
+  publishing a 0-byte message (Linux logs a malformed name-service message, or delivers an empty
+  datagram). The only exception: when cancel is refused because a later buffer was taken meanwhile
+  (the trace packet case), an empty commit is still better than losing one of the 16 host buffers
+  for good.
   * **Doorbell FIFO Draining**: In `poll()`, all pending incoming doorbells across both Channel 0
     and Channel 1 must be drained in a tight loop (`s_host_kicks`) to avoid filling the 8-slot
     hardware FIFO and overflowing Linux's software mailbox queue (`MBOX_TX_QUEUE_LEN`).
@@ -224,7 +250,7 @@ sequenceDiagram
   `enable_rx_kick()` writes the used ring only when `is_driver_ready()` is true (which maps the
   rings of the *current* resource table first). A vring pointer kept from an earlier resource table
   (remoteproc restart, or a previous host test block whose memory is unmapped) is never written.
-* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`, `sim/test_e906_rpmsg_flow_control.cpp`; the tests `#undef NDEBUG` so their checks also run in `RelWithDebInfo` builds), `thread-sanitizer`, `e906-build-layout`
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_endpoints.cpp`, `sim/test_e906_rpmsg_flow_control.cpp`; the tests `#undef NDEBUG` so their checks also run in `RelWithDebInfo` builds), `ipc-transport-audit`, `thread-sanitizer`, `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ### `[SPEC-E906-IPC-03]` Lite-Metal Direct Driver (`class RpmsgLiteMetal`)
@@ -233,9 +259,12 @@ sequenceDiagram
 * **Cache Policy**: Zero cache operations (NOP). Directly accesses
   memory at bus speed with zero cache maintenance overhead.
 * **Parity Invariant**: Adheres to identical natural vring alignment, `avail_pending()` bounds check,
-  non-dropping mailbox FIFO send, incoming doorbell queue draining, and kick suppression contracts
-  as `[SPEC-E906-IPC-02]`.
-* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`
+  bounded mailbox send and reply wait, ring error recovery, address window checks, incoming doorbell
+  queue draining, and kick suppression contracts as `[SPEC-E906-IPC-02]`. In particular `poll()`
+  re-enables host kicks (`used->flags = 0`) before its final re-check, exactly as `Rpmsg::poll()` does;
+  leaving `NO_NOTIFY` set loses every later wakeup (2026-10-26: the Lite copy had drifted).
+  `register_endpoint()` updates an existing address even when the table is full.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `ipc-transport-audit`, `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`
 
 ### `[SPEC-E906-IPC-04]` Zero-Copy TLP and Trace Endpoints over RPMsg in SRAM
@@ -268,9 +297,11 @@ sequenceDiagram
   `rpmsg_hdr` + **496-byte payload** = one CTF packet). Linux allocates
   2 × 16 buffers = 16 KB plus the vrings, well inside 128 KB.
 * **Address translation**: descriptor addresses written by Linux are host
-  physical addresses; the E906 converts them with the proven cubie-a5e
-  `translate_da()` (host `0x072C0000`+ → core `0x40000000`+, host `0x07280000`+
-  → core `0x3FFC0000`+).
+  physical addresses. The E906 converts them with `translate_buf()`, which accepts
+  only ranges that lie wholly inside the RPMsg pool (host `0x072E0000`+ → core
+  `0x40020000`+, [SPEC-E906-IPC-02]). The cubie-a5e `translate_da()` mapped all of
+  Space 0 and Space 1 and passed every other address through, which let a bad or
+  hostile descriptor overwrite firmware.
 * **Two endpoints, one mailbox channel** (option 1 of the 2026-10-14 review;
   keeps cubie-a5e decision D11, `mboxes = <&msgbox 9>`):
 
@@ -291,7 +322,13 @@ sequenceDiagram
   allows out-of-order completion (the `used` entry names the descriptor).
 * **Host address**: each endpoint learns its Linux peer address from the first
   message Linux sends to it; until then it cannot transmit (trace events and TLPs
-  are counted as dropped, never blocking).
+  are counted as dropped, never blocking). A buffer that is too small for the
+  message is handed back with `tx_cancel()`, never committed with length 0.
+* **Reply addressing**: `reply(incoming, ...)` sends to `incoming.src` from
+  `incoming.dst`. A caller that builds its own `RpmsgMessage` (for example the REPL
+  console) must put the **host** address in `.src` and its own endpoint in `.dst`.
+  The Linux tools create their endpoint with `src == dst == E906 address`, which hid
+  a swap of the two until 2026-10-26.
 * **Transport API** (implements `[SPEC-TRACE-07]`):
   1. `Rpmsg::tx_acquire(min_free_after)`: take the next free buffer from vring[0]
      if at least `min_free_after` would remain free; returns `{payload span,
@@ -361,7 +398,12 @@ sequenceDiagram
     enables MSGBOX Channel 1 RX interrupt, and suspends until the cooperative dispatcher resumes it.
   * On resume: `await_resume()` suppresses redundant kicks via `driver->enable_rx_kick(false)`
     during active draining, resets handle, and drains the pending packets.
-* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `e906-build-layout`
+* **Wake slot** (2026-10-26): the suspended handle is shared with `fc_msgbox_doorbell_isr()`, so it is
+  a `std::atomic<void*>`, and the ISR takes it with `exchange(nullptr)`. There is one slot:
+  `await_suspend()` returns `false` (does not suspend) if another coroutine already waits, so a second
+  waiter can never silently overwrite the first. `await_resume()` does not clear the doorbell flag;
+  the flag belongs to `platform_poll_network()`, and `poll()` reads the vrings directly.
+* **Verified by**: `host-tests` (`sim/test_e906_rpmsg_flow_control.cpp`), `ipc-transport-audit`, `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/include/hal/rpmsg.hpp`
 
 ### `[SPEC-E906-CORO-02]` MSGBOX ISR-to-Dispatcher Wakeup

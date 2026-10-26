@@ -1,4 +1,4 @@
-// @verifies [SPEC-E906-IPC-01] [SPEC-E906-IPC-02] [SPEC-E906-IPC-03] [SPEC-E906-CORO-01]
+// @verifies [SPEC-E906-IPC-01] [SPEC-E906-IPC-02] [SPEC-E906-IPC-03] [SPEC-E906-IPC-04] [SPEC-E906-CORO-01]
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -11,6 +11,9 @@
  *   - Doorbell wait for hardware mailbox FIFO space
  *   - Doorbell queue draining
  *   - VirtIO kick suppression (VRING_USED_F_NO_NOTIFY)
+ * and the 2026-10-26 hardening: every wait bounded (fakes that never recover),
+ * ring errors skipped or resynced, host addresses checked against the window,
+ * tx_cancel, Lite kick re-enable, a 1000-cycle steady state, and the awaiter wake slot.
  */
 
 // The checks below have side effects (is_driver_ready() maps the vrings): they must run in
@@ -20,6 +23,9 @@
 
 #include "hal/rpmsg.hpp"
 #include "resource_table.h"
+#include "abstractx/isr_dispatcher.hpp"
+
+#include <coroutine>
 
 #include <sys/mman.h>
 #include <cassert>
@@ -34,6 +40,8 @@ extern int g_fake_msgbox_full_sends_left;
 extern int g_fake_msgbox_rx_pending;
 extern std::function<void()> g_fake_msgbox_on_send;
 }
+
+extern "C" void fc_msgbox_doorbell_isr() noexcept;
 
 namespace {
 
@@ -72,9 +80,15 @@ struct Vring {
 class FakeHost {
 public:
     explicit FakeHost(uint32_t num = kN) : num_(num) {
-        mem_ = static_cast<uint8_t *>(mmap(nullptr, kBlock, PROT_READ | PROT_WRITE,
-                                           MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0));
-        assert(mem_ != MAP_FAILED);
+        // Below 4 GB (vring addresses are 32-bit). MAP_32BIT is x86-64 only; elsewhere a
+        // low hint address, checked below.
+        int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+#ifdef MAP_32BIT
+        flags |= MAP_32BIT;
+#endif
+        mem_ = static_cast<uint8_t *>(mmap(reinterpret_cast<void *>(0x20000000u), kBlock,
+                                           PROT_READ | PROT_WRITE, flags, -1, 0));
+        assert(mem_ != MAP_FAILED && reinterpret_cast<uintptr_t>(mem_) + kBlock <= 0xFFFFFFFFu);
         std::memset(mem_, 0, kBlock);
 
         rsc_ = reinterpret_cast<rpmsg_resource_table *>(mem_);
@@ -93,7 +107,13 @@ public:
         munmap(mem_, kBlock);
     }
 
-    const rpmsg_resource_table *rsc() const { return rsc_; }
+    // Also makes this block the window the driver accepts host addresses from.
+    const rpmsg_resource_table *rsc() const {
+        hal::rpmsg_set_host_window(reinterpret_cast<uintptr_t>(mem_), kBlock);
+        return rsc_;
+    }
+    void set_desc_addr(uint16_t d, uint64_t addr) { tx_.desc[d].addr = addr; }
+    void set_avail_slot(uint16_t slot, uint16_t d) { tx_.avail->ring[slot % num_] = d; }
     Vring &rx() { return rx_; }
     Vring &tx() { return tx_; }
 
@@ -424,6 +444,199 @@ int main() {
         assert(host_a.tx().used->flags == 1 && "RpmsgLiteMetal wrote into the old resource table's vring");
         assert(host_b.tx().used->flags == 0);
         std::cout << "  -> ReinitForgetsOldVrings: PASS\n";
+    }
+
+    // 12. Reply gives up when the host never returns a buffer (bounded, [SPEC-E906-IPC-02]).
+    //     Fails on the old code by hanging: there was no limit.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        g_echo = true;  // no host.lend(): Linux never posts a TX buffer
+        const char ping[] = "nobody-reads";
+        host.post(0, ping, sizeof(ping));
+        assert(rpmsg.poll());
+        assert(!g_reply_ok && "reply must return false, not spin");
+        assert(rpmsg.get_tx_full_waits() == 64);
+        assert(host.rx().used->idx == 0);
+        std::cout << "  -> ReplyGivesUpWhenHostNeverReturnsABuffer: PASS\n";
+    }
+
+    // 13. A mailbox FIFO that never drains: poll returns, the kick is owed and sent later.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        hal::g_fake_msgbox_full_sends_left = 1 << 30;  // never recovers on its own
+        uint8_t byte = 0x22;
+        host.post(0, &byte, 1);
+        assert(rpmsg.poll());
+        assert(g_received.size() == 1 && host.tx().used->idx == 1);
+        assert(rpmsg.get_mbox_full_waits() == 256);
+        assert(hal::g_fake_msgbox_sends[1] == 0);
+        hal::g_fake_msgbox_full_sends_left = 0;
+        rpmsg.flush_kick();
+        assert(hal::g_fake_msgbox_sends[1] == 1 && "owed kick retried");
+        rpmsg.flush_kick();
+        assert(hal::g_fake_msgbox_sends[1] == 1 && "and only once");
+        std::cout << "  -> FullMailboxNeverHangsAndTheKickIsRetried: PASS\n";
+    }
+
+    // 14. A descriptor index >= num is skipped; the messages behind it still arrive.
+    //     Old code returned at the bad entry on every poll: RX stalled for good.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        const char a[] = "lost", b[] = "behind";
+        host.post(0, a, sizeof(a));
+        host.set_avail_slot(0, 99);  // corrupt entry
+        host.post(1, b, sizeof(b));
+        assert(rpmsg.poll());
+        assert(g_received.size() == 1 && std::memcmp(b, g_received[0].data(), sizeof(b)) == 0);
+        assert(rpmsg.get_ring_errors() == 1);
+        host.post(2, a, sizeof(a));
+        assert(rpmsg.poll() && g_received.size() == 2);
+        std::cout << "  -> BadDescriptorIsSkippedAndRxContinues: PASS\n";
+    }
+
+    // 15. A persistent bad avail index is resynced after 3 reads; RX resumes.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        host.tx().avail->idx = 255;
+        for (int i = 0; i < 3; ++i) {
+            assert(!rpmsg.poll());
+        }
+        assert(rpmsg.get_ring_errors() == 3);
+        uint8_t byte = 0x33;
+        host.post(4, &byte, 1);
+        assert(rpmsg.poll() && g_received.size() == 1);
+        std::cout << "  -> PersistentBadIndexIsResyncedAndRxResumes: PASS\n";
+    }
+
+    // 16. A host address outside the window is rejected, never dereferenced.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+
+        uint8_t byte = 0x44;
+        host.post(0, &byte, 1);
+        host.set_desc_addr(0, 0x1000);  // e.g. firmware SRAM or MMIO
+        assert(rpmsg.poll());
+        assert(g_received.empty() && rpmsg.get_ring_errors() == 1);
+        assert(host.tx().used->idx == 1 && "buffer still returned");
+        std::cout << "  -> OutOfWindowHostAddressIsRejected: PASS\n";
+    }
+
+    // 17. Lite parity: poll() leaves host kicks enabled (old Lite left NO_NOTIFY set).
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::RpmsgLiteMetal lite;
+        lite.init(host.rsc());
+        lite.register_endpoint(1024, on_test_message);
+        assert(lite.is_driver_ready());
+
+        uint8_t byte = 0x55;
+        host.post(0, &byte, 1);
+        assert(lite.poll());
+        assert(host.tx().used->flags == 0 && "Lite must re-enable kicks before its last check");
+        std::cout << "  -> LitePollLeavesKicksEnabled: PASS\n";
+    }
+
+    // 18. tx_cancel hands back an unused buffer instead of a 0-byte message.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        rpmsg.init(host.rsc());
+        assert(rpmsg.is_driver_ready());
+        host.lend(0);
+        host.lend(1);
+        hal::RpmsgTxBuffer buf = rpmsg.tx_acquire();
+        assert(buf && rpmsg.tx_free_buffers() == 1);
+        assert(rpmsg.tx_cancel(buf) && rpmsg.tx_free_buffers() == 2);
+        assert(!rpmsg.tx_cancel(buf) && "only once");
+        assert(host.rx().used->idx == 0 && "nothing published");
+        hal::RpmsgTxBuffer a = rpmsg.tx_acquire();
+        hal::RpmsgTxBuffer b = rpmsg.tx_acquire();
+        assert(!rpmsg.tx_cancel(a) && "not the most recent: refused");
+        assert(rpmsg.tx_cancel(b));
+        std::cout << "  -> TxCancelReturnsAnUnusedBuffer: PASS\n";
+    }
+
+    // 19. Steady state (AGENTS §10.5): 1000 acquire/commit cycles with the host recycling
+    //     buffers; nothing leaks and no error is counted.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        rpmsg.init(host.rsc());
+        assert(rpmsg.is_driver_ready());
+        for (uint32_t i = 0; i < 1000; ++i) {
+            host.lend(static_cast<uint16_t>(i % kN));
+            hal::RpmsgTxBuffer buf = rpmsg.tx_acquire();
+            assert(buf && buf.payload.size() == kBufSize - sizeof(rpmsg_hdr));
+            buf.payload[0] = static_cast<uint8_t>(i);
+            assert(rpmsg.tx_commit(buf, 1, 1024, 1024));
+            assert(rpmsg.tx_free_buffers() == 0);
+        }
+        assert(rpmsg.get_tx_count() == 1000 && rpmsg.get_ring_errors() == 0);
+        assert(host.rx().used->idx == 1000);
+        std::cout << "  -> ThousandTxCyclesLeakNothing: PASS\n";
+    }
+
+    // 20. Awaiter wake slot ([SPEC-E906-CORO-01]): one waiter; the ISR frees the slot.
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        rpmsg.init(host.rsc());
+        assert(rpmsg.is_driver_ready());
+        auto first = rpmsg.async_receive();
+        auto second = rpmsg.async_receive();
+        assert(!first.await_ready());
+        assert(first.await_suspend(std::noop_coroutine()));
+        assert(host.tx().used->flags == 0 && "kicks enabled while waiting");
+        assert(!second.await_suspend(std::noop_coroutine()) && "second waiter must not overwrite");
+        fc_msgbox_doorbell_isr();  // posts the first waiter, frees the slot
+        abstractx::Dispatcher::process();
+        auto third = rpmsg.async_receive();
+        assert(third.await_suspend(std::noop_coroutine()));
+        (void)third.await_resume();  // clears its own slot
+        auto fourth = rpmsg.async_receive();
+        assert(fourth.await_suspend(std::noop_coroutine()));
+        (void)fourth.await_resume();
+        (void)first.await_resume();
+        (void)hal::rpmsg_take_doorbell();
+        std::cout << "  -> AwaiterWakeSlotHasOneOwner: PASS\n";
     }
 
     std::cout << "[ALL PASS] XuanTie E906 RPMsg Flow Control Verification complete!\n";

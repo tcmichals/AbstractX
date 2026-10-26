@@ -26,11 +26,7 @@ namespace abstractx::reactor {
  */
 class AsyncUdpSocket {
 public:
-    struct RecvAwaiter;
-    struct SendAwaiter;
-    friend struct RecvAwaiter;
-    friend struct SendAwaiter;
-
+    // Nested awaiters are members: they see fd_/reactor_ without friend.
     explicit AsyncUdpSocket(EpollReactor& reactor) noexcept
         : reactor_(reactor), fd_(-1) {}
 
@@ -102,13 +98,19 @@ public:
         std::span<uint8_t> buffer;
         struct sockaddr_in* src_addr;
         ssize_t result{0};
+        int err{0};  // saved: errno is stale by resume time
 
-        bool await_ready() noexcept {
+        void attempt() noexcept {
             socklen_t addr_len = sizeof(struct sockaddr_in);
             result = ::recvfrom(socket.fd_, buffer.data(), buffer.size(), 0,
                                 src_addr ? reinterpret_cast<struct sockaddr*>(src_addr) : nullptr,
                                 src_addr ? &addr_len : nullptr);
-            return (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK));
+            err = result < 0 ? errno : 0;
+        }
+
+        bool await_ready() noexcept {
+            attempt();
+            return (result >= 0 || (err != EAGAIN && err != EWOULDBLOCK));
         }
 
         bool await_suspend(std::coroutine_handle<> handle) noexcept {
@@ -117,12 +119,10 @@ public:
         }
 
         ssize_t await_resume() noexcept {
-            if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                socklen_t addr_len = sizeof(struct sockaddr_in);
-                result = ::recvfrom(socket.fd_, buffer.data(), buffer.size(), 0,
-                                    src_addr ? reinterpret_cast<struct sockaddr*>(src_addr) : nullptr,
-                                    src_addr ? &addr_len : nullptr);
+            if (result < 0 && (err == EAGAIN || err == EWOULDBLOCK)) {
+                attempt();
             }
+            if (result < 0) errno = err;
             return result;
         }
     };
@@ -135,11 +135,17 @@ public:
         std::span<const uint8_t> buffer;
         const struct sockaddr_in& dest_addr;
         ssize_t result{0};
+        int err{0};  // saved: errno is stale by resume time
 
-        bool await_ready() noexcept {
+        void attempt() noexcept {
             result = ::sendto(socket.fd_, buffer.data(), buffer.size(), 0,
                               reinterpret_cast<const struct sockaddr*>(&dest_addr), sizeof(dest_addr));
-            return (result >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK));
+            err = result < 0 ? errno : 0;
+        }
+
+        bool await_ready() noexcept {
+            attempt();
+            return (result >= 0 || (err != EAGAIN && err != EWOULDBLOCK));
         }
 
         bool await_suspend(std::coroutine_handle<> handle) noexcept {
@@ -148,10 +154,10 @@ public:
         }
 
         ssize_t await_resume() noexcept {
-            if (result < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                result = ::sendto(socket.fd_, buffer.data(), buffer.size(), 0,
-                                  reinterpret_cast<const struct sockaddr*>(&dest_addr), sizeof(dest_addr));
+            if (result < 0 && (err == EAGAIN || err == EWOULDBLOCK)) {
+                attempt();
             }
+            if (result < 0) errno = err;
             return result;
         }
     };

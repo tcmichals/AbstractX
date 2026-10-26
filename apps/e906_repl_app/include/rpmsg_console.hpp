@@ -73,6 +73,10 @@ public:
     // Flush staged buffer over RPMsg
     void flush() noexcept;
 
+    // Bytes dropped ([SPEC-E906-REPL-05]): output with no host or no free buffer, input past the queue.
+    [[nodiscard]] uint32_t tx_dropped() const noexcept { return m_tx_dropped; }
+    [[nodiscard]] uint32_t rx_dropped() const noexcept { return m_rx_dropped; }
+
     // Flush output that has waited longer than max_age_ticks (mtime): text without a
     // newline (raw-REPL "OK", prompts) must not wait for the script to end ([SPEC-E906-REPL-16]).
     void flush_if_older(uint64_t now_ticks, uint64_t max_age_ticks) noexcept {
@@ -102,6 +106,8 @@ private:
     uint32_t m_host_addr{0};
     bool m_host_known{false};
     bool m_announced{false};
+    uint32_t m_tx_dropped{0};
+    uint32_t m_rx_dropped{0};
 };
 
 // Global singleton instance for MicroPython HAL bridging

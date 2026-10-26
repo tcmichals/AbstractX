@@ -13,9 +13,11 @@ import os
 import sys
 import time
 import struct
-import mmap
 import argparse
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uio_mmio import UioRegion, find_uio  # noqa: E402
 
 HARDWARE_MAGIC = 0x41535036  # "ASP6"
 
@@ -110,48 +112,34 @@ def load_via_fpga_manager(bin_filename: str, mgr_dir: Path):
     print(f"[+] Bitstream loaded in {elapsed_ms:.2f} ms (State: {state})")
 
 def verify_uio_device(uio_path: Path):
-    """Maps /dev/uio0 and validates AbstractX FPGA fabric registers."""
+    """Validates the AbstractX bridge through its UIO map (32-bit accesses, size from sysfs)."""
     if not uio_path.exists():
         print(f"[!] Warning: {uio_path} does not exist yet. Did the device tree probe?")
         return False
 
     print(f"[*] Probing hardware via {uio_path}...")
-    with open(uio_path, "r+b") as f:
-        mem = mmap.mmap(f.fileno(), 0x10000, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE)
-        try:
-            # Read Hardware ID @ 0x40
-            hw_id = struct.unpack("<I", mem[0x40:0x44])[0]
-            if hw_id != HARDWARE_MAGIC:
-                print(f"[-] Hardware magic mismatch: expected 0x{HARDWARE_MAGIC:08X} ('ASP6'), got 0x{hw_id:08X}")
-                return False
+    with UioRegion(uio_path, 0) as regs:
+        hw_id = regs.read32(0x40)
+        if hw_id != HARDWARE_MAGIC:
+            print(f"[-] Hardware magic mismatch: expected 0x{HARDWARE_MAGIC:08X} ('ASP6'), got 0x{hw_id:08X}")
+            return False
+        print(f"[+] Hardware Magic OK: 0x{hw_id:08X} ('ASP6')")
 
-            print(f"[+] Hardware Magic OK: 0x{hw_id:08X} ('ASP6')")
+        regs.write32(0x00, 0x01)  # enable the bridge
+        # The PL timestamp is a Wishbone register (CONTROL TLP only, [SPEC-ZYNQ-03]); the
+        # bridge has nothing at 0x48, which read 0 and was reported as "Active (~0.0 MHz)".
+        print("[ ] PL clock: not checked (needs a CONTROL TLP read)")
+        status = regs.read32(0x04)
+        print(f"[+] Hardware Status: 0x{status:08X}")
+        return True
 
-            # Enable Bridge & DMA
-            mem[0x00:0x04] = struct.pack("<I", 0x01)
-
-            # Read Monotonic Nanosecond Timestamp @ 0x48 (lower 32) and 0x4C (upper 32)
-            t1_low = struct.unpack("<I", mem[0x48:0x4C])[0]
-            time.sleep(0.1)
-            t2_low = struct.unpack("<I", mem[0x48:0x4C])[0]
-
-            delta_ticks = (t2_low - t1_low) & 0xFFFFFFFF
-            freq_mhz = (delta_ticks / 0.1) / 1e6
-            print(f"[+] PL Timestamp Timer: Active (Measured Clock: ~{freq_mhz:.1f} MHz)")
-
-            # Check status register @ 0x04
-            status = struct.unpack("<I", mem[0x04:0x08])[0]
-            print(f"[+] Hardware Status: 0x{status:08X} (DMA Ready)")
-            return True
-        finally:
-            mem.close()
 
 def main():
     parser = argparse.ArgumentParser(description="AbstractX QMTECH Zynq-7020 FPGA Loader & Validator")
     parser.add_argument("bitstream", type=Path, help="Path to .bit or .bin bitstream file")
     parser.add_argument("--firmware-dir", type=Path, default=Path("/lib/firmware"), help="Target firmware directory")
     parser.add_argument("--fpga-mgr", type=Path, default=Path("/sys/class/fpga_manager/fpga0"), help="FPGA manager sysfs path")
-    parser.add_argument("--uio", type=Path, default=Path("/dev/uio0"), help="UIO device path")
+    parser.add_argument("--uio", type=Path, default=None, help="UIO device path (default: the one named 'fpga-fabric')")
     args = parser.parse_args()
 
     if not args.bitstream.exists():
@@ -180,6 +168,12 @@ def main():
 
         # Step 3: Verify hardware
         time.sleep(0.05)
+        if args.uio is None:
+            try:
+                args.uio = find_uio("fpga-fabric")
+            except FileNotFoundError as exc:
+                print(f"[!] {exc}")
+                args.uio = Path("/dev/uio-not-found")
         if verify_uio_device(args.uio):
             print("\n========================================================")
             print("  SUCCESS: AbstractX FPGA Offload Fabric is OPERATIONAL! ")

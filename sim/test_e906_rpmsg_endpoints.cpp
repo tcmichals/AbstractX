@@ -61,9 +61,15 @@ struct LinuxVring { // Linux's view, independent of rpmsg.cpp's structs
 struct Hdr { uint32_t src, dst, reserved; uint16_t len, flags; } __attribute__((packed));
 
 uint8_t* map_low(size_t bytes) {
-    void* p = mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
-    assert(p != MAP_FAILED && reinterpret_cast<uintptr_t>(p) < 0xFFFFFFFFu);
+    // MAP_32BIT is x86-64 only; elsewhere a low hint address, checked below.
+    int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+#ifdef MAP_32BIT
+    flags |= MAP_32BIT;
+#endif
+    void* p = mmap(reinterpret_cast<void*>(0x30000000u), bytes, PROT_READ | PROT_WRITE, flags, -1, 0);
+    assert(p != MAP_FAILED && reinterpret_cast<uintptr_t>(p) + bytes <= 0xFFFFFFFFu);
     std::memset(p, 0, bytes);
+    hal::rpmsg_set_host_window(reinterpret_cast<uintptr_t>(p), bytes);  // the RPMsg pool stand-in
     return static_cast<uint8_t*>(p);
 }
 

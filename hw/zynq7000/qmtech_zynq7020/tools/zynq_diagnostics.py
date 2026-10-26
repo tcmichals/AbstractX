@@ -10,28 +10,43 @@ Performs live hardware tests on the QMTECH Zynq-7020 FPGA platform:
   5. Live 8 kHz TLP Telemetry Stream Monitor & Sensor Scope
 
 Usage:
-  zynq_diagnostics.py [--uio /dev/uio0] [--test all|ping|led|clock|imu|stream]
+  zynq_diagnostics.py [--uio /dev/uioN] [--test all|ping|led|clock|imu|stream]
+
+The UIO window is asp_axi_lite_bridge.sv only (0x00-0x1C, 0x40; decoded on addr[7:0]).
+SYS (0x4000_00xx) and IMU (0x4000_01xx) Wishbone registers are reachable only through
+CONTROL TLPs ([SPEC-ZYNQ-03]), which this tool does not build yet. Tests that need them
+report NOT SUPPORTED instead of writing bridge registers by alias (the scratch write landed
+on STATUS, the LED write cleared IRQ_STATUS, IMU_REG_CTRL overwrote CONTROL).
 """
 # @impl [SPEC-ZYNQ-04] hw/zynq7000/qmtech_zynq7020/tools/zynq_diagnostics.py
 
 import os
 import sys
 import time
-import struct
-import mmap
 import argparse
 from pathlib import Path
 
-# Register Map Offsets
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from uio_mmio import UioRegion, find_uio  # noqa: E402
+
+UIO_NAME = "fpga-fabric"  # node name in abstractx-uio.dtso
+
+# asp_axi_lite_bridge.sv register map: the only registers in the UIO window
 REG_CONTROL      = 0x00
 REG_STATUS       = 0x04
 REG_IRQ_STATUS   = 0x08
 REG_IRQ_ENABLE   = 0x0C
-REG_RX_BASE      = 0x10
-REG_RX_CAPACITY  = 0x14
-REG_RX_HEAD      = 0x18
-REG_RX_TAIL      = 0x1C
+REG_TLP_IN_PORT  = 0x10
+REG_TLP_OUT_PORT = 0x14
+REG_EGR_COUNT    = 0x18
+REG_ING_FREE     = 0x1C
 REG_HARDWARE_ID  = 0x40
+BRIDGE_REGS = {REG_CONTROL, REG_STATUS, REG_IRQ_STATUS, REG_IRQ_ENABLE, REG_TLP_IN_PORT,
+               REG_TLP_OUT_PORT, REG_EGR_COUNT, REG_ING_FREE, REG_HARDWARE_ID}
+
+
+class NotInUioWindow(RuntimeError):
+    """A Wishbone register that only a CONTROL TLP can reach ([SPEC-ZYNQ-03])."""
 
 # System Registers (Base 0x4000_0000 via Wishbone)
 SYS_REG_SCRATCH  = 0x04  # Scratch Register
@@ -52,25 +67,30 @@ IMU_REG_STATUS   = 0x11C # Direct busy/done and Auto-DMA active status
 HARDWARE_MAGIC   = 0x41535036 # "ASP6"
 
 class ZynqDiagnostics:
-    def __init__(self, uio_path="/dev/uio0"):
-        self.uio_path = Path(uio_path)
+    def __init__(self, uio_path=None):
+        self.uio_path = Path(uio_path) if uio_path else find_uio(UIO_NAME)
         if not self.uio_path.exists():
             raise FileNotFoundError(f"{self.uio_path} not found. Is generic-uio loaded?")
-
-        self.f = open(self.uio_path, "r+b")
-        self.mem = mmap.mmap(self.f.fileno(), 0x10000, mmap.MAP_SHARED, mmap.PROT_READ | mmap.PROT_WRITE)
+        self.region = UioRegion(self.uio_path, 0)  # size from sysfs; closes its fd on failure
 
     def close(self):
-        if self.mem:
-            self.mem.close()
-        if self.f:
-            self.f.close()
+        self.region.close()
+
+    @staticmethod
+    def _check(offset):
+        if offset not in BRIDGE_REGS:
+            alias = offset & 0xFF
+            raise NotInUioWindow(
+                f"0x{offset:X} is a Wishbone register, reachable only via CONTROL TLPs "
+                f"([SPEC-ZYNQ-03]); the bridge would alias it onto 0x{alias:02X}")
 
     def read32(self, offset):
-        return struct.unpack("<I", self.mem[offset:offset+4])[0]
+        self._check(offset)
+        return self.region.read32(offset)
 
     def write32(self, offset, val):
-        self.mem[offset:offset+4] = struct.pack("<I", val & 0xFFFFFFFF)
+        self._check(offset)
+        self.region.write32(offset, val)
 
     def test_ping(self):
         print("\n--- [Test 1] Hardware Ping & Scratch Loopback ---")
@@ -245,16 +265,16 @@ class ZynqDiagnostics:
 
         t_end = time.time() + duration_sec
         packets_received = 0
-        last_tail = self.read32(REG_RX_TAIL)
+        last_tail = self.read32(0x1C)  # DMA-mode RX_TAIL; BRAM builds have ING_FREE here
 
         print("[*] Listening for hardware TLP frames...")
         print("    [PKT #]  | DMA Ring Tail | Status")
         print("    " + "-"*55)
 
         while time.time() < t_end:
-            tail = self.read32(REG_RX_TAIL)
+            tail = self.read32(0x1C)
             if tail != last_tail:
-                packets_received += (tail - last_tail) & 0xFF
+                packets_received += (tail - last_tail) & 0xFFFFFFFF
                 last_tail = tail
 
                 if packets_received % 100 == 0:
@@ -272,7 +292,7 @@ def parse_hex_or_dec(val_str):
 
 def main():
     parser = argparse.ArgumentParser(description="AbstractX QMTECH Zynq-7020 Diagnostic Tool")
-    parser.add_argument("--uio", default="/dev/uio0", help="UIO device path (default: /dev/uio0)")
+    parser.add_argument("--uio", default=None, help=f"UIO device path (default: the one named '{UIO_NAME}')")
     parser.add_argument("--test", choices=["all", "ping", "led", "clock", "imu", "stream"], default=None, help="Diagnostic test suite to execute")
     parser.add_argument("--duration", type=float, default=3.0, help="Stream monitor duration in seconds")
     parser.add_argument("--read-reg", type=str, default=None, help="Read single IMU register over SPI (hex, e.g. 0x75)")
@@ -316,18 +336,24 @@ def main():
             diag.init_imu()
             return
 
-        # 3. Test suites
+        # 3. Test suites. A test that needs Wishbone registers reports NOT SUPPORTED, never PASS.
         test = args.test or "all"
-        if test in ["all", "ping"]:
-            if not diag.test_ping() and test != "all": sys.exit(1)
-        if test in ["all", "led"]:
-            diag.test_leds()
-        if test in ["all", "clock"]:
-            diag.test_clock()
-        if test in ["all", "imu"]:
-            diag.test_imu_whoami()
-        if test in ["all", "stream"]:
-            diag.test_stream_monitor(args.duration)
+        failed = False
+        for name, fn in (("ping", diag.test_ping), ("led", diag.test_leds), ("clock", diag.test_clock),
+                         ("imu", diag.test_imu_whoami),
+                         ("stream", lambda: diag.test_stream_monitor(args.duration))):
+            if test not in ("all", name):
+                continue
+            try:
+                failed |= not fn()
+            except NotInUioWindow as exc:
+                print(f"[NOT SUPPORTED] {name}: {exc}")
+                failed = True
+        if failed:
+            sys.exit(1)
+    except NotInUioWindow as exc:
+        print(f"[NOT SUPPORTED] {exc}")
+        sys.exit(1)
     finally:
         diag.close()
 
