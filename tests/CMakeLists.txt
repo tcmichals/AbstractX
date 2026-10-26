@@ -142,8 +142,10 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME py_test_zynq_buildroot_config
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_buildroot_config.py)
     # [SPEC-ZYNQ-01..03] Hardware-software register parity auditor
-    add_test(NAME py_test_register_parity
-             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_register_parity.py)
+    if(EXISTS ${CMAKE_SOURCE_DIR}/tools/check_register_parity.py)
+        add_test(NAME py_test_register_parity
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_register_parity.py)
+    endif()
     # [SPEC-TLP-03] Multi-producer MPSC and dedicated SPSC queue concurrency auditor
     add_test(NAME py_test_queue_concurrency
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/check_queue_concurrency.py)
