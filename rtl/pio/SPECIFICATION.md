@@ -101,7 +101,11 @@ flowchart TD
   * `0x114 + 0x20 * N`: SM `N` RX FIFO (read).
 * Software MUST be able to execute manual SPI or UART byte transfers through SM0 TX/RX FIFOs when autonomous sequencing is idle.
 * **Implementation Target**: `rtl/pio/asp_pio_tile.sv`
-* **Verified by**: `cocotb-regression`, `hw-sw-register-parity`
+* **Open check** (2026-10-26): a register-map parity check between this table, the RTL decode and the
+  software offsets was planned (`tools/check_register_parity.py`, skill `hw-sw-register-parity`), but
+  neither was ever committed. Naming the missing skill made this requirement BROKEN and failed CI. It
+  comes back here once the skill exists in `.agents/skills/`.
+* **Verified by**: `cocotb-regression`
 
 ### `[SPEC-PIO-06]` Multi-Rate Primary-Paced IMU Auto-DMA Sequence
 * **Requirement**: The PIO tile MUST autonomously ingest high-rate IMU sensors (ICM-42688-P / BMI270) at up to 8 kHz:

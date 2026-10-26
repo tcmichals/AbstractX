@@ -150,6 +150,6 @@ make -f Makefile TESTCASE=test_asp_pio_cocotb
 | `SPEC-PIO-02` | **Standard RP2040 16-Bit Instruction Set Compatibility** | ``cocotb-regression`` | ``rtl/pio/asp_pio_sm.sv`` |
 | `SPEC-PIO-03` | **Internal IRQ Bus & Supervisor/Worker State Machine Chaining** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_sm.sv`` |
 | `SPEC-PIO-04` | **Integrated 64-Byte TLP Framing & Nanosecond Timestamping** | ``cocotb-regression`, `sanitizer-gate`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
-| `SPEC-PIO-05` | **Wishbone B4 Slave Bus Interface & Register Map** | ``cocotb-regression`, `hw-sw-register-parity`` | ``rtl/pio/asp_pio_tile.sv`` |
+| `SPEC-PIO-05` | **Wishbone B4 Slave Bus Interface & Register Map** | `cocotb-regression` | ``rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-06` | **Multi-Rate Primary-Paced IMU Auto-DMA Sequence** | ``cocotb-regression`, `board-bringup`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-07` | **barectf CTF 1.8 Hardware Observability & Timeline Integration** | ``cocotb-regression`, `host-tests`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |

@@ -2749,3 +2749,24 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   * AGENTS §10 item 9.
 * **Also fixed**: the `irq-gated` marker dropped from `AsyncRxAwaiter::await_resume` in `d8bcbac` (needed by the `[SPEC-AUDIT-14]` `DRIVER-POLL` rule), and spec text that still named the removed `notify_host()` / `translate_da()` (would fail `--check-drift`).
 * **Not verified**: none of the new tools, the CI steps or the new test were run; the build with the new warning flags was not run (expect many `-Wconversion` warnings on the first build). Mutation testing (plan item 6) is not done.
+
+---
+
+## 2026-10-26: GitHub CI red since before 2026-10-25 (BROKEN requirement), and a regression from d8bcbac
+
+* **Category**: `process-gap`
+* **What happened**:
+  * CI failed on every push from at least `e771a01`. Since `527ae15` the failing step was "SpecTrace Matrix & Evidence Verification": `trac.py test --matrix` fails when any requirement is BROKEN, and `[SPEC-PIO-05]` named the skill `hw-sw-register-parity`, which was never committed. Its tool `tools/check_register_parity.py` exists only on the other PC (see the 2026-10-24 entry that guarded `py_test_register_parity`).
+  * `d8bcbac` (committed with no tests run) also failed Host Tests in CI (ctest exit 8). `a0791a0` passes Host Tests, ASan and TSan in CI, so the likely cause was `py_test_spectrace_matrix` drift on the removed `notify_host()` / `translate_da()` names, fixed in `a0791a0`. The CI log needs a GitHub login and was not read, so this is not confirmed.
+* **Which check should have caught it**: nobody looked at CI. Work happens on two PCs, and nothing runs the CI steps on either PC.
+* **Fix**: `[SPEC-PIO-05]` now names only `cocotb-regression`, plus an "Open check" note for the missing parity skill (restore it from the other PC, then add it back). `rtl/pio/README.md` row updated to match.
+* **Evidence (this PC, 2026-10-26)**:
+  * `ctest --test-dir build_host`: 67/67 passed.
+  * `ctest --test-dir build_asan`: 67/67 passed.
+  * `trac.py test --ctest debug=build_host --ctest asan=build_asan --matrix`: exit 0.
+  * `audit_specs.py`: exit 0.
+  * `pytest tests/test_adversarial_invariants.py`: 14 passed.
+  * `track_memory_membrowse.py` and `track_quality_trends.py`: exit 0 in a clean worktree, without the untracked JSON files.
+* **Still open**:
+  * merge the other PC's unpushed work (`check_register_parity.py`, the `hw-sw-register-parity` skill);
+  * run the CI steps locally from one script so neither PC depends on reading GitHub logs.
