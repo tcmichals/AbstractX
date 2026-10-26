@@ -106,8 +106,7 @@ if(Python3_Interpreter_FOUND)
                     RESULT_VARIABLE _pytest_dep OUTPUT_QUIET ERROR_QUIET)
     if(_pytest_dep EQUAL 0)
         foreach(_t test_e906_sensor_protocol.py test_membrowse_tracking.py
-                   test_spec_traceability.py test_tlp_and_ctf_schema.py
-                   test_visualizer_async_bridge.py)
+                   test_spec_traceability.py test_tlp_and_ctf_schema.py)
             get_filename_component(_n ${_t} NAME_WE)
             add_test(NAME py_${_n}
                      COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/${_t}
@@ -132,8 +131,11 @@ if(Python3_Interpreter_FOUND)
         add_test(NAME py_test_visualizer_sdk
                  COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_sdk.py
                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        add_test(NAME py_test_visualizer_async_bridge
+                 COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_async_bridge.py
+                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     else()
-        message(STATUS "py_test_visualizer_sdk skipped: pytest or imgui_bundle not installed")
+        message(STATUS "py_test_visualizer_sdk / async_bridge skipped: pytest or imgui_bundle not installed")
     endif()
     # [SPEC-AUDIT-01..05] Adversarial invariant auditor checks
     add_test(NAME py_test_adversarial_invariants

@@ -135,6 +135,14 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
   <em>▶️ Live timing capture from XuanTie E906 (video: <a href="docs/articles/micropython-on-e906/assets/studio-live.mp4"><code>docs/articles/micropython-on-e906/assets/studio-live.mp4</code></a>). Synchronized horizontal swimlanes on a 200 MHz CPU cycle clock showing idle <code>wfi</code> sleep, coroutine task execution windows, and microsecond-accurate interrupt tick lines.</em>
 </p>
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-timeline.png" alt="Studio Timeline Swimlanes" width="48%" />
+  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cpu.png" alt="Studio CPU & Coprocessor Gauges" width="48%" />
+  <br/>
+  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-source.png" alt="Studio Click-to-Source Jump" width="48%" />
+  <img src="https://raw.githubusercontent.com/tcmichals/AbstractX/main/docs/articles/micropython-on-e906/assets/studio-cli.png" alt="Studio Interactive Target REPL & CLI" width="48%" />
+</p>
+
 * **Synchronized CPU Cycle Clock Swimlanes**: Displays execution windows on a shared cycle clock (200 MHz on E906, 150 MHz on RP2350). Correlate hardware DMA burst completions directly with coroutine resumption.
 * **Sub-Microsecond Interrupt Inspection**: Inspect individual physical interrupt lines (Timer, UART3 RX, TWI1 Compass, SPI DMA) as precise tick marks unfolding over a 100 ms sliding window.
 * **Interactive Click-to-Source**: Click any task or event in the timeline to jump directly to the exact C++ source file and line (`__FILE__ : __LINE__`).

@@ -846,3 +846,30 @@ def test_popout_and_popin_dock_window():
     finally:
         implot.destroy_context()
     assert decoupled and core_docked_alone and size_tested and both_docked
+
+
+def test_dynamic_plugin_loader(tmp_path):
+    """[SPEC-STUDIO-06] Dynamic external plugin loading via load_external_plugin."""
+    # @verifies [SPEC-STUDIO-06] tools/visualizer/SPECIFICATION.md
+    assert studio.load_external_plugin(str(tmp_path / "nonexistent.py")) is None
+
+    plugin_code = """
+from sdk.plugin import AbstractXStudioPlugin
+
+class DummyTestPlugin(AbstractXStudioPlugin):
+    def __init__(self):
+        super().__init__("Dummy Test", "1.5")
+        self.rendered = False
+
+    def render_ui(self, delta_time=0.0, state=None):
+        self.rendered = True
+"""
+    plugin_file = tmp_path / "dummy_plugin.py"
+    plugin_file.write_text(plugin_code)
+
+    inst = studio.load_external_plugin(str(plugin_file))
+    assert inst is not None
+    assert inst.name == "Dummy Test"
+    assert inst.version == "1.5"
+    inst.render_ui(0.016, None)
+    assert inst.rendered is True

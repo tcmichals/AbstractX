@@ -37,7 +37,10 @@ import struct
 import threading
 import argparse
 import subprocess
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -45,15 +48,20 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 try:
     from imgui_bundle import imgui, implot, immapp, hello_imgui
 except ImportError:
-    print("Error: imgui-bundle is required. Run:")
-    print("  pip install imgui-bundle numpy")
-    sys.exit(1)
+    imgui = None
+    implot = None
+    immapp = None
+    hello_imgui = None
 
 # Import Level 2 Domain Plugin
 try:
     from flight_plugin import FlightVisualizerPlugin
 except ImportError:
     from tools.visualizer.flight_plugin import FlightVisualizerPlugin
+try:
+    from sdk.plugin import AbstractXStudioPlugin
+except ImportError:
+    from tools.visualizer.sdk.plugin import AbstractXStudioPlugin
 try:
     import runtime_stats
     import event_streams
@@ -1173,7 +1181,30 @@ class TelemetryState:
 
 g_state = TelemetryState()
 g_flight_plugin = FlightVisualizerPlugin()
+g_custom_plugins = []
 g_initial_tab = "platform"
+
+def load_external_plugin(plugin_path: str):
+    p = Path(plugin_path).resolve()
+    if not p.exists():
+        print(f"Warning: External plugin path '{plugin_path}' does not exist.")
+        return None
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(p.stem, str(p))
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[p.stem] = mod
+            spec.loader.exec_module(mod)
+            for attr in dir(mod):
+                obj = getattr(mod, attr)
+                if isinstance(obj, type) and issubclass(obj, AbstractXStudioPlugin) and obj is not AbstractXStudioPlugin:
+                    inst = obj()
+                    print(f"[Studio] Loaded dynamic domain plugin: {inst.name} v{inst.version} from {p}")
+                    return inst
+    except Exception as e:
+        print(f"Error loading external plugin from '{plugin_path}': {e}")
+    return None
 
 def udp_receiver_thread(port: int, sim_mode: bool):
     """
@@ -1664,22 +1695,103 @@ def _render_window_sizing_bar(window_title: str, window_key: str, default_w: flo
 
 def _setup_studio_style():
     """
-    # @impl [SPEC-STUDIO-01] tools/visualizer/abstractx_studio.py
-    Configures Dear ImGui style for AbstractX Studio:
-    Increases window border hover padding to 10px so resizing floating/popped-out windows
-    from any edge or corner is easy and forgiving, and adds a high-contrast electric blue border.
+    Configures modern Material Design 3 (M3) styling for AbstractX Studio:
+    - 12px / 10px / 8px rounded geometry across cards, inputs, buttons, and popups
+    - Material 3 Dark Surface tokens (#121316 background, #1d1e23 elevated cards)
+    - Primary Material Blue (#7cacf8) accent with soft outline borders
+    - Generous frame padding and touch-friendly spacing
     """
     style = imgui.get_style()
-    style.window_border_hover_padding = 10.0
-    style.window_border_size = 2.0
-    style.window_rounding = 6.0
-    style.frame_rounding = 4.0
-    style.tab_rounding = 4.0
-    style.popup_rounding = 4.0
-    style.set_color_(imgui.Col_.border, imgui.ImVec4(0.25, 0.65, 0.95, 0.9))
-    style.set_color_(imgui.Col_.border_shadow, imgui.ImVec4(0.0, 0.0, 0.0, 0.6))
-    style.set_color_(imgui.Col_.title_bg, imgui.ImVec4(0.12, 0.16, 0.22, 1.0))
-    style.set_color_(imgui.Col_.title_bg_active, imgui.ImVec4(0.18, 0.28, 0.42, 1.0))
+
+    # Material 3 Roundings & Geometry
+    style.window_rounding = 12.0
+    style.child_rounding = 10.0
+    style.frame_rounding = 8.0
+    style.popup_rounding = 10.0
+    style.tab_rounding = 8.0
+    style.grab_rounding = 6.0
+    style.scrollbar_rounding = 8.0
+
+    # Modern Borders & Padding (eliminates harsh thick bevels)
+    style.window_border_size = 1.0
+    style.child_border_size = 1.0
+    style.frame_border_size = 0.0
+    style.popup_border_size = 1.0
+    style.tab_border_size = 0.0
+    style.window_border_hover_padding = 8.0
+
+    style.window_padding = imgui.ImVec2(16.0, 16.0)
+    style.frame_padding = imgui.ImVec2(12.0, 7.0)
+    style.item_spacing = imgui.ImVec2(10.0, 8.0)
+    style.item_inner_spacing = imgui.ImVec2(8.0, 6.0)
+    style.grab_min_size = 14.0
+    style.scrollbar_size = 12.0
+
+    # Material 3 Dark Tonal Palette Tokens
+    c = style.set_color_
+
+    # Surfaces & Canvas
+    c(imgui.Col_.window_bg, imgui.ImVec4(0.071, 0.075, 0.086, 1.0))       # #121316 Deep Surface
+    c(imgui.Col_.child_bg, imgui.ImVec4(0.114, 0.118, 0.137, 1.0))        # #1d1e23 Elevated Card Surface
+    c(imgui.Col_.popup_bg, imgui.ImVec4(0.137, 0.141, 0.165, 0.98))       # #23242a Menu / Dialog
+    c(imgui.Col_.border, imgui.ImVec4(0.188, 0.196, 0.227, 0.7))          # #30323a Subtle Outline
+    c(imgui.Col_.border_shadow, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
+
+    # Inputs & Frames (Flat M3 Input Containers)
+    c(imgui.Col_.frame_bg, imgui.ImVec4(0.149, 0.157, 0.184, 1.0))        # #26282f
+    c(imgui.Col_.frame_bg_hovered, imgui.ImVec4(0.196, 0.208, 0.243, 1.0))# #32353e
+    c(imgui.Col_.frame_bg_active, imgui.ImVec4(0.239, 0.255, 0.298, 1.0)) # #3d414c
+
+    # Header / AppBar
+    c(imgui.Col_.title_bg, imgui.ImVec4(0.094, 0.098, 0.118, 1.0))        # #18191e
+    c(imgui.Col_.title_bg_active, imgui.ImVec4(0.114, 0.122, 0.149, 1.0)) # #1d1f26
+    c(imgui.Col_.title_bg_collapsed, imgui.ImVec4(0.094, 0.098, 0.118, 0.8))
+    c(imgui.Col_.menu_bar_bg, imgui.ImVec4(0.094, 0.098, 0.118, 1.0))
+
+    # Scrollbars (Subtle Pill)
+    c(imgui.Col_.scrollbar_bg, imgui.ImVec4(0.0, 0.0, 0.0, 0.0))
+    c(imgui.Col_.scrollbar_grab, imgui.ImVec4(0.28, 0.30, 0.35, 0.7))
+    c(imgui.Col_.scrollbar_grab_hovered, imgui.ImVec4(0.38, 0.40, 0.46, 0.9))
+    c(imgui.Col_.scrollbar_grab_active, imgui.ImVec4(0.48, 0.50, 0.58, 1.0))
+
+    # Primary Material Blue Accents (#7cacf8)
+    c(imgui.Col_.check_mark, imgui.ImVec4(0.486, 0.675, 0.973, 1.0))
+    c(imgui.Col_.slider_grab, imgui.ImVec4(0.486, 0.675, 0.973, 1.0))
+    c(imgui.Col_.slider_grab_active, imgui.ImVec4(0.655, 0.780, 0.980, 1.0))
+
+    # Buttons (M3 Filled Tonal / Card Button)
+    c(imgui.Col_.button, imgui.ImVec4(0.165, 0.173, 0.204, 1.0))          # #2a2c34
+    c(imgui.Col_.button_hovered, imgui.ImVec4(0.220, 0.231, 0.275, 1.0))  # #383b46
+    c(imgui.Col_.button_active, imgui.ImVec4(0.486, 0.675, 0.973, 0.35))
+
+    # Headers & Selectables
+    c(imgui.Col_.header, imgui.ImVec4(0.141, 0.149, 0.176, 1.0))
+    c(imgui.Col_.header_hovered, imgui.ImVec4(0.184, 0.192, 0.227, 1.0))
+    c(imgui.Col_.header_active, imgui.ImVec4(0.235, 0.247, 0.294, 1.0))
+
+    # Separators
+    c(imgui.Col_.separator, imgui.ImVec4(0.18, 0.19, 0.22, 0.6))
+    c(imgui.Col_.separator_hovered, imgui.ImVec4(0.486, 0.675, 0.973, 0.7))
+    c(imgui.Col_.separator_active, imgui.ImVec4(0.486, 0.675, 0.973, 1.0))
+
+    # Tabs (Modern Pill-Style Tabs)
+    c(imgui.Col_.tab, imgui.ImVec4(0.094, 0.098, 0.118, 1.0))             # Inactive flat
+    c(imgui.Col_.tab_hovered, imgui.ImVec4(0.149, 0.157, 0.188, 1.0))     # Hover
+    c(imgui.Col_.tab_selected, imgui.ImVec4(0.137, 0.145, 0.176, 1.0))    # Active elevated
+    c(imgui.Col_.tab_selected_overline, imgui.ImVec4(0.486, 0.675, 0.973, 1.0)) # M3 Accent bar
+    c(imgui.Col_.tab_dimmed, imgui.ImVec4(0.094, 0.098, 0.118, 1.0))
+    c(imgui.Col_.tab_dimmed_selected, imgui.ImVec4(0.137, 0.145, 0.176, 1.0))
+
+    # Tables
+    c(imgui.Col_.table_header_bg, imgui.ImVec4(0.102, 0.106, 0.125, 1.0))
+    c(imgui.Col_.table_border_strong, imgui.ImVec4(0.18, 0.19, 0.22, 0.7))
+    c(imgui.Col_.table_border_light, imgui.ImVec4(0.18, 0.19, 0.22, 0.4))
+    c(imgui.Col_.table_row_bg_alt, imgui.ImVec4(1.0, 1.0, 1.0, 0.015))
+
+    # Typography & Selection
+    c(imgui.Col_.text, imgui.ImVec4(0.886, 0.886, 0.902, 1.0))            # #e2e2e6 Crisp Soft White
+    c(imgui.Col_.text_disabled, imgui.ImVec4(0.463, 0.467, 0.498, 1.0))   # #76777f Muted Text
+    c(imgui.Col_.text_selected_bg, imgui.ImVec4(0.486, 0.675, 0.973, 0.3))
 
 def _no_live_data(panel: str, needs: str) -> bool:
     """True (after drawing a placeholder) when a panel has no live source ([SPEC-STUDIO-14])."""
@@ -3835,6 +3947,14 @@ def render_gui():
         if g_initial_tab == "memory":
             g_state.requested_studio_tab = "memory"
 
+        # Dynamically loaded external domain plugins (e.g. --plugin quadcopter/inav/tools/studio_plugin/inav_plugin.py)
+        for plugin in g_custom_plugins:
+            opened, _ = imgui.begin_tab_item(f"{plugin.name}", None, 0)
+            if opened:
+                _render_window_sizing_bar(plugin.name, f"plugin_{plugin.name.lower()}", 1320.0, 860.0)
+                plugin.render_ui(0.016, g_state)
+                imgui.end_tab_item()
+
         opened, _ = imgui.begin_tab_item("User Domain Instruments (gps_imu_app)", None, flags_flight)
         if opened:
             _render_user_domain_window()
@@ -3845,11 +3965,14 @@ def render_gui():
             _render_core_studio_window()
             imgui.end_tab_item()
 
-
         imgui.end_tab_bar()
 
 def main():
     global g_initial_tab
+    if imgui is None or np is None:
+        print("Error: imgui-bundle and numpy are required to run AbstractX Studio. Run:")
+        print("  pip install imgui-bundle numpy")
+        sys.exit(1)
     parser = argparse.ArgumentParser(description="AbstractX Visualizer Studio Workbench")
     parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT, help="UDP listening port (default: 9870)")
     parser.add_argument("--board-ip", type=str, default="192.168.3.3", help="Target board IP address (default: 192.168.3.3)")
@@ -3858,6 +3981,8 @@ def main():
                         help="Run with synthetic flight & telemetry generator (--demo is an alias)")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],
                         help="Initial tab to display in single-window mode")
+    parser.add_argument("--plugin", type=str, action="append", default=[],
+                        help="Path to external domain plugin Python file to dynamically load into Studio")
     parser.add_argument("--viewports", action=argparse.BooleanOptionalAction, default=True,
                         help="Pop-outs become separate OS windows (default); --no-viewports keeps one window")
     parser.add_argument("--elf", type=str, default=str(DEFAULT_ELF),
@@ -3865,6 +3990,13 @@ def main():
     parser.add_argument("--auto-connect", action="store_true", default=False,
                         help="Auto-start live telemetry bridge to physical board on launch")
     args = parser.parse_args()
+
+    # Load external dynamic domain plugins
+    if args.plugin:
+        for p_path in args.plugin:
+            inst = load_external_plugin(p_path)
+            if inst:
+                g_custom_plugins.append(inst)
 
     g_initial_tab = args.tab
     if args.sim:

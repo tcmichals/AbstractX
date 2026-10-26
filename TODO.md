@@ -75,6 +75,16 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [x] **Window 1 (Platform Topology & Silicon Interconnect Fabric)**: Auto-displays detected silicon topology (Linux SITL, Linux+E906, Linux+E906+FPGA, RP2350, ESP32-P4), active cores, and transport interconnects.
   - [x] **Window 2 (Dual-Plane Timeline & Source Code Scanner)**: Visualizes separation between low-level hardware I/O driver context (Plane 1) and cooperative C++20 coroutine tasks (Plane 2), with interactive source code scanner jumping directly to the exact file and line number.
   - [x] **Window 3 (Per-Processor SPU/CPU & Process Utilization)**: Tracks host Linux CPU% and external OS processes, XuanTie E906 active vs WFI sleep duty cycles, and FPGA logic LUT / DMA bandwidth.
+- [x] **Dynamic External Domain Plugin Architecture (`--plugin <path>`)**:
+  - [x] Decouple application domain UI/configurators from Core Studio; plugins live in external repositories (e.g. `tcmichals/inav`, `tcmichals/python-imgui-esc-configurator`).
+  - [x] Support simultaneous multi-plugin loading (`--plugin p1.py --plugin p2.py`) with dedicated tabs.
+- [x] **CI Quality Gate Stabilization & Automated Benchmarking**:
+  - [x] Guard untracked parallel targets in CMake (`test_zynq_target`, `check_register_parity.py`).
+  - [x] Gate visualizer tests under `_studio_deps` and add `numpy` to CI environment.
+  - [x] Initialize and push orphan `origin/gh-pages` branch for `benchmark-action/github-action-benchmark`.
+- [ ] **Python Package Management Modernization with `uv`**:
+  - [ ] Update `tools/setup_venv.sh` to auto-detect and use `uv` for sub-second virtualenv creation.
+  - [ ] Adopt `uv` in `.github/workflows/spectrace_dashboard.yml` to reduce dependency installation time.
 - [ ] **Dear ImGui Oscilloscope Optimization**:
   - [ ] Benchmark and verify 60-120 FPS real-time plotting under high data rates (8 kHz IMU stream).
 - [ ] **GPS 3D Track Visualization**:

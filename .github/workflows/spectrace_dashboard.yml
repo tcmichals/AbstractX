@@ -1,3 +1,4 @@
+# @impl [SPEC-AUDIT-09] [SPEC-AUDIT-13] docs/SPECTRACE.md
 name: AbstractX SpecTrace Embedded Dashboard & Quality Gate
 
 on:
@@ -24,7 +25,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build python3-pip binutils
-          python3 -m pip install pytest
+          python3 -m pip install pytest numpy
 
       - name: Build Host Verification Binaries & Suites
         run: |
