@@ -1,0 +1,15 @@
+# @impl [SPEC-AUDIT-15] docs/SPECTRACE.md
+# Bug-finding checks only (no style). Run through tools/run_static_analysis.py, which limits
+# the files to first-party code and applies tools/static_analysis_baseline.txt.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-reserved-identifier,
+  concurrency-*,
+  clang-analyzer-*,
+  -clang-analyzer-optin.performance.Padding,
+  cppcoreguidelines-pro-type-member-init
+WarningsAsErrors: ''
+HeaderFilterRegex: '(include|src|targets|applib|apps)/'
+FormatStyle: none

@@ -40,6 +40,15 @@ message(STATUS "AbstractX Build Target: ${ABSTRACTX_TARGET}")
 # 1. Third-Party Dependencies (ETL, etc.)
 add_subdirectory(third_party)
 
+# First-party C++ warnings (everything added below; third_party above is exempt).
+# @impl [SPEC-AUDIT-15] docs/SPECTRACE.md
+# ABSTRACTX_WERROR stays OFF until the first warning cleanup is done, then CI turns it on.
+option(ABSTRACTX_WERROR "Treat first-party C++ warnings as errors" OFF)
+add_compile_options(
+    "$<$<COMPILE_LANGUAGE:CXX>:-Wall;-Wextra;-Wshadow;-Wconversion;-Wsign-conversion>"
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<BOOL:${ABSTRACTX_WERROR}>>:-Werror>"
+)
+
 # 2. Core AbstractX Library with Master Runtime
 add_library(abstractx_core STATIC
     src/runtime.cpp

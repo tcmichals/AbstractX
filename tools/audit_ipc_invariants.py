@@ -22,7 +22,7 @@ passed. Each check is named after the bug it would have caught:
   PY-NBSPIN    retry on BlockingIOError with no deadline
   PY-MMIO      register access through mmap slices / struct.*_from (width not guaranteed)
   PY-UIO0      hardcoded /dev/uio0 instead of finding the device by name
-  T-VERIFIES   a test claims @verifies [SPEC-X] but names no function that implements it
+  (T-VERIFIES moved to `spectrace_matrix.py --check-verifies`, which covers the whole repo)
   T-MAP32      MAP_32BIT without #ifdef (x86-64 only: the test does not build elsewhere)
 
 A deliberate exception is marked on the line (or the line before) with
@@ -55,8 +55,6 @@ PY_GLOBS = [
     "hw/zynq7000/testApps/imu_backend_validation_poc/backends.py",
 ]
 TEST_GLOBS = ["sim/test_e906_rpmsg_*.cpp"]
-IMPL_GLOBS = ["targets/allwinner_e906/src/*.cpp", "targets/allwinner_e906/include/hal/*.hpp",
-              "targets/allwinner_e906/include/*.hpp"]
 
 
 class Source:
@@ -201,57 +199,14 @@ def check_py(rel, text, out):
             report("PY-UIO0", m.start(), "hardcoded /dev/uio0; find the device by /sys/class/uio/*/name")
 
 
-DEF_LINE = re.compile(r"^[A-Za-z_][^;]*?\b(\w+)\s*\([^;]*$")
-SKIP = {"if", "for", "while", "switch", "static_cast", "reinterpret_cast", "sizeof", "return",
-        "__attribute__", "section"}
-
-
-def impl_symbols(src):
-    """SPEC tag -> what implements it: the enclosing function of an @impl tag inside a body,
-    or the names defined right after a top-level tag."""
-    table = {}
-    for rel in src.files(IMPL_GLOBS):
-        lines = src.read(rel).splitlines()
-        for i, l in enumerate(lines):
-            if "@impl" not in l:
-                continue
-            tags = re.findall(r"\[(SPEC-[\w-]+)\]", l)
-            names = set()
-            if l[:1].isspace():  # inside a body: the function that contains it
-                for j in range(i - 1, -1, -1):
-                    m = DEF_LINE.match(lines[j])
-                    if m and m.group(1) not in SKIP:
-                        names.add(m.group(1))
-                        break
-            else:
-                for nxt in lines[i + 1:i + 5]:
-                    if nxt.strip().startswith(("//", "*", "/*")):
-                        continue
-                    if not nxt.rstrip().endswith(";"):
-                        names.update(re.findall(r"(\w+)\s*\(", nxt))
-                    names.update(re.findall(r"\b(s_\w+|g_\w+|k[A-Z]\w+)\b", nxt))
-            for t in tags:
-                table.setdefault(t, set()).update(names - SKIP)
-    return table
-
-
 def check_tests(src, out):
-    table = None
+    # @verifies claims are checked repo-wide by `spectrace_matrix.py --check-verifies` ([SPEC-AUDIT-15]).
     for rel in src.files(TEST_GLOBS):
         text = src.read(rel)
-        for m in re.finditer(r"#define\s+\w+|MAP_32BIT", text):
-            if m.group(0) == "MAP_32BIT":
-                guarded = "#ifdef MAP_32BIT" in text or "#if defined(MAP_32BIT)" in text
-                if not guarded and not allowed(text, m.start(), "T-MAP32"):
-                    out.append(f"{rel}:{line_of(text, m.start())}: [T-MAP32] MAP_32BIT is x86-64 only; guard it")
-                    break
-        for m in re.finditer(r"@verifies\s+((?:\[SPEC-[\w-]+\]\s*)+)", text):
-            table = table if table is not None else impl_symbols(src)
-            for tag in re.findall(r"\[(SPEC-[\w-]+)\]", m.group(1)):
-                syms = table.get(tag, set())
-                if syms and not any(re.search(rf"\b{re.escape(s)}\b", text) for s in syms):
-                    out.append(f"{rel}:{line_of(text, m.start())}: [T-VERIFIES] claims {tag} but calls none of "
-                               f"{sorted(syms)[:6]}")
+        m = re.search(r"MAP_32BIT", text)
+        guarded = "#ifdef MAP_32BIT" in text or "#if defined(MAP_32BIT)" in text
+        if m and not guarded and not allowed(text, m.start(), "T-MAP32"):
+            out.append(f"{rel}:{line_of(text, m.start())}: [T-MAP32] MAP_32BIT is x86-64 only; guard it")
 
 
 def main():

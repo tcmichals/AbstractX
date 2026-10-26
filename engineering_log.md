@@ -2731,3 +2731,21 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * New check skill `ipc-transport-audit` (`tools/audit_ipc_invariants.py`), one check per bug class above, with `--git-rev` to show it fails on the pre-fix revision. `host-tests` SKILL.md gains the test quality rules.
 * **Not verified**: nothing was built or run in this change (the user asked for no test runs): no host, ASan or TSan build, no `audit_ipc_invariants.py` run (old or new revision), no E906 cross-build or `analyze_elf_size.sh`, no board, no Zynq hardware.
 * **Still open**: UIO tools need CONTROL-TLP Wishbone access (or a direct RTL window) before the SYS/IMU tests can run; DMA backend needs a DDR-profile bitstream; REPL upload has no flow control (drops are now counted); `host_addr_` lease (P4-03) unchanged.
+
+---
+
+## 2026-10-26: Review layers the repo did not have ([SPEC-AUDIT-15])
+
+* **Category**: `process-gap`
+* **What was missing**: TSan and RTL lint existed as skills but did not run in CI. Host and ARM builds had no warning flags, and nothing anywhere used `-Werror`. There was no clang-tidy, cppcheck or `-fanalyzer` for first-party code, no review of state shared across ISR/core/processor boundaries, and the only "test claims a requirement it never runs" check was in the RPMsg audit.
+* **Which check should have caught the RPMsg bugs**: a boundary inventory (non-atomic ISR handle), analyzer/TOCTOU review (double reads), and a repo-wide `@verifies` check (CORO-01 claim with no awaiter call). None existed.
+* **Spec**: `[SPEC-AUDIT-15]` in `docs/SPECTRACE.md`.
+* **Added**:
+  * first-party warning flags and the `ABSTRACTX_WERROR` option (root `CMakeLists.txt`, ARM toolchain);
+  * `.clang-tidy`, `tools/run_static_analysis.py` with a shrink-only baseline, skill `static-analysis`;
+  * `tools/boundary_review.py` (`// shared: <owner>; <sync>` notes), skill `boundary-race-review` with its checklist;
+  * `spectrace_matrix.py --check-verifies` (moved from `audit_ipc_invariants.py`, now repo-wide), with a test in `tests/test_spectrace_matrix.py`;
+  * CI steps for TSan, RTL lint, the IPC audit, clang-tidy, `--check-verifies` and the boundary inventory, all advisory until their first green run;
+  * AGENTS §10 item 9.
+* **Also fixed**: the `irq-gated` marker dropped from `AsyncRxAwaiter::await_resume` in `d8bcbac` (needed by the `[SPEC-AUDIT-14]` `DRIVER-POLL` rule), and spec text that still named the removed `notify_host()` / `translate_da()` (would fail `--check-drift`).
+* **Not verified**: none of the new tools, the CI steps or the new test were run; the build with the new warning flags was not run (expect many `-Wconversion` warnings on the first build). Mutation testing (plan item 6) is not done.

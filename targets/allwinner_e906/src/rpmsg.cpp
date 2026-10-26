@@ -10,11 +10,15 @@ namespace hal {
 
 // One wake slot shared with fc_msgbox_doorbell_isr() ([SPEC-E906-CORO-01]).
 // @impl [SPEC-E906-CORO-01] targets/allwinner_e906/SPECIFICATION.md
+// shared: awaiter sets (main), msgbox ISR takes; std::atomic CAS/exchange acq_rel
 static std::atomic<void *> s_rpmsg_waiter{nullptr};
 
 // Message box doorbell state ([SPEC-E906-IRQ-04]); set by the ISR, taken by consumers.
+// shared: msgbox ISR sets, platform_poll_network() takes (single owner); std::atomic acq_rel
 static std::atomic<bool> s_doorbell{false};
+// shared: ISR clears, rpmsg_arm_doorbell() sets with the IRQ masked; std::atomic acq_rel
 static std::atomic<bool> s_doorbell_armed{false};
+// shared: ISR increments, main reads (statistics only); std::atomic relaxed
 static std::atomic<uint32_t> s_doorbell_irqs{0};
 
 static void msgbox_rx_irq(bool enable) noexcept {
@@ -702,7 +706,7 @@ bool IRpmsg::AsyncRxAwaiter::await_resume() noexcept {
     if (driver) {
         driver->enable_rx_kick(false);
     }
-    return driver ? driver->poll() : false;
+    return driver ? driver->poll() : false;  // irq-gated: resumed by the doorbell ISR or pending vring
 }
 
 } // namespace hal

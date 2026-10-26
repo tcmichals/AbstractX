@@ -1,4 +1,4 @@
-# @impl [SPEC-AUDIT-09] [SPEC-AUDIT-13] docs/SPECTRACE.md
+# @impl [SPEC-AUDIT-09] [SPEC-AUDIT-13] [SPEC-AUDIT-15] docs/SPECTRACE.md
 name: AbstractX SpecTrace Embedded Dashboard & Quality Gate
 
 on:
@@ -24,12 +24,12 @@ jobs:
       - name: Set up Build & Test Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build python3-pip binutils
+          sudo apt-get install -y cmake ninja-build python3-pip binutils clang-tidy verilator
           python3 -m pip install pytest numpy
 
       - name: Build Host Verification Binaries & Suites
         run: |
-          cmake --preset host
+          cmake --preset host -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           cmake --build --preset host -j
 
       - name: Host Tests (All 35 Test Suites)
@@ -43,6 +43,47 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
           cmake --build build_asan -j
           ctest --test-dir build_asan --output-on-failure
+
+      # [SPEC-AUDIT-15] steps below are advisory until their first green run; each comment says
+      # what it waits on. Remove continue-on-error then; never add it to a passing step.
+      - name: TSan Build & Test Gate
+        continue-on-error: true  # advisory: first TSan run in CI not yet triaged
+        run: |
+          cmake -S . -B build_tsan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=thread -O1 -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+          cmake --build build_tsan -j
+          ctest --test-dir build_tsan --output-on-failure
+
+      - name: RTL Lint (Verilator)
+        continue-on-error: true  # advisory: rtl-lint never run in CI; distro verilator vs oss-cad-suite
+        run: |
+          rc=0
+          for f in rtl/*.sv rtl/*/*.sv; do
+            [ -f "$f" ] || continue
+            verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+              -Wno-PINCONNECTEMPTY -Irtl "$f" --top-module "$(basename "$f" .sv)" || rc=1
+          done
+          exit $rc
+
+      - name: IPC Transport Invariant Audit
+        continue-on-error: true  # advisory: audit_ipc_invariants.py added 2026-10-26, never run
+        run: |
+          python3 tools/audit_ipc_invariants.py
+
+      - name: Static Analysis (clang-tidy)
+        continue-on-error: true  # advisory: waits on the first triage and tools/static_analysis_baseline.txt
+        run: |
+          python3 tools/run_static_analysis.py --build-dir build_host -j 4
+
+      - name: Test Claims (@verifies backed by @impl)
+        continue-on-error: true  # advisory: --check-verifies added 2026-10-26, existing claims not triaged
+        run: |
+          python3 tools/spectrace_matrix.py --check-verifies
+
+      - name: Shared-State Ownership Notes
+        continue-on-error: true  # advisory: most shared globals have no '// shared:' note yet
+        run: |
+          python3 tools/boundary_review.py --check
 
       - name: SpecTrace Matrix & Evidence Verification
         run: |

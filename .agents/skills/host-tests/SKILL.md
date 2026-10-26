@@ -26,7 +26,7 @@ Learned from the 2026-10-26 RPMsg review, where every test passed while 11 trans
 2. **Test the step after an error.** After asserting an error counter, send the next message and assert
    that it is delivered.
 3. **`@verifies [SPEC-X]` means that the test calls the code that implements SPEC-X**, not something
-   nearby. `tools/audit_ipc_invariants.py` (`T-VERIFIES`) checks this for the E906 transport tests.
+   nearby. `python3 tools/spectrace_matrix.py --check-verifies` checks this for every test.
 4. **Peers with different addresses.** A fake peer must not reuse our own address or endpoint number.
    That hid swapped src/dst.
 5. **Steady state ≥1000 cycles** with resources recycled (AGENTS §10.5).

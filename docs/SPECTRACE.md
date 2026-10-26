@@ -324,6 +324,40 @@ An independent Critic persona evaluates code and specifications across 6 strict 
 python3 tools/run_adversarial_audit.py --all
 ```
 
+### `[SPEC-AUDIT-15]` Review Layers: Warnings, Static Analysis, Boundaries, Test Claims
+* **Requirement**: CI runs every check whose skill is `runs_on: host` or `rtl-sim` and that needs
+  no hardware: host tests, ASan/UBSan, **TSan** (`thread-sanitizer`), **RTL lint** (`rtl-lint`),
+  `ipc-transport-audit`, `static-analysis` and `boundary-race-review --check`. A step that has never
+  been green is marked advisory (`continue-on-error`) with a comment naming the cleanup it waits on.
+  The advisory mark is removed once it passes, and it is never added to a step that already passes.
+* **Requirement (warnings)**: all first-party C++ (everything after `third_party` in the root
+  `CMakeLists.txt`) compiles with `-Wall -Wextra -Wshadow -Wconversion -Wsign-conversion`.
+  `ABSTRACTX_WERROR=ON` turns them into errors. It is OFF until the first cleanup is recorded in
+  `engineering_log.md`, then ON in CI. The ARM and RISC-V toolchain files carry `-Wall -Wextra`.
+* **Requirement (static analysis)**: `tools/run_static_analysis.py` runs `clang-tidy` (checks in
+  `.clang-tidy`: `bugprone-*`, `concurrency-*`, `clang-analyzer-*`,
+  `cppcoreguidelines-pro-type-member-init`) on the host compile database, limited to first-party
+  files. With `--fanalyzer` it also builds the E906 target with GCC `-fanalyzer`. Known findings
+  are listed in `tools/static_analysis_baseline.txt`, and the list only shrinks (same rule as
+  `[SPEC-AUDIT-14]`).
+* **Requirement (test claims)**: `python3 tools/spectrace_matrix.py --check-verifies` exits 1 when a
+  file tagged `@verifies [SPEC-X]` names none of the functions or globals that carry an
+  `@impl [SPEC-X]` tag. A tag inside a function body counts as that function; a tag at file level
+  counts as the names defined on the next lines. Requirements whose `@impl` sites define no names
+  are skipped.
+* **Requirement (boundaries)**: `tools/boundary_review.py` lists the state shared across execution
+  contexts in MCU and transport code: globals written in `*_isr` functions, `volatile` globals, and
+  names handed to `IsrDispatcher::post` or `Dispatcher::post`. For each item it requires an
+  ownership note on the declaration: `// shared: <owner>, <sync>` (for example
+  `// shared: msgbox ISR writes, main reads; std::atomic`). `--check` fails for any listed item
+  without one. The agent fills in the note after answering the `boundary-race-review` checklist.
+* **Rationale**: 2026-10-26: the RPMsg review found races (non-atomic ISR handle), memory bugs
+  (host address passthrough, double reads) and a test that claimed a requirement it never ran. All
+  of it was in code that every gate passed. TSan and RTL lint existed as skills but did not run in
+  CI, and no compiler warnings were enabled on host or ARM builds.
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`), `static-analysis`, `boundary-race-review`, `ipc-transport-audit`
+* **Implementation Target**: `.github/workflows/spectrace_dashboard.yml`, `CMakeLists.txt`, `cmake/toolchains/arm-none-eabi.cmake`, `.clang-tidy`, `tools/run_static_analysis.py`, `tools/boundary_review.py`, `tools/spectrace_matrix.py`
+
 ### `[SPEC-AUDIT-01]` Module-Scoped Audit Inputs
 * The default audit scope MUST be the current staged, unstaged, and untracked
     changes; it MUST NOT recursively audit unrelated targets or generated output.

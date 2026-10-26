@@ -212,7 +212,7 @@ sequenceDiagram
     `s_tx_vq.used->flags = 0` (so Linux kicks when it returns one), increments `s_tx_full_waits`,
     kicks the host and drains doorbells, at most `kReplyWaitRounds` (64) times. It then returns
     `false`: the caller decides whether to drop or retry. `tx_acquire()` never waits.
-  * **Hardware Mailbox FIFO space**: `notify_host()` tries `MsgBox::send` at most `kMboxSendTries`
+  * **Hardware Mailbox FIFO space**: the kick (`notify()`) tries `MsgBox::send` at most `kMboxSendTries`
     (256) times, counting each full FIFO in `s_mbox_full_waits`. If the FIFO stays full, the kick is
     *owed*, not lost: the used ring is already published, and the owed kick is retried by the next
     `poll()`, `tx_commit()`, `reply()` or `flush_kick()` (called every loop by
@@ -299,7 +299,7 @@ sequenceDiagram
 * **Address translation**: descriptor addresses written by Linux are host
   physical addresses. The E906 converts them with `translate_buf()`, which accepts
   only ranges that lie wholly inside the RPMsg pool (host `0x072E0000`+ → core
-  `0x40020000`+, [SPEC-E906-IPC-02]). The cubie-a5e `translate_da()` mapped all of
+  `0x40020000`+, [SPEC-E906-IPC-02]). The cubie-a5e `translate_da` mapped all of
   Space 0 and Space 1 and passed every other address through, which let a bad or
   hostile descriptor overwrite firmware.
 * **Two endpoints, one mailbox channel** (option 1 of the 2026-10-14 review;

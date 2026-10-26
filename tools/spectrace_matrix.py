@@ -187,6 +187,85 @@ def check_tests(root: Path) -> list[str]:
     return problems
 
 
+# Names an @impl tag stands for: the enclosing function when the tag is inside a body,
+# else the names defined on the next lines ([SPEC-AUDIT-15]).
+_C_DEF_RE = re.compile(r"^[A-Za-z_][^;]*?\b(\w+)\s*\([^;]*$")
+_PY_DEF_RE = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(\w+)")
+_NAME_SKIP = {"if", "for", "while", "switch", "return", "sizeof", "static_cast", "reinterpret_cast",
+              "const_cast", "__attribute__", "section", "main", "defined", "extern"}
+
+
+def _impl_names(lines: list[str], idx: int, python: bool) -> set[str]:
+    line = lines[idx]
+    names: set[str] = set()
+    if line[:1].isspace():
+        indent = len(line) - len(line.lstrip())
+        for j in range(idx - 1, -1, -1):
+            cand = lines[j]
+            if python:
+                m = _PY_DEF_RE.match(cand)
+                if m and len(cand) - len(cand.lstrip()) < indent:
+                    names.add(m.group(1))
+                    break
+            else:
+                m = _C_DEF_RE.match(cand)
+                if m and m.group(1) not in _NAME_SKIP:
+                    names.add(m.group(1))
+                    break
+    else:
+        for nxt in lines[idx + 1:idx + 5]:
+            st = nxt.strip()
+            if st.startswith(("//", "*", "/*", "#")) and not st.startswith(("#define", "#include")):
+                continue
+            if python:
+                m = _PY_DEF_RE.match(nxt) or re.match(r"^([A-Z_][A-Z0-9_]+)\s*=", nxt)
+                if m:
+                    names.add(m.group(1))
+                continue
+            if not nxt.rstrip().endswith(";"):
+                names.update(re.findall(r"(\w+)\s*\(", nxt))
+            names.update(re.findall(r"\b(s_\w+|g_\w+|k[A-Z]\w+)\b", nxt))
+            names.update(re.findall(r"^\s*(?:class|struct)\s+(\w+)", nxt))
+    return {n for n in names if n not in _NAME_SKIP and len(n) > 2}
+
+
+def check_verifies(root: Path) -> list[str]:
+    """Tests that claim @verifies [SPEC-X] but name nothing tagged @impl [SPEC-X] ([SPEC-AUDIT-15])."""
+    # @impl [SPEC-AUDIT-15] docs/SPECTRACE.md
+    files = [f for f in tracked_files(root) if is_code(f) and (root / f).is_file()]
+    anchors = scan_anchors(root, files)
+    impl_names: dict[str, set[str]] = {}
+    texts: dict[str, str] = {}
+    for rel, found in anchors.items():
+        text = (root / rel).read_text(encoding="utf-8", errors="ignore")
+        texts[rel] = text
+        if _is_test_path(rel):
+            continue
+        lines = text.splitlines()
+        for a in found:
+            if a.kind != "impl":
+                continue
+            names = _impl_names(lines, a.line - 1, rel.endswith(".py"))
+            for tag in a.tags:
+                impl_names.setdefault(tag, set()).update(names)
+    problems = []
+    for rel, found in anchors.items():
+        if not _is_test_path(rel) and not any(a.kind == "verifies" for a in found):
+            continue
+        text = texts[rel]
+        for a in found:
+            if a.kind != "verifies":
+                continue
+            for tag in a.tags:
+                names = impl_names.get(tag)
+                if not names:
+                    continue  # no @impl site defines a name: nothing to compare
+                if not any(re.search(rf"(?<![A-Za-z0-9_]){re.escape(n)}(?![A-Za-z0-9_])", text) for n in names):
+                    shown = ", ".join(sorted(names)[:6]) + (" ..." if len(names) > 6 else "")
+                    problems.append(f"{rel}:{a.line}: claims {tag} but names none of its @impl sites ({shown})")
+    return problems
+
+
 def skill_runs_on(root: Path) -> dict[str, str]:
     return {name: front_matter(p).get("runs_on", "") for name, p in load_skills(root).items()}
 
@@ -861,6 +940,8 @@ def main() -> int:
     parser.add_argument("--check-drift", action="store_true",
                         help="requirements naming functions their implementation files lack")
     parser.add_argument("--check-tests", action="store_true", help="test files ctest never runs")
+    parser.add_argument("--check-verifies", action="store_true",
+                        help="tests whose @verifies tag names none of the requirement's @impl sites")
     parser.add_argument("--check-placement", action="store_true",
                         help="report target-code requirements checked only on the host")
     parser.add_argument("--check-skills", action="store_true",
@@ -893,6 +974,12 @@ def main() -> int:
                       f"({', '.join(reqs[tag].skills)})")
             print(f"Host-only checks of target code: {len(placed)} (report only)")
         return int(rc)
+    if args.check_verifies:
+        problems = check_verifies(root)
+        for p in problems:
+            print(f"[VERIFIES] {p}")
+        print(f"Unbacked @verifies claims: {len(problems)}")
+        return 1 if problems else 0
     if args.check_skills:
         problems = check_skills(root)
         for p in problems:

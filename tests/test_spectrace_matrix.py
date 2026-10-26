@@ -401,6 +401,34 @@ def test_placement_and_board_evidence_source():
         assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "VERIFIED"
 
 
+def test_verifies_claims_need_an_impl_name():
+    """--check-verifies ([SPEC-AUDIT-15]): a test that claims a requirement must name a function
+    or global that carries its @impl tag; a tag inside a body counts as its function."""
+    VER = "@" + "verifies"
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "src").mkdir()
+        (root / "tests").mkdir()
+        (root / "src" / "x.cpp").write_text(
+            f"// {IMPL} [SPEC-FIX-10] docs/F.md\n"
+            "static std::atomic<int> s_slot{0};\n"
+            "\n"
+            "bool Awaiter::await_suspend(int h) noexcept {\n"
+            f"    // {IMPL} [SPEC-FIX-11] docs/F.md\n"
+            "    return true;\n"
+            "}\n")
+        (root / "tests" / "test_good.cpp").write_text(
+            f"// {VER} [SPEC-FIX-10] [SPEC-FIX-11]\nint main() {{ (void)s_slot; a.await_suspend(1); }}\n")
+        (root / "tests" / "test_bad.cpp").write_text(
+            f"// {VER} [SPEC-FIX-11]\nint main() {{ enable_rx_kick(true); }}\n")
+        run(["git", "init", "-q"], root)
+        run(["git", "add", "-A"], root)
+        problems = "\n".join(sm.check_verifies(root))
+        assert "tests/test_bad.cpp" in problems and "SPEC-FIX-11" in problems, problems
+        assert "await_suspend" in problems, problems
+        assert "test_good.cpp" not in problems, problems
+
+
 def test_repo_is_honest():
     """The real tree: no drift and no orphan tests ([SPEC-AUDIT-12])."""
     repo = Path(__file__).resolve().parent.parent
@@ -419,6 +447,7 @@ if __name__ == "__main__":
     test_skill_layout_shared_by_all_agents()
     test_drift_check_and_not_implemented_line()
     test_orphan_test_check()
+    test_verifies_claims_need_an_impl_name()
     test_placement_and_board_evidence_source()
     test_repo_is_honest()
     print("[PASS] spectrace_matrix")

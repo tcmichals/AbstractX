@@ -18,6 +18,7 @@ sanitizers.
 ```bash
 python3 tools/audit_ipc_invariants.py                 # working tree
 python3 tools/audit_ipc_invariants.py --git-rev <rev> # e.g. show a check fails on the old code
+python3 tools/spectrace_matrix.py --check-verifies    # test claims, repo-wide
 ```
 
 ## What each check catches (static)
@@ -37,7 +38,7 @@ python3 tools/audit_ipc_invariants.py --git-rev <rev> # e.g. show a check fails 
 | `PY-NBSPIN` | `_write_all` retried forever when the E906 was dead |
 | `PY-MMIO` | UIO registers read and written through mmap slices / `struct.*_from` (access width not guaranteed) |
 | `PY-UIO0` | hardcoded `/dev/uio0` |
-| `T-VERIFIES` | a test said `@verifies [SPEC-E906-CORO-01]` but never ran the awaiter or the ISR |
+| `T-VERIFIES` (now `spectrace_matrix.py --check-verifies`, repo-wide) | a test said `@verifies [SPEC-E906-CORO-01]` but never ran the awaiter or the ISR |
 | `T-MAP32` | `MAP_32BIT` without a guard: the sim tests did not build on AArch64 hosts |
 
 A deliberate exception is marked on the line, or the line before, with
