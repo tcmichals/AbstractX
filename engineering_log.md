@@ -2681,6 +2681,7 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
     4. Issue hardware STOP condition (SDA low $\rightarrow$ SCL high $\rightarrow$ SDA high).
     5. Restore pin multiplexer to TWI mode and re-enable peripheral interrupts.
   - Specified across Allwinner E906 (`targets/allwinner_e906/src/i2c.cpp`) and RP2350 Pico 2 (`targets/pico2w_rp2350/src/i2c.cpp`).
+  - **FPGA Hardware I2C Recovery via 64-Byte Control TLP**: Specified `FpgaI2cAdapter` control frame (`Type 0x05`, Command `0x09` `RESET_9CLK`) over Dual-SPI, enabling E906/host software to invoke `co_await i2c.recover_bus_async()` to trigger the FPGA's hardware `IOBUF` 9-pulse unstick FSM without CPU bitbanging.
 * **Multi-Device Chained SPI Auto-DMA Architecture (`[SPEC-HAL-13]`)**:
   - Specified extension of `AsyncSpiDriver` in `include/abstractx/hal/spi.hpp` with `arm_chained_triggered_read()` accepting `std::span<const TriggeredTarget>` to support hardware-chained multi-CS DMA.
   - **Allwinner E906 Target**: Configures Sunxi DMA scatter-gather linked-list descriptors (`sunxi_dma_lli_t`) linking Descriptor 0 (CS0 + 13 bytes) to Descriptor 1 (CS1 + 13 bytes). Total transfer completes in $20.8\,\mu\text{s}$ at 10 MHz SPI with 0.00% CPU overhead.

@@ -97,6 +97,7 @@ This document is the authoritative roadmap and active engineering task tracker f
   - [ ] Implement `capabilities_.bus_recovery = true` and dynamic GPIO re-muxing in `targets/allwinner_e906/src/i2c.cpp`.
   - [ ] Sequence: Soft-reset TWI (`TWI0_SRST = 1`), re-mux SCL/SDA to software GPIO (`Pn_CFG`), clock SCL up to 9 cycles at 100 kHz via `csrr rdtime` until SDA returns high, issue STOP condition, and restore TWI mode.
   - [ ] Port parity recovery sequence to RP2350 Pico 2 (`targets/pico2w_rp2350/src/i2c.cpp`) using SIO open-drain bitbang.
+  - [ ] Implement FPGA I2C bus recovery via 64-byte control TLP (`Type 0x05`, Command `0x09` `RESET_9CLK`), enabling E906/host `co_await i2c.recover_bus_async()` calls to trigger the FPGA hardware `IOBUF` 9-pulse unstick FSM over Dual-SPI.
 - [ ] **Multi-Device Chained SPI Auto-DMA (`[SPEC-HAL-13]`)**:
   - [ ] Extend `include/abstractx/hal/spi.hpp` with `TriggeredTarget` struct and `arm_chained_triggered_read()` to support multi-device chained DMA on a single SPI controller.
   - [ ] **Allwinner E906 (`targets/allwinner_e906/src/spi.cpp`)**: Implement Sunxi DMA scatter-gather linked-list descriptors (`sunxi_dma_lli_t`) linking Descriptor 0 (IMU 1 on CS0, 13 bytes) directly to Descriptor 1 (IMU 2 on CS1, 13 bytes) for deterministic $20.8\,\mu\text{s}$ back-to-back streaming with 0% CPU load.
