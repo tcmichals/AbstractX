@@ -60,14 +60,16 @@ target_link_libraries(test_pico_zero_copy_trace PRIVATE abstractx_core)
 add_test(NAME sim_test_pico_zero_copy_trace COMMAND test_pico_zero_copy_trace)
 
 # Zynq-7000 UIO Bridge & Target IoProcessor data plane test ([SPEC-ZYNQ-01..03])
-set(ZYNQ_DIR ${PROJECT_SOURCE_DIR}/targets/zynq7000)
-add_executable(test_zynq_target
-    test_zynq_target.cpp
-    ${ZYNQ_DIR}/src/io_processor.cpp
-)
-target_include_directories(test_zynq_target PRIVATE ${ZYNQ_DIR}/include)
-target_link_libraries(test_zynq_target PRIVATE abstractx_core)
-add_test(NAME sim_test_zynq_target COMMAND test_zynq_target)
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_target.cpp)
+    set(ZYNQ_DIR ${PROJECT_SOURCE_DIR}/targets/zynq7000)
+    add_executable(test_zynq_target
+        test_zynq_target.cpp
+        ${ZYNQ_DIR}/src/io_processor.cpp
+    )
+    target_include_directories(test_zynq_target PRIVATE ${ZYNQ_DIR}/include)
+    target_link_libraries(test_zynq_target PRIVATE abstractx_core)
+    add_test(NAME sim_test_zynq_target COMMAND test_zynq_target)
+endif()
 # Common macro to generate a test target for a specific module
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
     add_custom_target(${TARGET_NAME}
