@@ -92,6 +92,22 @@ This document is the authoritative roadmap and active engineering task tracker f
 - [ ] **Queue Watermark Gauges**:
   - [ ] Add live saturation and watermark gauges for inter-domain TLP rings.
 
+### 7. Flight Avionics I/O Pipeline, Multi-Device Auto-DMA & Bus Recovery (`[SPEC-HAL-08]`, `[SPEC-HAL-09]`, `[SPEC-HAL-13]`, `[SPEC-HAL-14]`)
+- [ ] **I2C 9-Clock Recovery & Stuck SDA Clearing (`II2c::recover_bus_async`) `[SPEC-HAL-09]`**:
+  - [ ] Implement `capabilities_.bus_recovery = true` and dynamic GPIO re-muxing in `targets/allwinner_e906/src/i2c.cpp`.
+  - [ ] Sequence: Soft-reset TWI (`TWI0_SRST = 1`), re-mux SCL/SDA to software GPIO (`Pn_CFG`), clock SCL up to 9 cycles at 100 kHz via `csrr rdtime` until SDA returns high, issue STOP condition, and restore TWI mode.
+  - [ ] Port parity recovery sequence to RP2350 Pico 2 (`targets/pico2w_rp2350/src/i2c.cpp`) using SIO open-drain bitbang.
+- [ ] **Multi-Device Chained SPI Auto-DMA (`[SPEC-HAL-13]`)**:
+  - [ ] Extend `include/abstractx/hal/spi.hpp` with `TriggeredTarget` struct and `arm_chained_triggered_read()` to support multi-device chained DMA on a single SPI controller.
+  - [ ] **Allwinner E906 (`targets/allwinner_e906/src/spi.cpp`)**: Implement Sunxi DMA scatter-gather linked-list descriptors (`sunxi_dma_lli_t`) linking Descriptor 0 (IMU 1 on CS0, 13 bytes) directly to Descriptor 1 (IMU 2 on CS1, 13 bytes) for deterministic $20.8\,\mu\text{s}$ back-to-back streaming with 0% CPU load.
+  - [ ] **RP2350 Pico 2 (`targets/pico2w_rp2350/src/spi.cpp`)**: Configure hardware DMA channel chaining (`channel_config_set_chain_to()`) and PIO state machine arbiter.
+  - [ ] **ESP32-P4 (`targets/esp32p4/src/spi.cpp`)**: Configure Event Task Matrix (ETM) and GDMA linked-list descriptors (`gdma_link_list_t`).
+- [ ] **Multi-Transaction SPI & I2C Bus Locking (`BusLock` / `BusLockGuard` `[SPEC-HAL-14]`)**:
+  - [ ] Validate intrusive FIFO waiter queue (`bus_lock_.wait()`) and `.under(guard)` across concurrent coroutines sharing SPI0/TWI0.
+- [ ] **QMTECH Zynq-7000 / FPGA Parallel Dual-SPI Architecture**:
+  - [ ] Instantiate dedicated dual parallel AXI SPI master cores in FPGA fabric, eliminating bus sharing and sampling both IMUs at the exact same nanosecond with zero phase jitter.
+  - [ ] Package dual-IMU bursts into aligned 64-byte TLP frames (`Tlp64`) streamed directly into host DDR SPSC ring buffers via AXI DMA.
+
 ---
 
 ## 🔍 Code Review Findings (2026-10-13 / 2026-10-14)
