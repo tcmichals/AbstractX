@@ -2919,3 +2919,22 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-36 | docs | `docs/design/repo-file-audit.md` still cites the deleted `e906_periph.cpp` (3 rows) | that file | update | `--check-drift` does not cover it |
 
 * **Suggested order**: EL-1027-30 (board run of what was just changed), -16 and -15/-13/-20 (FPGA path), -28 (SPI, same method), -24, -23, -17/-18/-19, -21/-27 (checks that would have caught these), the rest.
+
+---
+
+## 2026-10-27: All-PIO motors and ESC passthrough: decisions and the PIO ISA gap (tracker EL-1027-20, new EL-1027-37..39)
+
+* **Category**: `product-bug` (PIO ISA), `process-gap` (design rule recorded)
+* **Decisions (project owner, 2026-10-27)**: the FPGA is configured by loading PIO code, never by changing RTL; no protocol logic in RTL ([SPEC-PIO-00]). Bidirectional DShot600 on 4 motors ([SPEC-PIO-12]); serial = ESC 4-way passthrough only ([SPEC-PIO-13]); the only board-specific part is the pin map `hw/<board>/pins.toml` ([SPEC-PIO-09]). No unpushed RTL on the other PC.
+* **Reference found**: `rt-fc-offloader/rtl/io/wb_esc_uart.sv` + `wb_serial_dshot_mux.sv` pass ESC passthrough on hardware (`python/hw/test_hw_esc_passthrough.py`): 19200 half-duplex, one-bit guard, break by forcing low, tristate between modes, 5 s watchdog. The configurator already implements 4-way (`python-imgui-esc-configurator/MSP/fourway.py`); its AbstractX transport (`comm_proto/asp_tlp.py`) defines channel 0x05 but has no passthrough calls yet.
+* **New tracker rows**:
+
+| ID | Area | Finding | Evidence | Next step | Check |
+|---|---|---|---|---|---|
+| EL-1027-37 | RTL PIO | `asp_pio_sm.sv` is not RP2040-conformant: blocking `pull`/`push`/`irq wait`/autopush stall flags are non-blocking assignments to automatic locals (PC advances; confirmed: `pull block` on an empty FIFO moved the PC to 1); `pull noblock` does not copy X; autopush pushes the pre-shift ISR; autopull on empty does not stall; side-set count excludes the opt bit; `mov isr/osr` keep counts; `mov status` returns the level; `irq wait` does not wait; `irq rel` drops bit 2; restart keeps pin ownership | `rtl/pio/asp_pio_sm.sv:470,474,489,544,554,576,619,627`; `sim/cocotb/test_asp_pio_conformance_cocotb.py` | fix to [SPEC-PIO-02] conformance list, one test per rule | `cocotb-regression` |
+| EL-1027-38 | RTL PIO | tile has no generic TLP ingress to TX FIFOs, egress streams only one SM and has no idle timeout; pins not bidirectional at the top | `rtl/pio/asp_pio_tile.sv`, `rtl/asp_top.sv:392-394` | [SPEC-PIO-09], [SPEC-PIO-10] | `cocotb-regression`, `fpga-fit` |
+| EL-1027-39 | boards | no pin map; constraints name protocol ports (`o_motor_pins`, `o_uart_tx`) | `hw/*/` | `hw/<board>/pins.toml` + `tools/pin_map.py` | `--check` |
+
+* **Plan (one commit each, ID in the message)**: 1) SM conformance fixes + tests (EL-1027-37); 2) program library + `tools/pio_programs.py` with `pioasm` 2.1.1 (`~/ssdData/home/tcmichals/.pico-sdk/tools/2.1.1/pioasm/pioasm` on this PC; move under `~/.tools` per the toolchain rule); 3) `dshot_bidir.pio` + timing parity at 12/27/50 MHz; 4) `esc_serial.pio` + modelled-ESC test; 5) tile TLP ingress/egress, generic pins, motor tile in `asp_top`, remove `asp_dshot_core`/`asp_uart_core` (EL-1027-15/-13/-38); 6) pin maps (EL-1027-39); 7) host driver and configurator transport.
+* **Spec**: `rtl/pio/SPECIFICATION.md` [SPEC-PIO-00], [SPEC-PIO-02] conformance list, [SPEC-PIO-09]..[SPEC-PIO-13].
+* **Not verified**: nothing implemented yet in this entry.
