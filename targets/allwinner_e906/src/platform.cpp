@@ -76,56 +76,6 @@ private:
     }
 };
 
-// UART HAL Adapter for E906 (UART2 Navigation/CRSF)
-class E906UartDriver final : public IUart {
-public:
-    E906UartDriver() = default;
-
-    void init(uint32_t baudrate) override {
-        fc::hal::Uart2::init(baudrate);
-    }
-
-    void write_byte(uint8_t ch) override {
-        fc::hal::Uart2::write_byte(ch);
-    }
-
-    void puts(const char* str) override {
-        fc::hal::Uart2::write_str(str);
-    }
-
-    size_t write(std::span<const uint8_t> buffer) override {
-        fc::hal::Uart2::write(buffer.data(), buffer.size());
-        return buffer.size();
-    }
-
-    bool read_byte(uint8_t& ch) override {
-        if (!fc::hal::Uart2::has_data()) return false;
-        ch = fc::hal::Uart2::read_byte();
-        return true;
-    }
-
-    size_t read(std::span<uint8_t> buffer) override {
-        size_t count = 0;
-        for (auto& b : buffer) {
-            if (!read_byte(b)) break;
-            count++;
-        }
-        return count;
-    }
-
-    void flush() override {}
-
-protected:
-    void start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept override {
-        write(req.data);
-        UartResult res{};
-        res.status = UartStatus::Ok;
-        res.bytes_transferred = req.data.size();
-        push_completion_from_isr(req, res);
-        set_hardware_idle_from_isr();
-    }
-};
-
 // Timer HAL Adapter for E906
 class E906TimerDriver final : public ITimer {
 public:
@@ -220,7 +170,6 @@ public:
 };
 
 static E906SpiDriver   g_e906_spi;
-static E906UartDriver  g_e906_uart;
 static E906TimerDriver g_e906_timer;
 static E906GpioDriver  g_e906_gpio;
 
@@ -229,13 +178,13 @@ ISpi& get_spi_driver() noexcept {
 }
 
 IUart& get_uart_driver() noexcept {
-    return g_e906_uart;
+    return get_e906_uart3();
 }
 
-// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list; UART3 not a port yet)
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list)
 IUart* get_uart_port(uint8_t index) noexcept {
-    if (index == 0 || index == 2) {
-        return &g_e906_uart;
+    if (index == 0 || index == 3) {
+        return &get_e906_uart3();  // UART2's PB0/PB1 are not connected on the Cubie A5E
     }
     return nullptr;
 }

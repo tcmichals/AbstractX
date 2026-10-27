@@ -14,7 +14,8 @@
 #include <coroutine>
 
 #include "hal/timer.hpp"
-#include "hal/uart.hpp"
+#include "abstractx/hal/platform.hpp"
+#include <span>
 #include "hal/trace.hpp"
 #include "hal/ccu.hpp"
 #include "hal/pmp.hpp"
@@ -89,8 +90,9 @@ int main(void) {
     hal::Timer::init();
     hal::Timer::delay_ms(10);
 
-    // Initialize UART2 @ 115200 baud (Navigation / Serial Port)
-    fc::hal::Uart2::init(115200, 24000000);
+    // UART3 @ 115200 baud: the navigation port on header pins 16/31 ([SPEC-E906-HAL-04])
+    abstractx::hal::IUart& uart = *abstractx::hal::get_uart_port(3);
+    uart.init(115200);
 
     uint8_t rx_buffer[128];
     uint32_t seq = 0;
@@ -101,15 +103,12 @@ int main(void) {
     uint64_t last_heartbeat = read_mcycle64();
     constexpr uint64_t CYCLES_PER_SEC = 200000000ULL; // 200 MHz
 
-    trace_puts("[AbstractX E906] Serial Loopback Active on UART2 (PB0/PB1)\n");
+    trace_puts("[AbstractX E906] Serial Loopback Active on UART3 (PI11/PI12)\n");
 
     while (1) {
         // @impl [SPEC-LOOP-03] UART RTO non-blocking receiver framing
-        if (fc::hal::Uart2::has_data()) {
-            size_t bytes_read = 0;
-            while (fc::hal::Uart2::has_data() && bytes_read < sizeof(rx_buffer)) {
-                rx_buffer[bytes_read++] = fc::hal::Uart2::read_byte();
-            }
+        {
+            const size_t bytes_read = uart.read(std::span<uint8_t>(rx_buffer, sizeof(rx_buffer)));
 
             if (bytes_read > 0) {
                 // Check if this is a 64-byte TLP packet
@@ -125,13 +124,12 @@ int main(void) {
                 }
 
                 // @impl [SPEC-LOOP-02] Loopback Echo with Threshold Balancing:
-                // <= 32 bytes: Writes directly via CPU FIFO
-                // > 32 bytes: Automatically streams via Sunxi DMA Controller
-                if (bytes_read > fc::hal::Uart2::DMA_TX_THRESHOLD) {
+                // up to the FIFO: TX ring + THR-empty interrupt; larger: DMA ([SPEC-E906-HAL-01])
+                if (bytes_read > uart.capabilities().fifo_bytes) {
                     total_dma_bursts++;
                 }
 
-                fc::hal::Uart2::write(rx_buffer, bytes_read);
+                (void)uart.write(std::span<const uint8_t>(rx_buffer, bytes_read));
 
                 total_packets++;
                 total_bytes += bytes_read;

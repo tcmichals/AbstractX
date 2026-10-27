@@ -3,7 +3,7 @@
 ## Overview
 This application verifies the AbstractX co-processor framework on the
 **Radxa Cubie A5E (Allwinner T527 / A523)**:
-* **UART2 Loopback**: Receives and echoes bytes across Port B pins (`PB0`/`PB1`).
+* **UART3 Loopback**: Receives and echoes bytes on `PI11`/`PI12` (header pins 16/31); UART2's `PB0`/`PB1` are not connected on the Cubie A5E.
 * **Threshold Balancing**: Bursts `<= 32` bytes use CPU FIFO; bursts `> 32` bytes
   engage the dedicated co-processor DMA controller.
 * **CPU Profiler**: Tracks active cycles vs. `wfi` sleep states.
@@ -43,8 +43,8 @@ cat /sys/kernel/debug/remoteproc/remoteproc0/trace0
 ## Testing Serial Loopback
 
 Connect a 3.3V USB-to-UART adapter to the Cubie A5E header:
-* **TXD**: `PB0` (Header Pin)
-* **RXD**: `PB1` (Header Pin)
+* **TXD**: `PI11` (header pin 16)
+* **RXD**: `PI12` (header pin 31)
 * **GND**: Ground Pin
 * **Baud Rate**: 115200 (8N1)
 

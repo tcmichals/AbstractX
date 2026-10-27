@@ -685,7 +685,7 @@ def test_studio_source_browser_reads_real_files_with_live_badges():
              "drivers": [{"name": "uart3", "irq_per_s": 30.0, "isr_pct": 0.117, "errors": 0}]}
     badges = studio.live_source_badges(lines, rates)
     assert any("repl_rx: 90.0% CPU" in b and '"repl_rx"' in lines[i] for i, b in badges.items()), badges
-    periph = studio.load_source_lines("apps/e906_repl_app/src/e906_periph.cpp")
+    periph = studio.load_source_lines("targets/allwinner_e906/include/hal/ports.hpp")  # the port table names "uart3"
     assert any("uart3: 30 IRQ/s, 39.00 µs/IRQ" in b for b in studio.live_source_badges(periph, rates).values())
     assert studio.live_source_badges(lines, None) == {}
 

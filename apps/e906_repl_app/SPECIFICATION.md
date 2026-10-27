@@ -384,7 +384,7 @@ flowchart TD
   and I2C bindings spun on `LSR`/`INT_FLG`, the main loop polled RPMsg, and the raw-REPL tail
   stayed queued until the host sent more bytes.
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
-* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/src/mphalport.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/system.cpp`, `apps/e906_repl_app/src/spi.cpp`, `apps/e906_repl_app/src/uart.cpp`, `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/src/mphalport.cpp`, `apps/e906_repl_app/src/rpmsg_console.cpp`
 
 ### `[SPEC-E906-REPL-19]` Live CLI: Python Runs Beside the Sensor Stream
 * **Requirement**: while `raw_sensor_streamer.py` runs, a console line `EXEC <id> <hex>` (the
@@ -416,7 +416,7 @@ flowchart TD
   session closes. The sensor bridge (`board_studio_bridge.py`) also exits when its ssh session
   closes (`EXIT_ON_STDIN_EOF=1`), so a closed Studio never leaves the REPL held.
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_trace.py`)
-* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/mphalport.cpp`, `tools/visualizer/flight_plugin.py`, `tools/e906_rpmsg_bridge.py`
+* **Implementation Target**: `apps/e906_repl_app/src/main.cpp`, `apps/e906_repl_app/src/system.cpp`, `apps/e906_repl_app/src/spi.cpp`, `apps/e906_repl_app/src/uart.cpp`, `apps/e906_repl_app/src/mphalport.cpp`, `tools/visualizer/flight_plugin.py`, `tools/e906_rpmsg_bridge.py`
 
 ### `[SPEC-E906-REPL-17]` Scripts Format Their Own Telemetry; Linux Only Forwards
 * **Requirement**: a MicroPython script builds its telemetry frames itself and sends them with
@@ -436,5 +436,5 @@ flowchart TD
   - `abstractx.spi_xfer_into(tx_buf, rx_buf, dual=False) -> int`: Zero-heap transceive reading and writing into user preallocated buffers. Returns number of bytes transferred.
 * **Dual-SPI Support**: In Dual mode (`dual=True`), sets `SUN6I_BURST_CTL_CNT_DRM` (`BIT(28)`) in `SPI_BCC`, driving 2-bit transactions compatible with the FPGA switch fabric (`asp_spi_frontend.sv`).
 * **Verified by**: `e906-board-selftest`, `host-tests`
-* **Implementation Target**: `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/i2c.cpp`, `apps/e906_repl_app/include/repl_wait.hpp`, `apps/e906_repl_app/src/modabstractx.c`
+* **Implementation Target**: `apps/e906_repl_app/src/i2c.cpp`, `apps/e906_repl_app/src/uart.cpp`, `apps/e906_repl_app/src/system.cpp`, `apps/e906_repl_app/include/repl_wait.hpp`, `apps/e906_repl_app/src/modabstractx.c`
 

@@ -90,7 +90,8 @@
 #define SPI0_BASE                   0x04025000  /* High-Speed SPI0 Controller (Port C) */
 #define SPI1_BASE                   0x04026000  /* High-Speed SPI1 Controller (Port B - 40-Pin Header) */
 #define UART0_BASE                  0x02500000  /* UART0 Debug Serial Console */
-#define UART2_BASE                  0x02500800  /* UART2 Navigation/CRSF Serial (Port B) */
+#define UART2_BASE                  0x02500800  /* UART2 (PB0/PB1 not connected on the Cubie A5E) */
+#define UART3_BASE                  0x02500C00  /* UART3 GPS / navigation serial (PI11/PI12, header pins 16, 31) */
 #define TWI0_BASE                   0x02502000  /* High-Speed I2C / TWI0 Controller */
 #define TWI1_BASE                   0x02502400  /* High-Speed I2C / TWI1 Controller */
 

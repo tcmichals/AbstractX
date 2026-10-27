@@ -614,11 +614,11 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   1. `UART_IER` keeps `ERBFI | ELSI` (`0x05`) enabled so the 4-character RX timeout (`IIR = 0x0C`)
      and threshold events increment CLIC line 90 (`uart3`), while the UART ISR never reads
      `UART_RBR` with the CPU when circular DMA is active;
-  2. On `IIR = 0x04` (64 B half-full trigger), `uart3_isr()` waits only until `UART_RFL < 64` (with
+  2. On `IIR = 0x04` (64 B half-full trigger), `E906Uart::on_irq()` waits only until `UART_RFL < 64` (with
      32-`nop` spacing between APB1 reads so it does not contend with the DMAC) and lets the line-88
      `DMA_IRQ_PKG` completion commit the 64 B buffer; on `IIR = 0x0C` (RX character timeout),
-     `uart3_isr()` waits for `UART_RFL == 0` plus 64 `nop`s for the DMAC MBUS write buffer to drain
-     before calling `uart3_dma_sync(true)`;
+     `E906Uart::on_irq()` waits for `UART_RFL == 0` plus 64 `nop`s for the DMAC MBUS write buffer to drain
+     before calling `E906Uart::dma_sync(true)`;
   3. `DmaLli::para` (`WAIT_CYC`) MUST be `>= 0x40` (64 DMAC clocks): on the T527, UART1-7 run on the
      24 MHz APB1 clock while the DMAC runs on the high-speed AHB/MBUS clock, so `para <= 0x20`
      re-samples `DRQ_UART3` before the 24 MHz UART deasserts `DRQ` after the last FIFO byte and
@@ -626,7 +626,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   4. On the T527 DMAC, `DMA_PKG_NUM_REG` (`+0x30`) increments when a 64 B LLI burst starts (~145 µs
      before `DMA_CUR_DEST_REG` advances to the next LLI), and `DMA_CUR_DEST_REG` (`+0x14`) advances
      by 4 bytes (`mod64 = 0..3`) when words enter the DMAC internal FIFO before the MBUS write lands
-     in SRAM. Therefore `uart3_dma_sync(end_of_frame)` subtracts `kDmaBufBytes` when `pkg_bytes` is
+     in SRAM. Therefore `E906Uart::dma_sync(end_of_frame)` subtracts `kDmaBufBytes` when `pkg_bytes` is
      one buffer ahead of `DMA_CUR_DEST_REG`, and only includes partial-LLI `ahead` bytes when
      `end_of_frame` is true (`IIR = 0x0C` or `UART_RFL == 0` with the UART RX FIFO drained).
 * **Requirement (overrun)**: if the DMA laps a buffer the reader has not released (detected with
@@ -652,7 +652,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   `DMAC_IRQ_MCU_EN_REG` (+0x38), channels 8..15 owned by the E906 through the overlay).
 * **Verified by**: `e906-board-selftest` (GPS stream on UART3: no drops, per-wake cost from the
   timeline, DMA vs interrupt comparison)
-* **Implementation Target**: `targets/allwinner_e906/src/dma.cpp`, `targets/allwinner_e906/src/uart.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`
+* **Implementation Target**: `targets/allwinner_e906/src/dma.cpp`, `targets/allwinner_e906/src/uart.cpp`
 
 ### `[SPEC-E906-HAL-03]` Dual-Mode (Single-SPI 1-Bit & Dual-SPI 2-Bit) DMA Engine on SPI1 (PB11..PB14)
 * **Hardware Routing & Bus Pinmux**:
@@ -679,26 +679,43 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   - Transfers $\le 64$ bytes (hardware FIFO depth) execute directly via low-latency FIFO MMIO (`transceive_fifo_sync`), bypassing DMA setup overhead.
   - Transfers $> 64$ bytes stream via dual-channel DMA (TX channel + RX channel) with zero CPU bus cycles.
 * **Verified by**: `e906-board-selftest`, `host-tests`
-* **Implementation Target**: `targets/allwinner_e906/include/memory_map.h`, `targets/allwinner_e906/include/hal/dma.hpp`, `targets/allwinner_e906/include/hal/spi.hpp`, `targets/allwinner_e906/src/spi.cpp`, `targets/allwinner_e906/src/platform.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`
+* **Implementation Target**: `targets/allwinner_e906/include/memory_map.h`, `targets/allwinner_e906/include/hal/dma.hpp`, `targets/allwinner_e906/include/hal/spi.hpp`, `targets/allwinner_e906/src/spi.cpp`, `targets/allwinner_e906/src/platform.cpp`, `apps/e906_repl_app/src/spi.cpp`
 
 ### `[SPEC-E906-HAL-04]` Bus Ports Exposed by the E906 Target (`get_uart_port` / `get_i2c_port`)
 * **Port list** (the per-target list [SPEC-HAL-10] asks for):
 
   | Call | Port | Driver | Pins (40-pin header) |
   | :--- | :--- | :--- | :--- |
-  | `get_uart_port(0)`, `get_uart_port(2)` | UART2 | `get_uart_driver()` | PB0 TX / PB1 RX (pins 11, 13) |
-  | `get_uart_port(3)` | UART3 | none yet (returns null) | PI11 TX / PI12 RX |
+  | `get_uart_port(0)`, `get_uart_port(3)`, `get_uart_driver()` | UART3 | `E906Uart` | PI11 TX / PI12 RX (pins 16, 31), function 2, pull-up on RX |
+  | `get_uart_port(2)` | none (null) | | UART2's PB0/PB1 are not connected on the Cubie A5E |
   | `get_i2c_port(0)` | TWI0 | `E906I2c` (`get_e906_i2c()`) | none set: not routed to the header |
   | `get_i2c_port(1)` | TWI1 | `E906I2c` | PB4 SCL / PB5 SDA (pins 5, 3), function 2 |
 
-  UART3 already works, interrupt-driven, in `apps/e906_repl_app/src/e906_periph.cpp` (receive by
-  circular DMA, [SPEC-E906-HAL-02]). It becomes a port by moving that code into this target, not
-  by writing a second driver.
+  UART2: the board schematic leaves PB0/PB1 unconnected and header pins 11/13 go to PI9/PI10
+  (`apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso`), so UART2 has no port, `Pio::init` does
+  not mux PB0/PB1, and the old `fc::hal::Uart2` driver (interrupt never attached) is removed.
 * **One driver per controller type, the address passed in** (decided 2026-10-27): a driver is one
   file in `targets/allwinner_e906/src/` and takes a port description (register base, GIC source,
   CCU module, pin register / mask / function). TWI0 and TWI1 are two `E906I2c` objects in
-  `i2c.cpp`, not two drivers. Apps hold no register addresses; `e906_periph.cpp` keeps only the
+  `i2c.cpp`, not two drivers. Apps hold no register addresses; the REPL's `src/i2c.cpp` / `src/uart.cpp` keep only the
   MicroPython glue (staging buffers that survive Ctrl-C, the wait that runs the VM hook).
+* **One wait hook for all E906 drivers** (`hal/driver_wait.hpp`): a synchronous driver call that
+  must wait (TWI transfer, UART TX ring full, UART TX DMA) calls `driver_wait(deadline)`; the
+  default arms a timer wake and calls `platform_idle_wait()`; the REPL replaces it with
+  `repl_wait_step` (Ctrl-C, RPMsg). Every such wait has a deadline.
+* **UART (`E906Uart`, `uart.cpp`)**, taken from the UART3 code that works on the board:
+  1. Port entry: base, GIC, CCU module, DMA DRQ, pins and pull, FIFO bytes. Buffers live in
+     `.sram_c` (SRAM Space 1): 16 x 64 B DMA receive ring + descriptors, 256 B TX DMA bounce
+     buffer, 1024 B polled-read buffer, 256 B TX ring.
+  2. Receive by circular DMA ([SPEC-E906-HAL-02]) into the core `UartRxRingBase` (so
+     `read_async` works); when no coroutine waits, completed bytes move to the polled-read buffer
+     for `read()`. `set_dma(false)` switches to interrupt receive (bring-up only).
+  3. Baud change uses the T527 configure-at-busy sequence (`UART_HALT`), so a streaming GPS does
+     not block it; line-status errors (overrun, parity, framing, break) reach the ring.
+  4. TX: up to the FIFO through the TX ring and the THR-empty interrupt; larger writes by DMA in
+     256 B chunks, 50 ms deadline per chunk. A full TX ring waits through `driver_wait`.
+  5. The UART interrupt (GIC 37) is on CLIC line 90 with the other GIC 32..39 sources; the
+     handler returns at once when IIR reports nothing pending, and init never disables the line.
 * **TWI (`E906I2c`, `i2c.cpp`)**, taken from the TWI1 code that works on the board:
   1. One `INT_FLG` interrupt per bus step; the flag is cleared by **writing 1** to `CNTR` bit 3.
   2. TWI0 (GIC 42) and TWI1 (GIC 43) share CLIC line 91 (`line_for_gic`): each port attaches
@@ -724,19 +741,20 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Rules for every port driver** (2026-10-27, after `c5a1eaa`):
   1. Interrupt- or DMA-driven ([SPEC-E906-HAL-01]); `start_hardware_transfer_from_isr` starts the
      transfer and returns. It never waits on a status bit, and no wait anywhere is unbounded.
-  2. Pinmux touches only the port's own pins. PB0/PB1 belong to UART2, PB4/PB5 to TWI1,
-     PB11..PB14 to SPI1.
+  2. Pinmux touches only the port's own pins: PI11/PI12 UART3, PB4/PB5 TWI1, PB11..PB14 SPI1.
   3. Clock and reset go through `Ccu::enable_module` (reset released before the gate opens).
-  4. Each driver lives in its own translation unit, so an app that never asks for the port does not
-     link it. Every E906 app must still fit `SRAM_FAST` ([SPEC-E906-MEM-01]).
+  4. Each driver lives in its own translation unit. `get_uart_port` / `get_i2c_port` in
+     `platform.cpp` refer to every port, so every app links every port's driver (measured
+     2026-10-27: UART3 adds about 3.9 KB of text to apps that never use it). Buffers go in `.sram_c`
+     (SRAM Space 1), not `SRAM_FAST`. Every E906 app must still fit `SRAM_FAST` ([SPEC-E906-MEM-01]).
 * **Why**: `c5a1eaa` added polled UART3/TWI1 classes to `platform.cpp`. They ran the whole I2C
   transfer inside the ISR hook, switched UART2's PB0/PB1 to TWI1, and grew every E906 app by
   about 14 KB, so `e906_repl_app` no longer linked (`SRAM_FAST` overflowed by 6192 B).
   The classes were removed.
 * **Verified by**: `e906-build-layout` (every E906 app links and fits), `hal-concurrency-audit`,
-  `host-tests` (`sim/test_e906_twi.cpp`: the TWI state machine against a register model),
-  `e906-board-selftest` (compass on TWI1; UART3 once it is a port)
-* **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/src/i2c.cpp`, `targets/allwinner_e906/include/hal/i2c.hpp`, `apps/e906_repl_app/src/e906_periph.cpp`
+  `host-tests` (`sim/test_e906_twi.cpp`, `sim/test_e906_uart.cpp`: each driver against a register
+  model), `e906-board-selftest` (compass on TWI1, GPS on UART3)
+* **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/src/i2c.cpp`, `targets/allwinner_e906/include/hal/i2c.hpp`, `targets/allwinner_e906/src/uart.cpp`, `targets/allwinner_e906/include/hal/uart.hpp`, `targets/allwinner_e906/src/driver_wait.cpp`, `apps/e906_repl_app/src/i2c.cpp`, `apps/e906_repl_app/src/uart.cpp`
 
 ## 7. Binary Telemetry & Observability (`SPEC-E906-TRACE`)
 
@@ -767,5 +785,5 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 | `[SPEC-E906-IRQ-06]`  | Profiler Sample Timer & Interrupt Spans | `src/timer.cpp`, `src/irq_dispatcher.cpp` |
 | `[SPEC-E906-CRASH-01]`| Trap Classification, FPU Save & Crash Dump | `bsp/startup.S`, `src/crash.cpp` |
 | `[SPEC-E906-HAL-01]`  | FIFO vs. DMA Balancing & DMAC Routing | `src/{dma,spi,uart,i2c,platform}.cpp` |
-| `[SPEC-E906-HAL-02]`  | Circular 4x64 B UART DMA RX & TX Gap | `src/dma.cpp`, `apps/e906_repl_app/src/e906_periph.cpp` |
-| `[SPEC-E906-HAL-03]`  | Dual-Mode SPI1 (PB11..PB14) DMA Engine | `src/{spi,platform}.cpp`, `apps/e906_repl_app/src/e906_periph.cpp` |
+| `[SPEC-E906-HAL-02]`  | Circular 4x64 B UART DMA RX & TX Gap | `src/dma.cpp`, `src/uart.cpp` |
+| `[SPEC-E906-HAL-03]`  | Dual-Mode SPI1 (PB11..PB14) DMA Engine | `src/{spi,platform}.cpp`, `apps/e906_repl_app/src/uart.cpp` |

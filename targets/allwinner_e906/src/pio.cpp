@@ -4,8 +4,6 @@
 namespace fc::hal {
 
 /* Main PIO Registers */
-#define PB_CFG0         (*(volatile uint32_t *)(PIO_BASE + 0x0030))
-#define PB_PULL0        (*(volatile uint32_t *)(PIO_BASE + 0x0054))
 
 #define PC_CFG0         (*(volatile uint32_t *)(PIO_BASE + 0x0060))
 #define PC_CFG1         (*(volatile uint32_t *)(PIO_BASE + 0x0064))
@@ -14,15 +12,9 @@ namespace fc::hal {
 #define PC_DRV1         (*(volatile uint32_t *)(PIO_BASE + 0x0078))
 
 void Pio::init() {
-    /*
-     * 1. Configure Port B (UART2 on PB0/PB1 - Pins 11 and 13)
-     * Set PB0 (TX) and PB1 (RX) to UART2 (Mux 2: 0b0010)
-     */
-    PB_CFG0 &= ~((0xF << 0) | (0xF << 4));
-    PB_CFG0 |=  ((0x2 << 0) | (0x2 << 4));
-    // Internal Pull-Up on RX line
-    PB_PULL0 &= ~(0xF << 0);
-    PB_PULL0 |=  (0x1 << 2); // Pull-Up on PB1 (RX)
+    // @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md
+    // UART / TWI pins are set by their driver from hal/ports.hpp;
+    // UART2's PB0/PB1 are not connected on the Cubie A5E.
 
     /*
      * 2. Configure Port C (SPI0 on Pins 19, 21, 23, 24, 26)

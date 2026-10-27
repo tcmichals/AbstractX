@@ -15,7 +15,7 @@ graph TD
         E_Loop["Non-Blocking I/O Loop (E906IoProcessor)"]
         E_SPI["SPI0 DMA Master (8 kHz ICM-42688-P Auto-Burst)"]
         E_TWI["TWI0 Master (50 Hz QMC5883L Compass)"]
-        E_UART["UART2 DMA Driver (10 Hz U-Blox GPS)"]
+        E_UART["UART3 DMA Driver (10 Hz U-Blox GPS)"]
         E_MB["MSGBOX Hardware Doorbell ISR (IRQ 48)"]
         E_Trace["RemoteProc Trace Logger (/sys/.../trace0)"]
         E_Loop --> E_SPI
@@ -71,7 +71,7 @@ graph TD
 | :--- | :--- | :--- | :--- | :--- |
 | **SPI0** | `0x04025000` | **54** | **22** | 10–20 MHz DMA Master to ICM-42688-P IMU |
 | **TWI0 (I2C)** | `0x02502000` | **26** | — | 400 kHz Fast-Mode Master to QMC5883L Compass |
-| **UART2** | `0x02500800` | **36** | **16** | 115200–921600 baud streaming GPS receiver |
+| **UART3** | `0x02500C00` | **37** | **17** | GPS receiver, PI11/PI12 (header pins 16/31) |
 | **UART0** | `0x02500000` | **34** | **14** | Diagnostic debug console |
 | **MSGBOX** | `0x03003000` | **48** | — | Hardware inter-core doorbell signaling |
 | **GPIO DRDY**| `0x02000000` | **82** | — | Rising-edge pin interrupt from IMU DRDY line |

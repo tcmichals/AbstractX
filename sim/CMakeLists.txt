@@ -54,10 +54,21 @@ add_test(NAME sim_test_e906_rpmsg_flow_control COMMAND test_e906_rpmsg_flow_cont
 add_executable(test_e906_twi
     test_e906_twi.cpp
     ${E906_DIR}/src/i2c.cpp
+    ${E906_DIR}/src/driver_wait.cpp
 )
 target_include_directories(test_e906_twi PRIVATE ${E906_DIR}/include)
 target_link_libraries(test_e906_twi PRIVATE abstractx_core)
 add_test(NAME sim_test_e906_twi COMMAND test_e906_twi)
+
+# E906 UART driver against a register model of the 8250 and a fake DMAC ([SPEC-E906-HAL-04])
+add_executable(test_e906_uart
+    test_e906_uart.cpp
+    ${E906_DIR}/src/uart.cpp
+    ${E906_DIR}/src/driver_wait.cpp
+)
+target_include_directories(test_e906_uart PRIVATE ${E906_DIR}/include)
+target_link_libraries(test_e906_uart PRIVATE abstractx_core)
+add_test(NAME sim_test_e906_uart COMMAND test_e906_uart)
 
 # Pico 2 W zero-copy lwIP PBUF_POOL trace transport, run on host with mock lwIP pbufs ([SPEC-PICO-TRACE-01])
 set(PICO_DIR ${PROJECT_SOURCE_DIR}/targets/pico2w_rp2350)

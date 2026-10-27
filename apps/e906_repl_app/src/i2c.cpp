@@ -9,6 +9,7 @@
  */
 
 #include "hal/i2c.hpp"
+#include "hal/driver_wait.hpp"
 #include "repl_wait.hpp"
 
 #include <cstddef>
@@ -32,7 +33,7 @@ E906I2c& twi() noexcept { return abstractx::hal::get_e906_twi1(); }
 extern "C" {
 
 bool e906_twi1_init(uint32_t freq) {
-    E906I2c::set_wait_hook(repl_wait_step);
+    hal::set_driver_wait_hook(repl_wait_step);
     abstractx::hal::I2cConfig cfg{};
     cfg.frequency_hz = freq;
     return twi().init(cfg);

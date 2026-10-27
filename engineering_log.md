@@ -2835,3 +2835,30 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `sim/test_e906_twi.cpp`: async write+read through `transfer_async` (coroutine started once, `Dispatcher::process()` pumped), wake armed at the deadline, stuck-bus async timeout completes once with STOP, 1000 async transfers with no coroutine-pool growth or dropped resumes. With `poll_timeout` disabled it fails (`CHECK failed: res.status == I2cStatus::Timeout`).
 * **Evidence (this PC, 2026-10-27)**: host 70/70, ASan 70/70 (0 reports), TSan 70/70 under `setarch -R` (0 reports); E906 build 12/12 `[ok]`; e906_repl_app text 182,078 B, SRAM_FAST 182.3 / 192.0 KB (94.9%), DRAM 0.00 MB.
 * **Not verified**: board run.
+
+---
+
+## 2026-10-27: One UART driver (UART3), UART2 removed, REPL glue split, `e906_periph.cpp` deleted ([SPEC-E906-HAL-04], [SPEC-HAL-15])
+
+* **Category**: `product-bug` (target UART2 driver), `hardware-fact` (UART2 not wired), `process-gap` (wrong pin facts in an agent rule)
+* **What was wrong**:
+  * Two UART drivers: `targets/allwinner_e906/src/uart.cpp` (`fc::hal::Uart2`) and the UART3 code in `apps/e906_repl_app/src/e906_periph.cpp`. `Uart2::handle_irq()` was never attached to an interrupt: receive only worked by polling one byte at a time, and the THR-empty interrupt it enabled was never serviced, so a full TX FIFO stalled the queue.
+  * UART2 is not wired on the Cubie A5E: the board-proven overlay (`apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso:58`) says PB0/PB1 are NC and header pins 11/13 go to PI9/PI10. `Pio::init`, `get_uart_driver()`, `serial_loopback_app` and `[SPEC-E906-HAL-04]` (as written this morning) all pointed at UART2.
+  * `.agents/rules/silicon-api-atlas.md`, loaded into every agent session, listed UART2 PB0/PB1 pins 11/13 as the GPS port and SPI0 / Port C as the header SPI (the header routes only SPI1, [SPEC-E906-HAL-03]). This is the likely source of the `c5a1eaa` UART/TWI pin mistakes.
+* **Which check should have caught it**: nothing compares agent rule files with the specs; `e906-board-selftest` covers UART3 only; no host test drove `Uart2`. The untracked `docs/reviews/2026-10-22-system-review.md` had already found "the target-HAL SPI0, TWI0, UART2 and DMA drivers have never worked on the board".
+* **Spec**: `[SPEC-E906-HAL-04]` port list (UART3 = ports 0 and 3, no UART2), UART driver rules, one `driver_wait` hook for all E906 drivers, rule 4 corrected to the measured link cost; `[SPEC-E906-HAL-02]` text names `E906Uart::on_irq` / `dma_sync`.
+* **Fix**:
+  * `E906Uart` (`targets/allwinner_e906/src/uart.cpp`), built from the UART3 code: circular DMA receive into `UartRxRingBase` (`read_async` now works), interrupt-receive fallback, configure-at-busy baud change, line errors, TX ring + THR-empty, TX DMA for writes larger than the FIFO; port entry `kUart3` in `hal/ports.hpp`; buffers in `.sram_c`.
+  * `hal/driver_wait.hpp` / `driver_wait.cpp`: one wait hook for TWI and UART (REPL sets `repl_wait_step`).
+  * `platform.cpp`: adapter class removed; `get_uart_driver()`, `get_uart_port(0|3)` = UART3. `Pio::init` no longer muxes PB0/PB1. `serial_loopback_app` (E906) uses `get_uart_port(3)`.
+  * REPL glue split by subject: `src/uart.cpp`, `src/i2c.cpp`, `src/spi.cpp`, `src/system.cpp`; `e906_periph.cpp` deleted; CMake updated.
+  * Atlas rule, both HOWTOs and `memory_map.h` (`UART3_BASE`) corrected.
+* **Regression test**: `sim/test_e906_uart.cpp` (register model + fake DMAC): init pins/pull/baud sequence/single attach, shared-line idle, TX ring drained by THR-empty, line errors reach the ring, DMA receive of 1000 frames of 37 B in order with end-of-frame tails, TX DMA in 256 B chunks and the 50 ms stuck-DMA deadline. Dropping the end-of-frame tail in `dma_sync` makes it fail (`CHECK failed: n == 37`). Not covered (the plain-memory model cannot lower RFL on an RBR read): interrupt-mode receive, the async write request.
+* **Evidence (this PC, 2026-10-27)**:
+  * host 71/71; ASan 71/71 (0 reports); TSan 71/71 under `setarch -R` (0 reports).
+  * `cmake --build build_e906 --clean-first`: 12/12 segments `[ok]`.
+  * text: e906_repl_app 182,078 -> 182,866 B; serial_loopback_app 60,524 -> 64,416; gps_imu_app 101,032 -> 104,944; e906_bench_app 77,570 -> 81,458 (UART3 now linked into every app, see rule 4).
+  * `analyze_elf_size.sh e906_repl_app`: SRAM_FAST 182.1 / 192.0 KB (94.8%), SRAM_A3_2 45.1 / 128 KB, DRAM 0.00 MB.
+  * `audit_specs.py` 100%, `audit_hal_invariants.py` PASS, `audit_boundaries.py` PASS, `audit_interfaces.py` PASS, `--check-drift` 0, `--changes` 0 untraced, `--check-verifies` no new unbacked claims (64, unchanged).
+* **Not verified**: board run (GPS on UART3 through `abstractx.uart_*`, `serial_loopback_app` on UART3, compass on TWI1).
+* **Still open**: UART2 GIC/line never measured (moot while not wired); `read_async` timeouts need a deadline hook (`set_deadline_hook`) on the E906; the DMA-mode RX handler keeps its bounded `nop` waits (up to 1024 x 32) from the board-proven code; the heap symbols in four apps (left as decided).

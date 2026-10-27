@@ -16,6 +16,7 @@ add_library(abstractx_target_e906 STATIC
     src/dma.cpp
     src/spi.cpp
     src/i2c.cpp
+    src/driver_wait.cpp
     src/platform.cpp
     src/io_processor.cpp
     src/rpmsg.cpp

@@ -20,7 +20,9 @@ set(REPL_APP_SOURCES
     src/main.cpp
     src/rpmsg_console.cpp
     src/mphalport.cpp
-    src/e906_periph.cpp
+    src/system.cpp
+    src/uart.cpp
+    src/spi.cpp
     src/i2c.cpp
     src/modabstractx.c
     ${MICROPY_SOURCE_PY}

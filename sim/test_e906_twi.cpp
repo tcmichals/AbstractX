@@ -11,6 +11,7 @@
 
 #include "hal/i2c.hpp"
 #include "hal/timer.hpp"
+#include "hal/driver_wait.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "asp_coro.hpp"
 
@@ -151,7 +152,7 @@ void pump(abstractx::hal::I2cResult& res, int max_steps) {
 }  // namespace
 
 int main() {
-    E906I2c::set_wait_hook(bus_step);
+    ::hal::set_driver_wait_hook(bus_step);
 
     // init: pins of this port only, 400 kHz CCR, one handler on the shared line
     abstractx::hal::I2cConfig cfg{};

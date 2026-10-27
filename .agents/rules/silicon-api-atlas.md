@@ -32,11 +32,13 @@ This rule provides an instant, authoritative reference for the AbstractX C++20 c
 | **CFG Control Block** | `0x07130000` | `0x07130000` | 4 KB | `0x0204` (`STA_ADD_REG`), `0x0248` (`WORK_MODE_REG`). |
 
 ### Peripheral Base Addresses, Clocks & Pinmux
+Drivers take these from `targets/allwinner_e906/include/hal/ports.hpp` ([SPEC-HAL-15]); that file and `targets/allwinner_e906/SPECIFICATION.md` win over this table.
+
 | Subsystem | Base Address | Clock Control (CCU / PRCM) | Pinmux Configuration (PIO Base: `0x02000000`) |
 | :--- | :--- | :--- | :--- |
-| **UART2** (GPS, 8250) | `0x02500800` | `CCU_UART_BGR_REG` (`0x0200190C`):<br/>Reset: `1 << 18`, Gate: `1 << 2` | `PB_CFG0` (`0x02000030`): PB0 (TX) & PB1 (RX) = Mux 2 (`0x22`).<br/>`PB_PULL0` (`0x02000054`): Pull-up PB1 (`1 << 2`). Header: Pins 11, 13. |
-| **TWI1 / I2C1** (Compass) | `0x02502400` | `CCU_TWI_BGR_REG` (`0x0200191C`):<br/>Reset: `1 << 17`, Gate: `1 << 1` | `PB_CFG0`: PB4 (SCL) & PB5 (SDA) = Mux TWI1.<br/>Header: Pin 5 (SCL), Pin 3 (SDA). |
-| **SPI0** (High-Speed) | `0x04025000` | `CCU_SPI_BGR_REG` (`0x0200196C`):<br/>Reset: `1 << 16`, Gate: `1 << 0` | Port C: PC2 (MOSI), PC3 (CS0), PC4 (MISO), PC12 (CLK) = Mux 4.<br/>Header: Pins 19, 21, 23, 24, 26. |
+| **UART3** (GPS, 8250) | `0x02500C00`, GIC 37 (CLIC 90), DRQ 17 | `CCU_UART_BGR_REG` (`0x0200190C`):<br/>Reset: `1 << 19`, Gate: `1 << 3` | `PI_CFG1` (`0x02000184`): PI11 (TX) & PI12 (RX) = Mux 2.<br/>`PI_PULL0` (`0x020001A4`): pull-up PI12. Header: Pins 16, 31. UART2 (PB0/PB1) is **not connected** on the Cubie A5E. |
+| **TWI1 / I2C1** (Compass) | `0x02502400`, GIC 43 (CLIC 91, shared with TWI0) | `CCU_TWI_BGR_REG` (`0x0200191C`):<br/>Reset: `1 << 17`, Gate: `1 << 1` | `PB_CFG0`: PB4 (SCL) & PB5 (SDA) = Mux 2.<br/>Header: Pin 5 (SCL), Pin 3 (SDA). |
+| **SPI1** (High-Speed) | `0x04026000` | `CCU_SPI_BGR_REG` (`0x0200196C`) | Port B: PB11..PB14 ([SPEC-E906-HAL-03]). The header routes only SPI1; SPI0 (Port C) is not routed. |
 | **MSGBOX** (Doorbell) | `0x03003000` | Bank 0 (Host), Bank 1 (E906). FIFO 1. | Inter-core mailbox kicks over Channel 1 (Linux channel 9). |
 
 ### VirtIO RPMsg Endpoints

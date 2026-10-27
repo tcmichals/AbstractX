@@ -18,9 +18,6 @@ namespace abstractx::hal {
 // @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md
 class E906I2c : public II2c {
 public:
-    // Called while a synchronous transfer waits; must sleep until an interrupt or `deadline`.
-    using WaitHook = void (*)(uint64_t deadline_ticks) noexcept;
-
     static constexpr uint32_t kTimeoutMs = 20;
 
     explicit constexpr E906I2c(const ::hal::ports::TwiPort& port) noexcept : port_(port) {}
@@ -37,8 +34,6 @@ public:
 
     // Write `tx`, then (repeated START) read `rx`; either may be empty, both empty = address probe.
     I2cStatus transfer_sync(uint8_t addr, std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept;
-
-    static void set_wait_hook(WaitHook hook) noexcept;
 
     bool is_busy() const noexcept { return state_ == State::Busy; }
     size_t bytes_read() const noexcept { return rx_idx_; }

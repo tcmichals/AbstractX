@@ -9,6 +9,7 @@
 #include "hal/ccu.hpp"
 #include "hal/clic.hpp"
 #include "hal/timer.hpp"
+#include "hal/driver_wait.hpp"
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/interrupt_lock.hpp"
 
@@ -40,12 +41,6 @@ constexpr uint32_t kCcr100k = (5U << 3) | 2U;
 E906I2c g_twi0{::hal::ports::kTwi0};
 E906I2c g_twi1{::hal::ports::kTwi1};
 
-void default_wait(uint64_t deadline_ticks) noexcept {
-    ::hal::Timer::arm_wake(deadline_ticks);
-    platform_idle_wait();
-}
-
-E906I2c::WaitHook s_wait = default_wait;
 
 } // namespace
 
@@ -59,8 +54,6 @@ void poll_i2c_timeouts() noexcept {
 
 II2c& get_i2c_driver() noexcept { return g_twi0; }
 II2c& get_i2c() noexcept { return g_twi0; }
-
-void E906I2c::set_wait_hook(WaitHook hook) noexcept { s_wait = hook ? hook : default_wait; }
 
 // @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (pins of this port only, shared line)
 bool E906I2c::init(const I2cConfig& config) {
@@ -201,7 +194,7 @@ I2cStatus E906I2c::transfer_sync(uint8_t addr, std::span<const uint8_t> tx,
     }
     if (reg(kCntr) & kMStp) {
         // previous STOP still on the bus: one short sleep; START queues behind it anyway
-        s_wait(::hal::Timer::get_ticks() + 50ULL * ::hal::Timer::TICKS_PER_US);
+        ::hal::driver_wait(::hal::Timer::get_ticks() + 50ULL * ::hal::Timer::TICKS_PER_US);
     }
     start(addr, tx, rx);
 
@@ -212,7 +205,7 @@ I2cStatus E906I2c::transfer_sync(uint8_t addr, std::span<const uint8_t> tx,
             timeouts_ = timeouts_ + 1;
             return I2cStatus::Timeout;
         }
-        s_wait(deadline);
+        ::hal::driver_wait(deadline);
     }
     return status_;
 }

@@ -1,310 +1,453 @@
-#include "uart.hpp"
-#include "timer.hpp"
-#include "hal/dma.hpp"
-#include "memory_map.h"
-#include "abstractx/isr_dispatcher.hpp"
-#include <atomic>
+/*
+ * Copyright (C) 2026 Tim Michals
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ * AbstractX Allwinner XuanTie E906 UART (DesignWare 8250) driver: one driver, one object per port.
+ */
 
-namespace fc::hal {
+#include "hal/uart.hpp"
+#include "hal/ccu.hpp"
+#include "hal/clic.hpp"
+#include "hal/driver_wait.hpp"
+#include "hal/timer.hpp"
+#include "abstractx/interrupt_lock.hpp"
 
-/* DesignWare 8250 UART2 Register Mapping */
-#define UART2_RBR       (*(volatile uint32_t *)(UART2_BASE + 0x00))
-#define UART2_THR       (*(volatile uint32_t *)(UART2_BASE + 0x00))
-#define UART2_DLL       (*(volatile uint32_t *)(UART2_BASE + 0x00))
-#define UART2_DLH       (*(volatile uint32_t *)(UART2_BASE + 0x04))
-#define UART2_IER       (*(volatile uint32_t *)(UART2_BASE + 0x04))
-#define UART2_IIR       (*(volatile uint32_t *)(UART2_BASE + 0x08))
-#define UART2_FCR       (*(volatile uint32_t *)(UART2_BASE + 0x08))
-#define UART2_LCR       (*(volatile uint32_t *)(UART2_BASE + 0x0C))
-#define UART2_MCR       (*(volatile uint32_t *)(UART2_BASE + 0x10))
-#define UART2_LSR       (*(volatile uint32_t *)(UART2_BASE + 0x14))
-#define UART2_USR       (*(volatile uint32_t *)(UART2_BASE + 0x7C))
+#include <initializer_list>
 
-/* Lock-Free Atomic SPSC Byte Ring Buffer for ISR -> Thread UART stream */
-template <size_t Capacity = 512>
-class AtomicByteQueue {
-public:
-    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be power of 2");
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-IRQ-02] targets/allwinner_e906/SPECIFICATION.md
 
-    void clear() {
-        head_.store(0, std::memory_order_relaxed);
-        tail_.store(0, std::memory_order_relaxed);
-    }
+namespace abstractx::hal {
 
-    bool push(uint8_t ch) {
-        uint32_t head = head_.load(std::memory_order_relaxed);
-        uint32_t tail = tail_.load(std::memory_order_acquire);
-        if ((head - tail) >= Capacity) {
-            return false; // Full
-        }
-        buffer_[head & (Capacity - 1)] = ch;
-        head_.store(head + 1, std::memory_order_release);
-        return true;
-    }
+namespace {
 
-    bool pop(uint8_t &ch) {
-        uint32_t tail = tail_.load(std::memory_order_relaxed);
-        uint32_t head = head_.load(std::memory_order_acquire);
-        if (tail == head) {
-            return false; // Empty
-        }
-        ch = buffer_[tail & (Capacity - 1)];
-        tail_.store(tail + 1, std::memory_order_release);
-        return true;
-    }
+constexpr uint32_t kIerRx  = 0x01;  // ERBFI: RX data / timeout
+constexpr uint32_t kIerTx  = 0x02;  // ETBEI: THR empty
+constexpr uint32_t kIerLsi = 0x04;  // ELSI: line status
 
-    bool empty() const {
-        return head_.load(std::memory_order_relaxed) == tail_.load(std::memory_order_relaxed);
-    }
+__attribute__((section(".sram_c"))) alignas(4) uint8_t s_u3_dma_rx[UartBuffers::kDmaRingBytes];
+__attribute__((section(".sram_c"))) alignas(4) ::hal::DmaLli s_u3_rx_lli[UartBuffers::kDmaNumBufs];
+__attribute__((section(".sram_c"))) alignas(4) uint8_t s_u3_tx_dma[UartBuffers::kTxDmaBytes];
+__attribute__((section(".sram_c"))) alignas(4) ::hal::DmaLli s_u3_tx_lli;
+__attribute__((section(".sram_c"))) uint8_t s_u3_rx[UartBuffers::kRxBytes];
+__attribute__((section(".sram_c"))) uint8_t s_u3_tx[UartBuffers::kTxBytes];
 
-private:
-    uint8_t buffer_[Capacity];
-    std::atomic<uint32_t> head_{0};
-    std::atomic<uint32_t> tail_{0};
-};
+E906Uart g_uart3{::hal::ports::kUart3,
+                 UartBuffers{s_u3_dma_rx, s_u3_rx_lli, s_u3_tx_dma, &s_u3_tx_lli, s_u3_rx, s_u3_tx}};
 
-static AtomicByteQueue<512> g_uart_rx_ring;
-static AtomicByteQueue<512> g_uart_tx_ring;
-static std::atomic<std::coroutine_handle<>> g_uart_rx_coroutine{nullptr};
-static std::atomic<bool> g_uart_packet_ready{false};
+} // namespace
 
-/* UART2 TX DMA Engine state */
-static int g_uart_tx_dma_chan = -1;
-static ::hal::DmaLli g_uart_tx_lli;
-static volatile bool g_uart_tx_dma_busy = false;
-static etl::delegate<void(bool)> g_uart_tx_dma_callback{};
-static std::coroutine_handle<> g_uart_tx_coro_handle{nullptr};
-static bool *g_uart_tx_completed_ptr = nullptr;
+E906Uart& get_e906_uart3() noexcept { return g_uart3; }
 
-static void on_uart_tx_dma_complete(uint8_t channel, bool success) noexcept {
-    (void)channel;
-    g_uart_tx_dma_busy = false;
-    auto cb = g_uart_tx_dma_callback;
-    g_uart_tx_dma_callback = {};
-    if (cb.is_valid()) {
-        cb(success);
-    }
+// ---------------------------------------------------------------------------
+// Byte ring (SPSC): control indices in .bss, storage in .sram_c.
+// ---------------------------------------------------------------------------
+void E906Uart::ByteRing::clear() noexcept {
+    head.store(0, std::memory_order_relaxed);
+    tail.store(0, std::memory_order_relaxed);
 }
 
-static void on_uart_tx_dma_coro_callback(bool success) noexcept {
-    if (g_uart_tx_completed_ptr) {
-        *g_uart_tx_completed_ptr = success;
-    }
-    auto handle = g_uart_tx_coro_handle;
-    g_uart_tx_coro_handle = nullptr;
-    if (handle) {
-        abstractx::IsrDispatcher::post(handle);
-    }
+bool E906Uart::ByteRing::push(uint8_t b) noexcept {
+    const uint32_t t = tail.load(std::memory_order_relaxed);
+    const uint32_t h = head.load(std::memory_order_acquire);
+    if (t - h >= cap) return false;
+    buf[t & (cap - 1U)] = b;
+    tail.store(t + 1, std::memory_order_release);
+    return true;
 }
 
-void Uart2::init(uint32_t baud_rate, uint32_t apb_clock_hz) {
-    // 1. Disable all interrupts during init
-    UART2_IER = 0x00;
-
-    // 2. Enable and reset FIFOs (64-byte depth, RX trigger at 1/2 full = 32 bytes)
-    UART2_FCR = 0x87;
-
-    // 3. Set Baud Rate
-    set_baud(baud_rate, apb_clock_hz);
-
-    // 4. Set Modem Control (RTS/DTR High)
-    UART2_MCR = 0x03;
-
-    // 5. Clear queues
-    g_uart_rx_ring.clear();
-    g_uart_tx_ring.clear();
-
-    // 6. Enable Receiver Data Available (ERBFI bit 0) & Receiver Timeout (RTO) Interrupt
-    UART2_IER = 0x01;
-
-    // 7. Allocate DMA Channel for high-throughput TX streaming
-    if (g_uart_tx_dma_chan < 0) {
-        g_uart_tx_dma_chan = ::hal::DmaController::allocate_channel();
-    }
+bool E906Uart::ByteRing::pop(uint8_t& b) noexcept {
+    const uint32_t h = head.load(std::memory_order_relaxed);
+    const uint32_t t = tail.load(std::memory_order_acquire);
+    if (h == t) return false;
+    b = buf[h & (cap - 1U)];
+    head.store(h + 1, std::memory_order_release);
+    return true;
 }
 
-void Uart2::set_baud(uint32_t baud_rate, uint32_t apb_clock_hz) {
-    uint32_t divisor = (apb_clock_hz + (8 * baud_rate)) / (16 * baud_rate);
-    if (divisor == 0) divisor = 1;
-
-    // Enable Divisor Latch Access (DLAB bit 7 in LCR)
-    UART2_LCR = 0x83; // 8N1 + DLAB=1
-    UART2_DLL = divisor & 0xFF;
-    UART2_DLH = (divisor >> 8) & 0xFF;
-
-    // Clear DLAB (8 bits, no parity, 1 stop bit)
-    UART2_LCR = 0x03;
+bool E906Uart::ByteRing::empty() const noexcept {
+    return head.load(std::memory_order_relaxed) == tail.load(std::memory_order_acquire);
 }
 
-void Uart2::write_byte(uint8_t ch) {
-    // ZERO POLLING: If TX ring is empty and hardware FIFO is ready, write directly
-    if (g_uart_tx_ring.empty() && (UART2_LSR & (1 << 5))) {
-        UART2_THR = ch;
+E906Uart::E906Uart(const ::hal::ports::UartPort& port, const UartBuffers& bufs) noexcept
+    : port_(port),
+      bufs_(bufs),
+      dma_ring_(std::span<uint8_t>(bufs.dma_rx, UartBuffers::kDmaRingBytes), UartBuffers::kDmaBufBytes),
+      rx_{bufs.rx, static_cast<uint32_t>(UartBuffers::kRxBytes)},
+      tx_{bufs.tx, static_cast<uint32_t>(UartBuffers::kTxBytes)} {}
+
+// ---------------------------------------------------------------------------
+// Receive DMA ([SPEC-E906-HAL-02])
+// ---------------------------------------------------------------------------
+
+// Sync the circular DMA ring from DMAC_PKG_NUM_REG and DMAC_CUR_DEST_REG, then move completed
+// bytes into the polled-read buffer when no coroutine is awaiting the ring.
+void E906Uart::dma_sync(bool end_of_frame) noexcept {
+    if (!dma_active_ || rx_chan_ < 0) return;
+    constexpr uint32_t kBuf = UartBuffers::kDmaBufBytes;
+    constexpr uint32_t kRing = UartBuffers::kDmaRingBytes;
+    const uint8_t ch = static_cast<uint8_t>(rx_chan_);
+    const uint32_t base_pa = ::hal::DmaController::pa(bufs_.dma_rx);
+    uint32_t pkg0 = 0, pkg1 = 0, cur_dst = 0;
+    do {
+        pkg0 = ::hal::DmaController::pkg_num(ch);
+        cur_dst = ::hal::DmaController::current_dst_pa(ch);
+        pkg1 = ::hal::DmaController::pkg_num(ch);
+    } while (pkg0 != pkg1);
+
+    if (cur_dst < base_pa || cur_dst > base_pa + kRing) {
         return;
     }
-
-    // Otherwise enqueue into non-blocking TX ring buffer
-    g_uart_tx_ring.push(ch);
-
-    // Enable Transmitter Holding Register Empty Interrupt (ETBEI bit 1 in IER)
-    UART2_IER |= (1 << 1);
-}
-
-void Uart2::write(const uint8_t *data, size_t len) {
-    for (size_t i = 0; i < len; ++i) {
-        write_byte(data[i]);
+    uint32_t pkg_bytes = (pkg0 - dma_pkg0_) * kBuf;
+    const uint32_t pos_in_ring = (cur_dst - base_pa) & (kRing - 1U);
+    // DMA_PKG_NUM_REG increments when an LLI burst starts (~145 us before DMA_CUR_DEST_REG
+    // advances): if pkg_bytes is one buffer ahead of pos_in_ring, that block is still in flight.
+    if (pkg_bytes >= kBuf && ((pkg_bytes - pos_in_ring) & (kRing - 1U)) == kBuf) {
+        pkg_bytes -= kBuf;
     }
-}
-
-void Uart2::write_str(const char *str) {
-    while (*str) {
-        if (*str == '\n') write_byte('\r');
-        write_byte(static_cast<uint8_t>(*str++));
+    const uint32_t ahead = (pos_in_ring - (pkg_bytes & (kRing - 1U))) & (kRing - 1U);
+    // Partial-buffer bytes only at end of frame: mid-burst, CUR_DEST runs ahead of the SRAM write.
+    const uint32_t total_written = pkg_bytes + (end_of_frame && ahead < kBuf ? ahead : 0U);
+    const uint32_t new_bytes = static_cast<int32_t>(total_written - dma_wr_) > 0 ? (total_written - dma_wr_) : 0U;
+    if (new_bytes == 0U && !end_of_frame) {
+        return;
     }
-}
+    dma_wr_ = total_written;
+    dma_ring_.produced_from_isr(new_bytes, end_of_frame);
 
-bool Uart2::write_async_dma(const uint8_t *data, size_t len, etl::delegate<void(bool)> callback) noexcept {
-    if (len == 0) return true;
-    if (g_uart_tx_dma_chan < 0) return false;
-
-    g_uart_tx_dma_busy = true;
-    g_uart_tx_dma_callback = callback;
-
-    // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
-    g_uart_tx_lli.src = ::hal::DmaController::pa(data);
-    g_uart_tx_lli.dst = UART2_BASE + 0x00; // UART2_THR
-    g_uart_tx_lli.len = len;
-    g_uart_tx_lli.para = 8;
-    g_uart_tx_lli.p_lli_next = ::hal::LLI_LAST_ITEM;
-    g_uart_tx_lli.cfg = ::hal::DmaController::build_cfg(
-        ::hal::DRQ_SDRAM, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_LINEAR,
-        ::hal::DRQ_UART2, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_IO
-    );
-
-    ::hal::DmaController::start_transfer(
-        static_cast<uint8_t>(g_uart_tx_dma_chan),
-        &g_uart_tx_lli,
-        etl::delegate<void(uint8_t, bool)>::create<on_uart_tx_dma_complete>()
-    );
-
-    return true;
-}
-
-bool Uart2::is_tx_busy() noexcept {
-    return g_uart_tx_dma_busy || !g_uart_tx_ring.empty();
-}
-
-Uart2::AsyncTxAwaiter::~AsyncTxAwaiter() noexcept {
-    if (!completed && g_uart_tx_completed_ptr == &completed) {
-        g_uart_tx_coro_handle = nullptr;
-        g_uart_tx_completed_ptr = nullptr;
-    }
-}
-
-bool Uart2::AsyncTxAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
-    // Threshold Balancing:
-    // If len <= DMA_TX_THRESHOLD (32 bytes) or DMA not available:
-    // push to low-latency FIFO / ring buffer without DMA allocation & descriptor setup!
-    if (len <= DMA_TX_THRESHOLD || g_uart_tx_dma_chan < 0) {
-        Uart2::write(data, len);
-        completed = true;
-        return false; // resume immediately; never resume inline
-    }
-
-    // Large payload: stream via zero-copy DMA
-    g_uart_tx_coro_handle = handle;
-    g_uart_tx_completed_ptr = &completed;
-    if (!write_async_dma(data, len, etl::delegate<void(bool)>::create<on_uart_tx_dma_coro_callback>())) {
-        g_uart_tx_coro_handle = nullptr;
-        g_uart_tx_completed_ptr = nullptr;
-        completed = false;
-        return false;
-    }
-    return true;
-}
-
-bool Uart2::has_data() {
-    return !g_uart_rx_ring.empty() || ((UART2_LSR & (1 << 0)) != 0);
-}
-
-uint8_t Uart2::read_byte() {
-    uint8_t byte = 0;
-    if (g_uart_rx_ring.pop(byte)) {
-        return byte;
-    }
-    // ZERO POLLING: Return immediate FIFO byte if ready, never busy-spin
-    if (UART2_LSR & (1 << 0)) {
-        return static_cast<uint8_t>(UART2_RBR & 0xFF);
-    }
-    return 0;
-}
-
-void Uart2::handle_irq() {
-    uint32_t iir = UART2_IIR & 0x0F;
-
-    // 0x02: Transmitter Holding Register Empty (THRE)
-    if (iir == 0x02) {
-        size_t written = 0;
-        uint8_t byte = 0;
-        while (written < 64 && g_uart_tx_ring.pop(byte)) {
-            UART2_THR = byte;
-            written++;
-        }
-        if (g_uart_tx_ring.empty()) {
-            // Disable THRE interrupt once TX queue is drained
-            UART2_IER &= ~(1 << 1);
-        }
-    }
-
-    // 0x04: Received Data Available (RDA) - FIFO reached threshold
-    // 0x0C: Character Timeout Indication (RTO) - Line idle for 4 character times
-    if (iir == 0x04 || iir == 0x0C) {
-        // Drain all available bytes from hardware FIFO into atomic SPSC ring buffer
-        while (UART2_LSR & (1 << 0)) {
-            uint8_t ch = static_cast<uint8_t>(UART2_RBR & 0xFF);
-            g_uart_rx_ring.push(ch);
-        }
-
-        // On Character Timeout (RTO), mark packet completed and wake coroutine
-        if (iir == 0x0C) {
-            g_uart_packet_ready = true;
-            auto handle = g_uart_rx_coroutine.load(std::memory_order_relaxed);
-            if (handle) {
-                abstractx::IsrDispatcher::post(handle);
+    if (!dma_ring_.reader_waiting()) {
+        uint8_t tmp[64];
+        size_t n = 0;
+        while ((n = dma_ring_.copy_out(tmp, sizeof(tmp))) > 0) {
+            for (size_t i = 0; i < n; ++i) {
+                if (!rx_.push(tmp[i])) {
+                    rx_dropped_ = rx_dropped_ + 1;
+                }
             }
         }
     }
 }
 
-/* AsyncRxPacketAwaiter Implementation */
-Uart2::AsyncRxPacketAwaiter::AsyncRxPacketAwaiter(uint8_t *buf, size_t len)
-    : dest_buf(buf), max_len(len), bytes_received(0) {}
-
-Uart2::AsyncRxPacketAwaiter::~AsyncRxPacketAwaiter() noexcept {
-    g_uart_rx_coroutine.store(nullptr, std::memory_order_release);
+void E906Uart::on_rx_dma_pkg(uint8_t, bool) noexcept {
+    abstractx::InterruptGuard guard;
+    dma_sync(false);
 }
 
-bool Uart2::AsyncRxPacketAwaiter::await_ready() const noexcept {
-    return g_uart_packet_ready && !g_uart_rx_ring.empty();
-}
+void E906Uart::on_tx_dma_done(uint8_t, bool) noexcept { tx_dma_done_ = true; }
 
-bool Uart2::AsyncRxPacketAwaiter::await_suspend(std::coroutine_handle<> handle) noexcept {
-    g_uart_rx_coroutine.store(handle, std::memory_order_release);
-    if (g_uart_packet_ready && !g_uart_rx_ring.empty()) {
-        g_uart_rx_coroutine.store(nullptr, std::memory_order_relaxed);
+bool E906Uart::start_rx_dma() noexcept {
+    constexpr uint32_t kBuf = UartBuffers::kDmaBufBytes;
+    constexpr uint32_t kN = UartBuffers::kDmaNumBufs;
+    ::hal::DmaController::init();
+    if (rx_chan_ < 0) {
+        rx_chan_ = ::hal::DmaController::allocate_channel();
+    }
+    if (rx_chan_ < 0) {
+        dma_active_ = false;
         return false;
     }
+    const uint8_t ch = static_cast<uint8_t>(rx_chan_);
+    ::hal::DmaController::stop_transfer(ch);
+    dma_ring_.reset();
+    for (uint32_t i = 0; i < kN; ++i) {
+        const uint32_t next_pa = ::hal::DmaController::pa(&bufs_.rx_lli[(i + 1U) & (kN - 1U)]);
+        bufs_.rx_lli[i] = ::hal::DmaController::make_periph2mem(
+            port_.base + kRbr, bufs_.dma_rx + i * kBuf, kBuf, port_.drq,
+            ::hal::DMA_BURST_1, ::hal::DMA_WIDTH_8, next_pa);
+    }
+    reg(kIir) = 0x8FU;       // FCR: FIFO on, reset both, DMA mode 1, RX trigger half full
+    reg(kDmaReqEn) = 0x07U;  // RX_REQ_EN | TX_REQ_EN | TIMEOUT_EN
+    const bool ok = ::hal::DmaController::start_transfer(
+        ch, &bufs_.rx_lli[0],
+        ::hal::DmaController::CompletionCallback::create<E906Uart, &E906Uart::on_rx_dma_pkg>(*this),
+        ::hal::DMA_IRQ_PKG, true);
+    dma_pkg0_ = ::hal::DmaController::pkg_num(ch);
+    dma_wr_ = 0;
+    dma_active_ = ok;
+    return ok;
+}
+
+void E906Uart::stop_rx_dma() noexcept {
+    if (rx_chan_ >= 0) {
+        ::hal::DmaController::stop_transfer(static_cast<uint8_t>(rx_chan_));
+    }
+    reg(kDmaReqEn) = 0x00U;
+    reg(kIir) = 0x87U;  // FCR: FIFO on, DMA mode 0, RX trigger half full
+    dma_active_ = false;
+}
+
+bool E906Uart::set_dma(bool enable) noexcept {
+    abstractx::InterruptGuard guard;
+    dma_want_ = enable;
+    if (!attached_) {
+        return dma_want_;
+    }
+    if (enable) {
+        if (!dma_active_) {
+            (void)start_rx_dma();
+        }
+    } else if (dma_active_) {
+        dma_sync(true);
+        stop_rx_dma();
+    }
+    return dma_active_;
+}
+
+// ---------------------------------------------------------------------------
+// Interrupt (shared CLIC line: returns when IIR reports nothing pending)
+// ---------------------------------------------------------------------------
+void E906Uart::on_irq() noexcept {
+    for (int guard = 0; guard < 8; ++guard) {
+        const uint32_t iir = reg(kIir) & 0x0FU;
+        if (iir == 0x01U) {
+            return;  // nothing pending (0x1); busy detect is 0x7, so not a bit-0 test
+        }
+        switch (iir) {
+            case 0x04:    // RX data available (half-full trigger)
+            case 0x0C: {  // RX character timeout (4 character times idle)
+                if (dma_active_) {
+                    // DMA mode 1 with DMA_REQ_EN = 0x07: the DMAC drains trigger batches and timeout
+                    // tails; the CPU never reads RBR. On 0x04 wait for one byte drained so IIR
+                    // clears; on 0x0C wait for RFL == 0 plus the MBUS write before the tail sync.
+                    const uint32_t target_rfl = (iir == 0x0CU) ? 0U : 63U;
+                    for (uint32_t spin = 0; spin < 1024U && (reg(kRfl) & 0x1FFU) > target_rfl; ++spin) {
+                        for (uint32_t d = 0; d < 32U; ++d) {
+                            asm volatile("nop");
+                        }
+                    }
+                    if (iir == 0x0CU) {
+                        for (uint32_t d = 0; d < 64U; ++d) {
+                            asm volatile("nop");
+                        }
+                        dma_sync(true);
+                    }
+                    break;
+                }
+                // Interrupt receive: drain the FIFO via RFL + RBR.
+                for (uint32_t n = reg(kRfl) & 0x1FFU; n; n = reg(kRfl) & 0x1FFU) {
+                    for (; n; --n) {
+                        if (!rx_.push(static_cast<uint8_t>(reg(kRbr) & 0xFFU))) {
+                            rx_dropped_ = rx_dropped_ + 1;
+                        }
+                    }
+                }
+                break;
+            }
+            case 0x02: {  // THR empty: refill the FIFO from the TX ring
+                uint8_t b = 0;
+                size_t n = 0;
+                while (n < port_.fifo_bytes && tx_.pop(b)) {
+                    reg(kRbr) = b;
+                    ++n;
+                }
+                if (tx_.empty()) {
+                    reg(kIer) = reg(kIer) & ~kIerTx;
+                }
+                break;
+            }
+            case 0x06: {  // line status: overrun, parity, framing, break
+                const uint32_t lsr = reg(kLsr);
+                uint8_t errs = 0;
+                if (lsr & (1U << 1)) errs |= UartLineError::Overrun;
+                if (lsr & (1U << 2)) errs |= UartLineError::Parity;
+                if (lsr & (1U << 3)) errs |= UartLineError::Framing;
+                if (lsr & (1U << 4)) errs |= UartLineError::Break;
+                if (errs != 0) {
+                    dma_ring_.line_error_from_isr(errs);
+                }
+                break;
+            }
+            case 0x07: touch(kUsr); break;  // busy detect (DW APB UART)
+            default:   touch(kMsr); break;  // modem status
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Setup
+// ---------------------------------------------------------------------------
+
+// The T527 "configure at busy" sequence (manual 8.19, UART_HALT): an LCR/DLL write while
+// USR.BUSY is ignored and raises busy-detect, and a GPS may be streaming.
+void E906Uart::program_baud(uint32_t baud) noexcept {
+    const uint32_t divisor = (24000000U + 8U * baud) / (16U * baud);
+    reg(kHalt) = 0x02;                   // CHCFG_AT_BUSY
+    reg(kLcr) = 0x83;
+    reg(kRbr) = divisor & 0xFFU;         // DLL
+    reg(kIer) = (divisor >> 8) & 0xFFU;  // DLH
+    reg(kLcr) = 0x03;                    // 8N1
+    reg(kHalt) = 0x06;                   // CHANGE_UPDATE; hardware clears it when applied
+    ::hal::Timer::delay_us(50);          // one sleep, then carry on (no register spin)
+    reg(kHalt) = 0x00;
+}
+
+void E906Uart::init(uint32_t baud) {
+    if (baud == 0) baud = 9600;
+    ::hal::Ccu::enable_module(port_.clock);
+    for (const auto* m : {&port_.pins, &port_.pull}) {
+        if (m->cfg != 0) {
+            auto& r = *reinterpret_cast<volatile uint32_t*>(m->cfg);
+            r = (r & ~m->mask) | m->func;
+        }
+    }
+
+    reg(kIer) = 0;  // the CLIC line is shared: leave it enabled, silence this port
+    stop_rx_dma();
+    reg(kIir) = 0x87;  // FCR: FIFO on, reset both, RX trigger half full
+    program_baud(baud);
+    reg(kIir) = 0x87;  // flush bytes received at the old baud
+    touch(kUsr);       // clear any busy-detect raised before this
+    touch(kLsr);       // clear sticky line errors from the baud switch
+    reg(kMcr) = 0x03;
+
+    rx_.clear();
+    tx_.clear();
+
+    if (dma_want_) {
+        (void)start_rx_dma();
+    } else {
+        stop_rx_dma();
+    }
+
+    const uint32_t line = ::hal::clic::line_for_gic(port_.gic);
+    ::hal::clic::route_gic(port_.gic, true);
+    if (!attached_) {
+        attached_ = ::hal::irq::attach(line,
+            +[](void* ctx) noexcept { static_cast<E906Uart*>(ctx)->on_irq(); }, this);
+        ::hal::irq::describe(line, port_.name, &rx_dropped_);
+        ::hal::irq::describe(::hal::clic::kLineDma, "dma");
+    } else {
+        ::hal::clic::enable(line);
+    }
+    reg(kIer) = kIerRx | kIerLsi;
+}
+
+bool E906Uart::set_baud_rate(uint32_t baud) {
+    if (baud == 0) return false;
+    abstractx::InterruptGuard guard;
+    const uint32_t ier = reg(kIer);
+    reg(kIer) = 0;
+    program_baud(baud);
+    reg(kIer) = ier;
     return true;
 }
 
-size_t Uart2::AsyncRxPacketAwaiter::await_resume() noexcept {
-    bytes_received = 0;
-    uint8_t byte = 0;
-    while (bytes_received < max_len && g_uart_rx_ring.pop(byte)) {
-        dest_buf[bytes_received++] = byte;
-    }
-    g_uart_packet_ready = false;
-    return bytes_received;
+UartCapabilities E906Uart::capabilities() const noexcept {
+    UartCapabilities caps{};
+    caps.fifo_bytes = port_.fifo_bytes;
+    caps.rx_dma = true;
+    caps.tx_dma = true;
+    return caps;
 }
 
-} // namespace fc::hal
+// ---------------------------------------------------------------------------
+// Receive (polled)
+// ---------------------------------------------------------------------------
+size_t E906Uart::read(std::span<uint8_t> buffer) {
+    if (dma_active_) {
+        abstractx::InterruptGuard guard;
+        const bool fifo_idle = (reg(kRfl) & 0x1FFU) == 0U;
+        dma_sync(fifo_idle);
+    }
+    size_t n = 0;
+    while (n < buffer.size() && rx_.pop(buffer[n])) {
+        ++n;
+    }
+    return n;
+}
+
+bool E906Uart::read_byte(uint8_t& ch) { return read(std::span<uint8_t>(&ch, 1)) == 1; }
+
+// ---------------------------------------------------------------------------
+// Transmit
+// ---------------------------------------------------------------------------
+
+// Larger than the FIFO: DMA in bounce-buffer chunks, 50 ms deadline each ([SPEC-E906-HAL-01]).
+size_t E906Uart::write_dma(std::span<const uint8_t> data) noexcept {
+    if (tx_chan_ < 0) {
+        tx_chan_ = ::hal::DmaController::allocate_channel();
+    }
+    if (tx_chan_ < 0) return 0;
+    size_t sent = 0;
+    while (sent < data.size()) {
+        const size_t left = data.size() - sent;
+        const size_t chunk = left > UartBuffers::kTxDmaBytes ? UartBuffers::kTxDmaBytes : left;
+        for (size_t i = 0; i < chunk; ++i) {
+            bufs_.tx_dma[i] = data[sent + i];
+        }
+        *bufs_.tx_lli = ::hal::DmaController::make_mem2periph(
+            bufs_.tx_dma, port_.base + kRbr, static_cast<uint32_t>(chunk), port_.drq);
+        tx_dma_done_ = false;
+        ::hal::DmaController::start_transfer(
+            static_cast<uint8_t>(tx_chan_), bufs_.tx_lli,
+            ::hal::DmaController::CompletionCallback::create<E906Uart, &E906Uart::on_tx_dma_done>(*this));
+        const uint64_t deadline = ::hal::Timer::get_ticks() + 50ULL * ::hal::Timer::TICKS_PER_MS;
+        while (!tx_dma_done_ && ::hal::Timer::get_ticks() < deadline) {
+            ::hal::driver_wait(deadline);
+        }
+        if (!tx_dma_done_) {
+            ::hal::DmaController::stop_transfer(static_cast<uint8_t>(tx_chan_));
+            break;
+        }
+        sent += chunk;
+    }
+    return sent;
+}
+
+size_t E906Uart::write(std::span<const uint8_t> data) {
+    if (data.size() > port_.fifo_bytes && dma_active_) {
+        const size_t sent = write_dma(data);
+        if (sent > 0 || tx_chan_ >= 0) return sent;
+    }
+    for (const uint8_t b : data) {
+        while (!tx_.push(b)) {
+            {
+                abstractx::InterruptGuard guard;
+                reg(kIer) = reg(kIer) | kIerTx;
+            }
+            ::hal::driver_wait(::hal::Timer::get_ticks() + 10ULL * ::hal::Timer::TICKS_PER_MS);
+        }
+    }
+    abstractx::InterruptGuard guard;
+    reg(kIer) = reg(kIer) | kIerTx;  // THR-empty interrupt drains the ring
+    return data.size();
+}
+
+void E906Uart::write_byte(uint8_t ch) { (void)write(std::span<const uint8_t>(&ch, 1)); }
+
+void E906Uart::puts(const char* str) {
+    if (!str) return;
+    for (; *str; ++str) {
+        if (*str == '\n') write_byte('\r');
+        write_byte(static_cast<uint8_t>(*str));
+    }
+}
+
+void E906Uart::flush() {
+    const uint64_t deadline = ::hal::Timer::get_ticks() + 50ULL * ::hal::Timer::TICKS_PER_MS;
+    while (!tx_.empty() && ::hal::Timer::get_ticks() < deadline) {
+        ::hal::driver_wait(deadline);
+    }
+}
+
+// Async write: queue what fits in the TX ring, never wait ([SPEC-E906-HAL-04] rule 1).
+void E906Uart::start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept {
+    UartResult res{};
+    if (req.break_us != 0) {
+        res.status = UartStatus::NotSupported;
+    } else {
+        size_t n = 0;
+        while (n < req.data.size() && tx_.push(req.data[n])) {
+            ++n;
+        }
+        reg(kIer) = reg(kIer) | kIerTx;
+        res.bytes_transferred = n;
+        res.status = n == req.data.size() ? UartStatus::Ok : UartStatus::QueueFull;
+    }
+    res.timestamp_us = ::hal::Timer::get_time_us();
+    push_completion_from_isr(req, res);
+    set_hardware_idle_from_isr();
+}
+
+} // namespace abstractx::hal
