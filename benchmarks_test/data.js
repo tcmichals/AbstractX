@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793109677984,
+  "lastUpdate": 1793110056777,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Test Execution Metrics": [
@@ -1175,6 +1175,390 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/1f520c15e1be3b3f4547fc174363a5ec88771c69"
         },
         "date": 1793109677311,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "board:e906:repl-system announce_abstractx-repl",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-tlp",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-trace",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system idle_no_recipient",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system new_no_recipient",
+            "value": 8,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_bounded",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_idle_silent",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system plane_isolation",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system repl_text",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_64B_all_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_payload_sequence",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps_valid",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_ctf_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_datagrams",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors duration_s",
+            "value": 5.22,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_3d_fix_acquired",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_serial_115200_active",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors i2c_compass_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors vector_synthesis_verified",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_received",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_attitude",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_gps",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_mag",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_valid_64b",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout seq_monotonic_rate",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_gps_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_yaw_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests_failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan passed",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan test_time_s",
+            "value": 1.12,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan passed",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan test_time_s",
+            "value": 0.52,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan tests",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug passed",
+            "value": 46,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug test_time_s",
+            "value": 2.2,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug tests",
+            "value": 46,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host passed",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host test_time_s",
+            "value": 1.09,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host tests",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan passed",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan test_time_s",
+            "value": 1.13,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer passed",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer tests",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint critical_warnings",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check multi_driver_modules",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix broken",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix failing",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix implemented",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix partial",
+            "value": 6,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix spec_only",
+            "value": 22,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix stale",
+            "value": 74,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix total",
+            "value": 179,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified",
+            "value": 40,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified_pct",
+            "value": 22.3,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "75001f86d426be2668e9d986135add8636092a32",
+          "message": "refactor(e906): one TWI driver for TWI0 and TWI1, per-target port table\n\nThe E906 had two TWI drivers (target i2c.cpp for TWI0, app\ne906_periph.cpp for TWI1) plus a private E906I2c inside the IoProcessor.\nThe target TWI0 driver never cleared INT_FLG (write-1-to-clear), ignored\nthe shared CLIC line, set no pins and waited without a timeout.\n\n- [SPEC-HAL-15] (new): silicon facts per target in hal/ports.hpp; one\n  driver per controller type takes a port; apps use get_*_port only.\n- [SPEC-E906-HAL-04]: TWI rules (INT_FLG W1C, shared line 91, CCR\n  formula, error STOP, bounded wait hook, no TWI DMA until measured).\n- E906I2c built from the board-proven TWI1 state machine; TWI0 and TWI1\n  are two objects; get_i2c_port(1) = TWI1; IoProcessor uses the TWI0\n  object. REPL TWI1 code is glue only in apps/e906_repl_app/src/i2c.cpp.\n- sim/test_e906_twi.cpp: register model + slave, 1000-cycle steady\n  state; fails with the shared-line check removed.\n\nEvidence (this PC):\n- ctest build_host 70/70; build_asan 70/70, 0 reports;\n  build_tsan (setarch -R) 70/70, 0 reports\n- cmake --build build_e906: exit 0, 12/12 segments [ok]\n- text: e906_repl_app 184854 -> 181870, gps_imu_app 103216 -> 100840,\n  serial_loopback_app 62704 -> 60328, e906_bench_app 79750 -> 77370\n- analyze_elf_size.sh e906_repl_app: SRAM_FAST 182.0/192.0 KB (94.8%),\n  SRAM_A3_2 45.1/128 KB, DRAM 0.00 MB\n- audit_specs 100%, audit_hal_invariants PASS, spectrace --changes 0\n  untraced, --check-verifies: no new unbacked claims\n\nNot verified: board run (compass on TWI1, new CCR clock values).\nCCR changes TWI1 from 0x12/0x25 (200 kHz / ~15 kHz by the Linux\nformula) to 0x11/0x2A (400/100 kHz).",
+          "timestamp": "2026-10-27T08:51:29-05:00",
+          "tree_id": "b8692bdfdab721dc83aeb624b7afbd2881bf29f4",
+          "url": "https://github.com/tcmichals/AbstractX/commit/75001f86d426be2668e9d986135add8636092a32"
+        },
+        "date": 1793110056109,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
