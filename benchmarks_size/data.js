@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793114486821,
+  "lastUpdate": 1793121273729,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -2363,6 +2363,240 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/05ffd6f3c95b4008a8055e8befa9c13bb77b7c13"
         },
         "date": 1793114485781,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 93300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 52968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 145660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 6640,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 362076,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 152300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 355436,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "ac489c40f2bb77090bbfdd70f534e31f630120cf",
+          "message": "feat(pio): generic TLP data path: 32-slot ingress queue, egress rounds; area figure corrected (EL-1027-38, -41)\n\nSpec first: rtl/pio/SPECIFICATION.md [SPEC-PIO-10] wire format (SM mask in flags[3:0],\npayload word k at [351-32k -: 32]), group dealing, rounds, burst/full/idle-timeout send,\nregisters OUT_CFG 0x0C, OUT_TIMEOUT 0x90, IN_CFG 0x94, IN_STATUS 0x98; new 32-slot\ningress queue because asp_spi_frontend drops the next TLP while ingress is held.\n\n- rtl/pio/asp_pio_tlp_ingress.sv (new): queue in one block RAM (SDPX9B), ingress held\n  <= 11 clocks per TLP, a group is written to all selected TX FIFOs in one clock.\n- asp_pio_tlp_shim.sv: egress rounds from the SM mask, first-word timestamp, frame sent\n  from the word registers. Fix: data/trace arbitration changed tdata while tvalid waited\n  (AXI-Stream violation); test_trace_and_data_share_egress fails on the old rule\n  (\"egress tdata/tvalid changed before tready\") and passes now.\n- asp_pio_tile.sv: s_tlp_* port, registers, shared FIFO ports. asp_top: ingress tied off\n  until the router has PIO channels (EL-1027-39).\n\nEvidence (this PC):\n  python3 tools/run_cocotb.py -> 21/21 targets pass (new sim-test-pio-tlp-path 7/7;\n    conformance 15/15, dshot 5/5, esc-serial 3/3, tile 5/5)\n  verilator --lint-only -Wall (tile + SM + shim + ingress) -> clean\n  yosys ... hierarchy -top asp_pio_tile; proc; check -assert -> rc 0\n  audit_specs 100 %; spectrace_matrix --changes: 0 untraced; --check-drift: 0\n  synth_gowin -top asp_pio_tile (flattened), 05ffd6f -> this:\n    LUT1-4 22,461 -> 23,602; FF 3,726 -> 4,033; + 1 SDPX9B\n\nCorrection: the 7,701 LUT4 / \"37 % of GW2AR-18\" in 05ffd6f is wrong (the same\n-noflatten command gives 10,671 LUT4 today and counts no LUT1-3). One tile is\n~22-23k Yosys LUTs: it does not fit the Tang Nano 20K yet. Logged in engineering_log.md.\n\nNot verified: nextpnr fit / Fmax, asp_top with the tile connected, hardware.",
+          "timestamp": "2026-10-27T12:05:36-05:00",
+          "tree_id": "8fdceda92641107d56bb2d9fb1225f87a8bdee40",
+          "url": "https://github.com/tcmichals/AbstractX/commit/ac489c40f2bb77090bbfdd70f534e31f630120cf"
+        },
+        "date": 1793121272437,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
