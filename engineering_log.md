@@ -2973,3 +2973,12 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-41 | FPGA area | first measured fit of `top_tang_nano20k` with one PIO tile and all old cores: LUT4 16126/20736 (77 %), DFF 8822/15552 (56 %), ALU 2894, BSRAM 1/46. A second (motor) tile does not fit next to the old cores; the README's "~940 LUTs per tile" was never measured | nextpnr utilisation, 2026-10-27 | per-module numbers for the tile; then remove the old cores ([SPEC-PIO-00] migration) and/or shrink the SM (variable pin indexing, barrel shifters, IRAM as registers) | `fpga-fit` |
 
 * **Not verified**: placement / Fmax of this fit (still running when written); hardware.
+
+---
+
+## 2026-10-27: EL-1027-41 update: the PIO tile alone does not fit the Tang Nano 20K
+
+* **Category**: `product-bug` (area), `false-alarm` (the 77 % board fit)
+* **Measured** (`yosys synth_gowin -top asp_pio_tile -noflatten; stat`, this PC): one `asp_pio_sm` ~7,000 LUT4 (x4), tile glue 2,361, TLP shim 7; **tile 30,674 LUT4**, more than the GW2AR-18's 20,736. The board-level 77 % was a false alarm in the good direction: `asp_top` leaves the tile's `o_gpio_out` / `o_gpio_pindir` unconnected, so synthesis removed most of the tile. The board placement then hung in its first iteration (stopped after 14 min).
+* **Cause**: every pin-writing path (OUT/MOV/SET to pins or pindirs, side-set) loops over 32 pins with a variable base: seven 32x32 crossbars per SM. The instruction RAM is 32x16 flip-flops with 5 read ports. The old SM had the same structure; it was never synthesised (EL-1027-40).
+* **Plan**: one shared rotate-and-mask pin writer for data and one for side-set per SM, one shared input rotator, instruction RAM as LUT RAM (one copy per read port). Behaviour locked by the 15 conformance tests and the DShot / ESC serial tests. Target to be set from the result; [SPEC-TN20K-03] asks for LUT <= 80 % on the whole board design.
