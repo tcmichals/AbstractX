@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793110599868,
+  "lastUpdate": 1793110968944,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -1193,6 +1193,240 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/1ac96a3861cacab8cdbb8efc80f66b420f127872"
         },
         "date": 1793110599018,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 93300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 52968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 145660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 6640,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 362076,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 152300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 355436,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "15f125c60068bab91a61c0c75cef5225ecf0a466",
+          "message": "refactor(e906): one UART driver (UART3), UART2 removed, e906_periph.cpp split\n\nThe E906 had two UART drivers: target Uart2 (interrupt never attached,\nso RX was polled and a full TX queue stalled) and the board-proven UART3\ncode in the REPL app. UART2's PB0/PB1 are not connected on the Cubie\nA5E (overlay: NC on the PCB), yet Pio::init, get_uart_driver(),\nserial_loopback_app and the silicon atlas rule all pointed at it.\n\n- [SPEC-E906-HAL-04] first: UART3 = ports 0 and 3, no UART2, UART\n  driver rules, one driver_wait hook; rule 4 states the measured link\n  cost instead of claiming unused ports are not linked.\n- E906Uart in targets/allwinner_e906/src/uart.cpp from the UART3 code:\n  circular DMA RX into UartRxRingBase (read_async works), IRQ fallback,\n  configure-at-busy baud, line errors, TX ring + THRE, TX DMA > FIFO.\n  kUart3 in hal/ports.hpp, buffers in .sram_c.\n- hal/driver_wait: one wait hook for TWI and UART.\n- REPL glue split by subject (src/uart.cpp, i2c.cpp, spi.cpp,\n  system.cpp); e906_periph.cpp deleted; CMake updated.\n- serial_loopback_app (E906) uses get_uart_port(3); atlas rule, HOWTOs\n  and memory_map.h corrected.\n- sim/test_e906_uart.cpp: register model + fake DMAC; 1000 DMA frames,\n  TX ring and TX DMA deadline; fails with the RX tail sync removed.\n\nEvidence (this PC):\n- ctest build_host 71/71; build_asan 71/71, 0 reports;\n  build_tsan (setarch -R) 71/71, 0 reports\n- cmake --build build_e906 --clean-first: 12/12 segments [ok]\n- text: e906_repl_app 182078 -> 182866; serial_loopback_app 60524 ->\n  64416; gps_imu_app 101032 -> 104944; e906_bench_app 77570 -> 81458\n- analyze_elf_size.sh e906_repl_app: SRAM_FAST 182.1/192.0 KB (94.8%),\n  SRAM_A3_2 45.1/128 KB, DRAM 0.00 MB\n- audit_specs 100%, audit_hal_invariants/boundaries/interfaces PASS,\n  spectrace --changes 0 untraced, --check-drift 0, --check-verifies\n  64 (unchanged)\n\nNot verified: board run (GPS on UART3, serial loopback on UART3,\ncompass on TWI1). Not covered by the host test: interrupt-mode RX and\nthe async write request.",
+          "timestamp": "2026-10-27T09:05:11-05:00",
+          "tree_id": "f77334ec74acbac59be3109cdde4bf1a8608b42c",
+          "url": "https://github.com/tcmichals/AbstractX/commit/15f125c60068bab91a61c0c75cef5225ecf0a466"
+        },
+        "date": 1793110967876,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
