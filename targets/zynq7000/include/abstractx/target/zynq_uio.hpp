@@ -30,20 +30,15 @@ class ZynqUioBridge {
 public:
     static constexpr size_t MAP_SIZE = 0x10000; // 64 KB AXI-Lite address window
 
-    // Register Byte Offsets matching asp_axi_dma.sv [SPEC-ZYNQ-01]
+    // Register Byte Offsets matching asp_axi_lite_bridge.sv [SPEC-ZYNQ-01]
     static constexpr uint32_t REG_CONTROL      = 0x00;
     static constexpr uint32_t REG_STATUS       = 0x04;
     static constexpr uint32_t REG_IRQ_STATUS   = 0x08;
     static constexpr uint32_t REG_IRQ_ENABLE   = 0x0C;
-    static constexpr uint32_t REG_RX_BASE      = 0x10;
-    static constexpr uint32_t REG_RX_CAPACITY  = 0x14;
-    static constexpr uint32_t REG_RX_HEAD      = 0x18;
-    static constexpr uint32_t REG_RX_TAIL      = 0x1C;
-    static constexpr uint32_t REG_TX_BASE      = 0x20;
-    static constexpr uint32_t REG_TX_CAPACITY  = 0x24;
-    static constexpr uint32_t REG_TX_HEAD      = 0x28;
-    static constexpr uint32_t REG_TX_TAIL      = 0x2C;
-    static constexpr uint32_t REG_TX_DOORBELL  = 0x30;
+    static constexpr uint32_t REG_TLP_IN_PORT  = 0x10;
+    static constexpr uint32_t REG_TLP_OUT_PORT = 0x14;
+    static constexpr uint32_t REG_EGR_COUNT    = 0x18;
+    static constexpr uint32_t REG_ING_FREE     = 0x1C;
     static constexpr uint32_t REG_HARDWARE_ID  = 0x40;
 
     static constexpr uint32_t HARDWARE_MAGIC   = 0x41535036; // "ASP6"
@@ -126,28 +121,27 @@ public:
         base_[offset / sizeof(uint32_t)] = val;
     }
 
-    // Configure SPSC Coherent Ring Base Physical Addresses & Capacity
-    void setup_dma_rings(uint32_t rx_phys_addr, uint32_t rx_cap,
-                         uint32_t tx_phys_addr, uint32_t tx_cap) noexcept {
-        write_reg(REG_RX_BASE, rx_phys_addr);
-        write_reg(REG_RX_CAPACITY, rx_cap);
-        write_reg(REG_RX_HEAD, 0);
+    [[nodiscard]] uint32_t egress_count() const noexcept { return read_reg(REG_EGR_COUNT); }
+    [[nodiscard]] uint32_t ingress_free() const noexcept { return read_reg(REG_ING_FREE); }
 
-        write_reg(REG_TX_BASE, tx_phys_addr);
-        write_reg(REG_TX_CAPACITY, tx_cap);
-        write_reg(REG_TX_TAIL, 0);
+    // Read a 64-byte TLP from egress BRAM port (16 DWORD reads consume the packet)
+    bool read_tlp(Tlp64& tlp) noexcept {
+        if (!base_ || egress_count() == 0) return false;
+        auto* dwords = reinterpret_cast<uint32_t*>(&tlp.wire);
+        for (size_t i = 0; i < 16; ++i) {
+            dwords[i] = read_reg(REG_TLP_OUT_PORT);
+        }
+        return true;
     }
 
-    [[nodiscard]] uint32_t rx_head() const noexcept { return read_reg(REG_RX_HEAD); }
-    [[nodiscard]] uint32_t rx_tail() const noexcept { return read_reg(REG_RX_TAIL); }
-    void set_rx_head(uint32_t head) noexcept { write_reg(REG_RX_HEAD, head); }
-
-    [[nodiscard]] uint32_t tx_head() const noexcept { return read_reg(REG_TX_HEAD); }
-    [[nodiscard]] uint32_t tx_tail() const noexcept { return read_reg(REG_TX_TAIL); }
-    void set_tx_tail(uint32_t tail) noexcept { write_reg(REG_TX_TAIL, tail); }
-
-    void signal_tx_doorbell() noexcept {
-        write_reg(REG_TX_DOORBELL, 0x01);
+    // Write a 64-byte TLP to ingress BRAM port (16 DWORD writes commit the packet)
+    bool write_tlp(const Tlp64& tlp) noexcept {
+        if (!base_ || ingress_free() == 0) return false;
+        const auto* dwords = reinterpret_cast<const uint32_t*>(&tlp.wire);
+        for (size_t i = 0; i < 16; ++i) {
+            write_reg(REG_TLP_IN_PORT, dwords[i]);
+        }
+        return true;
     }
 
     // Unmask UIO interrupt in Linux kernel so next IRQ_F2P will trigger event
@@ -159,10 +153,14 @@ public:
         }
     }
 
-    // Clear pending IRQ in FPGA register and unmask UIO event
+    // Clear pending IRQ in FPGA register and unmask UIO event.
+    // Level-sensitive IRQ re-asserts if unconsumed packets remain in egress buffer;
+    // only unmask when egress is completely drained to prevent busy-spinning.
     void ack_interrupt() noexcept {
         write_reg(REG_IRQ_STATUS, 0x01);
-        unmask_interrupt();
+        if (egress_count() == 0) {
+            unmask_interrupt();
+        }
     }
 
 private:

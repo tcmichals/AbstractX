@@ -43,7 +43,12 @@ public:
             return true;
         }
 
-        if (!bridge_.open_uio("/dev/uio0")) {
+        const char* uio_dev = "/dev/uio0";
+        if (const char* env_dev = ::getenv("ABSTRACTX_UIO_DEV")) {
+            uio_dev = env_dev;
+        }
+
+        if (!bridge_.open_uio(uio_dev)) {
             return false;
         }
 
@@ -63,39 +68,36 @@ public:
 
         int processed = 0;
 
-        // 1. Drain incoming telemetry/TLPs from FPGA DMA RX Ring
-        if (setup_.ingress_rx_ring) {
-            const uint32_t tail = bridge_.rx_tail();
-            uint32_t head = bridge_.rx_head();
-
-            while (head != tail) {
-                // If coherent DDR ring is mapped, read directly; otherwise drain from queue
-                head = (head + 1 == DEFAULT_RING_CAPACITY) ? 0 : (head + 1);
-                bridge_.set_rx_head(head);
-                ++processed;
-                if (setup_.on_rx_pushed) {
-                    setup_.on_rx_pushed();
+        // 1. Flush outgoing commands/TLPs from Application -> FPGA Ingress BRAM
+        // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+        if (setup_.egress_tx_ring) {
+            Tlp64 tx_tlp{};
+            uint32_t free_slots = bridge_.ingress_free();
+            while (free_slots > 0 && setup_.egress_tx_ring->pop(tx_tlp)) {
+                if (bridge_.write_tlp(tx_tlp)) {
+                    ++processed;
+                    --free_slots;
                 }
             }
         }
 
-        // 2. Flush outgoing commands/TLPs from Application -> FPGA DMA TX Ring
-        if (setup_.egress_tx_ring) {
-            Tlp64 tx_tlp{};
-            bool pushed_tx = false;
-            while (setup_.egress_tx_ring->pop(tx_tlp)) {
-                uint32_t tail = bridge_.tx_tail();
-                tail = (tail + 1 == DEFAULT_RING_CAPACITY) ? 0 : (tail + 1);
-                bridge_.set_tx_tail(tail);
-                pushed_tx = true;
+        // 2. Drain incoming telemetry/TLPs from FPGA Egress BRAM -> Ingress RX Ring
+        // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+        if (setup_.ingress_rx_ring) {
+            Tlp64 rx_tlp{};
+            uint32_t count = bridge_.egress_count();
+            while (count > 0 && bridge_.read_tlp(rx_tlp)) {
+                setup_.ingress_rx_ring->push(rx_tlp);
                 ++processed;
-            }
-            if (pushed_tx) {
-                bridge_.signal_tx_doorbell();
+                if (setup_.on_rx_pushed) {
+                    setup_.on_rx_pushed();
+                }
+                --count;
             }
         }
 
         // 3. If timeout requested and nothing was immediately processed, wait on UIO eventfd
+        // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
         if (processed == 0 && timeout_ms > 0 && bridge_.fd() >= 0) {
             struct pollfd pfd{};
             pfd.fd = bridge_.fd();
@@ -105,19 +107,23 @@ public:
             if (ret > 0 && (pfd.revents & POLLIN)) {
                 uint32_t irq_count = 0;
                 [[maybe_unused]] auto bytes = ::read(bridge_.fd(), &irq_count, sizeof(irq_count));
-                bridge_.ack_interrupt();
 
-                // Re-check RX ring on interrupt
-                const uint32_t tail = bridge_.rx_tail();
-                uint32_t head = bridge_.rx_head();
-                while (head != tail) {
-                    head = (head + 1 == DEFAULT_RING_CAPACITY) ? 0 : (head + 1);
-                    bridge_.set_rx_head(head);
-                    ++processed;
-                    if (setup_.on_rx_pushed) {
-                        setup_.on_rx_pushed();
+                // Drain incoming packets on interrupt wake
+                if (setup_.ingress_rx_ring) {
+                    Tlp64 rx_tlp{};
+                    uint32_t irq_drain_count = bridge_.egress_count();
+                    while (irq_drain_count > 0 && bridge_.read_tlp(rx_tlp)) {
+                        setup_.ingress_rx_ring->push(rx_tlp);
+                        ++processed;
+                        if (setup_.on_rx_pushed) {
+                            setup_.on_rx_pushed();
+                        }
+                        --irq_drain_count;
                     }
                 }
+
+                // Acknowledge interrupt only after egress buffer has been drained
+                bridge_.ack_interrupt();
             }
         }
 

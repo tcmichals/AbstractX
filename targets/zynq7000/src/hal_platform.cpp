@@ -8,9 +8,10 @@
  */
 
 #include "abstractx/hal/platform.hpp"
-#include <thread>
-#include <chrono>
 
+#include <pthread.h>
+#include <poll.h>
+#include <sched.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -34,15 +35,34 @@ void platform_init() noexcept {
     }
 }
 
+namespace {
+struct ThreadTrampoline {
+    void (*entry)();
+};
+
+extern "C" void* posix_worker_thunk(void* arg) {
+    auto* tramp = static_cast<ThreadTrampoline*>(arg);
+    if (tramp && tramp->entry) {
+        tramp->entry();
+    }
+    return nullptr;
+}
+static ThreadTrampoline s_worker_tramp{};
+} // namespace
+
 void platform_launch_processing_domain(void (*entry)()) noexcept {
     if (entry) {
-        std::thread worker_thread(entry);
-        worker_thread.detach();
+        s_worker_tramp.entry = entry;
+        pthread_t th{};
+        if (pthread_create(&th, nullptr, posix_worker_thunk, &s_worker_tramp) == 0) {
+            pthread_detach(th);
+        }
     }
 }
 
 void platform_idle_wait() noexcept {
-    std::this_thread::sleep_for(std::chrono::microseconds(100));
+    // Cooperative yield with sub-millisecond backoff using sched_yield
+    sched_yield();
 }
 
 void platform_poll_network() noexcept {

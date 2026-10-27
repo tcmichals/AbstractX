@@ -29,6 +29,7 @@ namespace bar {
     constexpr uint32_t PowerBase     = 0x9000u;
     constexpr uint32_t PitotBase     = 0xA000u;
     constexpr uint32_t TelemetryBase = 0xB000u;
+    constexpr uint32_t OpticalFlowBase = 0xC000u;
 } // namespace bar
 
 namespace phys_bar {

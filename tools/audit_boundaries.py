@@ -2,6 +2,7 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 # @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md#spec-arch-01
+# @impl [SPEC-ARCH-12] docs/DESIGN_SPECIFICATION.md
 
 """
 AbstractX Architectural Boundary Auditor

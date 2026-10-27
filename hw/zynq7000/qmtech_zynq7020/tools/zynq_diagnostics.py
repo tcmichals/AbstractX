@@ -31,7 +31,7 @@ from uio_mmio import UioRegion, find_uio  # noqa: E402
 
 UIO_NAME = "fpga-fabric"  # node name in abstractx-uio.dtso
 
-# asp_axi_lite_bridge.sv register map: the only registers in the UIO window
+# AXI-Lite Bridge Register Offsets matching asp_axi_lite_bridge.sv [SPEC-ZYNQ-01]
 REG_CONTROL      = 0x00
 REG_STATUS       = 0x04
 REG_IRQ_STATUS   = 0x08
@@ -48,23 +48,23 @@ BRIDGE_REGS = {REG_CONTROL, REG_STATUS, REG_IRQ_STATUS, REG_IRQ_ENABLE, REG_TLP_
 class NotInUioWindow(RuntimeError):
     """A Wishbone register that only a CONTROL TLP can reach ([SPEC-ZYNQ-03])."""
 
-# System Registers (Base 0x4000_0000 via Wishbone)
-SYS_REG_SCRATCH  = 0x04  # Scratch Register
-SYS_REG_LED_CTRL = 0x08  # Bit 0 = Carrier LED (P22), Bit 1 = Core LED (M14)
-SYS_REG_TIME_L   = 0x10  # Lower 32 bits of 64-bit nanosecond timer
-SYS_REG_TIME_H   = 0x14  # Upper 32 bits
+# Wishbone Addresses (routed via Control TLPs)
+SYS_REG_SCRATCH  = 0x40000008  # Scratch Register (asp_sys_regs.sv 0x08)
+SYS_REG_LED_CTRL = 0x4000000C  # Bit 0 = Carrier LED (P22), Bit 1 = Core LED (M14) (asp_sys_regs.sv 0x0C)
+SYS_REG_TIME_L   = 0x40000010  # Lower 32 bits of 64-bit nanosecond timer
+SYS_REG_TIME_H   = 0x40000014  # Upper 32 bits
 
-# IMU Registers (Base 0x4000_0100 via Wishbone)
-IMU_REG_CTRL     = 0x100 # Bit 0 = Auto DMA Enable, Bit 1 = Direct Trig, Bit 2 = Polarity, Bit 3 = RW (0=rd, 1=wr)
-IMU_REG_ADDR     = 0x104 # Target register offset (e.g. 0x75 WHO_AM_I, 0x4E PWR_MGMT0)
-IMU_REG_LEN      = 0x108 # Byte length to read/write (e.g. 1 or 14)
-IMU_REG_WDATA    = 0x10C # 32-bit direct SPI write data
-IMU_REG_RDATA    = 0x110 # 32-bit direct SPI read data
-IMU_REG_TIME_H   = 0x114 # Timestamp upper 32 bits
-IMU_REG_TIME_L   = 0x118 # Timestamp lower 32 bits
-IMU_REG_STATUS   = 0x11C # Direct busy/done and Auto-DMA active status
+# IMU Registers (routed via Control TLPs)
+IMU_REG_CTRL     = 0x40000100  # Bit 0 = Auto DMA Enable, Bit 1 = Direct Trig, Bit 2 = Polarity, Bit 3 = RW
+IMU_REG_ADDR     = 0x40000104  # Target register offset (e.g. 0x75 WHO_AM_I)
+IMU_REG_LEN      = 0x40000108  # Byte length to read/write
+IMU_REG_WDATA    = 0x4000010C  # 32-bit direct SPI write data
+IMU_REG_RDATA    = 0x40000110  # 32-bit direct SPI read data
+IMU_REG_TIME_H   = 0x40000114  # Timestamp upper 32 bits
+IMU_REG_TIME_L   = 0x40000118  # Timestamp lower 32 bits
+IMU_REG_STATUS   = 0x4000011C  # Direct busy/done and Auto-DMA active status
 
-HARDWARE_MAGIC   = 0x41535036 # "ASP6"
+HARDWARE_MAGIC   = 0x41535036  # "ASP6"
 
 class ZynqDiagnostics:
     def __init__(self, uio_path=None):
@@ -72,29 +72,85 @@ class ZynqDiagnostics:
         if not self.uio_path.exists():
             raise FileNotFoundError(f"{self.uio_path} not found. Is generic-uio loaded?")
         self.region = UioRegion(self.uio_path, 0)  # size from sysfs; closes its fd on failure
+        self.tag_counter = 1
 
     def close(self):
         self.region.close()
 
-    @staticmethod
-    def _check(offset):
-        if offset not in BRIDGE_REGS:
-            alias = offset & 0xFF
-            raise NotInUioWindow(
-                f"0x{offset:X} is a Wishbone register, reachable only via CONTROL TLPs "
-                f"([SPEC-ZYNQ-03]); the bridge would alias it onto 0x{alias:02X}")
-
-    def read32(self, offset):
-        self._check(offset)
+    def read_csr(self, offset):
         return self.region.read32(offset)
 
-    def write32(self, offset, val):
-        self._check(offset)
+    def write_csr(self, offset, val):
         self.region.write32(offset, val)
+
+    def write_tlp(self, words):
+        """Write 16 DWORDs to REG_TLP_IN_PORT to assemble and commit a 64B TLP."""
+        for w in words:
+            self.write_csr(REG_TLP_IN_PORT, w)
+
+    def read_tlp(self):
+        """Read 16 DWORDs from REG_TLP_OUT_PORT to unpack and consume a 64B TLP."""
+        return [self.read_csr(REG_TLP_OUT_PORT) for _ in range(16)]
+
+    def wb_write32(self, addr, val):
+        """Perform a Wishbone 32-bit write by sending a MemWrite Control TLP."""
+        tag = self.tag_counter & 0xFF
+        self.tag_counter = (self.tag_counter + 1) & 0xFF
+        # 512-bit vector bit packing matching asp_wishbone_master:
+        # DW15 (MSB) = {Type=0x02, Flags=0x00, Tag=tag, Channel=0x01 (Control)}
+        # DW14 = Target Address
+        # DW13 = {Length_DW=1, Seq=0}
+        # DW12-11 = Timestamp (0)
+        # DW10 = Payload Word 0 (val)
+        # DW9-1 = 0
+        # DW0 (LSB) = 0
+        # When pushed to REG_TLP_IN_PORT, word[i] corresponds to bits [32*i +: 32]:
+        # word[0] = bits[31:0] = 0
+        # word[10] = bits[351:320] = payload
+        # word[11..12] = bits[415:352] = timestamp
+        # word[13] = bits[447:416] = {length_dw(16), seq(16)}
+        # word[14] = bits[479:448] = addr
+        # word[15] = bits[511:480] = {type(8), flags(8), tag(8), channel(8)}
+        words = [0] * 16
+        words[15] = (0x02 << 24) | (0x00 << 16) | (tag << 8) | 0x01
+        words[14] = addr & 0xFFFFFFFF
+        words[13] = (1 << 16) | 0x0000
+        words[10] = val & 0xFFFFFFFF
+        self.write_tlp(words)
+
+    def wb_read32(self, addr, timeout=0.1):
+        """Perform a Wishbone 32-bit read by sending a MemRead Control TLP and awaiting CplD."""
+        tag = self.tag_counter & 0xFF
+        self.tag_counter = (self.tag_counter + 1) & 0xFF
+        words = [0] * 16
+        words[15] = (0x01 << 24) | (0x00 << 16) | (tag << 8) | 0x01
+        words[14] = addr & 0xFFFFFFFF
+        words[13] = (1 << 16) | 0x0000
+        self.write_tlp(words)
+
+        # Await completion response
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            egr_cnt = self.read_csr(REG_EGR_COUNT)
+            if egr_cnt > 0:
+                resp = self.read_tlp()
+                resp_dw15 = resp[15]
+                resp_type = (resp_dw15 >> 24) & 0xFF
+                resp_tag = (resp_dw15 >> 8) & 0xFF
+                if resp_type == 0x03 and resp_tag == tag: # CplD
+                    return resp[10] # DW10 = read data payload
+            time.sleep(0.0001)
+        raise TimeoutError(f"Wishbone read from 0x{addr:08X} timed out awaiting CplD")
+
+    def read32(self, offset):
+        return self.wb_read32(offset)
+
+    def write32(self, offset, val):
+        self.wb_write32(offset, val)
 
     def test_ping(self):
         print("\n--- [Test 1] Hardware Ping & Scratch Loopback ---")
-        magic = self.read32(REG_HARDWARE_ID)
+        magic = self.read_csr(REG_HARDWARE_ID)
         print(f"[*] Read Hardware ID: 0x{magic:08X} (Expected: 0x{HARDWARE_MAGIC:08X} 'ASP6')")
         if magic != HARDWARE_MAGIC:
             print("[-] FAIL: Magic mismatch! FPGA fabric not responding properly.")
@@ -265,20 +321,20 @@ class ZynqDiagnostics:
 
         t_end = time.time() + duration_sec
         packets_received = 0
-        last_tail = self.read32(0x1C)  # DMA-mode RX_TAIL; BRAM builds have ING_FREE here
 
         print("[*] Listening for hardware TLP frames...")
-        print("    [PKT #]  | DMA Ring Tail | Status")
+        print("    [PKT #]  | Egress FIFO Count | Status")
         print("    " + "-"*55)
 
         while time.time() < t_end:
-            tail = self.read32(0x1C)
-            if tail != last_tail:
-                packets_received += (tail - last_tail) & 0xFFFFFFFF
-                last_tail = tail
+            egr_cnt = self.read_csr(REG_EGR_COUNT)
+            while egr_cnt > 0:
+                tlp = self.read_tlp()
+                packets_received += 1
+                egr_cnt = self.read_csr(REG_EGR_COUNT)
 
                 if packets_received % 100 == 0:
-                    sys.stdout.write(f"\r    Packets: {packets_received:,} | DMA Ring Tail: {tail} | Receiving at 8,000 Hz...")
+                    sys.stdout.write(f"\r    Packets: {packets_received:,} | Egress Available: {egr_cnt} | Receiving at 8,000 Hz...")
                     sys.stdout.flush()
 
             time.sleep(0.001)
@@ -336,24 +392,18 @@ def main():
             diag.init_imu()
             return
 
-        # 3. Test suites. A test that needs Wishbone registers reports NOT SUPPORTED, never PASS.
+        # 3. Test suites
         test = args.test or "all"
-        failed = False
-        for name, fn in (("ping", diag.test_ping), ("led", diag.test_leds), ("clock", diag.test_clock),
-                         ("imu", diag.test_imu_whoami),
-                         ("stream", lambda: diag.test_stream_monitor(args.duration))):
-            if test not in ("all", name):
-                continue
-            try:
-                failed |= not fn()
-            except NotInUioWindow as exc:
-                print(f"[NOT SUPPORTED] {name}: {exc}")
-                failed = True
-        if failed:
-            sys.exit(1)
-    except NotInUioWindow as exc:
-        print(f"[NOT SUPPORTED] {exc}")
-        sys.exit(1)
+        if test in ["all", "ping"]:
+            if not diag.test_ping() and test != "all": sys.exit(1)
+        if test in ["all", "led"]:
+            diag.test_leds()
+        if test in ["all", "clock"]:
+            diag.test_clock()
+        if test in ["all", "imu"]:
+            diag.test_imu_whoami()
+        if test in ["all", "stream"]:
+            diag.test_stream_monitor(args.duration)
     finally:
         diag.close()
 

@@ -59,6 +59,32 @@ MAG_CHIP = mag_chip(MAG_ADDR)
 abstractx.sleep_ms(20)
 
 # ==============================================================================
+# 1.5. IMU (ICM-42688-P on SPI1 @ 10 MHz)
+# ==============================================================================
+def imu_init():
+    try:
+        abstractx.spi_init(10000000)
+        abstractx.sleep_ms(20)
+        who = abstractx.spi_xfer(b"\xf5\x00")[1]
+        if who == 0x47:
+            abstractx.spi_xfer(b"\x4e\x0f")
+            abstractx.sleep_ms(10)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+HAS_IMU = imu_init()
+
+
+def imu_read():
+    if not HAS_IMU:
+        return b""
+    # Register 0x1D | 0x80 = 0x9D: 2 temp + 6 accel (X,Y,Z) + 6 gyro (X,Y,Z)
+    return bytes(abstractx.spi_xfer(b"\x9d" + b"\x00" * 14)[1:])
+
+# ==============================================================================
 # 2. Initialize & Maximize u-blox NEO-M8N GPS (115200 Baud @ 10 Hz)
 # ==============================================================================
 abstractx.uart_init(9600)
@@ -168,6 +194,7 @@ while not stop:
         break
 
     raw_mag = mag_read(MAG_ADDR)
+    raw_imu = imu_read() if HAS_IMU else b""
     # Drain everything the UART ISR buffered: GPS at 115200 baud / 10 Hz outruns 128 B per
     # 100 ms tick, the RX ring overflowed and NMEA sentences arrived garbled.
     raw_gps = abstractx.uart_read(512)
@@ -178,12 +205,14 @@ while not stop:
         raw_gps += more
 
     mag_hex = to_hex(raw_mag) if len(raw_mag) == 6 else "none"
+    imu_hex = to_hex(raw_imu) if len(raw_imu) >= 12 else "none"
 
+    out_line = "!RAW:M=" + mag_hex + ":C=" + MAG_CHIP
+    if imu_hex != "none":
+        out_line += ":I=" + imu_hex
     if raw_gps and len(raw_gps) > 0:
-        gps_hex = to_hex(raw_gps)
-        print("!RAW:M=" + mag_hex + ":C=" + MAG_CHIP + ":G=" + gps_hex)
-    else:
-        print("!RAW:M=" + mag_hex + ":C=" + MAG_CHIP)
+        out_line += ":G=" + to_hex(raw_gps)
+    print(out_line)
 
     abstractx.sleep_ms(100)
 

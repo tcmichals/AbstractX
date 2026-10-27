@@ -187,6 +187,13 @@ async def async_main():
     gps_sats = 0
     gps_fix = 0
 
+    def emit_tlp(frame):
+        sock.sendto(frame, (HOST_IP, HOST_PORT))
+        try:
+            sock.sendto(frame, ("127.0.0.1", 9870))
+        except Exception:
+            pass
+
     try:
         while DURATION_S <= 0 or (time.time() - start_time < DURATION_S):
             line_bytes = await proc.stdout.readline()
@@ -215,6 +222,7 @@ async def async_main():
                 mag_hex = parts[0] if len(parts) > 0 else ""
                 fields = dict(p.split("=", 1) for p in parts[1:] if "=" in p)
                 gps_hex = fields.get("G", "")
+                imu_hex = fields.get("I", "")
                 mag_chip = fields.get("C", "QMC5883L")  # untagged lines come from older streamers
 
                 # 1. Process Magnetometer
@@ -226,6 +234,31 @@ async def async_main():
                         x, y, z = decode_mag(raw_mag, mag_chip)
                         mag_x, mag_y, mag_z = x, y, z
                         heading_deg = (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+                    except Exception:
+                        pass
+
+                # 1.5. Process ICM-42688-P IMU
+                roll_deg, pitch_deg = 0.0, 0.0
+                ax_g, ay_g, az_g = 0.0, 0.0, 1.0
+                gx_dps, gy_dps, gz_dps = 0.0, 0.0, 0.0
+                raw_imu = b""
+                if len(imu_hex) >= 28:
+                    try:
+                        raw_imu = bytes.fromhex(imu_hex)
+                        # 0..1: Temp, 2..7: Accel X,Y,Z, 8..13: Gyro X,Y,Z (Big-Endian)
+                        ax_raw, ay_raw, az_raw = struct.unpack(">3h", raw_imu[2:8])
+                        gx_raw, gy_raw, gz_raw = struct.unpack(">3h", raw_imu[8:14])
+                        # +-16G scale -> 2048 LSB/G
+                        ax_g = ax_raw / 2048.0
+                        ay_g = ay_raw / 2048.0
+                        az_g = az_raw / 2048.0
+                        # +-2000 dps scale -> 16.4 LSB/(deg/s)
+                        gx_dps = gx_raw / 16.4
+                        gy_dps = gy_raw / 16.4
+                        gz_dps = gz_raw / 16.4
+
+                        roll_deg = math.degrees(math.atan2(ay_g, az_g))
+                        pitch_deg = math.degrees(math.atan2(-ax_g, math.sqrt(ay_g * ay_g + az_g * az_g)))
                     except Exception:
                         pass
 
@@ -266,10 +299,10 @@ async def async_main():
                 seq = (seq + 1) & 0xFFFF
                 ts = int(time.time() * 1e9)
 
-                # Synthesize 64B TLP Tag 5 (Live Hardware Attitude)
+                # Synthesize 64B TLP Tag 5 (Live Hardware Attitude with Real Accel Angles)
                 hdr_att = struct.pack("<BBBBIHHQ", 0x10, 0x00, 5, 2, 0x40000100, 16, seq, ts)
-                roll_cdeg = 0
-                pitch_cdeg = 0
+                roll_cdeg = int(roll_deg * 100)
+                pitch_cdeg = int(pitch_deg * 100)
                 yaw_cdeg = max(0, min(36000, int(heading_deg * 100)))
                 alt_mm = int(gps_alt * 1000)
                 spd_cm_s = max(0, min(65535, int(gps_spd * 100)))
@@ -279,10 +312,10 @@ async def async_main():
                 m4 = 500
                 payload_att = struct.pack("<2hHiH4H", roll_cdeg, pitch_cdeg, yaw_cdeg, alt_mm, spd_cm_s, m1, m2, m3, m4)
                 frame_att = hdr_att + payload_att + (b"\x00" * (40 - len(payload_att))) + b"\xde\xad\xbe\xef"
-                sock.sendto(frame_att, (HOST_IP, HOST_PORT))
+                emit_tlp(frame_att)
 
                 # Synthesize 64B TLP Tag 2 (GPS Fix)
-                hdr_gps = struct.pack("<BBBBIHHQ", 0x10, 0x00, 2, 2, 0x40000200, 26, seq, ts)
+                hdr_gps = struct.pack("<BBBBIHHQ", 0x10, 0x00, 2, 2, 0x40005000, 26, seq, ts)
                 itow = int(time.time() * 1000) % 604800000
                 lat_i = int(gps_lat * 1e7)
                 lon_i = int(gps_lon * 1e7)
@@ -294,18 +327,26 @@ async def async_main():
                 payload_gps = struct.pack("<i5i2B", *(clamp_i32(v) for v in (itow, lat_i, lon_i, alt_i, spd_i, head_i)),
                                           sats_b, fix_b)
                 frame_gps = hdr_gps + payload_gps + (b"\x00" * (40 - len(payload_gps))) + b"\xde\xad\xbe\xef"
-                sock.sendto(frame_gps, (HOST_IP, HOST_PORT))
+                emit_tlp(frame_gps)
 
                 # Synthesize 64B TLP Tag 3 (Mag count trigger)
                 # Tag 3: the compass registers exactly as the E906 read them, a chip code
                 # (1 HMC5883L, 2 QMC5883L), a pad byte and the decoded X/Y/Z: 14 bytes, 4 DW.
                 payload_mag = encode_mag_payload(raw_mag, mag_chip) if any(raw_mag) else b"\x00" * 14
-                hdr_mag = struct.pack("<BBBBIHHQ", 0x10, 0x00, 3, 2, 0x40000300, (len(payload_mag) + 3) // 4, seq, ts)
+                hdr_mag = struct.pack("<BBBBIHHQ", 0x10, 0x00, 3, 2, 0x40003000, (len(payload_mag) + 3) // 4, seq, ts)
                 frame_mag = hdr_mag + payload_mag + b"\x00" * (40 - len(payload_mag)) + b"\xde\xad\xbe\xef"
-                sock.sendto(frame_mag, (HOST_IP, HOST_PORT))
+                emit_tlp(frame_mag)
+
+                # Synthesize 64B TLP Tag 1 (Raw 6-DoF IMU Burst: 6B Accel + 6B Gyro + 2B Temp)
+                if len(raw_imu) >= 14:
+                    hdr_imu = struct.pack("<BBBBIHHQ", 0x10, 0x00, 1, 2, 0x40001000, 4, seq, ts)
+                    payload_imu = raw_imu[2:14] + raw_imu[0:2] # Accel (2..7), Gyro (8..13), Temp (0..1)
+                    frame_imu = hdr_imu + payload_imu + (b"\x00" * (40 - len(payload_imu))) + b"\xde\xad\xbe\xef"
+                    emit_tlp(frame_imu)
 
                 if seq % 5 == 0:
-                    print(f"[BRIDGE] Forwarded #{seq}: Heading={heading_deg:.1f}° Sats={gps_sats} Lat={gps_lat:.4f} Lon={gps_lon:.4f} Spd={gps_spd:.2f}m/s NMEA_bad={nmea_rejected}")
+                    imu_str = f"Roll={roll_deg:+.1f}° Pitch={pitch_deg:+.1f}°" if len(raw_imu) >= 14 else "IMU=none"
+                    print(f"[BRIDGE] Forwarded #{seq}: {imu_str} Heading={heading_deg:.1f}° Sats={gps_sats} Spd={gps_spd:.2f}m/s")
             else:
                 if line:
                     print(f"[PROC] {line}")

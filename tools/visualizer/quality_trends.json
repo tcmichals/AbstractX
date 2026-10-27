@@ -1,0 +1,85 @@
+[
+  {
+    "timestamp": "2026-10-26T01:54:29.196191+00:00",
+    "git": {
+      "commit": "f4c0c48",
+      "branch": "main",
+      "subject": "docs: link Hackster.io articles, device tree guides, and cubie-a5e companion repo"
+    },
+    "specs": {
+      "total": 46,
+      "implemented": 46,
+      "coverage_pct": 100.0,
+      "drift_count": 0
+    },
+    "tests": {
+      "passed": 14,
+      "failed": 0,
+      "total": 14,
+      "duration_ms": 918.1,
+      "status": "PASS"
+    },
+    "cpputest": {
+      "available": true,
+      "tests": 14,
+      "checks": 2562,
+      "failed": 0,
+      "duration_ms": 16.3,
+      "memory_leaks": 0,
+      "status": "PASS",
+      "suites": [
+        {
+          "name": "test_sitl_imu",
+          "desc": "ICM-42688-P 8 kHz IMU Driver & Mock HAL",
+          "tests": 5,
+          "checks": 2026,
+          "failed": 0,
+          "leaks": 0,
+          "duration_ms": 8.25,
+          "status": "PASS"
+        },
+        {
+          "name": "test_sitl_gps",
+          "desc": "U-Blox M10 UBX-NAV-PVT Parser & Checksum",
+          "tests": 4,
+          "checks": 15,
+          "failed": 0,
+          "leaks": 0,
+          "duration_ms": 2.76,
+          "status": "PASS"
+        },
+        {
+          "name": "test_sitl_fusion",
+          "desc": "9-DoF Mahony AHRS Attitude Estimator",
+          "tests": 3,
+          "checks": 8,
+          "failed": 0,
+          "leaks": 0,
+          "duration_ms": 3.04,
+          "status": "PASS"
+        },
+        {
+          "name": "test_sitl_serial_loopback",
+          "desc": "Lock-Free SPSC TLP Queue Swap Loopback",
+          "tests": 2,
+          "checks": 513,
+          "failed": 0,
+          "leaks": 0,
+          "duration_ms": 1.82,
+          "status": "PASS"
+        }
+      ]
+    },
+    "memory": {
+      "zero_heap": true,
+      "total_targets": 3
+    },
+    "evaluation": {
+      "verdict": "BASELINE",
+      "spec_delta": 0.0,
+      "test_delta": 0,
+      "speed_delta_ms": 0.0,
+      "summary": "Initial baseline established."
+    }
+  }
+]

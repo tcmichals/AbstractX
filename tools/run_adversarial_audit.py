@@ -40,7 +40,7 @@ CODE_SUFFIXES = {
     ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml",
 }
 C_CPP_SUFFIXES = {".hpp", ".h", ".cpp", ".c"}
-AUDIT_ROOTS = ("include", "apps", "targets", "docs", "rtl", "hw", "sim", "examples", "src", "tools", "trace")
+AUDIT_ROOTS = ("include", "applib", "apps", "targets", "docs", "rtl", "hw", "sim", "examples", "src", "tools", "trace")
 GENERATED_DIRS = {".git", ".venv", "venv", "third_party", "node_modules", "__pycache__", "build", "dist", "out", "sim_build"}
 
 # [SPEC-AUDIT-14] interrupt and polling rules

@@ -365,3 +365,4 @@ configuration:
   * BRAM mode moves exactly 16 DWORDs through the ingress/egress packet ports.
   * Optional DDR mode uses the profile's ring head/tail ownership contract.
 * Hot-path driver methods MUST remain strictly freestanding C++20 (zero heap allocations, zero blocking spin loops).
+* **Verified by**: `host-tests` (`sim/test_zynq_target.cpp`)

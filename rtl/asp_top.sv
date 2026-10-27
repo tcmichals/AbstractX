@@ -389,7 +389,7 @@ module asp_top #(
         .clk             (clk),
         .rst_n           (sync_rst_n),
         .i_sys_timestamp (sys_timestamp),
-        .i_gpio          ({16'd0, i_pwm_pins, imu_int, imu_miso, 10'd0}),
+        .i_gpio          ({16'd0, i_pwm_pins, imu_int_i, imu_miso, 10'd0}),
         .o_gpio_out      (),
         .o_gpio_pindir   (),
         .wb_cyc_i        (wb_cyc && pio_sel),

@@ -116,26 +116,48 @@ module top_qmtech_zynq7020 #(
     // User Key Input
     input  wire                                 i_key_carrier, // Carrier Key (P16)
 
+    // High-Speed Serial Transceiver Pins (0x40000500 base, 256-byte FIFOs)
+    input  wire                                 i_uart_rx,
+    output logic                                o_uart_tx,
+
     // Hardware Logic Analyzer Debug Pins (0..3)
     output logic [3:0]                          o_debug_pins
 );
 
-    // Monotonic 64-bit nanosecond system timestamp timer
+    // Monotonic 64-bit nanosecond system timestamp timer [SPEC-ZYNQ-06]
     localparam logic [63:0] TIMER_CLK_FREQ_HZ = {32'd0, CLK_FREQ_HZ};
+    localparam logic [63:0] NS_PER_CYCLE       = 64'd1_000_000_000 / TIMER_CLK_FREQ_HZ;
+    localparam logic [63:0] NS_REMAINDER       = 64'd1_000_000_000 % TIMER_CLK_FREQ_HZ;
+
     logic [63:0] sys_timestamp;
     logic [63:0] timestamp_phase;
-    wire [63:0] timestamp_phase_sum = timestamp_phase + 64'd1_000_000_000;
-    always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
-        if (!s_axi_aresetn) begin
-            sys_timestamp   <= 64'd0;
-            timestamp_phase <= 64'd0;
-        end else if (timestamp_phase_sum >= TIMER_CLK_FREQ_HZ) begin
-            sys_timestamp   <= sys_timestamp + (timestamp_phase_sum / TIMER_CLK_FREQ_HZ);
-            timestamp_phase <= timestamp_phase_sum % TIMER_CLK_FREQ_HZ;
-        end else begin
-            timestamp_phase <= timestamp_phase_sum;
+
+    generate
+        if (NS_REMAINDER == 0) begin : gen_clean_timer
+            // Default 100 MHz PL clock: exact 10 ns per cycle (zero remainder, no division)
+            always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
+                if (!s_axi_aresetn) begin
+                    sys_timestamp <= 64'd0;
+                end else begin
+                    sys_timestamp <= sys_timestamp + NS_PER_CYCLE;
+                end
+            end
+        end else begin : gen_fractional_timer
+            // Non-integer frequency: single-cycle accumulator with subtractor (zero runtime division)
+            always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
+                if (!s_axi_aresetn) begin
+                    sys_timestamp   <= 64'd0;
+                    timestamp_phase <= 64'd0;
+                end else if (timestamp_phase + NS_REMAINDER >= TIMER_CLK_FREQ_HZ) begin
+                    sys_timestamp   <= sys_timestamp + NS_PER_CYCLE + 64'd1;
+                    timestamp_phase <= (timestamp_phase + NS_REMAINDER) - TIMER_CLK_FREQ_HZ;
+                end else begin
+                    sys_timestamp   <= sys_timestamp + NS_PER_CYCLE;
+                    timestamp_phase <= timestamp_phase + NS_REMAINDER;
+                end
+            end
         end
-    end
+    endgenerate
 
     // ------------------------------------------------------------------------
     // AXI DMA Core <-> Router Signals (512-bit Vectors)
@@ -221,6 +243,14 @@ module top_qmtech_zynq7020 #(
     logic         imu_stream_tvalid;
     logic         imu_stream_tready;
 
+    logic [511:0] serial_ingress_tdata;
+    logic         serial_ingress_tvalid;
+    logic         serial_ingress_tready;
+
+    logic [511:0] serial_stream_tdata;
+    logic         serial_stream_tvalid;
+    logic         serial_stream_tready;
+
     asp_router u_router (
         .clk                 (s_axi_aclk),
         .rst_n               (s_axi_aresetn),
@@ -233,9 +263,9 @@ module top_qmtech_zynq7020 #(
         .m_tel_tdata         (),
         .m_tel_tvalid        (),
         .m_tel_tready        (1'b1),
-        .m_esc_tdata         (),
-        .m_esc_tvalid        (),
-        .m_esc_tready        (1'b1),
+        .m_esc_tdata         (serial_ingress_tdata),
+        .m_esc_tvalid        (serial_ingress_tvalid),
+        .m_esc_tready        (serial_ingress_tready),
         .m_egr_tdata         (tlp_tx_data),
         .m_egr_tvalid        (tlp_tx_valid),
         .m_egr_tready        (tlp_tx_ready),
@@ -245,9 +275,9 @@ module top_qmtech_zynq7020 #(
         .s_imu_stream_tdata  (imu_stream_tdata),
         .s_imu_stream_tvalid (imu_stream_tvalid),
         .s_imu_stream_tready (imu_stream_tready),
-        .s_esc_stream_tdata  (512'd0),
-        .s_esc_stream_tvalid (1'b0),
-        .s_esc_stream_tready ()
+        .s_esc_stream_tdata  (serial_stream_tdata),
+        .s_esc_stream_tvalid (serial_stream_tvalid),
+        .s_esc_stream_tready (serial_stream_tready)
     );
 
     // ------------------------------------------------------------------------
@@ -286,21 +316,24 @@ module top_qmtech_zynq7020 #(
     // SYS:      0x400000xx (SYS_VERSION, SCRATCH, LED_CTRL)
     // IMU:      0x400001xx (IMU Auto-DMA & Timestamping Engine)
     // DShot:    0x400002xx (Motor Channel 1..4 Control)
+    // Serial:   0x400005xx (High-Speed UART with 256B FIFOs & Auto-TLP)
     // NeoPixel: 0x400006xx (WS2812B RGB Status LED)
     // ------------------------------------------------------------------------
-    logic sys_sel, imu_sel, dshot_sel, neopixel_sel;
+    logic sys_sel, imu_sel, dshot_sel, serial_sel, neopixel_sel;
     assign sys_sel      = (wb_adr[31:8] == 24'h400000);
     assign imu_sel      = (wb_adr[31:8] == 24'h400001);
     assign dshot_sel    = (wb_adr[31:8] == 24'h400002);
+    assign serial_sel   = (wb_adr[31:8] == 24'h400005);
     assign neopixel_sel = (wb_adr[31:8] == 24'h400006);
 
-    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, neopixel_wb_dat_r;
-    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   neopixel_wb_ack;
+    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, serial_wb_dat_r, neopixel_wb_dat_r;
+    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   serial_wb_ack,   neopixel_wb_ack;
 
-    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | neopixel_wb_ack;
+    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | serial_wb_ack | neopixel_wb_ack;
     assign wb_dat_r = sys_sel      ? sys_wb_dat_r :
                       imu_sel      ? imu_wb_dat_r :
                       dshot_sel    ? dshot_wb_dat_r :
+                      serial_sel   ? serial_wb_dat_r :
                       neopixel_sel ? neopixel_wb_dat_r : 32'd0;
 
     logic [5:0] led_bits;
@@ -377,6 +410,33 @@ module top_qmtech_zynq7020 #(
         .wb_data_o      (neopixel_wb_dat_r),
         .wb_ack         (neopixel_wb_ack),
         .o_neopixel_pin (o_neopixel)
+    );
+
+    // High-Speed UART / Serial Core with 256-Byte FIFOs (Base: 0x40000500)
+    asp_uart_core #(
+        .CLK_FREQ_HZ (CLK_FREQ_HZ),
+        .DEFAULT_BAUD(115_200),
+        .FIFO_DEPTH  (256)
+    ) u_uart_core (
+        .clk             (s_axi_aclk),
+        .rst_n           (s_axi_aresetn),
+        .i_sys_timestamp (sys_timestamp),
+        .i_uart_rx       (i_uart_rx),
+        .o_uart_tx       (o_uart_tx),
+        .wb_cyc_i        (wb_cyc && serial_sel),
+        .wb_stb_i        (wb_stb && serial_sel),
+        .wb_we_i         (wb_we),
+        .wb_adr_i        (wb_adr[7:0]),
+        .wb_dat_i        (wb_dat_w),
+        .wb_dat_o        (serial_wb_dat_r),
+        .wb_ack_o        (serial_wb_ack),
+        .s_tlp_tdata     (serial_ingress_tdata),
+        .s_tlp_tvalid    (serial_ingress_tvalid),
+        .s_tlp_tready    (serial_ingress_tready),
+        .m_tlp_tdata     (serial_stream_tdata),
+        .m_tlp_tvalid    (serial_stream_tvalid),
+        .m_tlp_tready    (serial_stream_tready),
+        .o_uart_irq      ()
     );
 
     // Logic Analyzer Debug Signals:

@@ -79,3 +79,12 @@ set_property IOSTANDARD LVCMOS33 [get_ports {o_debug_pins[2]}]
 
 set_property PACKAGE_PIN F21 [get_ports {o_debug_pins[3]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {o_debug_pins[3]}]
+
+# -----------------------------------------------------------------------------
+# High-Speed Serial Transceiver Pins (JP5 Extension Header - Bank 35)
+# -----------------------------------------------------------------------------
+set_property PACKAGE_PIN E22 [get_ports i_uart_rx]
+set_property IOSTANDARD LVCMOS33 [get_ports i_uart_rx]
+
+set_property PACKAGE_PIN D22 [get_ports o_uart_tx]
+set_property IOSTANDARD LVCMOS33 [get_ports o_uart_tx]

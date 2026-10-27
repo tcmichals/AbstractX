@@ -532,7 +532,7 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 
 ---
 
-## 4. Sensor Driver Specifications (`SPEC-IMU` & `SPEC-GPS`)
+## 4. Sensor Driver Specifications (`SPEC-IMU`, `SPEC-MAG` & `SPEC-GPS`)
 
 ### `[SPEC-IMU-01]` ICM-42688-P 8 kHz SPI DMA Auto-Read & CTF TLP Emission
 * **Requirement**: Read 15-byte burst (`Temp[1..2]`, `Accel_XYZ[3..8]`, `Gyro_XYZ[9..14]`) on `DRDY` edge, convert to engineering units, and format into a 23-byte CTF `ImuSamplePayload` encapsulated in `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_IMU, payload)`.
@@ -544,6 +544,11 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 * **Requirement**: `co_await imu.next_sample_async()` suspends the calling task with zero CPU polling until the SPI DMA completes.
 * **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `sanitizer-gate`
 * **Implementation Target**: `drivers/include/abstractx/drivers/imu/icm42688p.hpp`
+
+### `[SPEC-MAG-01]` 3-Axis Magnetometer Interface & Coroutine Ingestion
+* **Requirement**: Calibrated 3-axis magnetic field vector ingestion (`read_sample_async()`), returning `mag::MagSample` in milliGauss with hardware timestamping, adhering to the `IMagDriver` abstract interface with zero dynamic heap allocation.
+* **Verified by**: `host-tests`, `interface-compliance`
+* **Implementation Target**: `include/abstractx/sensor/sensor_interface.hpp`, `applib/include/applib/drivers/mag/`
 
 ### `[SPEC-GPS-01]` U-Blox UBX-NAV-PVT Binary Parser & CTF TLP Emission
 * **Requirement**: Zero-allocation streaming byte parser for UBX Class `0x01`, ID `0x07` (92-byte payload) with Fletcher-8 checksum verification, emitting a 35-byte CTF `GpsFixPayload` inside `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_GPS, payload)`.

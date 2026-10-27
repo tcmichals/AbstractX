@@ -86,6 +86,11 @@ bool platform_trace_listening() noexcept;
 // Universal HAL Driver Accessors
 ISpi&         get_spi_driver() noexcept;
 II2c&         get_i2c_driver() noexcept;
+II2c*         get_i2c_port(uint8_t bus) noexcept;
+inline II2c&  get_i2c_driver(uint8_t bus) noexcept {
+    II2c* p = get_i2c_port(bus);
+    return p ? *p : get_i2c_driver();
+}
 IUart&        get_uart_driver() noexcept;
 // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
 // Port `index`, or null when the target has none; port 0 = get_uart_driver(). Weak default: port 0 only.

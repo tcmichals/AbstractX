@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# @impl [SPEC-ZYNQ-01] docs/DESIGN_SPECIFICATION.md
 """
 tools/run_vivado_check.py
 -------------------------
@@ -12,7 +13,7 @@ import os
 import subprocess
 from pathlib import Path
 
-VIVADO_SETTINGS = Path("/home/tcmichals/tools/Xilinx/2025.2/Vivado/settings64.sh")
+VIVADO_SETTINGS = Path("/home/tcmichals/hdisk/tools/AMD/2025.2/Vivado/settings64.sh")
 DEFAULT_PART = "xc7z020clg400-1"
 
 def run_vivado_check(module_name="asp_router", sv_file="rtl/asp_router.sv", part=DEFAULT_PART):
@@ -27,9 +28,13 @@ def run_vivado_check(module_name="asp_router", sv_file="rtl/asp_router.sv", part
         print(f"[ERROR] SystemVerilog file not found: {sv_path}")
         return 1
 
+    # Collect all RTL files so submodules (e.g. asp_axi_lite_bridge, asp_router, etc.) resolve
+    rtl_files = list((root_dir / "rtl").rglob("*.sv")) + list((root_dir / "hw").rglob("*.sv"))
+    read_commands = "\n".join([f'read_verilog -sv "{f}"' for f in rtl_files])
+
     tcl_script = f"""
 set_param general.maxThreads 8
-read_verilog -sv "{sv_path}"
+{read_commands}
 synth_design -top {module_name} -part {part} -mode out_of_context
 report_utilization -no_primitives
 exit
@@ -43,7 +48,7 @@ exit
     print(f" Source:         {sv_file}")
     print(f"==============================================================================")
 
-    cmd = f"source {VIVADO_SETTINGS} && vivado -mode batch -nolog -nojournal -source {tcl_file}"
+    cmd = f"export LD_LIBRARY_PATH=/home/tcmichals/hdisk/tools/AMD/lib5:${{LD_LIBRARY_PATH:-}} && source {VIVADO_SETTINGS} && vivado -mode batch -nolog -nojournal -source {tcl_file}"
     try:
         proc = subprocess.run(["bash", "-c", cmd], cwd=root_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         # Filter and print relevant summary lines

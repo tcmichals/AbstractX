@@ -182,6 +182,9 @@ __attribute__((weak)) bool hal::platform_trace_listening() noexcept { return tru
 __attribute__((weak)) hal::IUart* hal::get_uart_port(uint8_t index) noexcept {
     return index == 0 ? &hal::get_uart_driver() : nullptr;
 }
+__attribute__((weak)) hal::II2c* hal::get_i2c_port(uint8_t index) noexcept {
+    return index == 0 ? &hal::get_i2c_driver() : nullptr;
+}
 
 // Weak default: a platform without interrupt counters reports no drivers.
 __attribute__((weak)) void hal::platform_runtime_stats(stats::PlatformStats& out) noexcept {

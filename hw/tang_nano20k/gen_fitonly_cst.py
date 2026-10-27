@@ -23,7 +23,8 @@ HERE = Path(__file__).resolve().parent
 CLOCK_PIN = "4"  # same as tang_nano20k.cst (27 MHz oscillator, LPLL1_T_IN)
 
 PORTS = (["i_reset_n", "i_spi_sclk", "i_spi_cs_n", "io_spi_io0", "io_spi_io1", "o_int_req",
-          "o_imu_sclk", "o_imu_cs_n", "o_imu_mosi", "i_imu_miso", "i_imu_int", "o_neopixel_pin"]
+          "o_imu_sclk", "o_imu_cs_n", "o_imu_mosi", "i_imu_miso", "i_imu_int", "o_neopixel_pin",
+          "i_uart_rx", "o_uart_tx"]
          + [f"o_motor_pins[{i}]" for i in range(4)]
          + [f"i_pwm_pins[{i}]" for i in range(6)]
          + [f"o_led[{i}]" for i in range(6)])

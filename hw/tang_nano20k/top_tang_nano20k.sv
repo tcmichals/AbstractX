@@ -29,6 +29,8 @@ module top_tang_nano20k (
 
     output wire [3:0] o_motor_pins,   // DShot600 x4
     input  wire [5:0] i_pwm_pins,     // RC PWM inputs x6
+    input  wire       i_uart_rx,      // High-speed UART RX
+    output wire       o_uart_tx,      // High-speed UART TX
     output wire       o_neopixel_pin, // WS2812 data
     output wire [5:0] o_led           // on-board LEDs
 );
@@ -37,7 +39,9 @@ module top_tang_nano20k (
 
     // Reset synchronizer: asynchronous assert, synchronous de-assert, so no
     // flop leaves reset on a different clock edge ([SPEC-TN20K-02]).
+    /* verilator lint_off SYNCASYNCNET */
     logic [1:0] rst_sync;
+    /* verilator lint_on SYNCASYNCNET */
     always_ff @(posedge clk or negedge i_reset_n) begin
         if (!i_reset_n) rst_sync <= 2'b00;
         else            rst_sync <= {rst_sync[0], 1'b1};
@@ -73,6 +77,12 @@ module top_tang_nano20k (
         .spi_cs_n      (i_spi_cs_n),
         .spi_io0       (io_spi_io0),
         .spi_io1       (io_spi_io1),
+`ifdef VERILATOR
+        .spi_io0_o     (),
+        .spi_io1_o     (),
+        .spi_io0_oe    (),
+        .spi_io1_oe    (),
+`endif
         .imu_sclk      (o_imu_sclk),
         .imu_cs_n      (o_imu_cs_n),
         .imu_mosi      (o_imu_mosi),
@@ -80,6 +90,8 @@ module top_tang_nano20k (
         .imu_int_i     (i_imu_int),
         .o_motor_pins  (o_motor_pins),
         .i_pwm_pins    (i_pwm_pins),
+        .i_uart_rx     (i_uart_rx),
+        .o_uart_tx     (o_uart_tx),
         .o_neopixel_pin(o_neopixel_pin),
         .o_led         (asp_led_bits),
         .o_debug_pins  (debug_pins_unused),

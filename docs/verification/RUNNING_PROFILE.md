@@ -4,11 +4,11 @@
 > tracked and version-controlled directly inside Git. It profiles memory footprints, example execution,
 > and specification traceability commit-over-commit without relying on ephemeral third-party dashboards.
 
-**Latest Verified Commit**: `4a25c32` (main) &bull; _fix: finalize E906 and Zynq integration review_
+**Latest Verified Commit**: `f4c0c48` (main) &bull; _docs: link Hackster.io articles, device tree guides, and cubie-a5e companion repo_
 
-**Timestamp**: `2026-10-09T17:30:37.708924+00:00`
+**Timestamp**: `2026-10-26T01:54:29.196191+00:00`
 
-**Overall Trend Verdict**: **STABLE** &mdash; _All invariants and specifications preserved (100% parity)._
+**Overall Trend Verdict**: **BASELINE** &mdash; _Initial baseline established._
 
 ---
 
@@ -55,15 +55,15 @@ pie title Raspberry Pi Pico 2 W (RP2350) SRAM Allocation
 
 | CppUTest Test Suite | Target Component / Driver | Tests | Checks | Memory Leaks | Duration | Status |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `test_sitl_imu` | ICM-42688-P 8 kHz IMU Driver & Mock HAL | **3** | 17 | **0 B** | 1.24 ms | **✅ PASS** |
-| `test_sitl_gps` | U-Blox M10 UBX-NAV-PVT Parser & Checksum | **4** | 15 | **0 B** | 0.76 ms | **✅ PASS** |
-| `test_sitl_fusion` | 9-DoF Mahony AHRS Attitude Estimator | **3** | 8 | **0 B** | 1.82 ms | **✅ PASS** |
-| `test_sitl_serial_loopback` | Lock-Free SPSC TLP Queue Swap Loopback | **2** | 513 | **0 B** | 1.16 ms | **✅ PASS** |
+| `test_sitl_imu` | ICM-42688-P 8 kHz IMU Driver & Mock HAL | **5** | 2026 | **0 B** | 8.25 ms | **✅ PASS** |
+| `test_sitl_gps` | U-Blox M10 UBX-NAV-PVT Parser & Checksum | **4** | 15 | **0 B** | 2.76 ms | **✅ PASS** |
+| `test_sitl_fusion` | 9-DoF Mahony AHRS Attitude Estimator | **3** | 8 | **0 B** | 3.04 ms | **✅ PASS** |
+| `test_sitl_serial_loopback` | Lock-Free SPSC TLP Queue Swap Loopback | **2** | 513 | **0 B** | 1.82 ms | **✅ PASS** |
 
-* **Total CppUTest SITL Tests**: **12** across **4** suites
-* **Total CppUTest Assertions**: **553 checks**
+* **Total CppUTest SITL Tests**: **14** across **4** suites
+* **Total CppUTest Assertions**: **2562 checks**
 * **CppUTest Memory Leak Detector**: **0 bytes leaked** (100% clean teardown)
-* **Total CppUTest Suite Runtime**: **5.4 ms**
+* **Total CppUTest Suite Runtime**: **16.3 ms**
 
 ## 4. Silicon Inter-Core Switch & Hardware Doorbell Latency Matrix
 
@@ -76,8 +76,8 @@ pie title Raspberry Pi Pico 2 W (RP2350) SRAM Allocation
 
 ## 5. SpecTrace Parity & Traceability
 
-* **Authoritative Requirements**: 25
-* **Implemented Requirements**: 25
+* **Authoritative Requirements**: 46
+* **Implemented Requirements**: 46
 * **Grand Traceability Coverage**: **100.0%**
 * **Specification Drift Count**: 0 (Zero drift)
 
@@ -85,7 +85,7 @@ pie title Raspberry Pi Pico 2 W (RP2350) SRAM Allocation
 
 | Commit | Spec Parity | Tests Passed | Test Runtime | Dynamic Heap | Health Trend |
 | :--- | :--- | :--- | :--- | :---: | :--- |
-| `4a25c32` | 100.0% (25/25) | 9/9 | 222.6 ms | **0 B** | **STABLE** |
+| `f4c0c48` | 100.0% (46/46) | 14/14 | 918.1 ms | **0 B** | **BASELINE** |
 
 ---
 

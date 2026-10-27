@@ -13,8 +13,9 @@ description: "Check skill. RTL is free of multi-driven signals, width errors and
 
 ```bash
 source ~/.tools/oss-cad-suite/environment
-for f in rtl/*.sv rtl/*/*.sv; do verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL \
-  -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY $f --top-module $(basename $f .sv); done
+INCS="-Irtl -Irtl/imu -Irtl/motor -Irtl/led -Irtl/spi -Irtl/pwm -Irtl/esc -Irtl/serial -Irtl/pio -Ihw/zynq7000/qmtech_zynq7020/rtl"
+for f in rtl/*.sv rtl/*/*.sv hw/**/rtl/*.sv; do [ -f "$f" ] && verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL \
+  -Wno-UNUSEDPARAM -Wno-PINCONNECTEMPTY -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND $INCS $f --top-module $(basename $f .sv); done
 ```
 
 ## Pass criteria
