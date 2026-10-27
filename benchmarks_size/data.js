@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793121273729,
+  "lastUpdate": 1793122500453,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -2597,6 +2597,240 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/ac489c40f2bb77090bbfdd70f534e31f630120cf"
         },
         "date": 1793121272437,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 93300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 52968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 145660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 6640,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 362076,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 152300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 355436,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "e9b57c05dba34b9ac6cbf5ffb8ddb615947becfe",
+          "message": "fix(pio): FIFO join and EXEC_STALLED; RP2040 datasheet checklist; vendor pico-examples (EL-1027-43..48)\n\nSpec first: [SPEC-PIO-02] rules 8 (FJOIN_TX/RX, flush on change) and 9 (latched SMx_INSTR,\nEXECCTRL.EXEC_STALLED); [SPEC-PIO-14] third-party program conformance; [SPEC-PIO-15]\nRP2040 feature table from the datasheet register list (done / missing / wrong / not planned).\n\n- asp_pio_sm.sv: TX and RX share 8 words per SM (FJOIN gives 8 deep, no extra FIFO flops);\n  FJOIN change empties both FIFOs; o_exec_latched. asp_pio_tile.sv: EXECCTRL[31] reads it.\n  Found by Betaflight's PIO UART (FJOIN) and OSD driver (pio_sm_exec_wait_blocking).\n- rtl/pio/programs/examples/pico/: 26 pico-examples .pio files (BSD-3, LICENSE.TXT,\n  raspberrypi/pico-examples @ 0d62f75b) + pioasm images.\n- tools/pio_examples.py: Betaflight programs (GPL-3.0) are read from $BETAFLIGHT_DIR\n  (default ../flightcode/betaflight, @ 49679ccd), never copied here (dual licence).\n  tools/pio_programs.py: assemble() takes a root.\n\nDatasheet findings logged, not yet fixed: pin latch per SM instead of per block\n(EL-1027-43); SM_RESTART changes PC/FIFOs/pins, rule 7 contradicts the datasheet\n(EL-1027-44); missing FDEBUG, FLEVEL, IRQ_FORCE, INTE/INTF/INTS, DBG_*, OUT_STICKY,\nINLINE_OUT_EN, CLKDIV 0 = 65536 (EL-1027-45).\n\nEvidence (this PC):\n  new tests fail on the previous RTL (test_fifo_join_tx_and_flush, test_fifo_join_rx_8_words,\n    test_exec_stalled_latches_until_done: FAIL) and pass now\n  python3 tools/run_cocotb.py -> 21/21 targets (conformance 18/18)\n  tools/pio_programs.py --check -> 29 sources, 0 problems; tools/pio_examples.py --list ->\n    41 programs assemble, all <= 32 words\n  verilator -Wall lint clean; yosys proc; check -assert rc 0\n  audit_specs OK; spectrace --changes 0 untraced; drift 0\n\nNot verified: functional tests of the 41 example programs (EL-1027-46), area of the\nFIFO change, nextpnr fit, hardware.",
+          "timestamp": "2026-10-27T12:21:38-05:00",
+          "tree_id": "af7fdc694174f8d92adaaff4b877e6c1680f27b9",
+          "url": "https://github.com/tcmichals/AbstractX/commit/e9b57c05dba34b9ac6cbf5ffb8ddb615947becfe"
+        },
+        "date": 1793122499513,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
