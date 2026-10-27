@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793108450442,
+  "lastUpdate": 1793109675644,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -491,6 +491,240 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/2b3970ae04073bae814cd9e0ebddd0aa682c3746"
         },
         "date": 1793108449987,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 93300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 52968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 145660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 6640,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 362076,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 152300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 355436,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "1f520c15e1be3b3f4547fc174363a5ec88771c69",
+          "message": "fix(e906): async I2C transfers honour timeout_us ([SPEC-HAL-09])\n\nE906I2c ignored I2cRequest::timeout_us: a slave holding the bus left the\nawaiting coroutine suspended forever.\n\nThe async start records a deadline and arms a timer wake;\nplatform_poll_network() (every step) calls poll_i2c_timeouts(), which\nunder an InterruptGuard ends a late transfer with STOP and completes it\nwith Timeout exactly once. No interrupt resumes a coroutine.\n[SPEC-E906-HAL-04] rule 8 added first.\n\npoll_timeout/finish are noinline: inlined per port they cost 1,908 B of\ntext in every E906 app; now ~200 B.\n\nEvidence (this PC):\n- sim/test_e906_twi: async write+read via transfer_async + Dispatcher,\n  async timeout once with STOP, 1000 async cycles with no pool growth;\n  fails with poll_timeout disabled\n- ctest build_host 70/70; build_asan 70/70, 0 reports;\n  build_tsan (setarch -R) 70/70, 0 reports\n- cmake --build build_e906 --clean-first: 12/12 segments [ok]\n- analyze_elf_size.sh e906_repl_app: SRAM_FAST 182.3/192.0 KB (94.9%),\n  DRAM 0.00 MB\n\nNot verified: board run.",
+          "timestamp": "2026-10-27T08:55:42-05:00",
+          "tree_id": "afe4340c7e795149c472a191ba4c48fc9888709e",
+          "url": "https://github.com/tcmichals/AbstractX/commit/1f520c15e1be3b3f4547fc174363a5ec88771c69"
+        },
+        "date": 1793109674960,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
