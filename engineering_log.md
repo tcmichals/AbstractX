@@ -2951,3 +2951,25 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `sim/cocotb/test_asp_pio_conformance_cocotb.py`, 15 tests, one per [SPEC-PIO-02] rule plus `SMx_INSTR`, all running pioasm output. Mutation (autopush pushes the pre-shift ISR) fails 3 of them; restored, 15/15. One test expectation was wrong and fixed (autopull with `PULL_THRESH 8` yields one byte per word, as on the RP2040).
 * **Evidence (this PC, 2026-10-27)**: `python3 tools/run_cocotb.py`: 18/18 targets pass (pio-tile 5/5, pio-conformance 15/15); `tools/pio_programs.py --check`: 0 problems; Verilator lint clean for every RTL module except `top_qmtech_zynq7020` (EL-1027-13, pre-existing); `audit_specs.py` 100%; `--check-drift` 0; `ctest --test-dir build_host` 71/71.
 * **Not verified**: synthesis / fit with the larger state machine (`fpga-fit`), hardware. RP2040 corner cases not covered by a test: `out exec` / `mov exec` chains, `wait pin` with `in_base` wrap, `in pins` with `in_base` near 31, FIFO join (not implemented).
+
+---
+
+## 2026-10-27: Bidirectional DShot600 and ESC passthrough as PIO programs; Gowin build fixed (EL-1027-20 progress, new EL-1027-40, -41)
+
+* **Category**: `product-bug` (Gowin build), `process-gap` (area never measured)
+* **Done**:
+  * `rtl/pio/programs/dshot_bidir.pio` (27 words): 16 SM cycles per bit, inverted frame from one TX word (no repeat: no data, no signal), then the wire is released and the reply captured as 64 raw samples in 2 RX words (two 0 words if no reply in ~90 us). Host decoding reference: `tools/dshot_ref.py` (Betaflight `decodeTelemetryPacket` algorithm).
+  * `rtl/pio/programs/esc_serial.pio` (27 words): half-duplex 8N1 at 32 SM cycles per bit, back-to-back TX, one-bit guard then release, glitch-rejecting RX, break by the host through `SMx_INSTR`.
+  * `tools/run_cocotb.py --log DIR` keeps each target's full output (the summary hid a cocotb clock-period error).
+* **Evidence (this PC)**:
+  * `sim/cocotb/test_asp_pio_dshot_cocotb.py` 5/5: frame timing within one fabric clock + 3 % (the `asp_dshot_core` criterion) at 12, 27 and 50 MHz with only the divider changed; modelled ESC reply decoded at nominal and +-3 % ESC clock; no-reply words; no edges without data. Mutation (low phase one cycle shorter) fails 4/5.
+  * `sim/cocotb/test_asp_pio_esc_serial_cocotb.py` 3/3: bytes at 19200, guard then release, no echo, ESC answer at nominal and +-2 %, 1/8-bit glitch rejected, host break. Mutation (guard removed) fails with "released before the guard bit".
+  * `python3 tools/run_cocotb.py`: all targets pass (see the commit message for the count).
+* **New tracker rows**:
+
+| ID | Area | Finding | Evidence | Next step | Check |
+|---|---|---|---|---|---|
+| EL-1027-40 | FPGA build | the Gowin build of every board was broken since the PIO tile entered `asp_top`: `hw/common/gowin_synth.tcl` never read `rtl/pio/*.sv` ("Module asp_pio_tile ... is not part of the design"); Yosys' own reader also rejected `return` in functions and unpacked-array ports in the tile/shim | `make -f hw/Makefile tang_nano20k_fit` | fixed here: files added, functions use name assignment, `i_sm_pc` flattened. `yosys-slang` (full SV) is installed but cannot pass `inout` ports through the hierarchy (yosys-slang issue #143) until pins are split o/oe/i at the board top ([SPEC-PIO-09]) | `fpga-build` |
+| EL-1027-41 | FPGA area | first measured fit of `top_tang_nano20k` with one PIO tile and all old cores: LUT4 16126/20736 (77 %), DFF 8822/15552 (56 %), ALU 2894, BSRAM 1/46. A second (motor) tile does not fit next to the old cores; the README's "~940 LUTs per tile" was never measured | nextpnr utilisation, 2026-10-27 | per-module numbers for the tile; then remove the old cores ([SPEC-PIO-00] migration) and/or shrink the SM (variable pin indexing, barrel shifters, IRAM as registers) | `fpga-fit` |
+
+* **Not verified**: placement / Fmax of this fit (still running when written); hardware.

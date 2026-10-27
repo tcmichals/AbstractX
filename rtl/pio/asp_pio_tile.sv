@@ -220,7 +220,7 @@ module asp_pio_tile #(
         .i_sm_trigger    (sm_trigger_pulse),
         .i_sm_active     (sm_active),
         .i_sm_stalled    (sm_stalled),
-        .i_sm_pc         (sm_pc),
+        .i_sm_pc         ({sm_pc[3], sm_pc[2], sm_pc[1], sm_pc[0]}),
         .i_irq_pulse     (combined_irq_set),
         .m_tlp_tdata     (m_tlp_tdata),
         .m_tlp_tvalid    (m_tlp_tvalid),

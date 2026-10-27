@@ -207,26 +207,40 @@ flowchart TD
 
 ### `[SPEC-PIO-12]` Motor Outputs: Bidirectional DShot600 as a PIO Program
 * **Requirement**: 4 motor outputs, one state machine each, on one tile running one shared
-  program (`rtl/pio/programs/dshot_bidir.pio`). Default DShot600 bidirectional: inverted frame
-  (idle high), 16-bit word with inverted CRC, then the pin turns to input and the state machine
-  captures the 21-bit GCR eRPM reply (5/4 of the bit rate) and pushes the raw samples; GCR and
-  checksum decoding happen on the host. Other variants (one-way DShot150/300/600, PWM/OneShot) are
-  other programs in the library, selected by the host.
+  program (`rtl/pio/programs/dshot_bidir.pio`, 27 of 32 words). 16 SM cycles per DShot bit; the
+  host sets the divider from the fabric clock (DShot600: 9.6 MHz SM clock). Inverted frame (idle
+  high, '1' low 12/16, '0' low 6/16), 16-bit word from the TX FIFO (built by the host: value,
+  telemetry bit, inverted CRC), then the pin is released and the reply is captured.
+* **Requirement (failsafe)**: one frame per TX word, `pull block`: nothing is repeated, so when
+  the host stops sending the wire stays idle and the ESC sees signal loss.
+* **Requirement (reply capture)**: within ~90 us after the frame, from the first falling edge,
+  64 raw line samples (1 = high), one every 5 SM cycles (2.56 per reply bit at 750 kbit/s), as two
+  RX words, sample 0 in bit 31 of word 0; two 0 words when no reply starts. GCR / checksum /
+  eRPM decoding is host software; `tools/dshot_ref.py` is the reference (Betaflight
+  `decodeTelemetryPacket` algorithm on run lengths, so an ESC clock off by 3 % still decodes).
 * **Requirement (timing at every board clock, [SPEC-FPGA-CLK-01])**: DShot600 bit 1.667 us,
-  T1H 1.25 us, T0H 0.625 us (one-way polarity; inverted for bidirectional), within 2 % using the
-  fractional divider; a frame on all 4 motors starts in the same cycle ([SPEC-PIO-10]).
-* **Verified by**: `cocotb-regression` (timing parity with the `asp_dshot_core` test at 12, 27 and
-  50 MHz; eRPM capture of a modelled ESC reply), `board-bringup`
-* **Implementation Target**: `rtl/pio/programs/dshot_bidir.pio`
+  low 1.25 us ('1') / 0.625 us ('0'), each within one fabric clock + 3 % (the `asp_dshot_core`
+  criterion) at 12, 27 and 50 MHz, using only the fractional divider.
+* **Requirement**: other variants (one-way DShot150/300/600, PWM/OneShot) are other programs in
+  the library, selected by the host; a frame on all 4 motors starts in the same cycle
+  ([SPEC-PIO-10]).
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_pio_dshot_cocotb.py`: frame timing
+  and bits at 12/27/50 MHz, modelled ESC reply decoded at nominal and +-3 % ESC clock, no-reply
+  words, no frame without data), `board-bringup`
+* **Implementation Target**: `rtl/pio/programs/dshot_bidir.pio`, `tools/dshot_ref.py`
 
 ### `[SPEC-PIO-13]` ESC 4-Way Passthrough as a PIO Program
 * **Requirement**: BLHeli_S / Bluejay / AM32 configuration and flashing through the motor wire.
   The FPGA is a one-wire byte pipe; the 4-way protocol runs in the host / configurator
   (`python-imgui-esc-configurator` `MSP/fourway.py`). Bytes travel on channel 0x05 (ESC_SERIAL).
-* **Requirement (program `rtl/pio/programs/esc_serial.pio`)**: half-duplex 8N1, default 19200 baud
-  (divider from the board clock): transmit drives the line, then after a one-bit guard time releases
-  it (input) and receives; received bytes stream to the host with the idle-timeout egress
-  ([SPEC-PIO-10]); bytes on the line while transmitting are not reported.
+* **Requirement (program `rtl/pio/programs/esc_serial.pio`, 27 of 32 words)**: half-duplex 8N1,
+  32 SM cycles per bit, default 19200 baud (divider from the board clock). Idle: the wire is an
+  input. TX FIFO bytes (bits [7:0]) go out back to back; after the last stop bit the line is held
+  high one more bit (guard), then released. RX: start bit re-checked at its middle (a shorter low
+  pulse is not a byte), bits sampled at their centres, one byte per RX word in bits [31:24];
+  received bytes stream to the host with the idle-timeout egress ([SPEC-PIO-10]); nothing is
+  received while transmitting. The break is driven by the host through `SMx_INSTR`
+  (`set pins, 0` / `set pindirs, 1`) with the state machine stopped.
 * **Requirement (host, not RTL)**: enter only while disarmed; stop the motor state machines; drive
   the selected wire low for the bootloader break; load `esc_serial` on that motor's state machine;
   every other motor wire stays input; leave by reloading the motor program; leave automatically
@@ -234,7 +248,8 @@ flowchart TD
 * **Reference behaviour**: `rt-fc-offloader/rtl/io/wb_esc_uart.sv` and `wb_serial_dshot_mux.sv`
   (hardware-tested with `python/hw/test_hw_esc_passthrough.py`): guard time = one bit, break by
   forcing the line low, tristate between modes, 5 s watchdog.
-* **Verified by**: `cocotb-regression` (byte TX/RX at 19200 against a modelled ESC, guard time,
-  no echo), `board-bringup` (read ESC version through the configurator)
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_pio_esc_serial_cocotb.py`: bytes
+  out at 19200, guard bit then release, no echo, modelled ESC answer at nominal and +-2 % clock,
+  glitch rejected, host break), `board-bringup` (read ESC version through the configurator)
 * **Implementation Target**: `rtl/pio/programs/esc_serial.pio`
 

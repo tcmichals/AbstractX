@@ -46,6 +46,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--only", default="", help="run targets whose name contains this text")
     ap.add_argument("--trace", action="store_true", help="enable FST waveform tracing (needs lz4)")
+    ap.add_argument("--log", default="", help="write each target's full output to DIR/<target>.log")
     args = ap.parse_args()
 
     if not shutil.which("cocotb-config"):
@@ -68,6 +69,9 @@ def main():
             env = dict(os.environ, ABSTRACTX_ROOT=str(ROOT))  # tests import repo tools (pio_programs)
             proc = subprocess.run(cmd, cwd=cocotb_dir, capture_output=True, text=True, env=env)
             out = proc.stdout + proc.stderr
+            if args.log:
+                Path(args.log).mkdir(parents=True, exist_ok=True)
+                (Path(args.log) / f"{name}.log").write_text(out)
             results = RESULT_RE.findall(out)
             if results:
                 total, passed, failed = (int(x) for x in results[-1])

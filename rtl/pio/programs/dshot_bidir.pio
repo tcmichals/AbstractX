@@ -1,0 +1,57 @@
+; Copyright (C) 2026 Tim Michals
+; SPDX-License-Identifier: GPL-3.0-or-later
+;
+; Bidirectional DShot, one motor per state machine ([SPEC-PIO-12]).
+;
+; Clock: 16 SM cycles per DShot bit; the host sets the divider from the fabric
+; clock (DShot600: SM clock 9.6 MHz). Pins: OUT, SET, IN base and JMP_PIN all
+; = the motor pin (from the board pin map). Shift left, autopush at 32.
+;
+; TX FIFO: one 16-bit DShot frame in bits [15:0] (throttle/command, telemetry
+;          bit, inverted CRC: built by the host). One frame per word; nothing is
+;          repeated, so if the host stops, the ESC sees no signal.
+; Line:    idles high (pull-up); bits inverted: '1' low 12/16 of the bit,
+;          '0' low 6/16.
+; RX FIFO: after each frame the line is released and the reply is captured as
+;          64 raw line samples (1 = high), one every 5 SM cycles from the first
+;          falling edge, sample 0 in bit 31 of word 0; or two 0 words when no
+;          reply starts within ~90 us. GCR / eRPM decoding is done by the host.
+
+.program dshot_bidir
+.wrap_target
+start:
+    set pins, 1                 ; idle high before driving
+    set pindirs, 1
+    pull block
+    mov osr, ~osr               ; inverted DShot
+    out null, 16                ; frame now in OSR[31:16]
+    set y, 15
+bit:
+    set pins, 0          [5]    ; 6 cycles low
+    out pins, 1          [5]    ; 6 cycles: low for '1', high for '0'
+    set pins, 1          [2]
+    jmp y-- bit                 ; 16 cycles per bit
+    set pindirs, 0              ; release: the ESC answers on the same wire
+    set y, 8
+outer:
+    set x, 31
+poll:
+    jmp pin still_high          ; 3-cycle poll, ~90 us total
+    jmp reply
+still_high:
+    jmp x-- poll
+    jmp y-- outer
+    mov isr, null               ; no reply
+    push block
+    push block
+    jmp start
+reply:
+    set y, 31
+s0:
+    in pins, 1           [3]    ; one sample every 5 cycles
+    jmp y-- s0
+    set y, 31
+s1:
+    in pins, 1           [3]
+    jmp y-- s1
+.wrap

@@ -39,7 +39,7 @@ module asp_pio_tlp_shim #(
     // Hardware Event Trace Inputs from State Machines
     input  wire [3:0]    i_sm_active,
     input  wire [3:0]    i_sm_stalled,
-    input  wire [4:0]    i_sm_pc [0:3],
+    input  wire [19:0]   i_sm_pc,        // {pc3, pc2, pc1, pc0}, 5 bits each
     input  wire [7:0]    i_irq_pulse,
 
     // Egress 512-bit (64-Byte) AXI-Stream to asp_router.sv
@@ -138,7 +138,7 @@ module asp_pio_tlp_shim #(
 
     /* verilator lint_off UNUSEDSIGNAL */
     wire _unused_signals = |{i_sm_active[3:2], i_sm_active[0], i_sm_stalled[3:2], i_sm_stalled[0],
-                            i_sm_pc[3], i_sm_pc[2], i_sm_pc[0]};
+                            i_sm_pc[19:15], i_sm_pc[14:10], i_sm_pc[4:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -164,7 +164,7 @@ module asp_pio_tlp_shim #(
                     BASE_ADDR,
                     16'd4, seq_num,
                     i_sys_timestamp,
-                    {active_sm, i_tile_id, 3'd0, i_sm_pc[active_sm[1:0]], 7'd0, i_sm_stalled[active_sm[1:0]]},
+                    {active_sm, i_tile_id, 3'd0, i_sm_pc[5*active_sm[1:0] +: 5], 7'd0, i_sm_stalled[active_sm[1:0]]},
                     320'd0
                 };
                 trace_pending   <= 1'b1;

@@ -1,0 +1,47 @@
+{
+  "source": "rtl/pio/programs/esc_serial.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "esc_serial",
+      "instructions": [
+        194,
+        7,
+        41003,
+        32896,
+        41031,
+        174,
+        0,
+        44610,
+        192,
+        64807,
+        24065,
+        74,
+        32800,
+        0,
+        57345,
+        57473,
+        65024,
+        57383,
+        32257,
+        82,
+        65281,
+        41003,
+        32896,
+        41031,
+        176,
+        48962,
+        57472
+      ],
+      "wrap_target": 0,
+      "wrap": 26,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

@@ -157,25 +157,25 @@ module asp_pio_sm #(
     function automatic logic [31:0] bit_reverse(input logic [31:0] v);
         logic [31:0] r;
         for (int i = 0; i < 32; i++) r[i] = v[31 - i];
-        return r;
+        bit_reverse = r;
     endfunction
 
     function automatic logic [31:0] pins_in(input logic [31:0] g, input logic [4:0] base);
         logic [31:0] r;
-        for (int i = 0; i < 32; i++) r[i] = g[5'(int'(base) + i)];
-        return r;
+        for (int i = 0; i < 32; i++) r[i] = g[5'(base + 5'(i))];
+        pins_in = r;
     endfunction
 
     // n = 1..32 bits
     function automatic logic [31:0] low_mask(input logic [5:0] n);
-        return (n >= 6'd32) ? 32'hFFFF_FFFF : ((32'd1 << n) - 32'd1);
+        low_mask = (n >= 6'd32) ? 32'hFFFF_FFFF : ((32'd1 << n) - 32'd1);
     endfunction
 
     // RP2040 IRQ index: bit 4 = relative, {i[2], (i[1:0] + sm) % 4}
     function automatic logic [2:0] irq_index(input logic [4:0] f);
         logic [1:0] lo;
         lo = f[4] ? 2'(f[1:0] + 2'(SM_ID)) : f[1:0];
-        return {f[2], lo};
+        irq_index = {f[2], lo};
     endfunction
 
     // ------------------------------------------------------------------------

@@ -157,5 +157,5 @@ make -f Makefile TESTCASE=test_asp_pio_cocotb
 | `SPEC-PIO-09` | **Generic Bidirectional Pins** | ``rtl-lint`, `cocotb-regression`, `fpga-fit`` | ``rtl/asp_top.sv`, board tops under `hw/`, `hw/<board>/pins.toml`, `tools/pin_map.py`` |
 | `SPEC-PIO-10` | **Generic Per-Tile TLP Data Path** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_tlp_shim.sv`` |
 | `SPEC-PIO-11` | **Program Library and Loading** | ``cocotb-regression` (tests load the checked-in images), the `--check` tool` | ``rtl/pio/programs/`, `tools/pio_programs.py`` |
-| `SPEC-PIO-12` | **Motor Outputs: Bidirectional DShot600 as a PIO Program** | ``cocotb-regression` (timing parity with the `asp_dshot_core` test at 12, 27 and` | ``rtl/pio/programs/dshot_bidir.pio`` |
-| `SPEC-PIO-13` | **ESC 4-Way Passthrough as a PIO Program** | ``cocotb-regression` (byte TX/RX at 19200 against a modelled ESC, guard time,` | ``rtl/pio/programs/esc_serial.pio`` |
+| `SPEC-PIO-12` | **Motor Outputs: Bidirectional DShot600 as a PIO Program** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_dshot_cocotb.py`: frame timing` | ``rtl/pio/programs/dshot_bidir.pio`, `tools/dshot_ref.py`` |
+| `SPEC-PIO-13` | **ESC 4-Way Passthrough as a PIO Program** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_esc_serial_cocotb.py`: bytes` | ``rtl/pio/programs/esc_serial.pio`` |
