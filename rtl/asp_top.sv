@@ -399,6 +399,9 @@ module asp_top #(
         .wb_dat_i        (wb_dat_w),
         .wb_dat_o        (pio_wb_dat_r),
         .wb_ack_o        (pio_wb_ack),
+        .s_tlp_tdata     (512'd0),          // router port for PIO channels: EL-1027-39
+        .s_tlp_tvalid    (1'b0),
+        .s_tlp_tready    (),
         .m_tlp_tdata     (pio_stream_tdata),
         .m_tlp_tvalid    (pio_stream_tvalid),
         .m_tlp_tready    (pio_stream_tready),

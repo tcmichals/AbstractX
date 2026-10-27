@@ -177,12 +177,14 @@ module asp_pio_sm #(
         low_mask = (n >= 6'd32) ? 32'hFFFF_FFFF : ((32'd1 << n) - 32'd1);
     endfunction
 
-    // RP2040 IRQ index: bit 4 = relative, {i[2], (i[1:0] + sm) % 4}
+    // RP2040 IRQ index: bit 4 = relative, {i[2], (i[1:0] + sm) % 4}; bit 3 is unused on RP2040
+    /* verilator lint_off UNUSEDSIGNAL */
     function automatic logic [2:0] irq_index(input logic [4:0] f);
         logic [1:0] lo;
         lo = f[4] ? 2'(f[1:0] + 2'(SM_ID)) : f[1:0];
         irq_index = {f[2], lo};
     endfunction
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // ------------------------------------------------------------------------
     // Execution, FIFOs and pins

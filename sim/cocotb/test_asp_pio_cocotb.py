@@ -118,6 +118,8 @@ async def init_tile(dut):
     dut.wb_adr_i.value = 0
     dut.wb_dat_i.value = 0
     dut.m_tlp_tready.value = 1
+    dut.s_tlp_tvalid.value = 0
+    dut.s_tlp_tdata.value = 0
 
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
@@ -332,16 +334,9 @@ async def test_tlp_packetizer_and_trace_stream(dut):
     """[SPEC-PIO-04] [SPEC-PIO-07] Verify autonomous 64-Byte TLP datagram and Timeline trace generation."""
     await init_tile(dut)
 
-    # 1. Configure TLP Shim via Wishbone:
-    #    trace_en=1, burst_words=4, stream_sm=1, tlp_channel=2, tlp_tag=5, tlp_en=1
-    #    Bit mapping:
-    #      [0]: tlp_en = 1
-    #      [15:8]: tlp_tag = 5
-    #      [23:16]: tlp_channel = 2
-    #      [25:24]: stream_sm = 1
-    #      [28:26]: burst_words = 4
-    #      [31]: trace_en = 1
-    tlp_cfg_word = 1 | (5 << 8) | (2 << 16) | (1 << 24) | (4 << 26) | (1 << 31)
+    # 1. OUT_CFG ([SPEC-PIO-10]): EN[0], MASK[7:4] = SM1, TAG[15:8] = 5, CHANNEL[23:16] = 2,
+    #    BURST_WORDS[27:24] = 4, TRACE_EN[31]
+    tlp_cfg_word = 1 | (0x2 << 4) | (5 << 8) | (2 << 16) | (4 << 24) | (1 << 31)
     await wb_write(dut, REG_TLP_CFG, tlp_cfg_word)
 
     # Verify readback
@@ -415,6 +410,8 @@ async def test_tlp_packetizer_and_trace_stream(dut):
     assert pkt[0] == 0x10, f"Expected Type 0x10, got 0x{pkt[0]:02X}"
     assert pkt[2] == 5, f"Expected Tag 5, got {pkt[2]}"
     assert pkt[3] == 2, f"Expected Channel 2, got {pkt[3]}"
+    assert pkt[1] == 0x02, f"Expected flags = SM mask 0x02, got 0x{pkt[1]:02X}"
+    assert int.from_bytes(pkt[8:10], "big") == 4, "length_dw"
 
     # Verify timestamp latched (bytes 12..19 in big-endian)
     ts_latched = int.from_bytes(pkt[12:20], byteorder="big")

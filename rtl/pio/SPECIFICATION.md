@@ -3,7 +3,7 @@
 ```
 Document:    rtl/pio/SPECIFICATION.md
 Status:      Active / SSOT
-Governs:     rtl/pio/asp_pio_tile.sv, rtl/pio/asp_pio_sm.sv, rtl/pio/asp_pio_tlp_shim.sv, rtl/pio/programs/, sim/cocotb/test_asp_pio_cocotb.py, sim/cocotb/test_asp_pio_conformance_cocotb.py
+Governs:     rtl/pio/asp_pio_tile.sv, rtl/pio/asp_pio_sm.sv, rtl/pio/asp_pio_tlp_shim.sv, rtl/pio/asp_pio_tlp_ingress.sv, rtl/pio/programs/, sim/cocotb/test_asp_pio_cocotb.py, sim/cocotb/test_asp_pio_conformance_cocotb.py
 Last Update: 2026-10-27
 ```
 
@@ -120,13 +120,19 @@ flowchart TD
   1. The shim latches the 64-bit monotonic system timestamp (`i_sys_timestamp`) sampled at the exact cycle of the triggering event.
   2. The shim frames the payload into a standard 64-byte `Tlp64` datagram (`Type=0x10`, Target Address, Sequence ID, Timestamp, Sensor Payload).
   3. The shim drives `m_tlp_tdata[511:0]` and `m_tlp_tvalid` into `asp_router.sv` via AXI-Stream with zero CPU intervention.
+* **Update (2026-10-27)**: the "designated state machine" is now the `OUT_CFG` SM mask and the
+  timestamp is the clock the first word leaves the RX FIFOs; framing, mask and send rules are in
+  [SPEC-PIO-10]. The old per-tile trigger timestamp (`SMx` offset `0x1C`) only starts a trace event.
 * **Implementation Target**: `rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`
-* **Verified by**: `cocotb-regression`, `sanitizer-gate`
+* **Verified by**: `cocotb-regression`
 
 ### `[SPEC-PIO-05]` Wishbone B4 Slave Bus Interface & Register Map
 * **Requirement**: The PIO tile MUST expose a standard Wishbone B4 pipelined slave interface at base address `0x40000700`:
   * `0x00`: Tile Control & Status (`ENABLE[3:0]`, `RESTART[3:0]`).
   * `0x04`: Internal IRQ Status & Clear.
+  * `0x08`: FIFO status (read): RX empty `[31:28]`, TX full `[27:24]`.
+  * `0x0C`, `0x90`, `0x94`, `0x98`: TLP data path `OUT_CFG`, `OUT_TIMEOUT`, `IN_CFG`, `IN_STATUS`
+    ([SPEC-PIO-10]).
   * `0x10 .. 0x8C`: Instruction Memory (32 words x 32-bit, lower 16 bits active).
   * `0x100 + 0x20 * N`: SM `N` Clock Divider, RP2040 `CLKDIV` layout (`INT[31:16]`, `FRAC[15:8]`).
   * `0x104 + 0x20 * N`: SM `N` `EXECCTRL`, RP2040 layout (`STATUS_N[3:0]`, `STATUS_SEL[4]`, wrap, `JMP_PIN`, `SIDE_PINDIR`, `SIDE_EN`).
@@ -192,8 +198,40 @@ flowchart TD
   arrived for `idle_timeout` clocks (byte streams). Each TLP carries the timestamp of its first word.
 * **Requirement**: the tile knows nothing about what the words mean; channel, mask, mode, burst
   size and timeout are registers.
-* **Verified by**: `cocotb-regression`
-* **Implementation Target**: `rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_tlp_shim.sv`
+* **Wire format (both directions, 2026-10-27)**: the 512-bit vector used by `asp_router`: DW0
+  `[511:480]` = {type, flags, tag, channel}, DW1 target address, DW2 {length_dw, sequence}, DW3-DW4
+  timestamp, payload word `k` (k = 0..9) = DW`5+k` = bits `[351-32k -: 32]`, DW15 CRC (not checked).
+  * Ingress: `flags[3:0]` = SM mask, `length_dw` = word count (above 10 is clipped to 10; 0 or an
+    empty mask writes nothing). Words are dealt in groups: with `n` selected SMs, group `g` writes words
+    `g*n .. g*n+n-1` to the selected SMs in ascending SM order, all in one clock, once every SM of
+    the group has TX space; the last group may be partial. So one TLP is 4 motor frames at once
+    (mask `0xF`, 4 words) or 10 bytes for one ESC wire (mask `0x1`, 10 words).
+  * Egress: type `0x10`, `flags[3:0]` = the SM mask, tag and channel from `OUT_CFG`, address =
+    tile base, `length_dw` = words in the TLP, sequence +1 per TLP, timestamp = `i_sys_timestamp`
+    in the clock the first word left the RX FIFOs. A *round* takes one word from every selected
+    SM in the same clock, only when all of them have one; words are stored in SM order. The TLP is
+    sent when it holds at least `burst_words` words, when another round would not fit in 10 words,
+    or when it holds a word and no round happened for `idle_timeout` clocks. Streaming is the
+    same rule with one SM in the mask; gathering (DShot: mask `0xF`, burst 8) is several.
+* **Requirement (ingress queue, why)**: `asp_spi_frontend` holds one received TLP; while
+  `i_tlp_rx_ready` is low the next one is dropped with `overflow_flag`, and the router has one
+  ingress for every channel. A tile that held ingress until a slow program (ESC serial: 0.5 ms per
+  byte) drained its TX FIFOs would drop control TLPs. So the tile copies each accepted TLP into a
+  queue of `IN_SLOTS` (32) entries in block RAM, one word per clock (ingress is held at most 11
+  clocks per TLP), and deals groups from the queue. Ingress waits only when the queue is full. 32
+  slots hold 320 ESC bytes, more than one BLHeli 4-way flash-write message (256 data bytes + header).
+  The host keeps track of queue space by reading `IN_STATUS`; it never needs to stall the router.
+* **Requirement (one owner per FIFO)**: while ingress or egress is enabled for an SM, the host does
+  not also write its TX FIFO / read its RX FIFO over Wishbone (the tile does not arbitrate a
+  word between the two). Two tiles must not use the same ingress channel.
+* **Registers** (offsets from the tile base, [SPEC-PIO-05]): `0x0C OUT_CFG` = `EN[0]`,
+  `MASK[7:4]`, `TAG[15:8]`, `CHANNEL[23:16]`, `BURST_WORDS[27:24]` (1..10; 0 = 10), `TRACE_EN[31]`;
+  `0x90 OUT_TIMEOUT` = idle timeout in clocks `[23:0]` (0 = only `burst_words` sends);
+  `0x94 IN_CFG` = `EN[0]`, `CHANNEL[15:8]`; `0x98 IN_STATUS` (read) = queued TLPs `[5:0]`,
+  `BUSY[8]` (a TLP is being dealt).
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_pio_tlp_path_cocotb.py`), `rtl-lint`,
+  `rtl-synth-check`
+* **Implementation Target**: `rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_tlp_ingress.sv`, `rtl/pio/asp_pio_tlp_shim.sv`
 
 ### `[SPEC-PIO-11]` Program Library and Loading
 * **Requirement**: programs live as `.pio` sources in `rtl/pio/programs/`, assembled by the Raspberry

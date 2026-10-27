@@ -35,6 +35,7 @@ else ifeq ($(TOPLEVEL), asp_neopixel_core)
     VERILOG_SOURCES = $(RTL_DIR)/led/asp_neopixel_core.sv
 else ifeq ($(TOPLEVEL), asp_pio_tile)
     VERILOG_SOURCES = $(RTL_DIR)/pio/asp_pio_sm.sv \
+                      $(RTL_DIR)/pio/asp_pio_tlp_ingress.sv \
                       $(RTL_DIR)/pio/asp_pio_tlp_shim.sv \
                       $(RTL_DIR)/pio/asp_pio_tile.sv
 else ifeq ($(TOPLEVEL), asp_top)
@@ -50,6 +51,7 @@ else ifeq ($(TOPLEVEL), asp_top)
                       $(RTL_DIR)/led/asp_neopixel_core.sv \
                       $(RTL_DIR)/serial/asp_uart_core.sv \
                       $(RTL_DIR)/pio/asp_pio_sm.sv \
+                      $(RTL_DIR)/pio/asp_pio_tlp_ingress.sv \
                       $(RTL_DIR)/pio/asp_pio_tlp_shim.sv \
                       $(RTL_DIR)/pio/asp_pio_tile.sv
 endif

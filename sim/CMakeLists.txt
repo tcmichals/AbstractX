@@ -122,10 +122,11 @@ add_cocotb_test(sim-test-pio-tile     asp_pio_tile      test_asp_pio_cocotb)
 add_cocotb_test(sim-test-pio-conformance asp_pio_tile test_asp_pio_conformance_cocotb)
 add_cocotb_test(sim-test-pio-dshot asp_pio_tile test_asp_pio_dshot_cocotb)
 add_cocotb_test(sim-test-pio-esc-serial asp_pio_tile test_asp_pio_esc_serial_cocotb)
+add_cocotb_test(sim-test-pio-tlp-path asp_pio_tile test_asp_pio_tlp_path_cocotb)
 
 # Run all defined simulation targets
 add_custom_target(sim-test-all
-    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite sim-test-dshot-27m sim-test-dshot-12m sim-test-dshot-50m sim-test-neopixel-27m sim-test-neopixel-12m sim-test-neopixel-50m sim-test-pio-tile sim-test-pio-conformance sim-test-pio-dshot sim-test-pio-esc-serial
+    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite sim-test-dshot-27m sim-test-dshot-12m sim-test-dshot-50m sim-test-neopixel-27m sim-test-neopixel-12m sim-test-neopixel-50m sim-test-pio-tile sim-test-pio-conformance sim-test-pio-dshot sim-test-pio-esc-serial sim-test-pio-tlp-path
     COMMENT "All simulation regression suites complete."
 )
 

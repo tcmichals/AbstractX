@@ -71,6 +71,7 @@ Top-level module: [`asp_pio_tile`](file:///rtl/pio/asp_pio_tile.sv)
 | `wb_dat_i` | `input` | `32 bits` | Wishbone write data bus |
 | `wb_dat_o` | `output` | `32 bits` | Wishbone read data bus |
 | `wb_ack_o` | `output` | `1 bit` | Wishbone slave acknowledge handshake |
+| `s_tlp_tdata` | `input` | `512 bits` | Ingress 64-Byte TLPs from `asp_router.sv` (SM mask in flags, words to TX FIFOs) |
 | `m_tlp_tdata` | `output` | `512 bits` | Egress 64-Byte TLP datagram bus into `asp_router.sv` |
 | `m_tlp_tvalid` | `output` | `1 bit` | TLP stream valid flag |
 | `m_tlp_tready` | `input` | `1 bit` | TLP router backpressure ready flag |
@@ -85,8 +86,11 @@ Base Address: `0x40000700` (Wishbone Pipelined Slave B4)
 | `0x000` | **`CTRL`** | `R/W` | `0x00000000` | State Machine Enable [3:0], Restart [7:4], Div Restart [11:8] |
 | `0x004` | **`IRQ`** | `R/W1C` | `0x00000000` | Internal 8-bit IRQ Bus Status & Clear (Bits 3:0 route to `o_pio_irq`) |
 | `0x008` | **`FSTAT`** | `RO` | `0x0F000000` | FIFO Status: RX Empty [31:28], TX Full [27:24] |
-| `0x00C` | **`TLP_CFG`** | `R/W` | `0x00000000` | TLP Auto-DMA Config: Enable [0], Tag [15:8], Channel [23:16], Stream SM [25:24], Burst Words [28:26], Trace Enable [31] |
+| `0x00C` | **`OUT_CFG`** | `R/W` | `0x00000000` | TLP egress ([SPEC-PIO-10]): Enable [0], SM Mask [7:4], Tag [15:8], Channel [23:16], Burst Words [27:24] (0 = 10), Trace Enable [31] |
 | `0x010..0x08C` | **`IRAM[0..31]`** | `R/W` | `0x00000000` | Shared Instruction Memory (32 Words x 16-bit) for SM0..SM3 |
+| `0x090` | **`OUT_TIMEOUT`** | `R/W` | `0x00000000` | Egress idle timeout in clocks [23:0] (0 = off) |
+| `0x094` | **`IN_CFG`** | `R/W` | `0x00000000` | TLP ingress: Enable [0], Channel [15:8] |
+| `0x098` | **`IN_STATUS`** | `RO` | `0x00000000` | Queued ingress TLPs [5:0] (32 slots), Busy [8] |
 | `0x100 + 0x20*N` | **`SM[N]_CLKDIV`** | `R/W` | `0x00000000` | SM N Clock Divider (RP2040 layout): Int [31:16], Frac [15:8] (0 or 1.0 = full fabric clock) |
 | `0x104 + 0x20*N` | **`SM[N]_EXECCTRL`** | `R/W` | `0x0001F000` | Execution Control (RP2040 layout): Status N [3:0], Status Sel [4], Wrap Bottom [11:7], Wrap Top [16:12], JMP Pin [28:24], Side Pindir [29], Side En [30] |
 | `0x108 + 0x20*N` | **`SM[N]_SHIFTCTRL`** | `R/W` | `0x00000000` | Shift Control: Autopull [17], Autopush [16], In Dir [18], Out Dir [19], Push Thresh [24:20], Pull Thresh [29:25] |
@@ -150,12 +154,12 @@ make -f Makefile TESTCASE=test_asp_pio_cocotb
 | `SPEC-PIO-00` | **Configurable Fabric: No Protocol Logic in the FPGA** | ``rtl-lint`, `cocotb-regression`` | ``rtl/asp_top.sv`, `rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-02` | **Standard RP2040 16-Bit Instruction Set Compatibility** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_conformance_cocotb.py`: each rule` | ``rtl/pio/asp_pio_sm.sv`` |
 | `SPEC-PIO-03` | **Internal IRQ Bus & Supervisor/Worker State Machine Chaining** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_sm.sv`` |
-| `SPEC-PIO-04` | **Integrated 64-Byte TLP Framing & Nanosecond Timestamping** | ``cocotb-regression`, `sanitizer-gate`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
+| `SPEC-PIO-04` | **Integrated 64-Byte TLP Framing & Nanosecond Timestamping** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-05` | **Wishbone B4 Slave Bus Interface & Register Map** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-06` | **Multi-Rate Primary-Paced IMU Auto-DMA Sequence** | ``cocotb-regression`, `board-bringup`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-07` | **barectf CTF 1.8 Hardware Observability & Timeline Integration** | ``cocotb-regression`, `host-tests`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-09` | **Generic Bidirectional Pins** | ``rtl-lint`, `cocotb-regression`, `fpga-fit`` | ``rtl/asp_top.sv`, board tops under `hw/`, `hw/<board>/pins.toml`, `tools/pin_map.py`` |
-| `SPEC-PIO-10` | **Generic Per-Tile TLP Data Path** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_tlp_shim.sv`` |
+| `SPEC-PIO-10` | **Generic Per-Tile TLP Data Path** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_tlp_path_cocotb.py`), `rtl-lint`,` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_tlp_ingress.sv`, `rtl/pio/asp_pio_tlp_shim.sv`` |
 | `SPEC-PIO-11` | **Program Library and Loading** | ``cocotb-regression` (tests load the checked-in images), the `--check` tool` | ``rtl/pio/programs/`, `tools/pio_programs.py`` |
 | `SPEC-PIO-12` | **Motor Outputs: Bidirectional DShot600 as a PIO Program** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_dshot_cocotb.py`: frame timing` | ``rtl/pio/programs/dshot_bidir.pio`, `tools/dshot_ref.py`` |
 | `SPEC-PIO-13` | **ESC 4-Way Passthrough as a PIO Program** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_esc_serial_cocotb.py`: bytes` | ``rtl/pio/programs/esc_serial.pio`` |

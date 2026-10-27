@@ -2996,4 +2996,50 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 
 | ID | Area | Finding | Evidence | Next step | Check |
 |---|---|---|---|---|---|
-| EL-1027-42 | boards | the all-PIO design (2 tiles + 512-bit TLP fabric) does not fit the Tang Nano 9K | tile 7,701 LUT4 vs 8,640; TLP fabric ~8,800 FF vs 6,480 | decide whether the 9K stays a target; if yes, spec a reduced build (fewer SMs, narrower TLP path) | `fpga-fit` |
+| EL-1027-42 | boards | the all-PIO design (2 tiles + 512-bit TLP fabric) does not fit the Tang Nano 9K | tile ~22,000 Yosys LUTs (2026-10-27 correction; the 7,701 figure was wrong) vs 8,640; TLP fabric ~8,800 FF vs 6,480 | decide whether the 9K stays a target; if yes, spec a reduced build (fewer SMs, narrower TLP path) | `fpga-fit` |
+
+---
+
+## 2026-10-27: PIO tile TLP data path ([SPEC-PIO-10], EL-1027-38 part 1) and area figure corrected (EL-1027-41)
+
+* **Category**: `product-bug` (missing data path, AXI-Stream rule), `process-gap` (unverified area figure)
+* **Spec first**: `rtl/pio/SPECIFICATION.md` [SPEC-PIO-10] now states the wire format (mask in `flags[3:0]`,
+  payload word k = bits `[351-32k -: 32]`), group dealing, rounds, send rules and the registers `OUT_CFG`
+  `0x0C`, `OUT_TIMEOUT` `0x90`, `IN_CFG` `0x94`, `IN_STATUS` `0x98`. New requirement: a 32-slot ingress queue,
+  because `asp_spi_frontend` drops the next TLP (`overflow_flag`) while ingress is held, and every channel
+  shares the router's one ingress; a tile that held ingress until a 19200-baud ESC drained would drop
+  control TLPs. [SPEC-PIO-04] points to [SPEC-PIO-10]; its `sanitizer-gate` entry is removed (RTL, no C++).
+* **Code**: new `rtl/pio/asp_pio_tlp_ingress.sv` (queue in one block RAM, `SDPX9B`; ingress held at most 11
+  clocks per TLP; groups written to all selected TX FIFOs in one clock); `asp_pio_tlp_shim.sv` egress
+  rewritten (rounds from the SM mask, burst / full / idle-timeout send, timestamp of the first word,
+  words cleared on accept, frame sent straight from the word registers). `asp_pio_tile.sv`: `s_tlp_*`
+  port, registers, Wishbone and TLP path share each FIFO port. `asp_top.sv`: tile ingress tied off until
+  the router has PIO channels (EL-1027-39).
+* **Bug found on the way (`product-bug`)**: the shim's data/trace arbitration switched `m_tlp_tdata` from a
+  waiting trace TLP to a data TLP while `tvalid` was high (AXI-Stream violation; the router would see
+  a changed TLP). `test_trace_and_data_share_egress` fails on the old rule ("egress tdata/tvalid changed
+  before tready") and passes with the hold register. The old shim test never toggled `tready` while
+  trace and data were both pending.
+* **Tests**: `sim/cocotb/test_asp_pio_tlp_path_cocotb.py` (7): four TX FIFOs written in one clock;
+  partial mask groups; other channel / disabled / empty mask ignored; 32 slots then backpressure (never
+  dropped) and 340 words back in order under 40 % tready; DShot gather layout under random ingress gaps
+  and 50 % tready; idle timeout and first-word timestamp; trace + data arbitration.
+  `python3 tools/run_cocotb.py`: **21/21 targets pass**. Verilator `--lint-only -Wall` on the tile: clean
+  (two old warnings fixed: unused `iram_off` bits, RP2040 IRQ index bit 3).
+* **Area, corrected**: the 7,701 LUT4 in the entry above is **wrong / not reproducible**: running the same
+  command (`synth_gowin -top asp_pio_tile -noflatten; stat`) on `05ffd6f` today gives 10,671 LUT4, and a
+  `-noflatten` run inserts IBUF/OBUF on every submodule port and leaves out LUT1-LUT3, so it does not give
+  a fit figure. Flattened (`synth_gowin -top asp_pio_tile; stat`, Yosys 0.60+8):
+
+  | | LUT1 | LUT2 | LUT3 | LUT4 | all LUTs | FF | ALU | RAM |
+  |---|---|---|---|---|---|---|---|---|
+  | `05ffd6f` | 3,310 | 3,008 | 6,363 | 9,780 | 22,461 | 3,726 | 1,175 | 40 RAM16SDP4 |
+  | this change | 3,233 | 3,168 | 7,252 | 9,949 | 23,602 | 4,033 | 1,270 | 40 RAM16SDP4 + 1 SDPX9B |
+
+  If nextpnr packs these as Yosys reports them, one tile is more than the GW2AR-18's 20,736 LUTs: the
+  "37 %" claim was wrong and the tile does **not** fit the Tang Nano 20K yet. The real figure needs
+  nextpnr on a top where the tile pins are connected (`asp_top` today leaves them open, so nextpnr trims
+  the tile): EL-1027-39 then EL-1027-41. The SM (~5,000 LUTs each) is the target.
+* **Miss**: I wrote a fit percentage from a Yosys `stat` sum without checking what the sum counted and
+  without nextpnr. Check that should have caught it: `fpga-fit` (nextpnr utilisation), which I did not run.
+* **Not verified**: nextpnr fit / Fmax, `asp_top` with the tile connected, hardware.
