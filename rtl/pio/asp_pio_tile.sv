@@ -159,11 +159,11 @@ module asp_pio_tile #(
         end
     end
 
-    // Pin signals per State Machine
-    logic [31:0] sm_gpio_out    [0:3];
-    logic [31:0] sm_gpio_out_en [0:3];
-    logic [31:0] sm_gpio_pindir [0:3];
-    logic [31:0] sm_gpio_pindir_en [0:3];
+    // Pin writes per State Machine (one-clock strobes)
+    logic [31:0] sm_out_wmask [0:3];
+    logic [31:0] sm_out_wval  [0:3];
+    logic [31:0] sm_dir_wmask [0:3];
+    logic [31:0] sm_dir_wval  [0:3];
 
     // Status per State Machine
     logic [3:0]  sm_stalled;
@@ -174,19 +174,24 @@ module asp_pio_tile #(
     logic [15:0] sm_exec_instr [0:3];
     logic [3:0]  sm_exec_valid;
 
-    // Pin Aggregation (OR with enable mask)
+    // Pin latches, one per pin for the whole tile ([SPEC-PIO-02] rule 10): each clock the write of
+    // the highest-numbered SM writing a pin is applied; unwritten pins keep their value
+    logic [31:0] out_q, dir_q;
     always_comb begin
-        o_gpio_out    = 32'd0;
-        o_gpio_pindir = 32'd0;
-        for (int p = 0; p < 32; p++) begin
-            for (int s = 0; s < 4; s++) begin
-                if (sm_gpio_out_en[s][p]) begin
-                    o_gpio_out[p] = sm_gpio_out[s][p];
-                end
-                if (sm_gpio_pindir_en[s][p]) begin
-                    o_gpio_pindir[p] = sm_gpio_pindir[s][p];
-                end
-            end
+        o_gpio_out    = out_q;
+        o_gpio_pindir = dir_q;
+        for (int s = 0; s < 4; s++) begin
+            o_gpio_out    = (o_gpio_out    & ~sm_out_wmask[s]) | (sm_out_wval[s] & sm_out_wmask[s]);
+            o_gpio_pindir = (o_gpio_pindir & ~sm_dir_wmask[s]) | (sm_dir_wval[s] & sm_dir_wmask[s]);
+        end
+    end
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            out_q <= '0;
+            dir_q <= '0;                 // every pin an input after reset ([SPEC-PIO-09])
+        end else begin
+            out_q <= o_gpio_out;
+            dir_q <= o_gpio_pindir;
         end
     end
 
@@ -212,10 +217,10 @@ module asp_pio_tile #(
                 .o_pc             (sm_pc[s]),
                 .i_instr          (sm_instr[s]),
                 .i_gpio           (i_gpio),
-                .o_gpio_out       (sm_gpio_out[s]),
-                .o_gpio_out_en    (sm_gpio_out_en[s]),
-                .o_gpio_pindir    (sm_gpio_pindir[s]),
-                .o_gpio_pindir_en (sm_gpio_pindir_en[s]),
+                .o_out_wmask      (sm_out_wmask[s]),
+                .o_out_wval       (sm_out_wval[s]),
+                .o_dir_wmask      (sm_dir_wmask[s]),
+                .o_dir_wval       (sm_dir_wval[s]),
                 .i_tx_wdata       (sm_tx_wdata[s]),
                 .i_tx_wvalid      (sm_tx_wvalid[s]),
                 .o_tx_ready       (sm_tx_ready[s]),

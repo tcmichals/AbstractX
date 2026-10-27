@@ -38,10 +38,11 @@ module asp_pio_sm #(
 
     // Physical GPIO Bus (All 32 pins)
     input  wire  [31:0] i_gpio,
-    output logic [31:0] o_gpio_out,
-    output logic [31:0] o_gpio_out_en,
-    output logic [31:0] o_gpio_pindir,
-    output logic [31:0] o_gpio_pindir_en,
+    // Pin writes of this clock, one-clock strobes; the tile keeps the latches ([SPEC-PIO-02] rule 10)
+    output logic [31:0] o_out_wmask,
+    output logic [31:0] o_out_wval,
+    output logic [31:0] o_dir_wmask,
+    output logic [31:0] o_dir_wval,
 
     // TX FIFO Interface (Host / TLP ingress write -> SM read)
     input  wire  [31:0] i_tx_wdata,
@@ -211,7 +212,7 @@ module asp_pio_sm #(
             push_pending <= 1'b0; pend_delay <= 5'd0; irq_waiting <= 1'b0; stalled <= 1'b0;
             tx_wr_ptr <= '0; tx_rd_ptr <= '0; tx_level <= '0;
             rx_wr_ptr <= '0; rx_rd_ptr <= '0; rx_level <= '0;
-            o_gpio_out <= '0; o_gpio_out_en <= '0; o_gpio_pindir <= '0; o_gpio_pindir_en <= '0;
+            o_out_wmask <= '0; o_out_wval <= '0; o_dir_wmask <= '0; o_dir_wval <= '0;
             o_irq_set <= '0; o_irq_clr <= '0;
             join_q <= 2'd0;
             for (int i = 0; i < 8; i++) fifo_mem[i] <= '0;
@@ -220,14 +221,6 @@ module asp_pio_sm #(
             join_q <= {join_rx, join_tx};
             tx_wr_ptr <= '0; tx_rd_ptr <= '0; tx_level <= '0;
             rx_wr_ptr <= '0; rx_rd_ptr <= '0; rx_level <= '0;
-        end else if (i_restart) begin
-            pc <= wrap_bottom; isr <= '0; isr_count <= 6'd0; osr_count <= 6'd32;
-            delay_cycles <= 5'd0; exec_pending <= 1'b0; exec_forced <= 1'b0;
-            push_pending <= 1'b0; irq_waiting <= 1'b0; stalled <= 1'b0;
-            tx_wr_ptr <= '0; tx_rd_ptr <= '0; tx_level <= '0;
-            rx_wr_ptr <= '0; rx_rd_ptr <= '0; rx_level <= '0;
-            o_gpio_out_en <= '0; o_gpio_pindir_en <= '0;  // pins return to input ([SPEC-PIO-09])
-            o_irq_set <= '0; o_irq_clr <= '0;
         end else begin
             // FIFO bookkeeping in this cycle (blocking locals)
             logic [3:0]  tx_lvl, rx_lvl;
@@ -242,6 +235,8 @@ module asp_pio_sm #(
 
             o_irq_set <= '0;
             o_irq_clr <= '0;
+            o_out_wmask <= '0;
+            o_dir_wmask <= '0;
 
             // Host side: RX read frees a slot before the SM looks at the level
             if (i_rx_ren && rx_lvl != 4'd0) begin
@@ -479,14 +474,14 @@ module asp_pio_sm #(
 
                 // Pin writers: data (only when the instruction completes), then side-set
                 // (asserted even while stalled; wins on a shared pin, as on the RP2040)
-                n_out = o_gpio_out; n_out_en = o_gpio_out_en; n_dir = o_gpio_pindir; n_dir_en = o_gpio_pindir_en;
+                n_out = '0; n_out_en = '0; n_dir = '0; n_dir_en = '0;   // values / masks written this clock
                 if (d_en && !stall) begin
                     w_mask = rotl(low_mask(d_cnt), d_base) & ((d_cnt == 6'd0) ? 32'd0 : 32'hFFFF_FFFF);
                     w_val  = rotl(d_val, d_base);
                     if (d_dir) begin
-                        n_dir = (n_dir & ~w_mask) | (w_val & w_mask); n_dir_en = n_dir_en | w_mask;
+                        n_dir = w_val; n_dir_en = w_mask;
                     end else begin
-                        n_out = (n_out & ~w_mask) | (w_val & w_mask); n_out_en = n_out_en | w_mask;
+                        n_out = w_val; n_out_en = w_mask;
                     end
                 end
                 if (side_en && side_bits != 3'd0) begin
@@ -498,8 +493,8 @@ module asp_pio_sm #(
                         n_out = (n_out & ~w_mask) | (w_val & w_mask); n_out_en = n_out_en | w_mask;
                     end
                 end
-                o_gpio_out <= n_out; o_gpio_out_en <= n_out_en;
-                o_gpio_pindir <= n_dir; o_gpio_pindir_en <= n_dir_en;
+                o_out_wmask <= n_out_en; o_out_wval <= n_out;
+                o_dir_wmask <= n_dir_en; o_dir_wval <= n_dir;
 
                 stalled <= stall || hold_for_push;
                 if (!stall) begin
@@ -541,6 +536,13 @@ module asp_pio_sm #(
             end
             tx_level <= tx_lvl;
             rx_level <= rx_lvl;
+
+            // SM_RESTART ([SPEC-PIO-02] rule 7): PC, OSR, X, Y, FIFOs and pins are kept
+            if (i_restart) begin
+                isr <= '0; isr_count <= 6'd0; osr_count <= 6'd32;
+                delay_cycles <= 5'd0; exec_pending <= 1'b0; exec_forced <= 1'b0;
+                push_pending <= 1'b0; irq_waiting <= 1'b0; stalled <= 1'b0;
+            end
         end
     end
 

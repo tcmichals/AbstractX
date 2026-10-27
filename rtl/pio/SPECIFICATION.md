@@ -103,8 +103,12 @@ flowchart TD
      SDK and in the `sideset.size` field of `pioasm -o json`.
   6. `irq wait` sets the flag and waits until it is cleared; `irq rel` maps index `i` to
      `{i[2], (i[1:0] + sm) % 4}`.
-  7. `SM_RESTART` clears the ISR/OSR shift counts, delay and stall, and returns the PC to
-     `wrap_bottom`; pin output/direction ownership is released (pins return to input).
+  7. `SM_RESTART` (datasheet `CTRL.SM_RESTART`, corrected 2026-10-27, EL-1027-44): clears the ISR,
+     sets the input shift count to 0 and the output shift count to 32, clears the delay, the
+     `irq wait` state, a pending autopush and a latched `SMx_INSTR` / `OUT`/`MOV EXEC` instruction.
+     It does **not** change the PC, OSR, X, Y, the FIFOs or any pin. (The earlier rule also jumped to
+     `wrap_bottom`, emptied the FIFOs and released the pins; the Pico SDK's `pio_sm_init` sets pin
+     directions before restarting, so that broke rt-fc-offloader's `dshot.cpp`.)
   8. `SHIFTCTRL.FJOIN_TX` [30] / `FJOIN_RX` [31] join both FIFOs into one 8-word FIFO for that
      direction (the other direction then has none); changing either bit empties both FIFOs, which is
      how the Pico SDK's `pio_sm_clear_fifos` works. Found missing on 2026-10-27 by the pico-examples
@@ -112,6 +116,10 @@ flowchart TD
   9. An `SMx_INSTR` instruction that stalls stays latched until it completes, and
      `EXECCTRL.EXEC_STALLED` [31] reads 1 meanwhile (`pio_sm_exec_wait_blocking`, used by Betaflight's
      OSD driver).
+  10. Pin outputs (datasheet 3.5.6, EL-1027-43): the tile holds one output-value latch and one
+     direction latch per pin. Each clock, for each pin, the write from the highest-numbered state
+     machine that writes it in that clock is applied (side-set beats OUT/SET within one SM); a pin
+     no state machine writes keeps its value. After reset every pin is an input with output 0.
 * **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_pio_conformance_cocotb.py`: each rule
   above with `pioasm` output; first failing case on 2026-10-27: `pull block` advanced the PC)
 * **Implementation Target**: `rtl/pio/asp_pio_sm.sv`
@@ -179,7 +187,9 @@ flowchart TD
 ### `[SPEC-PIO-09]` Generic Bidirectional Pins
 * **Requirement**: every pad a tile may use is bidirectional at the board top: output value from
   `o_gpio_out`, output enable from `o_gpio_pindir`, and the pad level fed back into `i_gpio`
-  through a 2-flop synchronizer. A pad is an input (high-Z) after reset and after `SM_RESTART`.
+  through a 2-flop synchronizer. A pad is an input (high-Z) after reset; afterwards only a program or an
+  `SMx_INSTR` `set pindirs` changes it ([SPEC-PIO-02] rules 7 and 10). Host software releases a
+  motor wire with `set pindirs, 0` before handing it to another program.
   Pull-ups and drive strength come from the board constraints.
 * **Requirement (pin map, the only board-specific part)**: each board has one pin map,
   `hw/<board>/pins.toml`, listing for every PIO pad: tile, tile pin number, package pin, I/O
@@ -343,10 +353,10 @@ flowchart TD
   | `STATUS_SEL` / `STATUS_N`, `mov x, status` | done | `test_mov_status` |
   | IRQ flags, `irq wait`, `rel` index | done | rule 6 tests |
   | `wait 1 irq` clears the flag when it fires | code only | no test yet |
-  | Pin output latch **per PIO block**: each cycle the highest-numbered SM writing a pin wins; an unwritten pin keeps its value (3.5.6) | **wrong** | per-SM latch + static priority: the highest SM that ever drove a pin wins forever |
+  | Pin output latch **per PIO block**: each cycle the highest-numbered SM writing a pin wins; an unwritten pin keeps its value (3.5.6) | done 2026-10-27 | rule 10; `test_asp_pio_rtfc_cocotb.py` (ESC turnaround), `test_pin_latch_*` |
   | `CLKDIV` 16.8 fractional; `INT = 0` means 65536 | **partial** | `INT = 0` is treated as 1 |
   | `CTRL`: `SM_ENABLE`, `SM_RESTART`, `CLKDIV_RESTART` (sync of several SMs) | done | tile tests |
-  | `SM_RESTART` clears shift counters, ISR, delay, IRQ wait, stalled exec; keeps PC, OSR, X/Y, FIFOs, pins | **wrong** | ours also jumps to `wrap_bottom`, empties FIFOs and releases pins: rule 7 above was written without the datasheet and contradicts it. The SDK flow (restart, then `exec jmp`) hides the PC part |
+  | `SM_RESTART` clears shift counters, ISR, delay, IRQ wait, stalled exec; keeps PC, OSR, X/Y, FIFOs, pins | done 2026-10-27 | rule 7 corrected; `test_restart_keeps_pc_fifo_pins`, rt-fc `dshot.cpp` replay |
   | `FSTAT`: `TXEMPTY`, `TXFULL`, `RXEMPTY`, `RXFULL` | **partial** | only RX empty / TX full, at different bits |
   | `FDEBUG`: `TXSTALL`, `TXOVER`, `RXUNDER`, `RXSTALL` (sticky, W1C) | **missing** | |
   | `FLEVEL` per-SM FIFO levels | **missing** | |

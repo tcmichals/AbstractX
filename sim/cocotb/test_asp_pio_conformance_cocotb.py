@@ -225,15 +225,41 @@ async def test_wait_gpio(dut):
 
 
 @cocotb.test()
-async def test_restart_releases_pins(dut):
-    """Rule 7: SM_RESTART returns the SM's pins to input (high-Z)."""
+async def test_restart_keeps_pc_fifo_pins(dut):
+    """Rule 7 (datasheet CTRL.SM_RESTART): PC, X, the FIFOs and the pins survive a restart."""
     await init_tile(dut)
-    await run(dut, "c_drive", pinctrl=SET_PIN0)
-    await ClockCycles(dut.clk, 20)
-    assert int(dut.o_gpio_pindir.value) & 1 == 1 and pin(dut, 0) == 1
-    await wb_write(dut, REG_CTRL, 1 << 4)                # restart SM0 (and disable)
-    await ClockCycles(dut.clk, 5)
-    assert int(dut.o_gpio_pindir.value) & 1 == 0, "pin still an output after restart"
+    await wb_write(dut, SM_PINCTRL(0), SET_PIN0)
+    for ins in (0xE081, 0xE001, 0x0007, 0xE025):       # set pindirs 1; set pins 1; jmp 7; set x, 5
+        await wb_write(dut, SM_INSTR(0), ins)
+    await wb_write(dut, SM_TXF(0), 0xAB)
+    await wb_write(dut, REG_CTRL, 1 << 4)               # restart SM0
+    await ClockCycles(dut.clk, 4)
+    assert await wb_read(dut, SM_STAT(0)) & 0x1F == 7, "restart moved the PC"
+    assert int(dut.o_gpio_pindir.value) & 1 == 1 and pin(dut, 0) == 1, "restart changed the pin"
+    for ins in (0x8080, 0xA0C7, 0x8000, 0xA0C1, 0x8000):  # pull noblock; mov isr, osr; push; mov isr, x; push
+        await wb_write(dut, SM_INSTR(0), ins)
+    await ClockCycles(dut.clk, 2)
+    assert await drain(dut, 0) == [0xAB, 5], "restart lost the TX FIFO word or X"
+
+
+@cocotb.test()
+async def test_pin_latch_latest_writer_wins(dut):
+    """Rule 10: one latch per pin for the tile; the latest write wins, whichever SM made it.
+    (The per-SM latch let SM1, which once made pin 0 an input, keep it an input for ever.)"""
+    await init_tile(dut)
+    await wb_write(dut, SM_PINCTRL(0), SET_PIN0)
+    await wb_write(dut, SM_PINCTRL(1), SET_PIN0)
+    await wb_write(dut, SM_INSTR(1), 0xE080)            # SM1: set pindirs 0
+    await wb_write(dut, SM_INSTR(0), 0xE001)            # SM0: set pins 1
+    await wb_write(dut, SM_INSTR(0), 0xE081)            # SM0: set pindirs 1
+    await ClockCycles(dut.clk, 2)
+    assert int(dut.o_gpio_pindir.value) & 1 == 1 and pin(dut, 0) == 1, "SM0's later write lost to SM1"
+    await wb_write(dut, SM_INSTR(1), 0xE000)            # SM1: set pins 0 (direction stays SM0's)
+    await ClockCycles(dut.clk, 2)
+    assert int(dut.o_gpio_pindir.value) & 1 == 1 and pin(dut, 0) == 0
+    await wb_write(dut, REG_CTRL, 0x3 << 4)             # restarting both changes nothing on the pin
+    await ClockCycles(dut.clk, 2)
+    assert int(dut.o_gpio_pindir.value) & 1 == 1 and pin(dut, 0) == 0
 
 
 @cocotb.test()

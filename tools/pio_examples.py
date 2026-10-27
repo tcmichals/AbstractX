@@ -28,6 +28,8 @@ PICO_DIR = ROOT / "rtl" / "pio" / "programs" / "examples" / "pico"
 PICO_COMMIT = "0d62f75bafc2c8120d3276c3343d1a9195e909e9"     # raspberrypi/pico-examples, 2026-09-03
 BF_COMMIT = "49679ccdfa4abc2ca5ab4822d08f51a5bcdaaf5e"       # betaflight/betaflight master, 2026-10-27
 BF_PIO = ["src/platform/PICO/dshot.pio", "src/platform/PICO/osd/osd_tx.pio"]
+RTFC_COMMIT = "8a65d929a2a8442e756e2c7a8af40eca080471a5"     # rt-fc-offloader, 2026-05-11
+RTFC_PIO = ["firmware/pico/dshot.pio", "firmware/pico/esc_pio_uart.pio"]   # dshot.pio: from Betaflight (GPL)
 BF_C = {   # program name -> (file, array name, wrap_target, wrap, sideset {size incl. opt, optional, pindirs})
     "bf_uart_tx": ("src/platform/PICO/uart/uart_tx_program.c", "uart_tx_program_instructions", None, None,
                    {"size": 3, "optional": True, "pindirs": False}),
@@ -40,6 +42,24 @@ BF_C = {   # program name -> (file, array name, wrap_target, wrap, sideset {size
 
 def betaflight_dir() -> Path:
     return Path(os.environ.get("BETAFLIGHT_DIR", ROOT.parent / "flightcode" / "betaflight"))
+
+
+def rtfc_dir() -> Path:
+    return Path(os.environ.get("RT_FC_OFFLOADER_DIR", ROOT.parent / "flightcode" / "rt-fc-offloader"))
+
+
+def load_rtfc(name: str) -> dict:
+    """A program of the rt-fc-offloader Pico firmware (the DShot / ESC-serial flow proven with the
+    ESC configurator), read from its checkout; raises FileNotFoundError when it is missing."""
+    d = rtfc_dir()
+    pioasm = find_pioasm()
+    if not (d / "firmware" / "pico").is_dir() or not pioasm:
+        raise FileNotFoundError(f"no rt-fc-offloader checkout at {d} or no pioasm (set RT_FC_OFFLOADER_DIR)")
+    for rel in RTFC_PIO:
+        for p in assemble(pioasm, d / rel, root=d)["programs"]:
+            if p["name"] == name:
+                return p
+    raise KeyError(name)
 
 
 def betaflight_commit():
@@ -123,6 +143,12 @@ def main():
             except (FileNotFoundError, KeyError) as e:
                 print(f"bf    {n:30s} not available: {e}")
         print(f"betaflight checkout: {betaflight_dir()} @ {c or 'missing'} (tests pinned to {BF_COMMIT[:12]})")
+        for n in ("dshot_600", "esc_uart_tx", "esc_uart_rx"):
+            try:
+                p = load_rtfc(n)
+                print(f"rtfc  {n:30s} {len(p['instructions']):2d} words  wrap {p['wrap_target']}..{p['wrap']}  sideset {p['sideset']}")
+            except (FileNotFoundError, KeyError) as e:
+                print(f"rtfc  {n:30s} not available: {e}")
         return 0
     ap.print_help()
     return 0
@@ -132,4 +158,5 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-__all__ = ["load_program", "load_betaflight", "betaflight_commit", "BF_COMMIT", "PICO_COMMIT"]
+__all__ = ["load_program", "load_betaflight", "load_rtfc", "betaflight_commit", "BF_COMMIT", "PICO_COMMIT",
+           "RTFC_COMMIT"]

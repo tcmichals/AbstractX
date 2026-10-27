@@ -307,23 +307,26 @@ async def test_supervisor_worker_irq_chaining(dut):
     await wb_write(dut, SM_EXECCTRL(1), (13 << 12) | (8 << 7))  # Wrap 8..13
     await wb_write(dut, SM_CLKDIV(1), (1 << 16))
 
-    # Set SM1 PC to 8 by writing EXECCTRL or executing JMP
-    # In asp_pio_sm, restarting or setting wrap will load PC from wrap_bottom
-    await wb_write(dut, REG_CTRL, 0x02 | (0x02 << 4))  # Enable SM1 and pulse restart
+    # Start SM1 at PC = 8 the way pio_sm_init does: restart, then an SMx_INSTR `jmp 8`
+    # (a restart keeps the PC, [SPEC-PIO-02] rule 7)
+    await wb_write(dut, REG_CTRL, 0x02 << 4)
+    await wb_write(dut, 0x100 + 0x20 * 1 + 0x18, PIO_JMP(cond=0, addr=8))
     await ClockCycles(dut.clk, 2)
 
     # Now enable both SM0 and SM1
     await wb_write(dut, REG_CTRL, 0x03)
 
-    # Run for 20 cycles and check that IRQ handshake flags oscillate
-    irq_seen = set()
-    for _ in range(30):
+    # Watch the flags every clock: `wait 1 irq` clears a flag the clock it fires, so a flag
+    # lives 1-2 clocks and bus reads every few clocks can miss it
+    seen4 = seen5 = rounds = 0
+    for _ in range(200):
         await RisingEdge(dut.clk)
-        irq_val = await wb_read(dut, REG_IRQ)
-        irq_seen.add(irq_val & 0x30)
-
-    # Flags 4 (0x10) and 5 (0x20) were set and cleared autonomously
-    assert 0x10 in irq_seen or 0x30 in irq_seen or 0x20 in irq_seen, f"IRQ handshakes occurred: {irq_seen}"
+        f = int(dut.irq_flags.value)
+        seen4 += (f >> 4) & 1
+        seen5 += (f >> 5) & 1
+        rounds += int(dut.gen_sm[1].u_sm.pc.value) == 8
+    assert seen4 and seen5, f"IRQ 4 seen {seen4} clocks, IRQ 5 seen {seen5} clocks"
+    assert rounds >= 5, f"supervisor completed only {rounds} rounds in 200 clocks"
 
     # Disable both
     await wb_write(dut, REG_CTRL, 0x00)
