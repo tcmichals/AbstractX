@@ -61,6 +61,18 @@ module asp_pio_tile #(
         end
     end
 
+    // Instruction memory in LUT RAM, no reset (the host loads it): one write port, one read
+    // port per SM plus the bus read, so synthesis maps copies of RAM16SDP4 (EL-1027-41)
+    wire        iram_we    = wb_cyc_i && wb_stb_i && !wb_ack_o && wb_we_i &&
+                             (wb_adr_i[11:0] - BASE_ADDR[11:0]) >= 12'h010 &&
+                             (wb_adr_i[11:0] - BASE_ADDR[11:0]) <= 12'h08C;
+    wire [11:0] iram_off   = (wb_adr_i[11:0] - BASE_ADDR[11:0]) - 12'h010;
+    wire [4:0]  iram_waddr = iram_off[6:2];
+
+    always_ff @(posedge clk) begin
+        if (iram_we) iram[iram_waddr] <= wb_dat_i[15:0];
+    end
+
     // ------------------------------------------------------------------------
     // Shared Internal IRQ Bus (irq 0..7)
     // ------------------------------------------------------------------------
@@ -255,9 +267,6 @@ module asp_pio_tile #(
             trace_en            <= 1'b0;
             sm_trigger_pulse    <= 1'b0;
 
-            for (int i = 0; i < 32; i++) begin
-                iram[i] <= 16'd0;
-            end
             for (int s = 0; s < 4; s++) begin
                 sm_clkdiv[s]    <= {16'd1, 8'd0}; // Div = 1.0 (full speed)
                 sm_execctrl[s]  <= (32'd31 << 12) | (32'd0 << 7); // Wrap bottom=0, top=31
@@ -305,13 +314,7 @@ module asp_pio_tile #(
                         end
                         default: begin
                             // Instruction Memory (0x010 .. 0x08C)
-                            if (reg_offset >= 12'h010 && reg_offset <= 12'h08C) begin
-                                int w_idx;
-                                w_idx = (int'(reg_offset) - 32'h010) >> 2;
-                                if (w_idx >= 0 && w_idx < 32) begin
-                                    iram[w_idx] <= wb_dat_i[15:0];
-                                end
-                            end
+                            // (instruction memory writes: see the iram block below)
 
                             // State Machine Registers (0x100 + 0x20 * N)
                             for (int s = 0; s < 4; s++) begin

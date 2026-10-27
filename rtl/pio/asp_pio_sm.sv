@@ -160,11 +160,17 @@ module asp_pio_sm #(
         bit_reverse = r;
     endfunction
 
-    function automatic logic [31:0] pins_in(input logic [31:0] g, input logic [4:0] base);
-        logic [31:0] r;
-        for (int i = 0; i < 32; i++) r[i] = g[5'(base + 5'(i))];
-        pins_in = r;
+    // Area: one rotator per pin path instead of a 32x32 crossbar per instruction (EL-1027-41)
+    function automatic logic [31:0] rotl(input logic [31:0] v, input logic [4:0] n);
+        rotl = (n == 5'd0) ? v : ((v << n) | (v >> (6'd32 - {1'b0, n})));
     endfunction
+
+    function automatic logic [31:0] rotr(input logic [31:0] v, input logic [4:0] n);
+        rotr = (n == 5'd0) ? v : ((v >> n) | (v << (6'd32 - {1'b0, n})));
+    endfunction
+
+    // IN / MOV / WAIT pin view: pin in_base is bit 0
+    wire [31:0] pins_rot = rotr(i_gpio, in_base);
 
     // n = 1..32 bits
     function automatic logic [31:0] low_mask(input logic [5:0] n);
@@ -251,10 +257,16 @@ module asp_pio_sm #(
                 logic [4:0]  next_pc, delay, side_val;
                 logic [2:0]  side_bits;
                 logic        side_en, stall, from_exec, pc_jump, hold_for_push, is_exec;
+                logic        d_en, d_dir;            // one data pin write per instruction
+                logic [31:0] d_val;
+                logic [5:0]  d_cnt;
+                logic [4:0]  d_base;
+                logic [31:0] w_mask, w_val, n_out, n_out_en, n_dir, n_dir_en;
                 logic [31:0] n_x, n_y, n_isr, n_osr, cur_osr;
                 logic [5:0]  n_isr_cnt, n_osr_cnt, cur_osr_cnt;
 
                 from_exec = exec_pending;
+                d_en = 1'b0; d_dir = 1'b0; d_val = '0; d_cnt = 6'd0; d_base = 5'd0;
                 ins       = exec_pending ? exec_instr : i_instr;
                 next_pc   = 5'd0;
                 pc_jump   = 1'b0;
@@ -277,20 +289,6 @@ module asp_pio_sm #(
                 side_en   = (sideset_count != 3'd0) && (!sideset_opt || ins[12]);
                 side_val  = 5'(ins[12:8] >> (3'd5 - sideset_count)) & 5'(low_mask(6'(side_bits)));
                 delay     = ins[12:8] & 5'(low_mask(6'(3'd5 - sideset_count)));
-
-                if (side_en) begin
-                    for (int i = 0; i < 5; i++) begin
-                        if (3'(i) < side_bits) begin
-                            if (sideset_pindirs) begin
-                                o_gpio_pindir[5'(side_base + 5'(i))]    <= side_val[i];
-                                o_gpio_pindir_en[5'(side_base + 5'(i))] <= 1'b1;
-                            end else begin
-                                o_gpio_out[5'(side_base + 5'(i))]    <= side_val[i];
-                                o_gpio_out_en[5'(side_base + 5'(i))] <= 1'b1;
-                            end
-                        end
-                    end
-                end
 
                 case (ins[15:13])
                     3'b000: begin  // JMP
@@ -328,7 +326,7 @@ module asp_pio_sm #(
                         logic [31:0] v;
                         n = (ins[4:0] == 5'd0) ? 6'd32 : {1'b0, ins[4:0]};
                         case (ins[7:5])
-                            3'b000:  v = pins_in(i_gpio, in_base);
+                            3'b000:  v = pins_rot;
                             3'b001:  v = reg_x;
                             3'b010:  v = reg_y;
                             3'b110:  v = isr;
@@ -366,24 +364,10 @@ module asp_pio_sm #(
                             end
                             n_osr_cnt = (cur_osr_cnt + n > 6'd32) ? 6'd32 : cur_osr_cnt + n;
                             case (ins[7:5])
-                                3'b000: begin
-                                    for (int i = 0; i < 32; i++) begin
-                                        if (6'(i) < out_count) begin
-                                            o_gpio_out[5'(out_base + 5'(i))]    <= v[i];
-                                            o_gpio_out_en[5'(out_base + 5'(i))] <= 1'b1;
-                                        end
-                                    end
-                                end
+                                3'b000: begin d_en = 1'b1; d_val = v; d_cnt = out_count; d_base = out_base; end
                                 3'b001: n_x = v;
                                 3'b010: n_y = v;
-                                3'b100: begin
-                                    for (int i = 0; i < 32; i++) begin
-                                        if (6'(i) < out_count) begin
-                                            o_gpio_pindir[5'(out_base + 5'(i))]    <= v[i];
-                                            o_gpio_pindir_en[5'(out_base + 5'(i))] <= 1'b1;
-                                        end
-                                    end
-                                end
+                                3'b100: begin d_en = 1'b1; d_dir = 1'b1; d_val = v; d_cnt = out_count; d_base = out_base; end
                                 3'b101: begin pc_jump = 1'b1; next_pc = v[4:0]; end
                                 3'b110: begin n_isr = v; n_isr_cnt = n; end
                                 3'b111: begin exec_pending <= 1'b1; exec_instr <= v[15:0]; end
@@ -420,7 +404,7 @@ module asp_pio_sm #(
                     3'b101: begin  // MOV
                         logic [31:0] s, r;
                         case (ins[2:0])
-                            3'b000:  s = pins_in(i_gpio, in_base);
+                            3'b000:  s = pins_rot;
                             3'b001:  s = reg_x;
                             3'b010:  s = reg_y;
                             3'b101:  s = ((status_sel ? {1'b0, rx_lvl} : {1'b0, tx_lvl}) < status_n) ? 32'hFFFF_FFFF : 32'd0;
@@ -434,24 +418,10 @@ module asp_pio_sm #(
                             default: r = s;
                         endcase
                         case (ins[7:5])
-                            3'b000: begin
-                                for (int i = 0; i < 32; i++) begin
-                                    if (6'(i) < out_count) begin
-                                        o_gpio_out[5'(out_base + 5'(i))]    <= r[i];
-                                        o_gpio_out_en[5'(out_base + 5'(i))] <= 1'b1;
-                                    end
-                                end
-                            end
+                            3'b000: begin d_en = 1'b1; d_val = r; d_cnt = out_count; d_base = out_base; end
                             3'b001: n_x = r;
                             3'b010: n_y = r;
-                            3'b011: begin  // PINDIRS (RP2350)
-                                for (int i = 0; i < 32; i++) begin
-                                    if (6'(i) < out_count) begin
-                                        o_gpio_pindir[5'(out_base + 5'(i))]    <= r[i];
-                                        o_gpio_pindir_en[5'(out_base + 5'(i))] <= 1'b1;
-                                    end
-                                end
-                            end
+                            3'b011: begin d_en = 1'b1; d_dir = 1'b1; d_val = r; d_cnt = out_count; d_base = out_base; end  // PINDIRS (RP2350)
                             3'b100: begin exec_pending <= 1'b1; exec_instr <= r[15:0]; end
                             3'b101: begin pc_jump = 1'b1; next_pc = r[4:0]; end
                             3'b110: begin n_isr = r; n_isr_cnt = 6'd0; end
@@ -479,28 +449,38 @@ module asp_pio_sm #(
 
                     default: begin  // SET
                         case (ins[7:5])
-                            3'b000: begin
-                                for (int i = 0; i < 5; i++) begin
-                                    if (3'(i) < set_count) begin
-                                        o_gpio_out[5'(set_base + 5'(i))]    <= ins[i];
-                                        o_gpio_out_en[5'(set_base + 5'(i))] <= 1'b1;
-                                    end
-                                end
-                            end
+                            3'b000: begin d_en = 1'b1; d_val = {27'd0, ins[4:0]}; d_cnt = {3'd0, set_count}; d_base = set_base; end
                             3'b001: n_x = {27'd0, ins[4:0]};
                             3'b010: n_y = {27'd0, ins[4:0]};
-                            3'b100: begin
-                                for (int i = 0; i < 5; i++) begin
-                                    if (3'(i) < set_count) begin
-                                        o_gpio_pindir[5'(set_base + 5'(i))]    <= ins[i];
-                                        o_gpio_pindir_en[5'(set_base + 5'(i))] <= 1'b1;
-                                    end
-                                end
-                            end
+                            3'b100: begin d_en = 1'b1; d_dir = 1'b1; d_val = {27'd0, ins[4:0]}; d_cnt = {3'd0, set_count}; d_base = set_base; end
                             default: ;
                         endcase
                     end
                 endcase
+
+                // Pin writers: data (only when the instruction completes), then side-set
+                // (asserted even while stalled; wins on a shared pin, as on the RP2040)
+                n_out = o_gpio_out; n_out_en = o_gpio_out_en; n_dir = o_gpio_pindir; n_dir_en = o_gpio_pindir_en;
+                if (d_en && !stall) begin
+                    w_mask = rotl(low_mask(d_cnt), d_base) & ((d_cnt == 6'd0) ? 32'd0 : 32'hFFFF_FFFF);
+                    w_val  = rotl(d_val, d_base);
+                    if (d_dir) begin
+                        n_dir = (n_dir & ~w_mask) | (w_val & w_mask); n_dir_en = n_dir_en | w_mask;
+                    end else begin
+                        n_out = (n_out & ~w_mask) | (w_val & w_mask); n_out_en = n_out_en | w_mask;
+                    end
+                end
+                if (side_en && side_bits != 3'd0) begin
+                    w_mask = rotl(low_mask(6'(side_bits)), side_base);
+                    w_val  = rotl({27'd0, side_val}, side_base);
+                    if (sideset_pindirs) begin
+                        n_dir = (n_dir & ~w_mask) | (w_val & w_mask); n_dir_en = n_dir_en | w_mask;
+                    end else begin
+                        n_out = (n_out & ~w_mask) | (w_val & w_mask); n_out_en = n_out_en | w_mask;
+                    end
+                end
+                o_gpio_out <= n_out; o_gpio_out_en <= n_out_en;
+                o_gpio_pindir <= n_dir; o_gpio_pindir_en <= n_dir_en;
 
                 stalled <= stall || hold_for_push;
                 if (!stall) begin

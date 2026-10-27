@@ -2982,3 +2982,18 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Measured** (`yosys synth_gowin -top asp_pio_tile -noflatten; stat`, this PC): one `asp_pio_sm` ~7,000 LUT4 (x4), tile glue 2,361, TLP shim 7; **tile 30,674 LUT4**, more than the GW2AR-18's 20,736. The board-level 77 % was a false alarm in the good direction: `asp_top` leaves the tile's `o_gpio_out` / `o_gpio_pindir` unconnected, so synthesis removed most of the tile. The board placement then hung in its first iteration (stopped after 14 min).
 * **Cause**: every pin-writing path (OUT/MOV/SET to pins or pindirs, side-set) loops over 32 pins with a variable base: seven 32x32 crossbars per SM. The instruction RAM is 32x16 flip-flops with 5 read ports. The old SM had the same structure; it was never synthesised (EL-1027-40).
 * **Plan**: one shared rotate-and-mask pin writer for data and one for side-set per SM, one shared input rotator, instruction RAM as LUT RAM (one copy per read port). Behaviour locked by the 15 conformance tests and the DShot / ESC serial tests. Target to be set from the result; [SPEC-TN20K-03] asks for LUT <= 80 % on the whole board design.
+
+---
+
+## 2026-10-27: PIO tile area 30,674 -> 7,701 LUT4 (EL-1027-41 progress)
+
+* **Category**: `product-bug` (area)
+* **Fix**: `asp_pio_sm.sv`: one rotate-and-mask writer for data pin writes (OUT/MOV/SET to pins or pindirs) and one for side-set, instead of seven 32x32 crossbars; side-set wins on a shared pin; one shared input rotator (`pins_rot`) for IN / MOV / WAIT. `asp_pio_tile.sv`: instruction memory in LUT RAM (no reset, one write port, 5 read ports -> 40 `RAM16SDP4`).
+* **Measured** (`yosys synth_gowin -top asp_pio_tile -noflatten; stat`, this PC): state machine ~7,000 -> 1,735..1,793 LUT4 (275 ALU, 615 FF); tile glue 2,361 -> 648 LUT4 + 40 RAM16SDP4; **tile total 7,701 LUT4** (37 % of the GW2AR-18's 20,736).
+* **Behaviour unchanged**: `python3 tools/run_cocotb.py` 20/20 (conformance 15/15, DShot 5/5, ESC serial 3/3, tile 5/5); Verilator lint clean; spectrace `--changes` 0 untraced.
+* **Tang Nano 9K (GW1NR-9: 8,640 LUT4, 6,480 FF)**: the full design does not fit (one tile ~7,700 LUT4; the 512-bit TLP fabric used ~8,800 FF in the 20K build). A reduced 9K build would be its own design; not started (new row EL-1027-42).
+* **Not verified**: board-level synthesis / placement / Fmax with this tile (next), hardware.
+
+| ID | Area | Finding | Evidence | Next step | Check |
+|---|---|---|---|---|---|
+| EL-1027-42 | boards | the all-PIO design (2 tiles + 512-bit TLP fabric) does not fit the Tang Nano 9K | tile 7,701 LUT4 vs 8,640; TLP fabric ~8,800 FF vs 6,480 | decide whether the 9K stays a target; if yes, spec a reduced build (fewer SMs, narrower TLP path) | `fpga-fit` |
