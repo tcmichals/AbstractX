@@ -50,6 +50,15 @@ target_compile_definitions(test_e906_rpmsg_flow_control PRIVATE CONFIG_RPROC_RPM
 target_link_libraries(test_e906_rpmsg_flow_control PRIVATE abstractx_core)
 add_test(NAME sim_test_e906_rpmsg_flow_control COMMAND test_e906_rpmsg_flow_control)
 
+# E906 TWI driver against a register model of the controller and one slave ([SPEC-E906-HAL-04])
+add_executable(test_e906_twi
+    test_e906_twi.cpp
+    ${E906_DIR}/src/i2c.cpp
+)
+target_include_directories(test_e906_twi PRIVATE ${E906_DIR}/include)
+target_link_libraries(test_e906_twi PRIVATE abstractx_core)
+add_test(NAME sim_test_e906_twi COMMAND test_e906_twi)
+
 # Pico 2 W zero-copy lwIP PBUF_POOL trace transport, run on host with mock lwIP pbufs ([SPEC-PICO-TRACE-01])
 set(PICO_DIR ${PROJECT_SOURCE_DIR}/targets/pico2w_rp2350)
 add_executable(test_pico_zero_copy_trace

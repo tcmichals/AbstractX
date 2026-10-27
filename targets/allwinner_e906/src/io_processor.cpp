@@ -399,7 +399,7 @@ private:
     bool configured_{false};
     std::atomic<bool> running_{false};
 
-    hal::E906I2c i2c_{};
+    hal::E906I2c& i2c_ = hal::get_e906_i2c();  // the TWI0 port object, never a second driver ([SPEC-E906-HAL-04])
     size_t num_channels_{0};
     std::array<hal::AutoChannelConfig, MAX_CHANNELS> channels_{};
 

@@ -436,5 +436,5 @@ flowchart TD
   - `abstractx.spi_xfer_into(tx_buf, rx_buf, dual=False) -> int`: Zero-heap transceive reading and writing into user preallocated buffers. Returns number of bytes transferred.
 * **Dual-SPI Support**: In Dual mode (`dual=True`), sets `SUN6I_BURST_CTL_CNT_DRM` (`BIT(28)`) in `SPI_BCC`, driving 2-bit transactions compatible with the FPGA switch fabric (`asp_spi_frontend.sv`).
 * **Verified by**: `e906-board-selftest`, `host-tests`
-* **Implementation Target**: `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/modabstractx.c`
+* **Implementation Target**: `apps/e906_repl_app/src/e906_periph.cpp`, `apps/e906_repl_app/src/i2c.cpp`, `apps/e906_repl_app/include/repl_wait.hpp`, `apps/e906_repl_app/src/modabstractx.c`
 

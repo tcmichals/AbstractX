@@ -2797,3 +2797,28 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   * other `c5a1eaa` defects: the `asp_uart_core.sv` egress payload is hard-wired zero and its ingress data is dropped, with no cocotb test; Zynq `write_tlp`/`read_tlp` DWORD order is the reverse of `asp_axi_lite_bridge.sv`; `check_register_parity.py` compares against hard-coded values; `applib` `Hmc5883l` has no host test behind `[SPEC-MAG-01]`;
   * the INAV repo docs (`docs/ARCHITECTURE.md`, `TODO.md`) still point to `AbstractX/apps/inav_e906_app`.
 * **Not verified**: no board run; ASan/TSan not re-run for this change (it touches only E906 code, which the host build does not compile).
+
+---
+
+## 2026-10-27: One TWI driver for TWI0 and TWI1, per-target port table ([SPEC-HAL-15], [SPEC-E906-HAL-04])
+
+* **Category**: `product-bug` (TWI0 driver) and `process-gap` (duplicated drivers)
+* **What was wrong**: the E906 had two TWI drivers for one controller type: `targets/allwinner_e906/src/i2c.cpp` (TWI0) and the TWI1 code in `apps/e906_repl_app/src/e906_periph.cpp`. `E906IoProcessor` also built its own private `E906I2c` on TWI0, a third object on one controller. Comparing the two drivers:
+  * the target TWI0 driver wrote `CNTR` without the write-1-to-clear `INT_FLG` bit, never checked whether the shared CLIC line 91 interrupt was its own, set no pins, and waited with no timeout. It was never run on the board (TWI0 is not in the measured IRQ table), and `gps_imu_app` on the E906 used it through `get_i2c_driver()`;
+  * the board-proven TWI1 code had the protocol right but lived in an app, wrote raw CCU / PIO registers, and used `CCR` `0x12` / `0x25`, which by the Linux `i2c-mv64xxx` sun6i formula are 200 kHz / ~15 kHz, not 400 / 100 kHz.
+* **Which check should have caught it**: none exists for "register addresses under `apps/`" or "two drivers for one controller". `audit_boundaries.py` only checks for concrete sensor chips in core.
+* **Spec**: `[SPEC-HAL-15]` (per-target `hal/ports.hpp`, one driver per controller type, apps reach ports only through `get_*_port`); `[SPEC-E906-HAL-04]` (TWI rules: INT_FLG W1C, shared line, CCR formula, error STOP, bounded wait hook, no TWI DMA until measured).
+* **Fix**: `targets/allwinner_e906/include/hal/ports.hpp` (TWI0, TWI1 entries); `E906I2c` takes a port, built from the TWI1 state machine, `II2c` sync + async (up to 2 messages, address probe); `get_i2c_port(1)` = TWI1; `E906IoProcessor` uses the TWI0 port object; the REPL's TWI1 code is now glue only in `apps/e906_repl_app/src/i2c.cpp` (Ctrl-C-safe staging buffers, `repl_wait_step` as the wait hook). The unmeasured TWI DMA path and `fc_twi0_isr` were removed.
+* **Regression test**: `sim/test_e906_twi.cpp` runs the driver against a register model and one slave: pins of this port only, CCR values, single attach, shared-line ignore, write, write+read with repeated START, 1-byte read, address probe ACK/NACK, stuck-bus timeout, 1000 write+read cycles. Removing the shared-line check makes it fail (`CHECK failed: regs[kCntr] == 0`); restored, it passes.
+* **Evidence (this PC, 2026-10-27)**:
+  * `ctest --test-dir build_host`: 70/70; `build_asan`: 70/70, no reports; `build_tsan` (run under `setarch -R`, this kernel's ASLR breaks TSan otherwise): 70/70, no reports.
+  * `cmake --preset e906 && cmake --build build_e906`: exit 0, 12/12 segments `[ok]`.
+  * text size: e906_repl_app 184,854 -> 181,870 B; gps_imu_app 103,216 -> 100,840; serial_loopback_app 62,704 -> 60,328; e906_bench_app 79,750 -> 77,370.
+  * `analyze_elf_size.sh e906_repl_app`: SRAM_FAST 182.0 / 192.0 KB (94.8%, was 96.4%), DRAM 0.00 MB.
+  * `audit_specs.py` 100%; `audit_hal_invariants.py` PASS; `spectrace_matrix.py --changes` 0 untraced.
+* **Still open**:
+  * board check: compass on TWI1 through `abstractx.i2c_*`, and the bus clock with the new CCR values (`e906-board-selftest`);
+  * the async path ignores `I2cRequest::timeout_us` (no timer abort);
+  * UART2/UART3 merge (same pattern); then `e906_periph.cpp` is deleted;
+  * `_malloc_r` / `_sbrk` are linked into e906_repl_app, gps_imu_app, serial_loopback_app and e906_bench_app (already true at `2dfa62a`), against the zero-heap rule;
+  * a check that fails on register addresses under `apps/`.

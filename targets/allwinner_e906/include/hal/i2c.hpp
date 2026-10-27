@@ -8,65 +8,77 @@
 #pragma once
 
 #include "abstractx/hal/i2c.hpp"
-#include "hal/dma.hpp"
+#include "hal/ports.hpp"
 #include <cstdint>
 #include <span>
 
 namespace abstractx::hal {
 
+// Interrupt-driven TWI master: one INT_FLG interrupt per bus step.
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md
 class E906I2c : public II2c {
 public:
-    // Threshold balancing: requests < 32 bytes use low-latency byte-FSM;
-    // requests >= 32 bytes or with use_dma enabled use hardware DMA pipeline.
-    static constexpr size_t DMA_THRESHOLD = 32;
+    // Called while a synchronous transfer waits; must sleep until an interrupt or `deadline`.
+    using WaitHook = void (*)(uint64_t deadline_ticks) noexcept;
 
-    E906I2c() = default;
+    static constexpr uint32_t kTimeoutMs = 20;
+
+    explicit constexpr E906I2c(const ::hal::ports::TwiPort& port) noexcept : port_(port) {}
 
     bool init(const I2cConfig& config) override;
     bool set_frequency(uint32_t frequency_hz) override;
+    I2cCapabilities capabilities() const noexcept override;
 
     bool write_read_sync(uint8_t slave_addr,
                          std::span<const uint8_t> tx_data,
                          std::span<uint8_t> rx_data) override;
-
     bool write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) override;
     bool read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) override;
 
-    bool is_busy() const noexcept { return busy_; }
+    // Write `tx`, then (repeated START) read `rx`; either may be empty, both empty = address probe.
+    I2cStatus transfer_sync(uint8_t addr, std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept;
+
+    static void set_wait_hook(WaitHook hook) noexcept;
+
+    bool is_busy() const noexcept { return state_ == State::Busy; }
+    size_t bytes_read() const noexcept { return rx_idx_; }
+    uint32_t timeouts() const noexcept { return timeouts_; }
 
     void on_irq() noexcept;
-    void on_dma_complete(uint8_t channel, bool success) noexcept;
 
 protected:
     void start_hardware_transfer_from_isr(const I2cRequest& req) noexcept override;
 
 private:
-    void start_fsm(uint8_t slave_addr, bool is_read, bool repeated_start,
-                   std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept;
+    enum class State : uint8_t { Idle, Busy, Done, Error };
 
-    bool start_dma_xfer(uint8_t slave_addr, bool is_read,
-                        std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept;
+    volatile uint32_t& reg(uint32_t off) const noexcept {
+        return *reinterpret_cast<volatile uint32_t*>(port_.base + off);
+    }
+    void cmd(uint32_t bits) noexcept;
+    void start(uint8_t addr, std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept;
+    void finish(I2cStatus status) noexcept;
+    void complete_async(I2cStatus status, size_t bytes) noexcept;
+    void after_tx() noexcept;
 
-    I2cConfig config_{};
+    const ::hal::ports::TwiPort& port_;
+    bool attached_{false};
+    volatile State state_{State::Idle};
+    I2cStatus status_{I2cStatus::Ok};
+    bool async_{false};
     I2cRequest active_req_{};
-    volatile bool busy_{false};
-    bool success_{false};
 
-    uint8_t slave_addr_{0};
-    bool is_read_{false};
-    bool repeated_start_{false};
+    uint8_t addr_{0};
+    bool read_phase_{false};
     std::span<const uint8_t> tx_{};
     std::span<uint8_t> rx_{};
     size_t tx_idx_{0};
     size_t rx_idx_{0};
-
-    int dma_tx_chan_{-1};
-    int dma_rx_chan_{-1};
-    ::hal::DmaLli dma_lli_{};
-    bool using_dma_{false};
+    volatile uint32_t timeouts_{0};
 };
 
-E906I2c& get_e906_i2c() noexcept;
+E906I2c& get_e906_i2c() noexcept;   // TWI0
+E906I2c& get_e906_twi1() noexcept;  // TWI1, 40-pin header PB4/PB5
 II2c& get_i2c_driver() noexcept;
 II2c& get_i2c() noexcept;
 

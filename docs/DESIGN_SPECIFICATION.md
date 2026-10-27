@@ -486,6 +486,23 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   release and then runs, FIFO order of waiters, cancel, 1000 cycles steady state), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/hal/bus_lock.hpp`, `include/abstractx/hal/spi.hpp`, `include/abstractx/hal/i2c.hpp`
 
+### `[SPEC-HAL-15]` Per-Target Port Table: Silicon Facts in One Header, Drivers Take a Port
+* **Goal**: every processor sets up its UART / I2C / SPI controllers the same way, with no
+  register address, interrupt number or pin written in an app or repeated between drivers.
+* **Requirement (the table)**: each target has one header, `targets/<target>/include/hal/ports.hpp`,
+  with a `constexpr` entry per controller instance: register base, interrupt source, DMA request,
+  clock / reset handle and pins (register, mask, function), plus a name. The values are the
+  target's own (an RP2350 IRQ number means nothing on an E906), so core holds no numbers.
+* **Requirement (drivers)**: one driver per controller type, one file in `targets/<target>/src/`,
+  constructed from a port entry ([SPEC-E906-HAL-04] for the E906). Two instances of the same
+  controller are two objects, never two copies of the code.
+* **Requirement (access)**: apps reach ports only through `get_uart_port(n)` / `get_i2c_port(n)`
+  ([SPEC-HAL-10]); each target lists its port numbers in its own specification.
+* **Status (2026-10-27)**: E906 TWI0/TWI1 follow this; E906 UART2/UART3 next. Pico 2 W, ESP32-P4,
+  Linux and Zynq do not implement `get_*_port` yet and have no `ports.hpp`.
+* **Verified by**: `e906-build-layout`, `boundary-enforcement` (no register addresses under `apps/`)
+* **Implementation Target**: `include/abstractx/hal/platform.hpp`, `targets/allwinner_e906/include/hal/ports.hpp`
+
 ### `[SPEC-HAL-11]` Deprecated Single-Buffer Bus APIs and Their Replacements
 * **Requirement**: the APIs below stay compiling and behave as before, so existing drivers and
   applications keep working; new code uses the replacement, and each is removed once no target or

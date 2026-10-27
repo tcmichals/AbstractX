@@ -232,7 +232,7 @@ IUart& get_uart_driver() noexcept {
     return g_e906_uart;
 }
 
-// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list; UART3/TWI1 not ports yet)
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list; UART3 not a port yet)
 IUart* get_uart_port(uint8_t index) noexcept {
     if (index == 0 || index == 2) {
         return &g_e906_uart;
@@ -243,6 +243,9 @@ IUart* get_uart_port(uint8_t index) noexcept {
 II2c* get_i2c_port(uint8_t bus) noexcept {
     if (bus == 0) {
         return &get_e906_i2c();
+    }
+    if (bus == 1) {
+        return &get_e906_twi1();
     }
     return nullptr;
 }

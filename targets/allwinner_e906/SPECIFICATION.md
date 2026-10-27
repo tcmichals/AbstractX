@@ -688,12 +688,33 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   | :--- | :--- | :--- | :--- |
   | `get_uart_port(0)`, `get_uart_port(2)` | UART2 | `get_uart_driver()` | PB0 TX / PB1 RX (pins 11, 13) |
   | `get_uart_port(3)` | UART3 | none yet (returns null) | PI11 TX / PI12 RX |
-  | `get_i2c_port(0)` | TWI0 | `get_e906_i2c()` | |
-  | `get_i2c_port(1)` | TWI1 | none yet (returns null) | PB4 SCL / PB5 SDA (pins 5, 3) |
+  | `get_i2c_port(0)` | TWI0 | `E906I2c` (`get_e906_i2c()`) | none set: not routed to the header |
+  | `get_i2c_port(1)` | TWI1 | `E906I2c` | PB4 SCL / PB5 SDA (pins 5, 3), function 2 |
 
-  UART3 and TWI1 already work, interrupt-driven, in `apps/e906_repl_app/src/e906_periph.cpp`
-  (UART3 receive by circular DMA, [SPEC-E906-HAL-02]). They become ports by moving that code into
-  this target, not by writing a second driver.
+  UART3 already works, interrupt-driven, in `apps/e906_repl_app/src/e906_periph.cpp` (receive by
+  circular DMA, [SPEC-E906-HAL-02]). It becomes a port by moving that code into this target, not
+  by writing a second driver.
+* **One driver per controller type, the address passed in** (decided 2026-10-27): a driver is one
+  file in `targets/allwinner_e906/src/` and takes a port description (register base, GIC source,
+  CCU module, pin register / mask / function). TWI0 and TWI1 are two `E906I2c` objects in
+  `i2c.cpp`, not two drivers. Apps hold no register addresses; `e906_periph.cpp` keeps only the
+  MicroPython glue (staging buffers that survive Ctrl-C, the wait that runs the VM hook).
+* **TWI (`E906I2c`, `i2c.cpp`)**, taken from the TWI1 code that works on the board:
+  1. One `INT_FLG` interrupt per bus step; the flag is cleared by **writing 1** to `CNTR` bit 3.
+  2. TWI0 (GIC 42) and TWI1 (GIC 43) share CLIC line 91 (`line_for_gic`): each port attaches
+     its own handler and returns at once when its own `INT_FLG` is clear. Init never disables
+     the shared line.
+  3. Clock: `CCR = (M << 3) | N`, `f = 24 MHz / (10 * (M + 1) * 2^N)` (Linux `i2c-mv64xxx`,
+     sun6i); 400 kHz = `0x11`, 100 kHz = `0x2A`. The earlier TWI1 values `0x12` / `0x25` give
+     200 kHz / 15 kHz by this formula (to be confirmed on the board).
+  4. Every error status ends the transfer with STOP: `0x20`/`0x48` address NACK, `0x30` data
+     NACK, `0x38` arbitration lost, anything else bus error.
+  5. A synchronous transfer waits through a replaceable wait hook (default: `arm_wake` +
+     `platform_idle_wait`) with a 20 ms deadline; on timeout it sends STOP, counts it and returns
+     `Timeout`. A transfer still busy when the next one starts is aborted first.
+  6. No TWI DMA until its threshold is measured ([SPEC-E906-HAL-01]): register reads fit the FIFO.
+  7. `capabilities()`: up to 2 messages (write, read, or write then read with repeated START),
+     address-only probe.
 * **Rules for every port driver** (2026-10-27, after `c5a1eaa`):
   1. Interrupt- or DMA-driven ([SPEC-E906-HAL-01]); `start_hardware_transfer_from_isr` starts the
      transfer and returns. It never waits on a status bit, and no wait anywhere is unbounded.
@@ -707,8 +728,9 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   about 14 KB, so `e906_repl_app` no longer linked (`SRAM_FAST` overflowed by 6192 B).
   The classes were removed.
 * **Verified by**: `e906-build-layout` (every E906 app links and fits), `hal-concurrency-audit`,
-  `e906-board-selftest` (once UART3/TWI1 are ports)
-* **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`
+  `host-tests` (`sim/test_e906_twi.cpp`: the TWI state machine against a register model),
+  `e906-board-selftest` (compass on TWI1; UART3 once it is a port)
+* **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/src/i2c.cpp`, `targets/allwinner_e906/include/hal/i2c.hpp`, `apps/e906_repl_app/src/e906_periph.cpp`
 
 ## 7. Binary Telemetry & Observability (`SPEC-E906-TRACE`)
 

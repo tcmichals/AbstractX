@@ -2,419 +2,255 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX Allwinner XuanTie E906 I2C / TWI HAL Implementation
- * -------------------------------------------------------------
- * Dual-Mode Engine:
- * 1. Low-Latency Byte-FSM: For single characters and register reads/writes (< 32 bytes)
- * 2. High-Performance Enhanced DMA Pipeline: For bulk packets (>= 32 bytes or use_dma)
+ * AbstractX Allwinner XuanTie E906 I2C / TWI driver: one driver, one object per controller.
  */
 
 #include "hal/i2c.hpp"
 #include "hal/ccu.hpp"
 #include "hal/clic.hpp"
-// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
-// @impl [SPEC-E906-IRQ-02] targets/allwinner_e906/SPECIFICATION.md
 #include "hal/timer.hpp"
-#include "abstractx/interrupt_lock.hpp"
-#include "memory_map.h"
-#include <atomic>
+#include "abstractx/hal/platform.hpp"
+
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md
+// @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md (FIFO only until TWI DMA is measured)
+// @impl [SPEC-E906-IRQ-02] targets/allwinner_e906/SPECIFICATION.md
 
 namespace abstractx::hal {
 
-/* Sunxi TWI0 Hardware Register Offsets */
-#define TWI0_ADDR         (*(volatile uint32_t *)(TWI0_BASE + 0x00))
-#define TWI0_XADDR        (*(volatile uint32_t *)(TWI0_BASE + 0x04))
-#define TWI0_DATA         (*(volatile uint32_t *)(TWI0_BASE + 0x08))
-#define TWI0_CNTR         (*(volatile uint32_t *)(TWI0_BASE + 0x0C))
-#define TWI0_STAT         (*(volatile uint32_t *)(TWI0_BASE + 0x10))
-#define TWI0_CCR          (*(volatile uint32_t *)(TWI0_BASE + 0x14))
-#define TWI0_SRST         (*(volatile uint32_t *)(TWI0_BASE + 0x18))
+namespace {
 
-/* Sunxi TWI0 Enhanced Driver / FIFO / DMA Register Offsets */
-#define TWI0_DRV_CTRL     (*(volatile uint32_t *)(TWI0_BASE + 0x0200))
-#define TWI0_DRV_CFG      (*(volatile uint32_t *)(TWI0_BASE + 0x0204))
-#define TWI0_DRV_SLV      (*(volatile uint32_t *)(TWI0_BASE + 0x0208))
-#define TWI0_DRV_FMT      (*(volatile uint32_t *)(TWI0_BASE + 0x020C))
-#define TWI0_DRV_BUS_CTRL (*(volatile uint32_t *)(TWI0_BASE + 0x0210))
-#define TWI0_DRV_INT_CTRL (*(volatile uint32_t *)(TWI0_BASE + 0x0214))
-#define TWI0_DRV_DMA_CFG  (*(volatile uint32_t *)(TWI0_BASE + 0x0218))
-#define TWI0_DRV_FIFO_CON (*(volatile uint32_t *)(TWI0_BASE + 0x021C))
-#define TWI0_SENDF        (*(volatile uint32_t *)(TWI0_BASE + 0x0300))
-#define TWI0_RECVF        (*(volatile uint32_t *)(TWI0_BASE + 0x0304))
+constexpr uint32_t kData = 0x08;
+constexpr uint32_t kCntr = 0x0C;
+constexpr uint32_t kStat = 0x10;
+constexpr uint32_t kCcr  = 0x14;
+constexpr uint32_t kSrst = 0x18;
 
-/* Sunxi TWI Control Register Bits */
-#define TWI_CNTR_INTEN   (1U << 7)
-#define TWI_CNTR_BUSEN   (1U << 6)
-#define TWI_CNTR_M_STA   (1U << 5)
-#define TWI_CNTR_M_STP   (1U << 4)
-#define TWI_CNTR_INT_FLG (1U << 3)
-#define TWI_CNTR_A_ACK   (1U << 2)
+constexpr uint32_t kIntEn  = 1U << 7;
+constexpr uint32_t kBusEn  = 1U << 6;
+constexpr uint32_t kMSta   = 1U << 5;
+constexpr uint32_t kMStp   = 1U << 4;
+constexpr uint32_t kIntFlg = 1U << 3;  // cleared by writing 1
+constexpr uint32_t kAAck   = 1U << 2;
 
-static E906I2c g_e906_i2c;
+// CCR = (M << 3) | N, f = 24 MHz / (10 * (M + 1) * 2^N)
+constexpr uint32_t kCcr400k = (2U << 3) | 1U;
+constexpr uint32_t kCcr100k = (5U << 3) | 2U;
 
-static void on_twi_dma_static_callback(uint8_t channel, bool success) noexcept {
-    g_e906_i2c.on_dma_complete(channel, success);
+E906I2c g_twi0{::hal::ports::kTwi0};
+E906I2c g_twi1{::hal::ports::kTwi1};
+
+void default_wait(uint64_t deadline_ticks) noexcept {
+    ::hal::Timer::arm_wake(deadline_ticks);
+    platform_idle_wait();
 }
 
-E906I2c& get_e906_i2c() noexcept {
-    return g_e906_i2c;
-}
+E906I2c::WaitHook s_wait = default_wait;
 
-II2c& get_i2c_driver() noexcept {
-    return g_e906_i2c;
-}
+} // namespace
 
-II2c& get_i2c() noexcept {
-    return g_e906_i2c;
-}
+E906I2c& get_e906_i2c() noexcept { return g_twi0; }
+E906I2c& get_e906_twi1() noexcept { return g_twi1; }
+II2c& get_i2c_driver() noexcept { return g_twi0; }
+II2c& get_i2c() noexcept { return g_twi0; }
 
+void E906I2c::set_wait_hook(WaitHook hook) noexcept { s_wait = hook ? hook : default_wait; }
+
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (pins of this port only, shared line)
 bool E906I2c::init(const I2cConfig& config) {
-    config_ = config;
-
-    // 1. Enable Bus Clock Gating and deassert reset in CCU
-    ::hal::Ccu::enable_module(::hal::Ccu::BusModule::Twi0);
-
-    // 2. Soft Reset TWI Controller
-    TWI0_SRST = 1;
-    for (int i = 0; i < 100; ++i) __asm__ volatile("nop");
-
-    // 3. Set Frequency (Default Fast Mode: 400 kHz)
-    set_frequency(config.frequency_hz ? config.frequency_hz : 400'000);
-
-    // 4. Enable Bus and Interrupts
-    TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN;
-
-    // 5. Route TWI0 (GIC 42) through S_INTC to CLIC ([SPEC-E906-IRQ-01] [SPEC-E906-IRQ-02])
-    ::hal::clic::route_gic(::hal::clic::kGicTwi0, true);
-    (void)::hal::irq::attach(::hal::clic::line_for_gic(::hal::clic::kGicTwi0),
-                             +[](void*) noexcept { abstractx::hal::get_e906_i2c().on_irq(); }, nullptr);
-
-    // 6. Allocate DMA Channels for large transfers
-    if (dma_tx_chan_ < 0) {
-        dma_tx_chan_ = ::hal::DmaController::allocate_channel();
+    reg(kCntr) = 0;  // interrupt off; the CLIC line is shared with the other TWI, leave it enabled
+    ::hal::Ccu::enable_module(port_.clock);
+    if (port_.pins.cfg != 0) {
+        auto& cfg = *reinterpret_cast<volatile uint32_t*>(port_.pins.cfg);
+        cfg = (cfg & ~port_.pins.mask) | port_.pins.func;
     }
-    if (dma_rx_chan_ < 0) {
-        dma_rx_chan_ = ::hal::DmaController::allocate_channel();
-    }
+    reg(kSrst) = 1;  // soft reset, self-clearing
+    ::hal::Timer::delay_us(20);
+    set_frequency(config.frequency_hz ? config.frequency_hz : 400'000U);
+    reg(kCntr) = kBusEn;
+    state_ = State::Idle;
 
-    return true;
+    const uint32_t line = ::hal::clic::line_for_gic(port_.gic);
+    ::hal::clic::route_gic(port_.gic, true);
+    if (!attached_) {
+        attached_ = ::hal::irq::attach(line,
+            +[](void* ctx) noexcept { static_cast<E906I2c*>(ctx)->on_irq(); }, this);
+        ::hal::irq::describe(line, port_.name, &timeouts_);
+    }
+    return attached_;
 }
 
 bool E906I2c::set_frequency(uint32_t frequency_hz) {
-    config_.frequency_hz = frequency_hz;
-    // APB Clock = 24 MHz
-    // Fscl = 24MHz / (10 * 2^N * (M + 1))
-    if (frequency_hz >= 400'000) {
-        // N = 1, M = 2 -> 24M / (10 * 2 * 3) = 400 kHz
-        TWI0_CCR = (2 << 3) | 1;
-    } else {
-        // N = 2, M = 5 -> 24M / (10 * 4 * 6) = 100 kHz
-        TWI0_CCR = (5 << 3) | 2;
-    }
+    reg(kCcr) = frequency_hz >= 400'000U ? kCcr400k : kCcr100k;
     return true;
 }
 
-void E906I2c::start_fsm(uint8_t slave_addr, bool is_read, bool repeated_start,
-                       std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept {
-    slave_addr_ = slave_addr;
-    is_read_ = is_read;
-    repeated_start_ = repeated_start;
+I2cCapabilities E906I2c::capabilities() const noexcept {
+    I2cCapabilities caps{};
+    caps.max_hz = 400'000;
+    caps.max_msgs = 2;  // write, read, or write then read (repeated START)
+    caps.zero_length_write = true;
+    return caps;
+}
+
+void E906I2c::cmd(uint32_t bits) noexcept { reg(kCntr) = kBusEn | kIntEn | kIntFlg | bits; }
+
+void E906I2c::start(uint8_t addr, std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept {
+    addr_ = addr;
     tx_ = tx;
     rx_ = rx;
     tx_idx_ = 0;
     rx_idx_ = 0;
-    busy_ = true;
-    success_ = false;
-
-    // Send Master START
-    TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN | TWI_CNTR_M_STA;
+    read_phase_ = tx.empty() && !rx.empty();
+    status_ = I2cStatus::Ok;
+    state_ = State::Busy;
+    cmd(kMSta);
 }
 
-bool E906I2c::start_dma_xfer(uint8_t slave_addr, bool is_read,
-                             std::span<const uint8_t> tx, std::span<uint8_t> rx) noexcept {
-    slave_addr_ = slave_addr;
-    is_read_ = is_read;
-    tx_ = tx;
-    rx_ = rx;
-    busy_ = true;
-    success_ = false;
+void E906I2c::finish(I2cStatus status) noexcept {
+    reg(kCntr) = kBusEn | kMStp | kIntFlg;  // STOP, no further interrupt
+    status_ = status;
+    state_ = status == I2cStatus::Ok ? State::Done : State::Error;
+    if (async_) {
+        async_ = false;
+        complete_async(status, tx_idx_ + rx_idx_);
+    }
+}
 
-    // 1. Configure Slave Address in TWI_DRV_SLV (0x0208)
-    uint32_t slv_val = (static_cast<uint32_t>(slave_addr & 0x7F) << 9) | (is_read ? (1 << 8) : 0);
-    TWI0_DRV_SLV = slv_val;
+void E906I2c::complete_async(I2cStatus status, size_t bytes) noexcept {
+    I2cResult res{};
+    res.status = status;
+    res.transferred_bytes = bytes;
+    res.msgs_done = status == I2cStatus::Ok ? static_cast<uint8_t>(active_req_.msgs.size()) : 0;
+    res.timestamp_us = ::hal::Timer::get_time_ns() / 1000ULL;
+    push_completion_from_isr(active_req_, res);
+    set_hardware_idle_from_isr();
+}
 
-    // 2. Configure Packet Format in TWI_DRV_FMT (0x020C)
-    size_t data_len = is_read ? rx.size() : tx.size();
-    TWI0_DRV_FMT = (data_len & 0xFFFF);
-
-    // 3. Configure Packet Count in TWI_DRV_CFG (0x0204)
-    TWI0_DRV_CFG = 1;
-
-    // 4. Clear FIFOs in TWI_DRV_FIFO_CON (0x021C)
-    TWI0_DRV_FIFO_CON |= (1 << 6) | (1 << 22);
-
-    // 5. Setup DMA LLI & Channel ([SPEC-E906-HAL-01])
-    if (is_read) {
-        // RX: TWI_DRIVER_RECVF (0x0304) -> memory
-        dma_lli_.src = TWI0_BASE + 0x0304;
-        dma_lli_.dst = ::hal::DmaController::pa(rx.data());
-        dma_lli_.len = rx.size();
-        dma_lli_.para = 8;
-        dma_lli_.p_lli_next = ::hal::LLI_LAST_ITEM;
-        dma_lli_.cfg = ::hal::DmaController::build_cfg(
-            ::hal::DRQ_TWI0, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_IO,
-            ::hal::DRQ_SDRAM, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_LINEAR
-        );
-
-        // Enable DMA RX in TWI_DRV_DMA_CFG (0x0218)
-        TWI0_DRV_DMA_CFG |= (1 << 24);
-
-        ::hal::DmaController::start_transfer(
-            static_cast<uint8_t>(dma_rx_chan_),
-            &dma_lli_,
-            etl::delegate<void(uint8_t, bool)>::create<on_twi_dma_static_callback>()
-        );
+void E906I2c::after_tx() noexcept {
+    if (tx_idx_ < tx_.size()) {
+        reg(kData) = tx_[tx_idx_++];
+        cmd(0);
+    } else if (!rx_.empty() && !read_phase_) {
+        read_phase_ = true;
+        cmd(kMSta);  // repeated START for the read
     } else {
-        // TX: memory -> TWI_DRIVER_SENDF (0x0300)
-        dma_lli_.src = ::hal::DmaController::pa(tx.data());
-        dma_lli_.dst = TWI0_BASE + 0x0300;
-        dma_lli_.len = tx.size();
-        dma_lli_.para = 8;
-        dma_lli_.p_lli_next = ::hal::LLI_LAST_ITEM;
-        dma_lli_.cfg = ::hal::DmaController::build_cfg(
-            ::hal::DRQ_SDRAM, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_LINEAR,
-            ::hal::DRQ_TWI0, ::hal::DMA_BURST_4, ::hal::DMA_WIDTH_8, ::hal::DMA_MODE_IO
-        );
-
-        // Enable DMA TX in TWI_DRV_DMA_CFG (0x0218)
-        TWI0_DRV_DMA_CFG |= (1 << 8);
-
-        ::hal::DmaController::start_transfer(
-            static_cast<uint8_t>(dma_tx_chan_),
-            &dma_lli_,
-            etl::delegate<void(uint8_t, bool)>::create<on_twi_dma_static_callback>()
-        );
-    }
-
-    // 6. Start hardware transfer in TWI_DRV_CTRL (0x0200)
-    TWI0_DRV_CTRL |= (1 << 0);
-    return true;
-}
-
-void E906I2c::on_dma_complete(uint8_t channel, bool success) noexcept {
-    (void)channel;
-    // Disable DMA triggers
-    TWI0_DRV_DMA_CFG &= ~((1 << 8) | (1 << 24));
-
-    success_ = success;
-    busy_ = false;
-
-    if (active_req_.slave_addr != 0) {
-        I2cResult res{};
-        res.status = success ? I2cStatus::Ok : I2cStatus::BusError;
-        res.transferred_bytes = is_read_ ? rx_.size() : tx_.size();
-        res.timestamp_us = ::hal::Timer::get_time_ns() / 1000ULL;
-        push_completion_from_isr(active_req_, res);
-        active_req_.slave_addr = 0;
-        set_hardware_idle_from_isr();
+        finish(I2cStatus::Ok);
     }
 }
 
-bool E906I2c::write_read_sync(uint8_t slave_addr,
-                             std::span<const uint8_t> tx_data,
-                             std::span<uint8_t> rx_data) {
-    if (tx_data.empty() && rx_data.empty()) return true;
-
-    start_fsm(slave_addr, false, !rx_data.empty(), tx_data, rx_data);
-
-    // Sleep in WFI until FSM completion ISR triggers
-    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
-    while (busy_) {
-#if defined(__riscv)
-        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
-        abstractx::disable_interrupts_save_flags();
-#else
-        break;
-#endif
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (INT_FLG write-1-to-clear, errors end with STOP)
+void E906I2c::on_irq() noexcept {
+    if (!(reg(kCntr) & kIntFlg)) {
+        return;  // the other TWI on the shared line
     }
-    abstractx::restore_interrupts_flags(flags);
-    return success_;
+    const uint32_t stat = reg(kStat) & 0xFFU;
+    if (state_ != State::Busy) {
+        reg(kCntr) = kBusEn | kIntFlg;  // stray flag: clear, interrupt off
+        return;
+    }
+    switch (stat) {
+        case 0x08:  // START sent
+        case 0x10:  // repeated START sent
+            reg(kData) = (static_cast<uint32_t>(addr_) << 1) | (read_phase_ ? 1U : 0U);
+            cmd(0);
+            break;
+        case 0x18:  // SLA+W ACK
+        case 0x28:  // data byte ACK
+            after_tx();
+            break;
+        case 0x40:  // SLA+R ACK
+            cmd(rx_.size() > 1 ? kAAck : 0);
+            break;
+        case 0x50:  // data received, ACK sent
+            if (rx_idx_ < rx_.size()) rx_[rx_idx_++] = static_cast<uint8_t>(reg(kData));
+            cmd((rx_.size() - rx_idx_) > 1 ? kAAck : 0);
+            break;
+        case 0x58:  // last byte received, NACK sent
+            if (rx_idx_ < rx_.size()) rx_[rx_idx_++] = static_cast<uint8_t>(reg(kData));
+            finish(I2cStatus::Ok);
+            break;
+        case 0x20:
+        case 0x48:
+            finish(I2cStatus::NackAddress);
+            break;
+        case 0x30:
+            finish(I2cStatus::NackData);
+            break;
+        case 0x38:
+            finish(I2cStatus::ArbitrationLost);
+            break;
+        default:
+            finish(I2cStatus::BusError);
+            break;
+    }
+}
+
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (bounded wait through the hook)
+I2cStatus E906I2c::transfer_sync(uint8_t addr, std::span<const uint8_t> tx,
+                                 std::span<uint8_t> rx) noexcept {
+    if (state_ == State::Busy) {
+        if (async_) return I2cStatus::QueueFull;
+        finish(I2cStatus::Cancelled);  // a previous call was interrupted (Ctrl-C): abort it
+    }
+    if (reg(kCntr) & kMStp) {
+        // previous STOP still on the bus: one short sleep; START queues behind it anyway
+        s_wait(::hal::Timer::get_ticks() + 50ULL * ::hal::Timer::TICKS_PER_US);
+    }
+    start(addr, tx, rx);
+
+    const uint64_t deadline = ::hal::Timer::get_ticks() + kTimeoutMs * ::hal::Timer::TICKS_PER_MS;
+    while (state_ == State::Busy) {
+        if (::hal::Timer::get_ticks() >= deadline) {
+            finish(I2cStatus::Timeout);
+            timeouts_ = timeouts_ + 1;
+            return I2cStatus::Timeout;
+        }
+        s_wait(deadline);
+    }
+    return status_;
+}
+
+bool E906I2c::write_read_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data,
+                              std::span<uint8_t> rx_data) {
+    return transfer_sync(slave_addr, tx_data, rx_data) == I2cStatus::Ok;
 }
 
 bool E906I2c::write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) {
-    if (tx_data.empty()) return true;
-
-    if (tx_data.size() >= DMA_THRESHOLD && dma_tx_chan_ >= 0) {
-        using_dma_ = true;
-        start_dma_xfer(slave_addr, false, tx_data, {});
-    } else {
-        using_dma_ = false;
-        start_fsm(slave_addr, false, false, tx_data, {});
-    }
-
-    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
-    while (busy_) {
-#if defined(__riscv)
-        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
-        abstractx::disable_interrupts_save_flags();
-#else
-        break;
-#endif
-    }
-    abstractx::restore_interrupts_flags(flags);
-    return success_;
+    return transfer_sync(slave_addr, tx_data, {}) == I2cStatus::Ok;
 }
 
 bool E906I2c::read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) {
-    if (rx_data.empty()) return true;
-
-    if (rx_data.size() >= DMA_THRESHOLD && dma_rx_chan_ >= 0) {
-        using_dma_ = true;
-        start_dma_xfer(slave_addr, true, {}, rx_data);
-    } else {
-        using_dma_ = false;
-        start_fsm(slave_addr, true, false, {}, rx_data);
-    }
-
-    const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
-    while (busy_) {
-#if defined(__riscv)
-        __asm__ volatile("csrs mstatus, %0\nwfi\n" :: "r"(8U) : "memory");
-        abstractx::disable_interrupts_save_flags();
-#else
-        break;
-#endif
-    }
-    abstractx::restore_interrupts_flags(flags);
-    return success_;
+    return transfer_sync(slave_addr, {}, rx_data) == I2cStatus::Ok;
 }
 
 void E906I2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
     active_req_ = req;
-    bool is_rd = req.is_read || (!req.repeated_start && req.tx_data.empty() && !req.rx_data.empty());
-    size_t total_len = req.tx_data.size() + req.rx_data.size();
-
-    // DMA vs FIFO/ISR Threshold Decision:
-    // If request size >= DMA_THRESHOLD (32 bytes) or config.use_dma is enabled:
-    if ((total_len >= DMA_THRESHOLD || config_.use_dma) && (dma_tx_chan_ >= 0 && dma_rx_chan_ >= 0)) {
-        using_dma_ = true;
-        start_dma_xfer(req.slave_addr, is_rd, req.tx_data, req.rx_data);
-    } else {
-        // Fast-path: Low-latency byte-FSM for single characters / short register writes (no DMA setup overhead)
-        using_dma_ = false;
-        start_fsm(req.slave_addr, is_rd, req.repeated_start, req.tx_data, req.rx_data);
+    if (state_ == State::Busy) {  // a synchronous transfer owns the bus: refuse, leave it running
+        complete_async(I2cStatus::QueueFull, 0);
+        return;
     }
-}
-
-void E906I2c::on_irq() noexcept {
-    uint32_t status = TWI0_STAT;
-
-    switch (status) {
-    case 0x08: // START condition transmitted
-        // Send SLA+W or SLA+R
-        TWI0_DATA = (static_cast<uint32_t>(slave_addr_) << 1) | (is_read_ ? 1 : 0);
-        TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN;
-        break;
-
-    case 0x10: // REPEATED START condition transmitted
-        // Send SLA+R
-        TWI0_DATA = (static_cast<uint32_t>(slave_addr_) << 1) | 1;
-        TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN;
-        break;
-
-    case 0x18: // SLA+W transmitted, ACK received
-    case 0x28: // Data byte in TWI_DATA transmitted, ACK received
-        if (tx_idx_ < tx_.size()) {
-            // Write next byte
-            TWI0_DATA = tx_[tx_idx_++];
-            TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN;
-        } else if (repeated_start_ && !rx_.empty()) {
-            // Transition to Repeated Start Read
-            is_read_ = true;
-            repeated_start_ = false;
-            TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN | TWI_CNTR_M_STA;
+    std::span<const uint8_t> tx = req.tx_data;
+    std::span<uint8_t> rx = req.rx_data;
+    uint8_t addr = req.slave_addr;
+    if (!req.msgs.empty() || req.recover_bus) {
+        const auto& m = req.msgs;
+        addr = static_cast<uint8_t>(req.address & 0x7FU);
+        if (m.size() == 1 && m[0].is_read()) {
+            tx = {};
+            rx = m[0].rx;
+        } else if (m.size() == 1) {
+            tx = m[0].tx;
+            rx = {};
+        } else if (m.size() == 2 && !m[0].is_read() && m[1].is_read()) {
+            tx = m[0].tx;
+            rx = m[1].rx;
         } else {
-            // End of write: send STOP
-            TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_M_STP;
-            success_ = true;
-            busy_ = false;
-
-            if (active_req_.slave_addr != 0) {
-                I2cResult res{};
-                res.status = I2cStatus::Ok;
-                res.transferred_bytes = tx_.size();
-                res.timestamp_us = ::hal::Timer::get_time_ns() / 1000ULL;
-                push_completion_from_isr(active_req_, res);
-                active_req_.slave_addr = 0;
-                set_hardware_idle_from_isr();
-            }
+            complete_async(I2cStatus::NotSupported, 0);
+            return;
         }
-        break;
-
-    case 0x40: // SLA+R transmitted, ACK received
-        if (rx_.size() > 1) {
-            // Assert ACK for incoming byte
-            TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN | TWI_CNTR_A_ACK;
-        } else {
-            // Only 1 byte requested: send NACK
-            TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN;
-        }
-        break;
-
-    case 0x50: // Data byte received, ACK returned
-        if (rx_idx_ < rx_.size()) {
-            rx_[rx_idx_++] = static_cast<uint8_t>(TWI0_DATA);
-        }
-        if (rx_.size() - rx_idx_ > 1) {
-            // Still more than 1 byte remaining: assert ACK
-            TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN | TWI_CNTR_A_ACK;
-        } else {
-            // Last byte remaining: send NACK
-            TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_INTEN;
-        }
-        break;
-
-    case 0x58: // Data byte received, NACK returned
-        if (rx_idx_ < rx_.size()) {
-            rx_[rx_idx_++] = static_cast<uint8_t>(TWI0_DATA);
-        }
-        // Read burst finished: send STOP
-        TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_M_STP;
-        success_ = true;
-        busy_ = false;
-
-        if (active_req_.slave_addr != 0) {
-            I2cResult res{};
-            res.status = I2cStatus::Ok;
-            res.transferred_bytes = rx_.size();
-            res.timestamp_us = ::hal::Timer::get_time_ns() / 1000ULL;
-            push_completion_from_isr(active_req_, res);
-            active_req_.slave_addr = 0;
-            set_hardware_idle_from_isr();
-        }
-        break;
-
-    default: // Error states: 0x20 (SLA+W NACK), 0x30 (Data TX NACK), 0x38 (Arb Lost), 0x48 (SLA+R NACK), 0x00 (Bus error)
-        TWI0_CNTR = TWI_CNTR_BUSEN | TWI_CNTR_M_STP;
-        success_ = false;
-        busy_ = false;
-
-        if (active_req_.slave_addr != 0) {
-            I2cResult res{};
-            res.status = I2cStatus::BusError;
-            res.transferred_bytes = 0;
-            push_completion_from_isr(active_req_, res);
-            active_req_.slave_addr = 0;
-            set_hardware_idle_from_isr();
-        }
-        break;
     }
+    async_ = true;
+    start(addr, tx, rx);
 }
 
 } // namespace abstractx::hal
-
-// Connect PLIC IRQ 26 ISR to E906I2c instance
-extern "C" __attribute__((section(".fastcode")))
-void fc_twi0_isr() noexcept {
-    abstractx::hal::get_e906_i2c().on_irq();
-}

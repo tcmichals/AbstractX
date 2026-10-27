@@ -21,6 +21,7 @@ set(REPL_APP_SOURCES
     src/rpmsg_console.cpp
     src/mphalport.cpp
     src/e906_periph.cpp
+    src/i2c.cpp
     src/modabstractx.c
     ${MICROPY_SOURCE_PY}
     ${MICROPY_DIR}/shared/runtime/pyexec.c
