@@ -1,0 +1,57 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/hub75/hub75.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "hub75_row",
+      "instructions": [
+        30469,
+        32571,
+        66
+      ],
+      "wrap_target": 0,
+      "wrap": 2,
+      "origin": -1,
+      "sideset": {
+        "size": 2,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    },
+    {
+      "name": "hub75_data_rgb888",
+      "instructions": [
+        32928,
+        16609,
+        24680,
+        16609,
+        24680,
+        16609,
+        24672,
+        32928,
+        20705,
+        28776,
+        20705,
+        28776,
+        20705,
+        28768,
+        20602,
+        45078
+      ],
+      "wrap_target": 0,
+      "wrap": 15,
+      "origin": -1,
+      "sideset": {
+        "size": 1,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {
+        "entry_point": 0,
+        "shift0": 0,
+        "shift1": 7
+      }
+    }
+  ]
+}

@@ -163,3 +163,5 @@ make -f Makefile TESTCASE=test_asp_pio_cocotb
 | `SPEC-PIO-11` | **Program Library and Loading** | ``cocotb-regression` (tests load the checked-in images), the `--check` tool` | ``rtl/pio/programs/`, `tools/pio_programs.py`` |
 | `SPEC-PIO-12` | **Motor Outputs: Bidirectional DShot600 as a PIO Program** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_dshot_cocotb.py`: frame timing` | ``rtl/pio/programs/dshot_bidir.pio`, `tools/dshot_ref.py`` |
 | `SPEC-PIO-13` | **ESC 4-Way Passthrough as a PIO Program** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_esc_serial_cocotb.py`: bytes` | ``rtl/pio/programs/esc_serial.pio`` |
+| `SPEC-PIO-14` | **Third-Party Program Conformance (pico-examples, Betaflight)** | ``cocotb-regression` (planned, not written yet on 2026-10-27:` | ``tools/pio_examples.py`, `rtl/pio/programs/examples/`, `rtl/pio/asp_pio_sm.sv`` |
+| `SPEC-PIO-15` | **RP2040 Feature Parity Checklist** | ``cocotb-regression` (rows marked done), review of this table against the datasheet` | ``rtl/pio/asp_pio_sm.sv`, `rtl/pio/asp_pio_tile.sv`` |

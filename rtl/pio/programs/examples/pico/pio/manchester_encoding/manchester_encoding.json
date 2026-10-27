@@ -1,0 +1,48 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/manchester_encoding/manchester_encoding.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "manchester_tx",
+      "instructions": [
+        46402,
+        6916,
+        48450,
+        45890,
+        24609,
+        34
+      ],
+      "wrap_target": 0,
+      "wrap": 5,
+      "origin": -1,
+      "sideset": {
+        "size": 2,
+        "optional": true,
+        "pindirs": false
+      },
+      "labels": {
+        "start": 4
+      }
+    },
+    {
+      "name": "manchester_rx",
+      "instructions": [
+        8224,
+        18497,
+        192,
+        8352,
+        18465,
+        192
+      ],
+      "wrap_target": 3,
+      "wrap": 5,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

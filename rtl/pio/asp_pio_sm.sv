@@ -8,7 +8,7 @@
 // pipeline update in one always_ff so a pull/push and the FIFO pointer move in
 // the same cycle.
 //
-// @impl [SPEC-PIO-01] [SPEC-PIO-02] [SPEC-PIO-03] rtl/pio/SPECIFICATION.md
+// @impl [SPEC-PIO-01] [SPEC-PIO-02] [SPEC-PIO-03] [SPEC-PIO-15] rtl/pio/SPECIFICATION.md
 module asp_pio_sm #(
     parameter int SM_ID = 0
 ) (
@@ -60,6 +60,7 @@ module asp_pio_sm #(
 
     // Observability / Status
     output logic        o_exec_stalled,
+    output logic        o_exec_latched,     // EXECCTRL.EXEC_STALLED: an SMx_INSTR waits
     output logic        o_sm_active
 );
 
@@ -80,6 +81,10 @@ module asp_pio_sm #(
     wire       out_shift_right = i_shiftctrl[19];
     wire [5:0] push_thresh     = (i_shiftctrl[24:20] == 5'd0) ? 6'd32 : {1'b0, i_shiftctrl[24:20]};
     wire [5:0] pull_thresh     = (i_shiftctrl[29:25] == 5'd0) ? 6'd32 : {1'b0, i_shiftctrl[29:25]};
+    wire       join_tx         = i_shiftctrl[30];   // FJOIN_TX: 8-deep TX, no RX
+    wire       join_rx         = i_shiftctrl[31] && !join_tx;
+    wire [3:0] tx_cap          = join_tx ? 4'd8 : (join_rx ? 4'd0 : 4'd4);
+    wire [3:0] rx_cap          = join_rx ? 4'd8 : (join_tx ? 4'd0 : 4'd4);
 
     wire [4:0] in_base         = i_pinctrl[19:15];
     wire [4:0] out_base        = i_pinctrl[4:0];
@@ -140,19 +145,28 @@ module asp_pio_sm #(
     logic        irq_waiting;            // `irq wait` set its flag, waiting for clear
     logic        stalled;
 
-    logic [31:0] tx_fifo [0:3];
-    logic [1:0]  tx_wr_ptr, tx_rd_ptr;
-    logic [2:0]  tx_level;
-    logic [31:0] rx_fifo [0:3];
-    logic [1:0]  rx_wr_ptr, rx_rd_ptr;
-    logic [2:0]  rx_level;
+    // TX and RX share 8 words: TX 0..3 and RX 4..7, or all 8 for a joined FIFO ([SPEC-PIO-02] rule 8)
+    logic [31:0] fifo_mem [0:7];
+    logic [2:0]  tx_wr_ptr, tx_rd_ptr;
+    logic [3:0]  tx_level;
+    logic [2:0]  rx_wr_ptr, rx_rd_ptr;
+    logic [3:0]  rx_level;
+    logic [1:0]  join_q;
+
+    function automatic logic [2:0] tx_idx(input logic [2:0] ptr, input logic jt);
+        tx_idx = jt ? ptr : {1'b0, ptr[1:0]};
+    endfunction
+    function automatic logic [2:0] rx_idx(input logic [2:0] ptr, input logic jr);
+        rx_idx = jr ? ptr : {1'b1, ptr[1:0]};
+    endfunction
 
     assign o_pc           = pc;
     assign o_sm_active    = i_en;
     assign o_exec_stalled = stalled;
-    assign o_tx_ready     = tx_level != 3'd4;
-    assign o_rx_rvalid    = rx_level != 3'd0;
-    assign o_rx_rdata     = rx_fifo[rx_rd_ptr];
+    assign o_exec_latched = exec_pending && exec_forced;
+    assign o_tx_ready     = tx_level != tx_cap;
+    assign o_rx_rvalid    = rx_level != 4'd0;
+    assign o_rx_rdata     = fifo_mem[rx_idx(rx_rd_ptr, join_rx)];
 
     function automatic logic [31:0] bit_reverse(input logic [31:0] v);
         logic [31:0] r;
@@ -199,10 +213,13 @@ module asp_pio_sm #(
             rx_wr_ptr <= '0; rx_rd_ptr <= '0; rx_level <= '0;
             o_gpio_out <= '0; o_gpio_out_en <= '0; o_gpio_pindir <= '0; o_gpio_pindir_en <= '0;
             o_irq_set <= '0; o_irq_clr <= '0;
-            for (int i = 0; i < 4; i++) begin
-                tx_fifo[i] <= '0;
-                rx_fifo[i] <= '0;
-            end
+            join_q <= 2'd0;
+            for (int i = 0; i < 8; i++) fifo_mem[i] <= '0;
+        end else if ({join_rx, join_tx} != join_q) begin
+            // Changing FJOIN flushes both FIFOs (RP2040; pio_sm_clear_fifos relies on it)
+            join_q <= {join_rx, join_tx};
+            tx_wr_ptr <= '0; tx_rd_ptr <= '0; tx_level <= '0;
+            rx_wr_ptr <= '0; rx_rd_ptr <= '0; rx_level <= '0;
         end else if (i_restart) begin
             pc <= wrap_bottom; isr <= '0; isr_count <= 6'd0; osr_count <= 6'd32;
             delay_cycles <= 5'd0; exec_pending <= 1'b0; exec_forced <= 1'b0;
@@ -213,8 +230,8 @@ module asp_pio_sm #(
             o_irq_set <= '0; o_irq_clr <= '0;
         end else begin
             // FIFO bookkeeping in this cycle (blocking locals)
-            logic [2:0]  tx_lvl, rx_lvl;
-            logic [1:0]  tx_rp, rx_wp;
+            logic [3:0]  tx_lvl, rx_lvl;
+            logic [2:0]  tx_rp, rx_wp;
             logic        do_pull, do_push;
             logic [31:0] push_word;
             logic        step;
@@ -227,9 +244,9 @@ module asp_pio_sm #(
             o_irq_clr <= '0;
 
             // Host side: RX read frees a slot before the SM looks at the level
-            if (i_rx_ren && rx_lvl != 3'd0) begin
-                rx_rd_ptr <= rx_rd_ptr + 2'd1;
-                rx_lvl = rx_lvl - 3'd1;
+            if (i_rx_ren && rx_lvl != 4'd0) begin
+                rx_rd_ptr <= rx_rd_ptr + 3'd1;
+                rx_lvl = rx_lvl - 4'd1;
             end
 
             if (i_exec_valid) begin
@@ -244,7 +261,7 @@ module asp_pio_sm #(
                 delay_cycles <= delay_cycles - 5'd1;
             end else if (step && push_pending) begin
                 // Autopush stalled on a full RX FIFO: retry the push, not the IN
-                if (rx_lvl != 3'd4) begin
+                if (rx_lvl != rx_cap) begin
                     do_push = 1'b1; push_word = isr;
                     isr <= '0; isr_count <= 6'd0;
                     push_pending <= 1'b0;
@@ -279,9 +296,9 @@ module asp_pio_sm #(
 
                 // Autopull refills an empty OSR in the background ([SPEC-PIO-02] rule 3)
                 cur_osr = osr; cur_osr_cnt = osr_count;
-                if (autopull && osr_count >= pull_thresh && tx_lvl != 3'd0 &&
+                if (autopull && osr_count >= pull_thresh && tx_lvl != 4'd0 &&
                     !(ins[15:13] == 3'b100 && ins[7])) begin  // a PULL takes the word itself
-                    do_pull = 1'b1; cur_osr = tx_fifo[tx_rp]; cur_osr_cnt = 6'd0;
+                    do_pull = 1'b1; cur_osr = fifo_mem[tx_idx(tx_rp, join_tx)]; cur_osr_cnt = 6'd0;
                 end
                 n_x = reg_x; n_y = reg_y; n_isr = isr; n_osr = cur_osr;
                 n_isr_cnt = isr_count; n_osr_cnt = cur_osr_cnt;
@@ -341,7 +358,7 @@ module asp_pio_sm #(
                         else                     n_isr = (isr << n) | v;
                         n_isr_cnt = (isr_count + n > 6'd32) ? 6'd32 : isr_count + n;
                         if (autopush && n_isr_cnt >= push_thresh) begin
-                            if (rx_lvl != 3'd4) begin
+                            if (rx_lvl != rx_cap) begin
                                 do_push = 1'b1; push_word = n_isr;
                                 n_isr = '0; n_isr_cnt = 6'd0;
                             end else begin
@@ -382,7 +399,7 @@ module asp_pio_sm #(
                         if (!ins[7]) begin  // PUSH: [6] iffull, [5] block
                             if (ins[6] && isr_count < push_thresh) begin
                                 // below threshold: no-op
-                            end else if (rx_lvl != 3'd4) begin
+                            end else if (rx_lvl != rx_cap) begin
                                 do_push = 1'b1; push_word = isr;
                                 n_isr = '0; n_isr_cnt = 6'd0;
                             end else if (ins[5]) begin
@@ -393,8 +410,8 @@ module asp_pio_sm #(
                         end else begin      // PULL: [6] ifempty, [5] block
                             if (ins[6] && cur_osr_cnt < pull_thresh) begin
                                 // not empty yet: no-op
-                            end else if (tx_lvl != 3'd0) begin
-                                do_pull = 1'b1; n_osr = tx_fifo[tx_rp]; n_osr_cnt = 6'd0;
+                            end else if (tx_lvl != 4'd0) begin
+                                do_pull = 1'b1; n_osr = fifo_mem[tx_idx(tx_rp, join_tx)]; n_osr_cnt = 6'd0;
                             end else if (ins[5]) begin
                                 stall = 1'b1;
                             end else begin
@@ -409,7 +426,7 @@ module asp_pio_sm #(
                             3'b000:  s = pins_rot;
                             3'b001:  s = reg_x;
                             3'b010:  s = reg_y;
-                            3'b101:  s = ((status_sel ? {1'b0, rx_lvl} : {1'b0, tx_lvl}) < status_n) ? 32'hFFFF_FFFF : 32'd0;
+                            3'b101:  s = ((status_sel ? rx_lvl : tx_lvl) < status_n) ? 32'hFFFF_FFFF : 32'd0;
                             3'b110:  s = isr;
                             3'b111:  s = cur_osr;
                             default: s = 32'd0;
@@ -509,18 +526,18 @@ module asp_pio_sm #(
 
             // FIFO commits
             if (do_pull) begin
-                tx_rd_ptr <= tx_rp + 2'd1;
-                tx_lvl = tx_lvl - 3'd1;
+                tx_rd_ptr <= tx_rp + 3'd1;
+                tx_lvl = tx_lvl - 4'd1;
             end
             if (do_push) begin
-                rx_fifo[rx_wp] <= push_word;
-                rx_wr_ptr <= rx_wp + 2'd1;
-                rx_lvl = rx_lvl + 3'd1;
+                fifo_mem[rx_idx(rx_wp, join_rx)] <= push_word;
+                rx_wr_ptr <= rx_wp + 3'd1;
+                rx_lvl = rx_lvl + 4'd1;
             end
-            if (i_tx_wvalid && tx_lvl != 3'd4) begin
-                tx_fifo[tx_wr_ptr] <= i_tx_wdata;
-                tx_wr_ptr <= tx_wr_ptr + 2'd1;
-                tx_lvl = tx_lvl + 3'd1;
+            if (i_tx_wvalid && tx_lvl != tx_cap) begin
+                fifo_mem[tx_idx(tx_wr_ptr, join_tx)] <= i_tx_wdata;
+                tx_wr_ptr <= tx_wr_ptr + 3'd1;
+                tx_lvl = tx_lvl + 4'd1;
             end
             tx_level <= tx_lvl;
             rx_level <= rx_lvl;

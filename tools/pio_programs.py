@@ -40,13 +40,13 @@ def find_pioasm():
     return None
 
 
-def assemble(pioasm, src: Path) -> dict:
+def assemble(pioasm, src: Path, root: Path = ROOT) -> dict:
     """pioasm JSON for one .pio file, reduced to what a loader needs."""
     with tempfile.TemporaryDirectory() as td:
         out = Path(td) / "out.json"
         r = subprocess.run([pioasm, "-o", "json", str(src), str(out)], capture_output=True, text=True)
         if r.returncode != 0:
-            raise SystemExit(f"pioasm failed on {src.relative_to(ROOT)}:\n{r.stdout}{r.stderr}")
+            raise SystemExit(f"pioasm failed on {src.relative_to(root)}:\n{r.stdout}{r.stderr}")
         raw = json.loads(out.read_text())
     progs = []
     for p in raw["programs"]:
@@ -59,7 +59,7 @@ def assemble(pioasm, src: Path) -> dict:
             "sideset": p["sideset"],  # size includes the opt bit (RP2040 SIDESET_COUNT)
             "labels": p.get("publicLabels", {}),
         })
-    return {"source": str(src.relative_to(ROOT)), "assembler": "pioasm (Pico SDK)", "programs": progs}
+    return {"source": str(src.relative_to(root)), "assembler": "pioasm (Pico SDK)", "programs": progs}
 
 
 def image_path(src: Path) -> Path:

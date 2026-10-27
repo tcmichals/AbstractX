@@ -1,0 +1,23 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/clocked_input/clocked_input.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "clocked_input",
+      "instructions": [
+        8225,
+        8353,
+        16385
+      ],
+      "wrap_target": 0,
+      "wrap": 2,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

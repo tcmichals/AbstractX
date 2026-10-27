@@ -1,0 +1,89 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/spi/spi.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "spi_cpha0",
+      "instructions": [
+        24833,
+        20737
+      ],
+      "wrap_target": 0,
+      "wrap": 1,
+      "origin": -1,
+      "sideset": {
+        "size": 1,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    },
+    {
+      "name": "spi_cpha1",
+      "instructions": [
+        24609,
+        45313,
+        16385
+      ],
+      "wrap_target": 0,
+      "wrap": 2,
+      "origin": -1,
+      "sideset": {
+        "size": 1,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    },
+    {
+      "name": "spi_cpha0_cs",
+      "instructions": [
+        24833,
+        18433,
+        2112,
+        24577,
+        40994,
+        18433,
+        2272,
+        41282,
+        37344
+      ],
+      "wrap_target": 0,
+      "wrap": 8,
+      "origin": -1,
+      "sideset": {
+        "size": 2,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {
+        "entry_point": 8
+      }
+    },
+    {
+      "name": "spi_cpha1_cs",
+      "instructions": [
+        26881,
+        16385,
+        64,
+        26625,
+        43042,
+        16385,
+        224,
+        37344,
+        41282
+      ],
+      "wrap_target": 0,
+      "wrap": 8,
+      "origin": -1,
+      "sideset": {
+        "size": 2,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {
+        "entry_point": 7
+      }
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/st7789_lcd/st7789_lcd.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "st7789_lcd",
+      "instructions": [
+        24577,
+        45122
+      ],
+      "wrap_target": 0,
+      "wrap": 1,
+      "origin": -1,
+      "sideset": {
+        "size": 1,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

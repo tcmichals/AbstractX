@@ -1,0 +1,47 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/uart_rx/uart_rx.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "uart_rx_mini",
+      "instructions": [
+        8224,
+        59943,
+        16385,
+        1602
+      ],
+      "wrap_target": 0,
+      "wrap": 3,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    },
+    {
+      "name": "uart_rx",
+      "instructions": [
+        8224,
+        59943,
+        16385,
+        1602,
+        200,
+        49172,
+        8352,
+        0,
+        32800
+      ],
+      "wrap_target": 0,
+      "wrap": 8,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

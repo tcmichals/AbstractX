@@ -1,0 +1,40 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/onewire/onewire_library/onewire_library.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "onewire",
+      "instructions": [
+        65340,
+        8001,
+        58920,
+        1603,
+        41152,
+        32800,
+        59192,
+        3911,
+        24609,
+        5422,
+        59426,
+        17409,
+        3916,
+        8,
+        62754,
+        8015,
+        18529
+      ],
+      "wrap_target": 8,
+      "wrap": 16,
+      "origin": -1,
+      "sideset": {
+        "size": 1,
+        "optional": false,
+        "pindirs": true
+      },
+      "labels": {
+        "reset_bus": 0,
+        "fetch_bit": 8
+      }
+    }
+  ]
+}

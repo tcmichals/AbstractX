@@ -1,0 +1,52 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/quadrature_encoder_substep/quadrature_encoder_substep.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "quadrature_encoder_substep",
+      "instructions": [
+        16416,
+        16448,
+        24770,
+        16386,
+        41198,
+        41127,
+        135,
+        57377,
+        41009,
+        74,
+        41133,
+        41034,
+        141,
+        41034,
+        57376,
+        2,
+        15,
+        11,
+        262,
+        1033,
+        262,
+        15,
+        1033,
+        11,
+        11,
+        1033,
+        15,
+        262,
+        1033,
+        262,
+        11,
+        258
+      ],
+      "wrap_target": 9,
+      "wrap": 14,
+      "origin": 0,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/ir_nec/nec_transmit_library/nec_carrier_burst.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "nec_carrier_burst",
+      "instructions": [
+        57396,
+        8391,
+        57345,
+        57600,
+        66
+      ],
+      "wrap_target": 0,
+      "wrap": 4,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

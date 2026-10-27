@@ -167,6 +167,7 @@ module asp_pio_tile #(
 
     // Status per State Machine
     logic [3:0]  sm_stalled;
+    logic [3:0]  sm_exec_latched;
     logic [3:0]  sm_active;
 
     // SMx_INSTR: immediate instruction per state machine
@@ -225,6 +226,7 @@ module asp_pio_tile #(
                 .o_irq_set        (sm_irq_set[s]),
                 .o_irq_clr        (sm_irq_clr[s]),
                 .o_exec_stalled   (sm_stalled[s]),
+                .o_exec_latched   (sm_exec_latched[s]),
                 .o_sm_active      (sm_active[s])
             );
         end
@@ -422,7 +424,7 @@ module asp_pio_tile #(
                                     if (reg_offset == 12'(base_sm + 12'h00)) begin
                                         wb_dat_o <= {sm_clkdiv[s][23:8], sm_clkdiv[s][7:0], 8'd0};
                                     end else if (reg_offset == 12'(base_sm + 12'h04)) begin
-                                        wb_dat_o <= sm_execctrl[s];
+                                        wb_dat_o <= {sm_exec_latched[s], sm_execctrl[s][30:0]};  // EXEC_STALLED [31]
                                     end else if (reg_offset == 12'(base_sm + 12'h08)) begin
                                         wb_dat_o <= sm_shiftctrl[s];
                                     end else if (reg_offset == 12'(base_sm + 12'h0C)) begin

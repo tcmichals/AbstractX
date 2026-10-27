@@ -3043,3 +3043,39 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Miss**: I wrote a fit percentage from a Yosys `stat` sum without checking what the sum counted and
   without nextpnr. Check that should have caught it: `fpga-fit` (nextpnr utilisation), which I did not run.
 * **Not verified**: nextpnr fit / Fmax, `asp_top` with the tile connected, hardware.
+
+---
+
+## 2026-10-27: PIO checked against the RP2040 datasheet and third-party programs ([SPEC-PIO-14], [SPEC-PIO-15])
+
+* **Category**: `process-gap` (the core was written and "conformance-tested" without the datasheet), `product-bug`
+* **Sources**: RP2040 / RP2350 datasheets (datasheets.raspberrypi.com, downloaded today, not committed);
+  `raspberrypi/pico-examples` @ `0d62f75b` (BSD-3: 26 `.pio` files vendored in
+  `rtl/pio/programs/examples/pico/` with `LICENSE.TXT`); Betaflight `src/platform/PICO` @ `49679ccd` (GPL-3.0:
+  **not copied**, read from `$BETAFLIGHT_DIR`, default `../flightcode/betaflight`, because AbstractX is
+  dual GPLv3 / commercial). `tools/pio_examples.py --list`: all 41 programs (36 pico, 5 Betaflight `.pio` +
+  3 Betaflight C arrays) assemble with `pioasm` and fit 32 words.
+* **Found by the programs**: Betaflight's PIO UART and several pico-examples set `FJOIN_TX` / `FJOIN_RX`;
+  the core had no FIFO join. Betaflight's OSD uses `pio_sm_exec_wait_blocking`, which polls
+  `EXECCTRL.EXEC_STALLED`; not readable. Both added ([SPEC-PIO-02] rules 8, 9): shared 8-word FIFO storage
+  per SM (no extra FIFO flops), FJOIN change flushes (how `pio_sm_clear_fifos` works). Tests
+  `test_fifo_join_tx_and_flush`, `test_fifo_join_rx_8_words`, `test_exec_stalled_latches_until_done` fail
+  on the previous RTL and pass now.
+* **Found by the datasheet** ([SPEC-PIO-15] table): pin output is one latch per PIO block where the
+  highest-numbered SM *writing this cycle* wins (ours: per-SM latch, highest SM that ever drove the pin
+  wins); `SM_RESTART` must keep PC, OSR, X/Y, FIFOs and pins (our rule 7 says the opposite);
+  `CLKDIV.INT = 0` means 65536; missing `OUT_STICKY` / `INLINE_OUT_EN`, `FDEBUG`, `FLEVEL`, `IRQ_FORCE`,
+  `INTE/INTF/INTS` with FIFO sources, `DBG_*`, `SMx_INSTR` read, full `FSTAT`; reset values differ.
+* **Miss**: [SPEC-PIO-02] claimed "RP2040 datasheet semantics" and its conformance tests were written
+  from memory, so they encoded the same misreadings (rule 7). Check that should have caught it: a
+  feature table derived from the datasheet register list, which did not exist. Now [SPEC-PIO-15].
+* **Not verified**: none of the 41 example programs has a functional test yet (next); the missing rows.
+
+| ID | Area | Finding | Evidence | Next step | Check |
+|---|---|---|---|---|---|
+| EL-1027-43 | RTL PIO | pin latch per SM instead of per block (RP2040 3.5.6) | [SPEC-PIO-15] | tile-level latch, per-cycle write strobes from SMs; test two SMs on one pin | `cocotb-regression` |
+| EL-1027-44 | RTL PIO | `SM_RESTART` changes PC, FIFOs, pins; rule 7 contradicts datasheet | datasheet `CTRL.SM_RESTART` | fix rule 7 and RTL; release pins on reset only | `cocotb-regression` |
+| EL-1027-45 | RTL PIO | missing registers: `FDEBUG`, `FLEVEL`, `IRQ_FORCE`, `INTE/INTF/INTS`, `DBG_*`, full `FSTAT`, `SMx_INSTR` read, `OUT_STICKY`, `INLINE_OUT_EN`, `CLKDIV` 0 = 65536 | [SPEC-PIO-15] | implement or mark not planned with reason | `cocotb-regression`, `fpga-fit` |
+| EL-1027-46 | tests | functional tests for the 41 pico-examples / Betaflight programs | [SPEC-PIO-14] | harness configuring SMs like `*_program_init`; one check per protocol | `cocotb-regression` |
+| EL-1027-47 | legal | Raspberry Pi may hold patents on PIO; no granted patent seen; other open-source PIO cores exist (does not settle it) | user question 2026-10-27 | patent search (Google Patents / Espacenet) and a patent attorney before commercial licensing; ISA is replaceable without changing the TLP fabric | review |
+| EL-1027-48 | FPGA targets | the all-PIO design targets the Zynq-7020 (~53k LUT6: fits) or several Tang Nano 20K, one tile each (needs the tile < ~15k LUT) | user direction 2026-10-27 | fit numbers per target after EL-1027-39 | `fpga-fit` |

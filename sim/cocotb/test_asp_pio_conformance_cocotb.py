@@ -247,3 +247,57 @@ async def test_sm_instr_runs_while_disabled(dut):
     await wb_write(dut, SM_INSTR(0), 0x0005)             # jmp 5
     await ClockCycles(dut.clk, 5)
     assert await wb_read(dut, SM_STAT(0)) & 0x1F == 5
+
+
+FJOIN_TX, FJOIN_RX = 1 << 30, 1 << 31
+
+
+async def tx_full(dut, sm):
+    return (await wb_read(dut, REG_FIFO_STAT) >> (24 + sm)) & 1
+
+
+@cocotb.test()
+async def test_fifo_join_tx_and_flush(dut):
+    """Rule 8: FJOIN_TX gives an 8-word TX FIFO; changing FJOIN empties the FIFOs."""
+    await init_tile(dut)
+    await wb_write(dut, SM_SHIFTCTRL(0), FJOIN_TX)
+    for i in range(7):
+        await wb_write(dut, SM_TXF(0), i)
+        assert not await tx_full(dut, 0), f"full after {i + 1} words with FJOIN_TX"
+    await wb_write(dut, SM_TXF(0), 7)
+    assert await tx_full(dut, 0), "not full after 8 words"
+    await wb_write(dut, SM_SHIFTCTRL(0), 0)                     # unjoin: flush
+    for i in range(3):
+        await wb_write(dut, SM_TXF(0), i)
+        assert not await tx_full(dut, 0), "TX FIFO was not emptied by the FJOIN change"
+    await wb_write(dut, SM_TXF(0), 3)
+    assert await tx_full(dut, 0), "plain TX FIFO is not 4 deep"
+
+
+@cocotb.test()
+async def test_fifo_join_rx_8_words(dut):
+    """Rule 8: FJOIN_RX keeps 8 pushed words, in order (pushes run through SMx_INSTR)."""
+    await init_tile(dut)
+    await wb_write(dut, SM_SHIFTCTRL(0), FJOIN_RX)
+    for k in range(10):
+        await wb_write(dut, SM_INSTR(0), 0xE020 | (k + 1))       # set x, k+1
+        await wb_write(dut, SM_INSTR(0), 0xA0C1)                 # mov isr, x
+        await wb_write(dut, SM_INSTR(0), 0x8000)                 # push noblock
+    assert await drain(dut, 0, 12) == [1, 2, 3, 4, 5, 6, 7, 8]
+
+
+@cocotb.test()
+async def test_exec_stalled_latches_until_done(dut):
+    """Rule 9: an SMx_INSTR `pull block` on an empty FIFO stays latched, EXEC_STALLED reads 1,
+    and it completes when a word arrives (pio_sm_exec_wait_blocking)."""
+    await init_tile(dut)
+    await wb_write(dut, SM_INSTR(0), 0x80A0)                     # pull block, FIFO empty
+    await ClockCycles(dut.clk, 10)
+    assert await wb_read(dut, SM_EXECCTRL(0)) >> 31 == 1, "EXEC_STALLED not set"
+    await wb_write(dut, SM_TXF(0), 0x1234_5678)
+    await ClockCycles(dut.clk, 4)
+    assert await wb_read(dut, SM_EXECCTRL(0)) >> 31 == 0, "EXEC_STALLED stuck"
+    await wb_write(dut, SM_INSTR(0), 0xA0C7)                     # mov isr, osr
+    await wb_write(dut, SM_INSTR(0), 0x8020)                     # push block
+    await ClockCycles(dut.clk, 2)                                # SMx_INSTR runs 2 clocks after the write
+    assert await drain(dut, 0) == [0x1234_5678]

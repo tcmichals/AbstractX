@@ -1,0 +1,54 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/apa102/apa102.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "apa102_mini",
+      "instructions": [
+        24577,
+        45122
+      ],
+      "wrap_target": 0,
+      "wrap": 1,
+      "origin": -1,
+      "sideset": {
+        "size": 1,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    },
+    {
+      "name": "apa102_rgb555",
+      "instructions": [
+        32992,
+        57378,
+        16613,
+        24677,
+        16483,
+        66,
+        16456,
+        41174,
+        24673,
+        57407,
+        57344,
+        42502,
+        57345,
+        18113,
+        74
+      ],
+      "wrap_target": 0,
+      "wrap": 14,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {
+        "pixel_out": 0,
+        "bit_run": 9
+      }
+    }
+  ]
+}

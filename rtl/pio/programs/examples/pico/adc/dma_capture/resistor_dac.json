@@ -1,0 +1,21 @@
+{
+  "source": "rtl/pio/programs/examples/pico/adc/dma_capture/resistor_dac.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "resistor_dac_5bit",
+      "instructions": [
+        24581
+      ],
+      "wrap_target": 0,
+      "wrap": 0,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

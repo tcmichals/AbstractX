@@ -3,7 +3,7 @@
 ```
 Document:    rtl/pio/SPECIFICATION.md
 Status:      Active / SSOT
-Governs:     rtl/pio/asp_pio_tile.sv, rtl/pio/asp_pio_sm.sv, rtl/pio/asp_pio_tlp_shim.sv, rtl/pio/asp_pio_tlp_ingress.sv, rtl/pio/programs/, sim/cocotb/test_asp_pio_cocotb.py, sim/cocotb/test_asp_pio_conformance_cocotb.py
+Governs:     rtl/pio/asp_pio_tile.sv, rtl/pio/asp_pio_sm.sv, rtl/pio/asp_pio_tlp_shim.sv, rtl/pio/asp_pio_tlp_ingress.sv, rtl/pio/programs/, sim/cocotb/test_asp_pio_cocotb.py, sim/cocotb/test_asp_pio_conformance_cocotb.py, rtl/pio/programs/examples/, tools/pio_examples.py
 Last Update: 2026-10-27
 ```
 
@@ -105,6 +105,13 @@ flowchart TD
      `{i[2], (i[1:0] + sm) % 4}`.
   7. `SM_RESTART` clears the ISR/OSR shift counts, delay and stall, and returns the PC to
      `wrap_bottom`; pin output/direction ownership is released (pins return to input).
+  8. `SHIFTCTRL.FJOIN_TX` [30] / `FJOIN_RX` [31] join both FIFOs into one 8-word FIFO for that
+     direction (the other direction then has none); changing either bit empties both FIFOs, which is
+     how the Pico SDK's `pio_sm_clear_fifos` works. Found missing on 2026-10-27 by the pico-examples
+     and Betaflight UART programs ([SPEC-PIO-14]).
+  9. An `SMx_INSTR` instruction that stalls stays latched until it completes, and
+     `EXECCTRL.EXEC_STALLED` [31] reads 1 meanwhile (`pio_sm_exec_wait_blocking`, used by Betaflight's
+     OSD driver).
 * **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_pio_conformance_cocotb.py`: each rule
   above with `pioasm` output; first failing case on 2026-10-27: `pull block` advanced the PC)
 * **Implementation Target**: `rtl/pio/asp_pio_sm.sv`
@@ -291,3 +298,66 @@ flowchart TD
   glitch rejected, host break), `board-bringup` (read ESC version through the configurator)
 * **Implementation Target**: `rtl/pio/programs/esc_serial.pio`
 
+
+### `[SPEC-PIO-14]` Third-Party Program Conformance (pico-examples, Betaflight)
+* **Requirement**: unmodified PIO programs written for the RP2040 by others run on the tile with the
+  behaviour their authors documented, configured the way their `*_program_init` C code configures
+  them (pins, side-set, shift, autopush/pull, divider, `pio_sm_exec`). This tests the core against
+  programs whose expected output does not depend on how this project reads the datasheet.
+* **Sources, pinned** (`tools/pio_examples.py` records the commit):
+  1. Raspberry Pi `pico-examples` (BSD-3-Clause): the `.pio` files are vendored with their licence in
+     `rtl/pio/programs/examples/pico/` and assembled by `pioasm` like our own programs ([SPEC-PIO-11]).
+  2. Betaflight `src/platform/PICO` (GPL-3.0): **not copied into this repository** (AbstractX is dual
+     GPLv3 / commercial, AGENTS.md section 11). Tests read the programs from a Betaflight checkout
+     (`$BETAFLIGHT_DIR`, default `../flightcode/betaflight`): `.pio` files through `pioasm`, programs
+     embedded in C as `0xNNNN, // n: ...` arrays by parsing them. Without the checkout the Betaflight
+     tests are reported as skipped, never as passed.
+* **Requirement (check per program)**: each program has a cocotb test that checks its output against
+  the protocol (e.g. UART bytes decoded from the line, WS2812 high times, SPI loopback data, encoder
+  counts, DShot frames and the eRPM reply decoded the way Betaflight decodes it). A program that
+  cannot run (missing ISA feature, needs RP2350, > 32 words) is listed in the test file with the
+  reason; none is silently left out.
+* **Verified by**: `cocotb-regression` (planned, not written yet on 2026-10-27:
+  `sim/cocotb/test_asp_pio_examples_cocotb.py`, `sim/cocotb/test_asp_pio_betaflight_cocotb.py`;
+  today only `tools/pio_examples.py --list` / `tools/pio_programs.py --check` show that all 41
+  programs assemble and fit 32 words)
+* **Implementation Target**: `tools/pio_examples.py`, `rtl/pio/programs/examples/`, `rtl/pio/asp_pio_sm.sv`
+
+### `[SPEC-PIO-15]` RP2040 Feature Parity Checklist
+* **Requirement**: every feature of the RP2040 PIO block (RP2040 Datasheet chapter 3, register list
+  3.7, downloaded 2026-10-27) is listed here as `done` (with its test), `missing`, or `not planned`
+  (with the reason). A feature is never assumed to work because a program happened to pass; this
+  table is the audit, and a change to the core updates it. RP2350-only features (`mov rxfifo[]`,
+  `wait jmppin`, `irq prev/next`, `mov pindirs`, GPIO base 16) are out of scope until a requirement
+  asks for them.
+
+  | Feature (datasheet) | Status | Evidence / gap |
+  |---|---|---|
+  | 9 instructions, conditions, sources/destinations (3.4) | done | conformance tests, [SPEC-PIO-02] rules 1-7 |
+  | Side-set: count incl. opt bit, `SIDE_PINDIR` (3.5.1) | done | `test_sideset_opt_count_includes_enable` |
+  | Delay, stall semantics, side-set while stalled (3.4) | done | rule 1 tests |
+  | Autopush / autopull, thresholds, shift directions (3.5.4) | done | rules 2-3 tests |
+  | `FJOIN_TX` / `FJOIN_RX`, flush on change (`SHIFTCTRL[31:30]`) | done 2026-10-27 | `test_fifo_join_*` |
+  | `EXECCTRL.EXEC_STALLED` [31] | done 2026-10-27 | `test_exec_stalled_latches_until_done` |
+  | `EXECCTRL.OUT_STICKY` [17], `INLINE_OUT_EN` [18], `OUT_EN_SEL` [23:19] | **missing** | write is stored, no effect |
+  | `STATUS_SEL` / `STATUS_N`, `mov x, status` | done | `test_mov_status` |
+  | IRQ flags, `irq wait`, `rel` index | done | rule 6 tests |
+  | `wait 1 irq` clears the flag when it fires | code only | no test yet |
+  | Pin output latch **per PIO block**: each cycle the highest-numbered SM writing a pin wins; an unwritten pin keeps its value (3.5.6) | **wrong** | per-SM latch + static priority: the highest SM that ever drove a pin wins forever |
+  | `CLKDIV` 16.8 fractional; `INT = 0` means 65536 | **partial** | `INT = 0` is treated as 1 |
+  | `CTRL`: `SM_ENABLE`, `SM_RESTART`, `CLKDIV_RESTART` (sync of several SMs) | done | tile tests |
+  | `SM_RESTART` clears shift counters, ISR, delay, IRQ wait, stalled exec; keeps PC, OSR, X/Y, FIFOs, pins | **wrong** | ours also jumps to `wrap_bottom`, empties FIFOs and releases pins: rule 7 above was written without the datasheet and contradicts it. The SDK flow (restart, then `exec jmp`) hides the PC part |
+  | `FSTAT`: `TXEMPTY`, `TXFULL`, `RXEMPTY`, `RXFULL` | **partial** | only RX empty / TX full, at different bits |
+  | `FDEBUG`: `TXSTALL`, `TXOVER`, `RXUNDER`, `RXSTALL` (sticky, W1C) | **missing** | |
+  | `FLEVEL` per-SM FIFO levels | **missing** | |
+  | `IRQ_FORCE` | **missing** | |
+  | Interrupt lines `IRQ0/IRQ1` `INTE`/`INTF`/`INTS`, `INTR` sources (SM flags 0-3, `TXNFULL`, `RXNEMPTY`) | **partial** | one line = OR of flags 0-3, no enables, no FIFO sources |
+  | `INPUT_SYNC_BYPASS`, 2-flop input synchroniser (3.5.6.3) | **differs** | synchroniser at the board top ([SPEC-PIO-09]), not bypassable; adds the same 2-clock latency |
+  | `DBG_PADOUT`, `DBG_PADOE`, `DBG_CFGINFO` | **missing** | |
+  | `SMx_ADDR` (PC), `SMx_INSTR` read (current instruction) | **partial** | PC readable in our status register; current instruction not readable |
+  | Register offsets and reset values (`SHIFTCTRL` 0x000C0000, `PINCTRL.SET_COUNT` 5, `EXECCTRL.WRAP_TOP` 31) | **differs** | own map ([SPEC-PIO-05]); `SHIFTCTRL`/`PINCTRL` reset to 0. Host software uses our map; the SDK writes every field it relies on |
+  | DMA DREQ per FIFO | not planned | replaced by the TLP data path ([SPEC-PIO-10]) |
+  | GPIO count 30, two PIO blocks of 4 SMs | not planned | 32 tile pins; tiles instead of blocks |
+
+* **Verified by**: `cocotb-regression` (rows marked done), review of this table against the datasheet
+* **Implementation Target**: `rtl/pio/asp_pio_sm.sv`, `rtl/pio/asp_pio_tile.sv`

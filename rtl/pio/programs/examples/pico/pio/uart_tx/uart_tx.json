@@ -1,0 +1,24 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/uart_tx/uart_tx.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "uart_tx",
+      "instructions": [
+        40864,
+        63271,
+        24577,
+        1602
+      ],
+      "wrap_target": 0,
+      "wrap": 3,
+      "origin": -1,
+      "sideset": {
+        "size": 2,
+        "optional": true,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}

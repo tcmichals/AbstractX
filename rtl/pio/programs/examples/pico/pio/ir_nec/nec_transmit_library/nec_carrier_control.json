@@ -1,0 +1,31 @@
+{
+  "source": "rtl/pio/programs/examples/pico/pio/ir_nec/nec_transmit_library/nec_carrier_control.pio",
+  "assembler": "pioasm (Pico SDK)",
+  "programs": [
+    {
+      "name": "nec_carrier_control",
+      "instructions": [
+        32928,
+        57391,
+        49159,
+        66,
+        44866,
+        49415,
+        24609,
+        41,
+        41794,
+        49159,
+        230
+      ],
+      "wrap_target": 0,
+      "wrap": 10,
+      "origin": -1,
+      "sideset": {
+        "size": 0,
+        "optional": false,
+        "pindirs": false
+      },
+      "labels": {}
+    }
+  ]
+}
