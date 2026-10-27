@@ -46,6 +46,9 @@ public:
 
     void on_irq() noexcept;
 
+    // Loop context, every step(): end an async transfer past its deadline with Timeout.
+    void poll_timeout() noexcept;
+
 protected:
     void start_hardware_transfer_from_isr(const I2cRequest& req) noexcept override;
 
@@ -66,6 +69,7 @@ private:
     volatile State state_{State::Idle};
     I2cStatus status_{I2cStatus::Ok};
     bool async_{false};
+    uint64_t deadline_{0};  // async transfer, mtime ticks
     I2cRequest active_req_{};
 
     uint8_t addr_{0};
@@ -79,6 +83,7 @@ private:
 
 E906I2c& get_e906_i2c() noexcept;   // TWI0
 E906I2c& get_e906_twi1() noexcept;  // TWI1, 40-pin header PB4/PB5
+void poll_i2c_timeouts() noexcept;   // both TWI ports; called by platform_poll_network()
 II2c& get_i2c_driver() noexcept;
 II2c& get_i2c() noexcept;
 

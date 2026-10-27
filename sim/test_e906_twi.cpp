@@ -5,12 +5,14 @@
  * E906 TWI driver (targets/allwinner_e906/src/i2c.cpp) against a register model of the
  * Allwinner TWI controller and one slave device. Runs on the host.
  *
- * @verifies [SPEC-E906-HAL-04] E906I2c transfer_sync on_irq init capabilities
+ * @verifies [SPEC-E906-HAL-04] E906I2c transfer_sync on_irq init capabilities poll_timeout
  * @verifies [SPEC-HAL-15] TwiPort E906I2c
  */
 
 #include "hal/i2c.hpp"
 #include "hal/timer.hpp"
+#include "abstractx/domain_dispatcher.hpp"
+#include "asp_coro.hpp"
 
 #include <array>
 #include <cstdio>
@@ -30,13 +32,14 @@
 // ---------------------------------------------------------------------------
 namespace {
 uint64_t g_ticks = 0;
+uint64_t g_wake = 0;
 int g_attached = 0;
 }  // namespace
 
 namespace hal {
 uint64_t Timer::get_ticks() noexcept { return g_ticks; }
 uint64_t Timer::get_time_ns() noexcept { return g_ticks * 1000ULL / 24ULL; }
-void Timer::arm_wake(uint64_t) noexcept {}
+void Timer::arm_wake(uint64_t t) noexcept { g_wake = t; }
 void Timer::delay_us(uint32_t us) noexcept { g_ticks += us * TICKS_PER_US; }
 void Ccu::enable_module(BusModule) noexcept {}
 namespace irq {
@@ -56,6 +59,8 @@ namespace {
 
 using abstractx::hal::E906I2c;
 using abstractx::hal::I2cStatus;
+using abstractx::Dispatcher;
+namespace coro = abstractx::coro;
 
 constexpr size_t kData = 0x08 / 4, kCntr = 0x0C / 4, kStat = 0x10 / 4, kCcr = 0x14 / 4;
 constexpr uint32_t kIntEn = 1U << 7, kMSta = 1U << 5, kMStp = 1U << 4, kIntFlg = 1U << 3,
@@ -124,6 +129,25 @@ void bus_step(uint64_t) noexcept {
     dut.on_irq();
 }
 
+// One async write+read through the core awaiter, as an application issues it.
+coro::Task<void> async_read(E906I2c& bus, uint8_t dev, uint8_t reg, uint8_t& out,
+                            abstractx::hal::I2cResult& res, uint32_t timeout_us) {
+    std::array<uint8_t, 1> w{reg};
+    std::array<abstractx::hal::I2cMsg, 2> msgs{abstractx::hal::I2cMsg::write(w),
+                                               abstractx::hal::I2cMsg::read(std::span<uint8_t>(&out, 1))};
+    res = co_await bus.transfer_async(dev, msgs, timeout_us);
+}
+
+// The loop: hardware steps, the per-step timeout poll, then the dispatcher ([AGENTS 10.6]).
+void pump(abstractx::hal::I2cResult& res, int max_steps) {
+    for (int i = 0; i < max_steps && res.status == I2cStatus::Cancelled; ++i) {
+        bus_step(0);
+        abstractx::hal::poll_i2c_timeouts();  // what platform_poll_network() calls
+        dut.poll_timeout();
+        Dispatcher::process();
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -184,6 +208,61 @@ int main() {
         CHECK(got == v);
     }
     CHECK(dut.timeouts() == 1 && !dut.is_busy());
+
+    // async: completes once with the data; the start armed a wake at its deadline
+    {
+        s.mem[6] = 0x5A;
+        uint8_t got = 0;
+        abstractx::hal::I2cResult res{};
+        res.status = I2cStatus::Cancelled;  // "not finished yet" marker for pump()
+        const uint64_t t0 = g_ticks;
+        auto task = async_read(dut, s.dev, 6, got, res, 5'000);
+        task.resume();
+        CHECK(g_wake == t0 + 5'000ULL * 24ULL);
+        pump(res, 100);
+        CHECK(res.status == I2cStatus::Ok && got == 0x5A && res.msgs_done == 2);
+        CHECK(!dut.is_busy());
+    }
+
+    // async timeout: stuck bus, the loop poll ends it with Timeout and STOP, exactly once
+    {
+        s.stuck = true;
+        uint8_t got = 0;
+        abstractx::hal::I2cResult res{};
+        res.status = I2cStatus::Cancelled;
+        const uint32_t before = dut.timeouts();
+        auto task = async_read(dut, s.dev, 6, got, res, 1'000);
+        task.resume();
+        pump(res, 100);  // 100 us per step: deadline after ~10 steps
+        CHECK(res.status == I2cStatus::Timeout);
+        CHECK(dut.timeouts() == before + 1 && !dut.is_busy());
+        CHECK(regs[kCntr] & kMStp);  // STOP was issued
+        for (int i = 0; i < 5; ++i) { dut.poll_timeout(); Dispatcher::process(); }
+        CHECK(dut.timeouts() == before + 1);  // never completed twice
+        s.stuck = false;
+        bus_step(0);  // STOP finishes
+        s.phase = Slave::Phase::Idle;
+        s.started = false;
+    }
+
+    // async steady state: 1000 transfers, no growth of the coroutine pool or dropped resumes
+    {
+        const size_t hw0 = coro::coro_pool_high_water();
+        const size_t used0 = coro::coro_pool_used();
+        const auto drop0 = Dispatcher::dropped_resumes();
+        for (int i = 0; i < 1000; ++i) {
+            s.mem[7] = static_cast<uint8_t>(i);
+            uint8_t got = 0;
+            abstractx::hal::I2cResult res{};
+            res.status = I2cStatus::Cancelled;
+            auto task = async_read(dut, s.dev, 7, got, res, 5'000);
+            task.resume();
+            pump(res, 100);
+            CHECK(res.status == I2cStatus::Ok && got == static_cast<uint8_t>(i));
+        }
+        CHECK(coro::coro_pool_high_water() == hw0 && coro::coro_pool_used() == used0);
+        CHECK(Dispatcher::dropped_resumes() == drop0);
+    }
 
     std::printf("PASS test_e906_twi (%u bus steps)\n", s.steps);
     return 0;

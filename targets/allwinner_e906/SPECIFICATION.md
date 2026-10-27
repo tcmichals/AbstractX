@@ -715,6 +715,12 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   6. No TWI DMA until its threshold is measured ([SPEC-E906-HAL-01]): register reads fit the FIFO.
   7. `capabilities()`: up to 2 messages (write, read, or write then read with repeated START),
      address-only probe.
+  8. An async transfer has a deadline ([SPEC-HAL-09]): `I2cRequest::timeout_us` (0 =
+     `kI2cDefaultTimeoutUs`) from its start. The start arms a timer wake (`Timer::arm_wake`) so a
+     sleeping loop wakes; `platform_poll_network()` (every `step()`) calls `poll_timeout()` on each
+     TWI, which, under an interrupt guard, ends a late transfer with STOP and completes it with
+     `Timeout`. The guard makes the timeout and the completion interrupt mutually exclusive: the
+     request completes exactly once, and no interrupt resumes a coroutine.
 * **Rules for every port driver** (2026-10-27, after `c5a1eaa`):
   1. Interrupt- or DMA-driven ([SPEC-E906-HAL-01]); `start_hardware_transfer_from_isr` starts the
      transfer and returns. It never waits on a status bit, and no wait anywhere is unbounded.

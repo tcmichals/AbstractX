@@ -10,6 +10,7 @@
 #include "hal/clic.hpp"
 #include "hal/timer.hpp"
 #include "abstractx/hal/platform.hpp"
+#include "abstractx/interrupt_lock.hpp"
 
 // @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md
 // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md (FIFO only until TWI DMA is measured)
@@ -50,6 +51,12 @@ E906I2c::WaitHook s_wait = default_wait;
 
 E906I2c& get_e906_i2c() noexcept { return g_twi0; }
 E906I2c& get_e906_twi1() noexcept { return g_twi1; }
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (async deadline, rule 8)
+void poll_i2c_timeouts() noexcept {
+    g_twi0.poll_timeout();
+    g_twi1.poll_timeout();
+}
+
 II2c& get_i2c_driver() noexcept { return g_twi0; }
 II2c& get_i2c() noexcept { return g_twi0; }
 
@@ -106,7 +113,7 @@ void E906I2c::start(uint8_t addr, std::span<const uint8_t> tx, std::span<uint8_t
     cmd(kMSta);
 }
 
-void E906I2c::finish(I2cStatus status) noexcept {
+__attribute__((noinline)) void E906I2c::finish(I2cStatus status) noexcept {
     reg(kCntr) = kBusEn | kMStp | kIntFlg;  // STOP, no further interrupt
     status_ = status;
     state_ = status == I2cStatus::Ok ? State::Done : State::Error;
@@ -250,7 +257,20 @@ void E906I2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
         }
     }
     async_ = true;
+    const uint32_t us = req.timeout_us ? req.timeout_us : kI2cDefaultTimeoutUs;
+    deadline_ = ::hal::Timer::get_ticks() + static_cast<uint64_t>(us) * ::hal::Timer::TICKS_PER_US;
+    ::hal::Timer::arm_wake(deadline_);  // wake a sleeping loop to run poll_timeout()
     start(addr, tx, rx);
+}
+
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (async deadline, rule 8)
+__attribute__((noinline)) void E906I2c::poll_timeout() noexcept {
+    if (!async_) return;  // cheap check; re-checked under the guard
+    abstractx::InterruptGuard guard;  // the completion interrupt cannot finish it at the same time
+    if (async_ && state_ == State::Busy && ::hal::Timer::get_ticks() >= deadline_) {
+        timeouts_ = timeouts_ + 1;
+        finish(I2cStatus::Timeout);
+    }
 }
 
 } // namespace abstractx::hal

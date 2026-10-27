@@ -2822,3 +2822,16 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   * UART2/UART3 merge (same pattern); then `e906_periph.cpp` is deleted;
   * `_malloc_r` / `_sbrk` are linked into e906_repl_app, gps_imu_app, serial_loopback_app and e906_bench_app (already true at `2dfa62a`), against the zero-heap rule;
   * a check that fails on register addresses under `apps/`.
+
+---
+
+## 2026-10-27: E906 async I2C ignored its timeout ([SPEC-E906-HAL-04] rule 8, [SPEC-HAL-09])
+
+* **Category**: `product-bug`
+* **What was wrong**: `E906I2c::start_hardware_transfer_from_isr` ignored `I2cRequest::timeout_us`. A slave holding the bus left the awaiting coroutine suspended forever, although [SPEC-HAL-09] says every transfer has a deadline. The E906 target had no timer service for driver deadlines (nothing calls `set_deadline_hook`).
+* **Which check should have caught it**: `--check-verifies` and the HAL audit look at tags and patterns, not at whether a `timeout_us` field is read; no test drove an async E906 I2C transfer.
+* **Fix**: the async start records `deadline_` and calls `Timer::arm_wake` so a sleeping loop wakes; `platform_poll_network()` (every `step()`) calls `poll_i2c_timeouts()`, which under an `InterruptGuard` ends a late transfer with STOP and completes it with `Timeout` once. No interrupt resumes a coroutine.
+* **Size**: the first version cost 1,908 B of text in every E906 app (the compiler inlined `poll_timeout` + `finish` into `poll_i2c_timeouts` per port: 1,750 B). With both `noinline`: about 200 B.
+* **Regression test**: `sim/test_e906_twi.cpp`: async write+read through `transfer_async` (coroutine started once, `Dispatcher::process()` pumped), wake armed at the deadline, stuck-bus async timeout completes once with STOP, 1000 async transfers with no coroutine-pool growth or dropped resumes. With `poll_timeout` disabled it fails (`CHECK failed: res.status == I2cStatus::Timeout`).
+* **Evidence (this PC, 2026-10-27)**: host 70/70, ASan 70/70 (0 reports), TSan 70/70 under `setarch -R` (0 reports); E906 build 12/12 `[ok]`; e906_repl_app text 182,078 B, SRAM_FAST 182.3 / 192.0 KB (94.9%), DRAM 0.00 MB.
+* **Not verified**: board run.
