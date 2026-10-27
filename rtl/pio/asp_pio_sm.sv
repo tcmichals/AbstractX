@@ -3,16 +3,10 @@
 
 `default_nettype none
 
-// AbstractX RP2040-Compatible PIO State Machine Engine
-//
-// Features:
-// 1. Full 16-bit RP2040 Instruction Set Architecture:
-//    - JMP, WAIT, IN, OUT, PUSH, PULL, MOV, IRQ, SET
-// 2. Fractional 16.8-bit clock divider with phase accumulator.
-// 3. Independent 32-bit X, Y, ISR, OSR registers with Autopush & Autopull.
-// 4. Synchronous 4-word TX and RX FIFOs.
-// 5. Concurrent Delay cycles & Side-set pin driving.
-// 6. Direct Inter-SM IRQ bus (irq 0..7) for Supervisor/Worker handshakes.
+// AbstractX RP2040-compatible PIO state machine: runs pioasm output unchanged
+// ([SPEC-PIO-02] conformance list). FIFOs, shift registers and the execution
+// pipeline update in one always_ff so a pull/push and the FIFO pointer move in
+// the same cycle.
 //
 // @impl [SPEC-PIO-01] [SPEC-PIO-02] [SPEC-PIO-03] rtl/pio/SPECIFICATION.md
 module asp_pio_sm #(
@@ -26,7 +20,11 @@ module asp_pio_sm #(
     input  wire         i_restart,
     input  wire         i_clkdiv_restart,
 
-    // Configuration Registers (Wishbone Mapped)
+    // Immediate instruction (SMx_INSTR write): runs next cycle, even when disabled
+    input  wire  [15:0] i_exec_instr,
+    input  wire         i_exec_valid,
+
+    // Configuration Registers
     /* verilator lint_off UNUSEDSIGNAL */
     input  wire [23:0]  i_clkdiv,       // [23:8] Int, [7:0] Frac
     input  wire [31:0]  i_execctrl,
@@ -45,7 +43,7 @@ module asp_pio_sm #(
     output logic [31:0] o_gpio_pindir,
     output logic [31:0] o_gpio_pindir_en,
 
-    // TX FIFO Interface (Host / Inter-SM write -> SM read)
+    // TX FIFO Interface (Host / TLP ingress write -> SM read)
     input  wire  [31:0] i_tx_wdata,
     input  wire         i_tx_wvalid,
     output logic        o_tx_ready,
@@ -66,37 +64,33 @@ module asp_pio_sm #(
 );
 
     // ------------------------------------------------------------------------
-    // Configuration Fields Unpacking (RP2040 / RP2350 Standard Layout)
+    // Configuration fields (RP2040 register layout)
     // ------------------------------------------------------------------------
+    wire [3:0] status_n        = i_execctrl[3:0];
+    wire       status_sel      = i_execctrl[4];
     wire [4:0] wrap_bottom     = i_execctrl[11:7];
     wire [4:0] wrap_top        = i_execctrl[16:12];
     wire [4:0] jmp_pin         = i_execctrl[28:24];
-    wire [2:0] sideset_count   = i_pinctrl[31:29];
-    wire       sideset_opt     = i_execctrl[30];
     wire       sideset_pindirs = i_execctrl[29];
-    /* verilator lint_off UNUSEDSIGNAL */
-    wire [4:0] status_n        = i_execctrl[4:0];
-    /* verilator lint_on UNUSEDSIGNAL */
-    wire       status_sel      = i_execctrl[5];
+    wire       sideset_opt     = i_execctrl[30];
 
-    wire       in_shift_dir    = i_shiftctrl[18]; // 0=Left, 1=Right
-    wire       out_shift_dir   = i_shiftctrl[19]; // 0=Left, 1=Right
     wire       autopush        = i_shiftctrl[16];
     wire       autopull        = i_shiftctrl[17];
-    wire [4:0] push_thresh_raw = i_shiftctrl[24:20];
-    wire [4:0] pull_thresh_raw = i_shiftctrl[29:25];
-    wire [5:0] push_thresh     = (push_thresh_raw == 5'd0) ? 6'd32 : {1'b0, push_thresh_raw};
-    wire [5:0] pull_thresh     = (pull_thresh_raw == 5'd0) ? 6'd32 : {1'b0, pull_thresh_raw};
+    wire       in_shift_right  = i_shiftctrl[18];
+    wire       out_shift_right = i_shiftctrl[19];
+    wire [5:0] push_thresh     = (i_shiftctrl[24:20] == 5'd0) ? 6'd32 : {1'b0, i_shiftctrl[24:20]};
+    wire [5:0] pull_thresh     = (i_shiftctrl[29:25] == 5'd0) ? 6'd32 : {1'b0, i_shiftctrl[29:25]};
 
-    wire [4:0] in_base         = i_pinctrl[4:0];
-    wire [4:0] out_base        = i_pinctrl[9:5];
-    wire [4:0] set_base        = i_pinctrl[14:10];
-    wire [4:0] side_base       = i_pinctrl[19:15];
+    wire [4:0] in_base         = i_pinctrl[19:15];
+    wire [4:0] out_base        = i_pinctrl[4:0];
+    wire [4:0] set_base        = i_pinctrl[9:5];
+    wire [4:0] side_base       = i_pinctrl[14:10];
     wire [5:0] out_count       = i_pinctrl[25:20];
     wire [2:0] set_count       = i_pinctrl[28:26];
+    wire [2:0] sideset_count   = i_pinctrl[31:29];  // includes the enable bit when SIDE_EN
 
     // ------------------------------------------------------------------------
-    // Clock Divider (16.8 Fractional Phase Accumulator)
+    // Clock divider (16.8 fractional)
     // ------------------------------------------------------------------------
     logic [15:0] clkdiv_int_cnt;
     logic [7:0]  clkdiv_frac_acc;
@@ -114,9 +108,8 @@ module asp_pio_sm #(
             clkdiv_int_cnt  <= 16'd0;
             clkdiv_frac_acc <= 8'd0;
             sm_clk_enable   <= 1'b0;
-        end else if (div_int == 16'd0 && div_frac == 8'd0) begin
-            // 0 divider = full clock rate
-            sm_clk_enable   <= 1'b1;
+        end else if (div_int <= 16'd1 && div_frac == 8'd0) begin
+            sm_clk_enable   <= 1'b1;  // divider 0 or 1.0: every clock
             clkdiv_int_cnt  <= 16'd0;
         end else begin
             if (clkdiv_int_cnt == 16'd0) begin
@@ -133,547 +126,422 @@ module asp_pio_sm #(
     end
 
     // ------------------------------------------------------------------------
-    // Core Working Registers & Shift Registers
+    // State
     // ------------------------------------------------------------------------
     logic [4:0]  pc;
-    logic [31:0] reg_x;
-    logic [31:0] reg_y;
-    logic [31:0] isr;
-    logic [5:0]  isr_count;
-    logic [31:0] osr;
-    logic [5:0]  osr_count;
+    logic [31:0] reg_x, reg_y, isr, osr;
+    logic [5:0]  isr_count, osr_count;   // osr_count 32 = empty
     logic [4:0]  delay_cycles;
-    logic        exec_override_valid;
-    logic [15:0] exec_override_instr;
+    logic        exec_pending;           // EXEC (OUT/MOV EXEC or SMx_INSTR) runs next
+    logic [15:0] exec_instr;
+    logic        exec_forced;            // SMx_INSTR: run even when disabled
+    logic        push_pending;           // autopush waiting for RX FIFO space
+    logic [4:0]  pend_delay;             // delay of the IN whose autopush is pending
+    logic        irq_waiting;            // `irq wait` set its flag, waiting for clear
+    logic        stalled;
 
-    assign o_pc        = pc;
-    assign o_sm_active = i_en;
-
-    // ------------------------------------------------------------------------
-    // Synchronous 4-Word FIFOs
-    // ------------------------------------------------------------------------
     logic [31:0] tx_fifo [0:3];
     logic [1:0]  tx_wr_ptr, tx_rd_ptr;
     logic [2:0]  tx_level;
-
     logic [31:0] rx_fifo [0:3];
     logic [1:0]  rx_wr_ptr, rx_rd_ptr;
     logic [2:0]  rx_level;
 
-    wire tx_full  = (tx_level == 3'd4);
-    wire tx_empty = (tx_level == 3'd0);
-    wire rx_full  = (rx_level == 3'd4);
-    wire rx_empty = (rx_level == 3'd0);
+    assign o_pc           = pc;
+    assign o_sm_active    = i_en;
+    assign o_exec_stalled = stalled;
+    assign o_tx_ready     = tx_level != 3'd4;
+    assign o_rx_rvalid    = rx_level != 3'd0;
+    assign o_rx_rdata     = rx_fifo[rx_rd_ptr];
 
-    assign o_tx_ready = !tx_full;
-    assign o_rx_rvalid = !rx_empty;
-    assign o_rx_rdata  = rx_fifo[rx_rd_ptr];
+    function automatic logic [31:0] bit_reverse(input logic [31:0] v);
+        logic [31:0] r;
+        for (int i = 0; i < 32; i++) r[i] = v[31 - i];
+        return r;
+    endfunction
 
-    // FIFO Push/Pull signals from SM execution
-    logic        sm_pull_req;
-    logic [31:0] sm_pull_data;
-    logic        sm_push_req;
-    logic [31:0] sm_push_data;
+    function automatic logic [31:0] pins_in(input logic [31:0] g, input logic [4:0] base);
+        logic [31:0] r;
+        for (int i = 0; i < 32; i++) r[i] = g[5'(int'(base) + i)];
+        return r;
+    endfunction
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            tx_wr_ptr <= 2'd0;
-            tx_rd_ptr <= 2'd0;
-            tx_level  <= 3'd0;
-            rx_wr_ptr <= 2'd0;
-            rx_rd_ptr <= 2'd0;
-            rx_level  <= 3'd0;
-        end else if (i_restart) begin
-            tx_wr_ptr <= 2'd0;
-            tx_rd_ptr <= 2'd0;
-            tx_level  <= 3'd0;
-            rx_wr_ptr <= 2'd0;
-            rx_rd_ptr <= 2'd0;
-            rx_level  <= 3'd0;
-        end else begin
-            // TX FIFO Management
-            if (i_tx_wvalid && !tx_full) begin
-                tx_fifo[tx_wr_ptr] <= i_tx_wdata;
-                tx_wr_ptr <= tx_wr_ptr + 2'd1;
-                if (!sm_pull_req || tx_empty) begin
-                    tx_level <= tx_level + 3'd1;
-                end
-            end
-            if (sm_pull_req && !tx_empty) begin
-                tx_rd_ptr <= tx_rd_ptr + 2'd1;
-                if (!i_tx_wvalid || tx_full) begin
-                    tx_level <= tx_level - 3'd1;
-                end
-            end
+    // n = 1..32 bits
+    function automatic logic [31:0] low_mask(input logic [5:0] n);
+        return (n >= 6'd32) ? 32'hFFFF_FFFF : ((32'd1 << n) - 32'd1);
+    endfunction
 
-            // RX FIFO Management
-            if (sm_push_req && !rx_full) begin
-                rx_fifo[rx_wr_ptr] <= sm_push_data;
-                rx_wr_ptr <= rx_wr_ptr + 2'd1;
-                if (!i_rx_ren || rx_empty) begin
-                    rx_level <= rx_level + 3'd1;
-                end
-            end
-            if (i_rx_ren && !rx_empty) begin
-                rx_rd_ptr <= rx_rd_ptr + 2'd1;
-                if (!sm_push_req || rx_full) begin
-                    rx_level <= rx_level - 3'd1;
-                end
-            end
-        end
-    end
-
-    assign sm_pull_data = tx_fifo[tx_rd_ptr];
-
-    // ------------------------------------------------------------------------
-    // Active Instruction & Side-Set Extraction
-    // ------------------------------------------------------------------------
-    wire [15:0] curr_instr = exec_override_valid ? exec_override_instr : i_instr;
-    wire [2:0]  opcode     = curr_instr[15:13];
-    wire [4:0]  raw_delay  = curr_instr[12:8];
-
-    // Decode Side-set cleanly without variable slice ranges
-    logic [4:0] inst_delay;
-    logic [4:0] inst_sideset_val;
-    logic       inst_sideset_en;
-
-    always_comb begin
-        if (sideset_count == 3'd0) begin
-            inst_sideset_en  = 1'b0;
-            inst_sideset_val = 5'd0;
-            inst_delay       = raw_delay;
-        end else if (sideset_opt) begin
-            inst_sideset_en = raw_delay[4];
-            case (sideset_count)
-                3'd1: begin
-                    inst_sideset_val = {4'd0, raw_delay[3]};
-                    inst_delay       = {2'd0, raw_delay[2:0]};
-                end
-                3'd2: begin
-                    inst_sideset_val = {3'd0, raw_delay[3:2]};
-                    inst_delay       = {3'd0, raw_delay[1:0]};
-                end
-                3'd3: begin
-                    inst_sideset_val = {2'd0, raw_delay[3:1]};
-                    inst_delay       = {4'd0, raw_delay[0]};
-                end
-                3'd4: begin
-                    inst_sideset_val = {1'b0, raw_delay[3:0]};
-                    inst_delay       = 5'd0;
-                end
-                default: begin
-                    inst_sideset_val = {1'b0, raw_delay[3:0]};
-                    inst_delay       = 5'd0;
-                end
-            endcase
-        end else begin
-            inst_sideset_en = 1'b1;
-            case (sideset_count)
-                3'd1: begin
-                    inst_sideset_val = {4'd0, raw_delay[4]};
-                    inst_delay       = {1'b0, raw_delay[3:0]};
-                end
-                3'd2: begin
-                    inst_sideset_val = {3'd0, raw_delay[4:3]};
-                    inst_delay       = {2'd0, raw_delay[2:0]};
-                end
-                3'd3: begin
-                    inst_sideset_val = {2'd0, raw_delay[4:2]};
-                    inst_delay       = {3'd0, raw_delay[1:0]};
-                end
-                3'd4: begin
-                    inst_sideset_val = {1'b0, raw_delay[4:1]};
-                    inst_delay       = {4'd0, raw_delay[0]};
-                end
-                3'd5: begin
-                    inst_sideset_val = raw_delay[4:0];
-                    inst_delay       = 5'd0;
-                end
-                default: begin
-                    inst_sideset_val = 5'd0;
-                    inst_delay       = raw_delay;
-                end
-            endcase
-        end
-    end
-
-    // ------------------------------------------------------------------------
-    // Bit-Reverse Helper Function for MOV
-    // ------------------------------------------------------------------------
-    function automatic logic [31:0] bit_reverse(input logic [31:0] val);
-        logic [31:0] res;
-        for (int i = 0; i < 32; i++) begin
-            res[i] = val[31 - i];
-        end
-        return res;
+    // RP2040 IRQ index: bit 4 = relative, {i[2], (i[1:0] + sm) % 4}
+    function automatic logic [2:0] irq_index(input logic [4:0] f);
+        logic [1:0] lo;
+        lo = f[4] ? 2'(f[1:0] + 2'(SM_ID)) : f[1:0];
+        return {f[2], lo};
     endfunction
 
     // ------------------------------------------------------------------------
-    // Main State Machine Execution Pipeline
+    // Execution, FIFOs and pins
     // ------------------------------------------------------------------------
-    logic stall_cycle;
-    assign o_exec_stalled = stall_cycle;
-
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            pc                  <= 5'd0;
-            reg_x               <= 32'd0;
-            reg_y               <= 32'd0;
-            isr                 <= 32'd0;
-            isr_count           <= 6'd0;
-            osr                 <= 32'd0;
-            osr_count           <= 6'd0;
-            delay_cycles        <= 5'd0;
-            exec_override_valid <= 1'b0;
-            exec_override_instr <= 16'd0;
-            o_gpio_out          <= 32'd0;
-            o_gpio_out_en       <= 32'd0;
-            o_gpio_pindir       <= 32'd0;
-            o_gpio_pindir_en    <= 32'd0;
-            o_irq_set           <= 8'd0;
-            o_irq_clr           <= 8'd0;
-            sm_pull_req         <= 1'b0;
-            sm_push_req         <= 1'b0;
-            sm_push_data        <= 32'd0;
-            stall_cycle         <= 1'b0;
+            pc <= 5'd0; reg_x <= '0; reg_y <= '0; isr <= '0; osr <= '0;
+            isr_count <= 6'd0; osr_count <= 6'd32; delay_cycles <= 5'd0;
+            exec_pending <= 1'b0; exec_instr <= 16'd0; exec_forced <= 1'b0;
+            push_pending <= 1'b0; pend_delay <= 5'd0; irq_waiting <= 1'b0; stalled <= 1'b0;
+            tx_wr_ptr <= '0; tx_rd_ptr <= '0; tx_level <= '0;
+            rx_wr_ptr <= '0; rx_rd_ptr <= '0; rx_level <= '0;
+            o_gpio_out <= '0; o_gpio_out_en <= '0; o_gpio_pindir <= '0; o_gpio_pindir_en <= '0;
+            o_irq_set <= '0; o_irq_clr <= '0;
+            for (int i = 0; i < 4; i++) begin
+                tx_fifo[i] <= '0;
+                rx_fifo[i] <= '0;
+            end
         end else if (i_restart) begin
-            pc                  <= wrap_bottom;
-            delay_cycles        <= 5'd0;
-            exec_override_valid <= 1'b0;
-            o_irq_set           <= 8'd0;
-            o_irq_clr           <= 8'd0;
-            sm_pull_req         <= 1'b0;
-            sm_push_req         <= 1'b0;
-            stall_cycle         <= 1'b0;
+            pc <= wrap_bottom; isr <= '0; isr_count <= 6'd0; osr_count <= 6'd32;
+            delay_cycles <= 5'd0; exec_pending <= 1'b0; exec_forced <= 1'b0;
+            push_pending <= 1'b0; irq_waiting <= 1'b0; stalled <= 1'b0;
+            tx_wr_ptr <= '0; tx_rd_ptr <= '0; tx_level <= '0;
+            rx_wr_ptr <= '0; rx_rd_ptr <= '0; rx_level <= '0;
+            o_gpio_out_en <= '0; o_gpio_pindir_en <= '0;  // pins return to input ([SPEC-PIO-09])
+            o_irq_set <= '0; o_irq_clr <= '0;
         end else begin
-            // Clear single-cycle strobe pulses
-            o_irq_set   <= 8'd0;
-            o_irq_clr   <= 8'd0;
-            sm_pull_req <= 1'b0;
-            sm_push_req <= 1'b0;
+            // FIFO bookkeeping in this cycle (blocking locals)
+            logic [2:0]  tx_lvl, rx_lvl;
+            logic [1:0]  tx_rp, rx_wp;
+            logic        do_pull, do_push;
+            logic [31:0] push_word;
+            logic        step;
 
-            if (i_en && sm_clk_enable) begin
-                if (delay_cycles > 5'd0) begin
-                    delay_cycles <= delay_cycles - 5'd1;
+            tx_lvl = tx_level;  rx_lvl = rx_level;
+            tx_rp  = tx_rd_ptr; rx_wp  = rx_wr_ptr;
+            do_pull = 1'b0; do_push = 1'b0; push_word = '0;
+
+            o_irq_set <= '0;
+            o_irq_clr <= '0;
+
+            // Host side: RX read frees a slot before the SM looks at the level
+            if (i_rx_ren && rx_lvl != 3'd0) begin
+                rx_rd_ptr <= rx_rd_ptr + 2'd1;
+                rx_lvl = rx_lvl - 3'd1;
+            end
+
+            if (i_exec_valid) begin
+                exec_pending <= 1'b1;
+                exec_instr   <= i_exec_instr;
+                exec_forced  <= 1'b1;
+            end
+
+            step = (exec_pending && exec_forced) || (i_en && sm_clk_enable);
+
+            if (step && delay_cycles != 5'd0 && !(exec_pending && exec_forced)) begin
+                delay_cycles <= delay_cycles - 5'd1;
+            end else if (step && push_pending) begin
+                // Autopush stalled on a full RX FIFO: retry the push, not the IN
+                if (rx_lvl != 3'd4) begin
+                    do_push = 1'b1; push_word = isr;
+                    isr <= '0; isr_count <= 6'd0;
+                    push_pending <= 1'b0;
+                    stalled <= 1'b0;
+                    delay_cycles <= pend_delay;
+                    pc <= (pc == wrap_top) ? wrap_bottom : pc + 5'd1;
                 end else begin
-                    // Instruction Decode & Execution
-                    logic [4:0] next_pc;
-                    logic       advance_pc;
-                    logic       exec_stall;
+                    stalled <= 1'b1;
+                end
+            end else if (step) begin
+                logic [15:0] ins;
+                logic [4:0]  next_pc, delay, side_val;
+                logic [2:0]  side_bits;
+                logic        side_en, stall, from_exec, pc_jump, hold_for_push, is_exec;
+                logic [31:0] n_x, n_y, n_isr, n_osr, cur_osr;
+                logic [5:0]  n_isr_cnt, n_osr_cnt, cur_osr_cnt;
 
-                    next_pc     = (pc == wrap_top) ? wrap_bottom : (pc + 5'd1);
-                    advance_pc  = 1'b1;
-                    exec_stall  = 1'b0;
+                from_exec = exec_pending;
+                ins       = exec_pending ? exec_instr : i_instr;
+                next_pc   = 5'd0;
+                pc_jump   = 1'b0;
+                stall     = 1'b0;
+                hold_for_push = 1'b0;
+                is_exec   = (ins[15:13] == 3'b011 && ins[7:5] == 3'b111) ||
+                            (ins[15:13] == 3'b101 && ins[7:5] == 3'b100);
 
-                    // Apply Side-Set immediately if valid
-                    if (inst_sideset_en) begin
-                        for (int i = 0; i < 5; i++) begin
-                            if (3'(i) < sideset_count) begin
-                                logic [4:0] p_idx;
-                                p_idx = side_base + 5'(i);
-                                if (sideset_pindirs) begin
-                                    o_gpio_pindir[p_idx]    <= inst_sideset_val[i];
-                                    o_gpio_pindir_en[p_idx] <= 1'b1;
-                                end else begin
-                                    o_gpio_out[p_idx]       <= inst_sideset_val[i];
-                                    o_gpio_out_en[p_idx]    <= 1'b1;
-                                end
-                            end
-                        end
-                    end
+                // Autopull refills an empty OSR in the background ([SPEC-PIO-02] rule 3)
+                cur_osr = osr; cur_osr_cnt = osr_count;
+                if (autopull && osr_count >= pull_thresh && tx_lvl != 3'd0 &&
+                    !(ins[15:13] == 3'b100 && ins[7])) begin  // a PULL takes the word itself
+                    do_pull = 1'b1; cur_osr = tx_fifo[tx_rp]; cur_osr_cnt = 6'd0;
+                end
+                n_x = reg_x; n_y = reg_y; n_isr = isr; n_osr = cur_osr;
+                n_isr_cnt = isr_count; n_osr_cnt = cur_osr_cnt;
 
-                    case (opcode)
-                        // ----------------------------------------------------
-                        // JMP (3'b000)
-                        // ----------------------------------------------------
-                        3'b000: begin
-                            logic cond_met;
-                            case (curr_instr[7:5])
-                                3'b000: cond_met = 1'b1;                      // Unconditional
-                                3'b001: cond_met = (reg_x == 32'd0);          // !X
-                                3'b010: begin                                 // X--
-                                    cond_met = (reg_x != 32'd0);
-                                    reg_x    <= reg_x - 32'd1;
-                                end
-                                3'b011: cond_met = (reg_y == 32'd0);          // !Y
-                                3'b100: begin                                 // Y--
-                                    cond_met = (reg_y != 32'd0);
-                                    reg_y    <= reg_y - 32'd1;
-                                end
-                                3'b101: cond_met = (reg_x != reg_y);          // X != Y
-                                3'b110: cond_met = i_gpio[jmp_pin];           // PIN
-                                3'b111: cond_met = (osr_count < pull_thresh); // !OSRE
-                            endcase
-                            if (cond_met) begin
-                                next_pc = curr_instr[4:0];
-                            end
-                        end
+                // Delay / side-set field: SIDESET_COUNT includes the enable bit when SIDE_EN
+                side_bits = sideset_opt ? (sideset_count == 3'd0 ? 3'd0 : sideset_count - 3'd1) : sideset_count;
+                side_en   = (sideset_count != 3'd0) && (!sideset_opt || ins[12]);
+                side_val  = 5'(ins[12:8] >> (3'd5 - sideset_count)) & 5'(low_mask(6'(side_bits)));
+                delay     = ins[12:8] & 5'(low_mask(6'(3'd5 - sideset_count)));
 
-                        // ----------------------------------------------------
-                        // WAIT (3'b001)
-                        // ----------------------------------------------------
-                        3'b001: begin
-                            logic polarity;
-                            logic pin_val;
-                            polarity = curr_instr[7];
-
-                            case (curr_instr[6:5])
-                                2'b00: pin_val = i_gpio[curr_instr[4:0]];                                // GPIO
-                                2'b01: pin_val = i_gpio[(int'(in_base) + int'(curr_instr[4:0])) % 32];  // PIN
-                                2'b10: pin_val = i_irq[curr_instr[2:0]];                                 // IRQ flag
-                                default: pin_val = polarity;
-                            endcase
-
-                            if (pin_val != polarity) begin
-                                exec_stall = 1'b1;
-                                advance_pc = 1'b0;
-                            end else if (curr_instr[6:5] == 2'b10 && curr_instr[7] == 1'b1) begin
-                                // Clearing consumed IRQ
-                                o_irq_clr[curr_instr[2:0]] <= 1'b1;
-                            end
-                        end
-
-                        // ----------------------------------------------------
-                        // IN (3'b010)
-                        // ----------------------------------------------------
-                        3'b010: begin
-                            logic [4:0]  bit_count;
-                            logic [31:0] in_val;
-                            bit_count = (curr_instr[4:0] == 5'd0) ? 5'd31 : (curr_instr[4:0] - 5'd1);
-
-                            case (curr_instr[7:5])
-                                3'b000: begin // PINS
-                                    for (int i = 0; i < 32; i++) begin
-                                        in_val[i] = i_gpio[(int'(in_base) + i) % 32];
-                                    end
-                                end
-                                3'b001: in_val = reg_x;
-                                3'b010: in_val = reg_y;
-                                3'b011: in_val = 32'd0;
-                                3'b110: in_val = isr;
-                                3'b111: in_val = osr;
-                                default: in_val = 32'd0;
-                            endcase
-
-                            if (in_shift_dir) begin
-                                // Shift Right
-                                isr <= (in_val << (31 - bit_count)) | (isr >> (bit_count + 1));
+                if (side_en) begin
+                    for (int i = 0; i < 5; i++) begin
+                        if (3'(i) < side_bits) begin
+                            if (sideset_pindirs) begin
+                                o_gpio_pindir[5'(side_base + 5'(i))]    <= side_val[i];
+                                o_gpio_pindir_en[5'(side_base + 5'(i))] <= 1'b1;
                             end else begin
-                                // Shift Left
-                                isr <= (isr << (bit_count + 1)) | (in_val & ((1 << (bit_count + 1)) - 1));
-                            end
-                            isr_count <= isr_count + {1'b0, bit_count} + 6'd1;
-
-                            if (autopush && (isr_count + {1'b0, bit_count} + 6'd1 >= push_thresh)) begin
-                                if (!rx_full) begin
-                                    sm_push_req  <= 1'b1;
-                                    sm_push_data <= isr;
-                                    isr          <= 32'd0;
-                                    isr_count    <= 6'd0;
-                                end else begin
-                                    exec_stall <= 1'b1;
-                                    advance_pc <= 1'b0;
-                                end
+                                o_gpio_out[5'(side_base + 5'(i))]    <= side_val[i];
+                                o_gpio_out_en[5'(side_base + 5'(i))] <= 1'b1;
                             end
                         end
-
-                        // ----------------------------------------------------
-                        // OUT (3'b011)
-                        // ----------------------------------------------------
-                        3'b011: begin
-                            logic [4:0]  bit_count;
-                            logic [31:0] out_val;
-                            bit_count = (curr_instr[4:0] == 5'd0) ? 5'd31 : (curr_instr[4:0] - 5'd1);
-
-                            // Auto-pull check if empty
-                            if (autopull && (osr_count >= pull_thresh) && !tx_empty) begin
-                                sm_pull_req <= 1'b1;
-                                osr         <= sm_pull_data;
-                                osr_count   <= 6'd0;
-                            end
-
-                            out_val = out_shift_dir ? (osr & ((1 << (bit_count + 1)) - 1)) : (osr >> (31 - bit_count));
-                            osr     <= out_shift_dir ? (osr >> (bit_count + 1)) : (osr << (bit_count + 1));
-                            osr_count <= osr_count + {1'b0, bit_count} + 6'd1;
-
-                            case (curr_instr[7:5])
-                                3'b000: begin // PINS
-                                    for (int i = 0; i < 32; i++) begin
-                                        if (6'(i) < out_count) begin
-                                            logic [4:0] p_idx;
-                                            p_idx = out_base + 5'(i);
-                                            o_gpio_out[p_idx]    <= out_val[i];
-                                            o_gpio_out_en[p_idx] <= 1'b1;
-                                        end
-                                    end
-                                end
-                                3'b001: reg_x <= out_val;
-                                3'b010: reg_y <= out_val;
-                                3'b011: ; // Discard
-                                3'b100: begin // PINDIRS
-                                    for (int i = 0; i < 32; i++) begin
-                                        if (6'(i) < out_count) begin
-                                            logic [4:0] p_idx;
-                                            p_idx = out_base + 5'(i);
-                                            o_gpio_pindir[p_idx]    <= out_val[i];
-                                            o_gpio_pindir_en[p_idx] <= 1'b1;
-                                        end
-                                    end
-                                end
-                                3'b101: next_pc = out_val[4:0];
-                                3'b110: isr     <= out_val;
-                                3'b111: begin
-                                    exec_override_valid <= 1'b1;
-                                    exec_override_instr <= out_val[15:0];
-                                end
-                            endcase
-                        end
-
-                        // ----------------------------------------------------
-                        // PUSH / PULL (3'b100)
-                        // ----------------------------------------------------
-                        3'b100: begin
-                            if (!curr_instr[7]) begin
-                                // PUSH
-                                if (!rx_full) begin
-                                    sm_push_req  <= 1'b1;
-                                    sm_push_data <= isr;
-                                    isr          <= 32'd0;
-                                    isr_count    <= 6'd0;
-                                end else if (curr_instr[5]) begin // Blocking
-                                    exec_stall <= 1'b1;
-                                    advance_pc <= 1'b0;
-                                end
-                            end else begin
-                                // PULL
-                                if (!tx_empty) begin
-                                    sm_pull_req <= 1'b1;
-                                    osr         <= sm_pull_data;
-                                    osr_count   <= 6'd0;
-                                end else if (curr_instr[5]) begin // Blocking
-                                    exec_stall <= 1'b1;
-                                    advance_pc <= 1'b0;
-                                end
-                            end
-                        end
-
-                        // ----------------------------------------------------
-                        // MOV (3'b101)
-                        // ----------------------------------------------------
-                        3'b101: begin
-                            logic [31:0] mov_src;
-                            logic [31:0] mov_res;
-
-                            case (curr_instr[2:0])
-                                3'b000: begin
-                                    for (int i = 0; i < 32; i++) begin
-                                        mov_src[i] = i_gpio[(int'(in_base) + i) % 32];
-                                    end
-                                end
-                                3'b001: mov_src = reg_x;
-                                3'b010: mov_src = reg_y;
-                                3'b011: mov_src = 32'd0;
-                                3'b101: mov_src = status_sel ? {29'd0, rx_level} : {29'd0, tx_level};
-                                3'b110: mov_src = isr;
-                                3'b111: mov_src = osr;
-                                default: mov_src = 32'd0;
-                            endcase
-
-                            case (curr_instr[4:3])
-                                2'b00: mov_res = mov_src;
-                                2'b01: mov_res = ~mov_src;
-                                2'b10: mov_res = bit_reverse(mov_src);
-                                default: mov_res = mov_src;
-                            endcase
-
-                            case (curr_instr[7:5])
-                                3'b000: begin // PINS
-                                    for (int i = 0; i < 32; i++) begin
-                                        if (6'(i) < out_count) begin
-                                            logic [4:0] p_idx;
-                                            p_idx = out_base + 5'(i);
-                                            o_gpio_out[p_idx]    <= mov_res[i];
-                                            o_gpio_out_en[p_idx] <= 1'b1;
-                                        end
-                                    end
-                                end
-                                3'b001: reg_x <= mov_res;
-                                3'b010: reg_y <= mov_res;
-                                3'b100: begin
-                                    exec_override_valid <= 1'b1;
-                                    exec_override_instr <= mov_res[15:0];
-                                end
-                                3'b101: next_pc = mov_res[4:0];
-                                3'b110: isr     <= mov_res;
-                                3'b111: osr     <= mov_res;
-                                default: ;
-                            endcase
-                        end
-
-                        // ----------------------------------------------------
-                        // IRQ (3'b110)
-                        // RP2040: [6]=clr, [5]=wait, [4]=rel, [2:0]=index
-                        // ----------------------------------------------------
-                        3'b110: begin
-                            logic [2:0] irq_idx;
-                            irq_idx = curr_instr[4] ? (3'((int'(curr_instr[2:0]) + SM_ID) % 4)) : curr_instr[2:0];
-
-                            if (curr_instr[6]) begin
-                                o_irq_clr[irq_idx] <= 1'b1;
-                            end else begin
-                                o_irq_set[irq_idx] <= 1'b1;
-                                if (curr_instr[5] && i_irq[irq_idx]) begin
-                                    // Wait until cleared
-                                    exec_stall <= 1'b1;
-                                    advance_pc <= 1'b0;
-                                end
-                            end
-                        end
-
-                        // ----------------------------------------------------
-                        // SET (3'b111)
-                        // ----------------------------------------------------
-                        3'b111: begin
-                            logic [4:0] set_val;
-                            set_val = curr_instr[4:0];
-
-                            case (curr_instr[7:5])
-                                3'b000: begin // PINS
-                                    for (int i = 0; i < 5; i++) begin
-                                        if (3'(i) < set_count) begin
-                                            logic [4:0] p_idx;
-                                            p_idx = set_base + 5'(i);
-                                            o_gpio_out[p_idx]    <= set_val[i];
-                                            o_gpio_out_en[p_idx] <= 1'b1;
-                                        end
-                                    end
-                                end
-                                3'b001: reg_x <= {27'd0, set_val};
-                                3'b010: reg_y <= {27'd0, set_val};
-                                3'b100: begin // PINDIRS
-                                    for (int i = 0; i < 5; i++) begin
-                                        if (3'(i) < set_count) begin
-                                            logic [4:0] p_idx;
-                                            p_idx = set_base + 5'(i);
-                                            o_gpio_pindir[p_idx]    <= set_val[i];
-                                            o_gpio_pindir_en[p_idx] <= 1'b1;
-                                        end
-                                    end
-                                end
-                                default: ;
-                            endcase
-                        end
-                    endcase
-
-                    if (advance_pc && !exec_stall) begin
-                        pc           <= next_pc;
-                        delay_cycles <= inst_delay;
-                        stall_cycle  <= 1'b0;
-                    end else begin
-                        stall_cycle  <= 1'b1;
                     end
                 end
+
+                case (ins[15:13])
+                    3'b000: begin  // JMP
+                        logic c;
+                        case (ins[7:5])
+                            3'b000: c = 1'b1;
+                            3'b001: c = (reg_x == 32'd0);
+                            3'b010: begin c = (reg_x != 32'd0); n_x = reg_x - 32'd1; end
+                            3'b011: c = (reg_y == 32'd0);
+                            3'b100: begin c = (reg_y != 32'd0); n_y = reg_y - 32'd1; end
+                            3'b101: c = (reg_x != reg_y);
+                            3'b110: c = i_gpio[jmp_pin];
+                            default: c = (cur_osr_cnt < pull_thresh);  // !OSRE
+                        endcase
+                        if (c) begin pc_jump = 1'b1; next_pc = ins[4:0]; end
+                    end
+
+                    3'b001: begin  // WAIT
+                        logic v;
+                        case (ins[6:5])
+                            2'b00:   v = i_gpio[ins[4:0]];
+                            2'b01:   v = i_gpio[5'(in_base + ins[4:0])];
+                            2'b10:   v = i_irq[irq_index(ins[4:0])];
+                            default: v = i_gpio[jmp_pin];
+                        endcase
+                        if (v != ins[7]) begin
+                            stall = 1'b1;
+                        end else if (ins[6:5] == 2'b10 && ins[7]) begin
+                            o_irq_clr[irq_index(ins[4:0])] <= 1'b1;
+                        end
+                    end
+
+                    3'b010: begin  // IN
+                        logic [5:0]  n;
+                        logic [31:0] v;
+                        n = (ins[4:0] == 5'd0) ? 6'd32 : {1'b0, ins[4:0]};
+                        case (ins[7:5])
+                            3'b000:  v = pins_in(i_gpio, in_base);
+                            3'b001:  v = reg_x;
+                            3'b010:  v = reg_y;
+                            3'b110:  v = isr;
+                            3'b111:  v = cur_osr;
+                            default: v = 32'd0;
+                        endcase
+                        v = v & low_mask(n);
+                        if (n == 6'd32)          n_isr = v;
+                        else if (in_shift_right) n_isr = (isr >> n) | (v << (6'd32 - n));
+                        else                     n_isr = (isr << n) | v;
+                        n_isr_cnt = (isr_count + n > 6'd32) ? 6'd32 : isr_count + n;
+                        if (autopush && n_isr_cnt >= push_thresh) begin
+                            if (rx_lvl != 3'd4) begin
+                                do_push = 1'b1; push_word = n_isr;
+                                n_isr = '0; n_isr_cnt = 6'd0;
+                            end else begin
+                                hold_for_push = 1'b1;  // the shift commits; only the push waits
+                            end
+                        end
+                    end
+
+                    3'b011: begin  // OUT
+                        logic [5:0]  n;
+                        logic [31:0] v;
+                        n = (ins[4:0] == 5'd0) ? 6'd32 : {1'b0, ins[4:0]};
+                        if (autopull && cur_osr_cnt >= pull_thresh) begin
+                            stall = 1'b1;  // empty OSR and empty FIFO
+                        end else begin
+                            if (out_shift_right) begin
+                                v = cur_osr & low_mask(n);
+                                n_osr = (n == 6'd32) ? 32'd0 : (cur_osr >> n);
+                            end else begin
+                                v = (n == 6'd32) ? cur_osr : (cur_osr >> (6'd32 - n));
+                                n_osr = (n == 6'd32) ? 32'd0 : (cur_osr << n);
+                            end
+                            n_osr_cnt = (cur_osr_cnt + n > 6'd32) ? 6'd32 : cur_osr_cnt + n;
+                            case (ins[7:5])
+                                3'b000: begin
+                                    for (int i = 0; i < 32; i++) begin
+                                        if (6'(i) < out_count) begin
+                                            o_gpio_out[5'(out_base + 5'(i))]    <= v[i];
+                                            o_gpio_out_en[5'(out_base + 5'(i))] <= 1'b1;
+                                        end
+                                    end
+                                end
+                                3'b001: n_x = v;
+                                3'b010: n_y = v;
+                                3'b100: begin
+                                    for (int i = 0; i < 32; i++) begin
+                                        if (6'(i) < out_count) begin
+                                            o_gpio_pindir[5'(out_base + 5'(i))]    <= v[i];
+                                            o_gpio_pindir_en[5'(out_base + 5'(i))] <= 1'b1;
+                                        end
+                                    end
+                                end
+                                3'b101: begin pc_jump = 1'b1; next_pc = v[4:0]; end
+                                3'b110: begin n_isr = v; n_isr_cnt = n; end
+                                3'b111: begin exec_pending <= 1'b1; exec_instr <= v[15:0]; end
+                                default: ;
+                            endcase
+                        end
+                    end
+
+                    3'b100: begin
+                        if (!ins[7]) begin  // PUSH: [6] iffull, [5] block
+                            if (ins[6] && isr_count < push_thresh) begin
+                                // below threshold: no-op
+                            end else if (rx_lvl != 3'd4) begin
+                                do_push = 1'b1; push_word = isr;
+                                n_isr = '0; n_isr_cnt = 6'd0;
+                            end else if (ins[5]) begin
+                                stall = 1'b1;
+                            end else begin
+                                n_isr = '0; n_isr_cnt = 6'd0;  // noblock, full: dropped
+                            end
+                        end else begin      // PULL: [6] ifempty, [5] block
+                            if (ins[6] && cur_osr_cnt < pull_thresh) begin
+                                // not empty yet: no-op
+                            end else if (tx_lvl != 3'd0) begin
+                                do_pull = 1'b1; n_osr = tx_fifo[tx_rp]; n_osr_cnt = 6'd0;
+                            end else if (ins[5]) begin
+                                stall = 1'b1;
+                            end else begin
+                                n_osr = reg_x; n_osr_cnt = 6'd0;  // noblock, empty: OSR = X
+                            end
+                        end
+                    end
+
+                    3'b101: begin  // MOV
+                        logic [31:0] s, r;
+                        case (ins[2:0])
+                            3'b000:  s = pins_in(i_gpio, in_base);
+                            3'b001:  s = reg_x;
+                            3'b010:  s = reg_y;
+                            3'b101:  s = ((status_sel ? {1'b0, rx_lvl} : {1'b0, tx_lvl}) < status_n) ? 32'hFFFF_FFFF : 32'd0;
+                            3'b110:  s = isr;
+                            3'b111:  s = cur_osr;
+                            default: s = 32'd0;
+                        endcase
+                        case (ins[4:3])
+                            2'b01:   r = ~s;
+                            2'b10:   r = bit_reverse(s);
+                            default: r = s;
+                        endcase
+                        case (ins[7:5])
+                            3'b000: begin
+                                for (int i = 0; i < 32; i++) begin
+                                    if (6'(i) < out_count) begin
+                                        o_gpio_out[5'(out_base + 5'(i))]    <= r[i];
+                                        o_gpio_out_en[5'(out_base + 5'(i))] <= 1'b1;
+                                    end
+                                end
+                            end
+                            3'b001: n_x = r;
+                            3'b010: n_y = r;
+                            3'b011: begin  // PINDIRS (RP2350)
+                                for (int i = 0; i < 32; i++) begin
+                                    if (6'(i) < out_count) begin
+                                        o_gpio_pindir[5'(out_base + 5'(i))]    <= r[i];
+                                        o_gpio_pindir_en[5'(out_base + 5'(i))] <= 1'b1;
+                                    end
+                                end
+                            end
+                            3'b100: begin exec_pending <= 1'b1; exec_instr <= r[15:0]; end
+                            3'b101: begin pc_jump = 1'b1; next_pc = r[4:0]; end
+                            3'b110: begin n_isr = r; n_isr_cnt = 6'd0; end
+                            default: begin n_osr = r; n_osr_cnt = 6'd0; end
+                        endcase
+                    end
+
+                    3'b110: begin  // IRQ: [6] clr, [5] wait, [4:0] index
+                        logic [2:0] k;
+                        k = irq_index(ins[4:0]);
+                        if (ins[6]) begin
+                            o_irq_clr[k] <= 1'b1;
+                        end else if (!ins[5]) begin
+                            o_irq_set[k] <= 1'b1;
+                        end else if (!irq_waiting) begin
+                            o_irq_set[k] <= 1'b1;   // set, then wait for someone to clear it
+                            irq_waiting  <= 1'b1;
+                            stall = 1'b1;
+                        end else if (i_irq[k]) begin
+                            stall = 1'b1;
+                        end else begin
+                            irq_waiting <= 1'b0;
+                        end
+                    end
+
+                    default: begin  // SET
+                        case (ins[7:5])
+                            3'b000: begin
+                                for (int i = 0; i < 5; i++) begin
+                                    if (3'(i) < set_count) begin
+                                        o_gpio_out[5'(set_base + 5'(i))]    <= ins[i];
+                                        o_gpio_out_en[5'(set_base + 5'(i))] <= 1'b1;
+                                    end
+                                end
+                            end
+                            3'b001: n_x = {27'd0, ins[4:0]};
+                            3'b010: n_y = {27'd0, ins[4:0]};
+                            3'b100: begin
+                                for (int i = 0; i < 5; i++) begin
+                                    if (3'(i) < set_count) begin
+                                        o_gpio_pindir[5'(set_base + 5'(i))]    <= ins[i];
+                                        o_gpio_pindir_en[5'(set_base + 5'(i))] <= 1'b1;
+                                    end
+                                end
+                            end
+                            default: ;
+                        endcase
+                    end
+                endcase
+
+                stalled <= stall || hold_for_push;
+                if (!stall) begin
+                    // Commit: a stalled instruction changes nothing except side-set
+                    reg_x <= n_x; reg_y <= n_y; isr <= n_isr; osr <= n_osr;
+                    isr_count <= n_isr_cnt; osr_count <= n_osr_cnt;
+                    if (from_exec) begin
+                        exec_pending <= is_exec;
+                        exec_forced  <= 1'b0;
+                        if (pc_jump) pc <= next_pc;  // an EXEC'd instruction moves the PC only by jumping
+                    end else if (hold_for_push) begin
+                        push_pending <= 1'b1;    // PC and delay wait for the push
+                        pend_delay   <= delay;
+                    end else begin
+                        pc <= pc_jump ? next_pc : ((pc == wrap_top) ? wrap_bottom : pc + 5'd1);
+                    end
+                    if (!is_exec && !hold_for_push) begin
+                        delay_cycles <= delay;   // OUT/MOV EXEC ignore their own delay
+                    end
+                end else if (do_pull) begin
+                    osr <= cur_osr; osr_count <= cur_osr_cnt;  // background refill lands even when stalled
+                end
             end
+
+            // FIFO commits
+            if (do_pull) begin
+                tx_rd_ptr <= tx_rp + 2'd1;
+                tx_lvl = tx_lvl - 3'd1;
+            end
+            if (do_push) begin
+                rx_fifo[rx_wp] <= push_word;
+                rx_wr_ptr <= rx_wp + 2'd1;
+                rx_lvl = rx_lvl + 3'd1;
+            end
+            if (i_tx_wvalid && tx_lvl != 3'd4) begin
+                tx_fifo[tx_wr_ptr] <= i_tx_wdata;
+                tx_wr_ptr <= tx_wr_ptr + 2'd1;
+                tx_lvl = tx_lvl + 3'd1;
+            end
+            tx_level <= tx_lvl;
+            rx_level <= rx_lvl;
         end
     end
 

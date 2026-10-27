@@ -28,10 +28,10 @@ flowchart TD
         IRQ_BUS["Internal IRQ Bus (irq 0..7)"]
 
         subgraph SMs["State Machines (4 per Tile)"]
-            SM0["SM 0: SPI Worker\n(MOSI/MISO/SCLK)"]
-            SM1["SM 1: IMU Supervisor\n(Auto-DMA on DRDY)"]
-            SM2["SM 2: DShot Worker\n(Motor Pulses + eRPM)"]
-            SM3["SM 3: UART/RC Worker\n(CRSF / SBUS / LED)"]
+            SM0["SM 0\n(any loaded program)"]
+            SM1["SM 1\n(any loaded program)"]
+            SM2["SM 2\n(any loaded program)"]
+            SM3["SM 3\n(any loaded program)"]
         end
 
         TLP_SHIM["TLP Framing & Timestamp Shim"]
@@ -87,13 +87,13 @@ Base Address: `0x40000700` (Wishbone Pipelined Slave B4)
 | `0x008` | **`FSTAT`** | `RO` | `0x0F000000` | FIFO Status: RX Empty [31:28], TX Full [27:24] |
 | `0x00C` | **`TLP_CFG`** | `R/W` | `0x00000000` | TLP Auto-DMA Config: Enable [0], Tag [15:8], Channel [23:16], Stream SM [25:24], Burst Words [28:26], Trace Enable [31] |
 | `0x010..0x08C` | **`IRAM[0..31]`** | `R/W` | `0x00000000` | Shared Instruction Memory (32 Words x 16-bit) for SM0..SM3 |
-| `0x100 + 0x20*N` | **`SM[N]_CLKDIV`** | `R/W` | `0x00000000` | SM N Clock Divider: Frac [7:0], Int [23:8] (0 = Full Fabric Clock) |
-| `0x104 + 0x20*N` | **`SM[N]_EXECCTRL`** | `R/W` | `0x0001F000` | Execution Control: Wrap Bottom [11:7], Wrap Top [16:12], Side En [30], Side Pindir [29], JMP Pin [28:24] |
+| `0x100 + 0x20*N` | **`SM[N]_CLKDIV`** | `R/W` | `0x00000000` | SM N Clock Divider (RP2040 layout): Int [31:16], Frac [15:8] (0 or 1.0 = full fabric clock) |
+| `0x104 + 0x20*N` | **`SM[N]_EXECCTRL`** | `R/W` | `0x0001F000` | Execution Control (RP2040 layout): Status N [3:0], Status Sel [4], Wrap Bottom [11:7], Wrap Top [16:12], JMP Pin [28:24], Side Pindir [29], Side En [30] |
 | `0x108 + 0x20*N` | **`SM[N]_SHIFTCTRL`** | `R/W` | `0x00000000` | Shift Control: Autopull [17], Autopush [16], In Dir [18], Out Dir [19], Push Thresh [24:20], Pull Thresh [29:25] |
-| `0x10C + 0x20*N` | **`SM[N]_PINCTRL`** | `R/W` | `0x00000000` | Pin Mapping: Out Base [4:0], Set Base [9:5], Sideset Base [14:10], In Base [19:15], Out Count [22:20], Set Count [25:23], Sideset Count [31:29] |
+| `0x10C + 0x20*N` | **`SM[N]_PINCTRL`** | `R/W` | `0x00000000` | Pin Mapping (RP2040 layout): Out Base [4:0], Set Base [9:5], Sideset Base [14:10], In Base [19:15], Out Count [25:20], Set Count [28:26], Sideset Count [31:29] (includes the enable bit when Side En) |
 | `0x110 + 0x20*N` | **`SM[N]_TXF`** | `WO` | `-` | SM N TX FIFO Data Write (4 Words deep) |
 | `0x114 + 0x20*N` | **`SM[N]_RXF`** | `RO` | `-` | SM N RX FIFO Data Read (4 Words deep) |
-| `0x118 + 0x20*N` | **`SM[N]_STATUS`** | `RO` | `0x00000000` | SM N Execution Status: PC [4:0], Stalled [5], Active [6] |
+| `0x118 + 0x20*N` | **`SM[N]_STATUS / SM[N]_INSTR`** | `R / W` | `0x00000000` | Read: PC [4:0], Stalled [5], Active [6]. Write: execute this instruction immediately, even while disabled (RP2040 SMx_INSTR) |
 | `0x11C + 0x20*N` | **`SM[N]_TRIGGER`** | `WO` | `-` | Software Trigger Pulse (Forces SM out of `WAIT 1 PIN`) |
 
 ## 5. Instruction Set Architecture (ISA) & Compiler Guide
@@ -147,9 +147,15 @@ make -f Makefile TESTCASE=test_asp_pio_cocotb
 | Requirement ID | Title | Verification Skill | Implementation Target |
 | :--- | :--- | :--- | :--- |
 | `SPEC-PIO-01` | **Quad-State Machine Tile Architecture** | ``cocotb-regression`, `rtl-lint`` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_sm.sv`` |
-| `SPEC-PIO-02` | **Standard RP2040 16-Bit Instruction Set Compatibility** | ``cocotb-regression`` | ``rtl/pio/asp_pio_sm.sv`` |
+| `SPEC-PIO-00` | **Configurable Fabric: No Protocol Logic in the FPGA** | ``rtl-lint`, `cocotb-regression`` | ``rtl/asp_top.sv`, `rtl/pio/asp_pio_tile.sv`` |
+| `SPEC-PIO-02` | **Standard RP2040 16-Bit Instruction Set Compatibility** | ``cocotb-regression` (`sim/cocotb/test_asp_pio_conformance_cocotb.py`: each rule` | ``rtl/pio/asp_pio_sm.sv`` |
 | `SPEC-PIO-03` | **Internal IRQ Bus & Supervisor/Worker State Machine Chaining** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_sm.sv`` |
 | `SPEC-PIO-04` | **Integrated 64-Byte TLP Framing & Nanosecond Timestamping** | ``cocotb-regression`, `sanitizer-gate`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
-| `SPEC-PIO-05` | **Wishbone B4 Slave Bus Interface & Register Map** | `cocotb-regression` | ``rtl/pio/asp_pio_tile.sv`` |
+| `SPEC-PIO-05` | **Wishbone B4 Slave Bus Interface & Register Map** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-06` | **Multi-Rate Primary-Paced IMU Auto-DMA Sequence** | ``cocotb-regression`, `board-bringup`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
 | `SPEC-PIO-07` | **barectf CTF 1.8 Hardware Observability & Timeline Integration** | ``cocotb-regression`, `host-tests`` | ``rtl/pio/asp_pio_tlp_shim.sv`, `rtl/pio/asp_pio_tile.sv`` |
+| `SPEC-PIO-09` | **Generic Bidirectional Pins** | ``rtl-lint`, `cocotb-regression`, `fpga-fit`` | ``rtl/asp_top.sv`, board tops under `hw/`, `hw/<board>/pins.toml`, `tools/pin_map.py`` |
+| `SPEC-PIO-10` | **Generic Per-Tile TLP Data Path** | ``cocotb-regression`` | ``rtl/pio/asp_pio_tile.sv`, `rtl/pio/asp_pio_tlp_shim.sv`` |
+| `SPEC-PIO-11` | **Program Library and Loading** | ``cocotb-regression` (tests load the checked-in images), the `--check` tool` | ``rtl/pio/programs/`, `tools/pio_programs.py`` |
+| `SPEC-PIO-12` | **Motor Outputs: Bidirectional DShot600 as a PIO Program** | ``cocotb-regression` (timing parity with the `asp_dshot_core` test at 12, 27 and` | ``rtl/pio/programs/dshot_bidir.pio`` |
+| `SPEC-PIO-13` | **ESC 4-Way Passthrough as a PIO Program** | ``cocotb-regression` (byte TX/RX at 19200 against a modelled ESC, guard time,` | ``rtl/pio/programs/esc_serial.pio`` |

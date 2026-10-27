@@ -18,6 +18,7 @@ Skill: .agents/skills/cocotb-regression/SKILL.md
 # @impl [SPEC-AUDIT-06] docs/SPECTRACE.md (executable form of the cocotb-regression skill)
 
 import argparse
+import os
 import re
 import shlex
 import shutil
@@ -64,7 +65,8 @@ def main():
                    f"COCOTB_TOPLEVEL={top}", f"COCOTB_TEST_MODULES={module}", *extra]
             if not args.trace:
                 cmd.append("TRACE=")
-            proc = subprocess.run(cmd, cwd=cocotb_dir, capture_output=True, text=True)
+            env = dict(os.environ, ABSTRACTX_ROOT=str(ROOT))  # tests import repo tools (pio_programs)
+            proc = subprocess.run(cmd, cwd=cocotb_dir, capture_output=True, text=True, env=env)
             out = proc.stdout + proc.stderr
             results = RESULT_RE.findall(out)
             if results:

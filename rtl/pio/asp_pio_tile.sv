@@ -86,6 +86,10 @@ module asp_pio_tile #(
 
     assign o_pio_irq = |irq_flags[3:0]; // Lower 4 IRQs route to host interrupt
 
+    // What the SMs see: a set or clear is visible one clock after the instruction ([SPEC-PIO-02] rule 6)
+    logic [7:0] irq_view;
+    assign irq_view = (irq_flags | combined_irq_set) & ~combined_irq_clr;
+
     // ------------------------------------------------------------------------
     // Tile-Level Configuration & Status Registers
     // ------------------------------------------------------------------------
@@ -124,6 +128,10 @@ module asp_pio_tile #(
     logic [3:0]  sm_stalled;
     logic [3:0]  sm_active;
 
+    // SMx_INSTR: immediate instruction per state machine
+    logic [15:0] sm_exec_instr [0:3];
+    logic [3:0]  sm_exec_valid;
+
     // Pin Aggregation (OR with enable mask)
     always_comb begin
         o_gpio_out    = 32'd0;
@@ -153,6 +161,8 @@ module asp_pio_tile #(
                 .i_en             (sm_en[s]),
                 .i_restart        (sm_restart[s]),
                 .i_clkdiv_restart (sm_clkdiv_restart[s]),
+                .i_exec_instr     (sm_exec_instr[s]),
+                .i_exec_valid     (sm_exec_valid[s]),
                 .i_clkdiv         (sm_clkdiv[s]),
                 .i_execctrl       (sm_execctrl[s]),
                 .i_shiftctrl      (sm_shiftctrl[s]),
@@ -170,7 +180,7 @@ module asp_pio_tile #(
                 .o_rx_rdata       (sm_rx_rdata[s]),
                 .o_rx_rvalid      (sm_rx_rvalid[s]),
                 .i_rx_ren         (sm_rx_ren[s]),
-                .i_irq            (irq_flags),
+                .i_irq            (irq_view),
                 .o_irq_set        (sm_irq_set[s]),
                 .o_irq_clr        (sm_irq_clr[s]),
                 .o_exec_stalled   (sm_stalled[s]),
@@ -236,6 +246,7 @@ module asp_pio_tile #(
             sm_clkdiv_restart   <= 4'd0;
             sm_tx_wvalid        <= 4'd0;
             sm_rx_ren           <= 4'd0;
+            sm_exec_valid       <= 4'd0;
             tlp_en              <= 1'b0;
             tlp_tag             <= 8'd5;  // Default IMU Tag 5
             tlp_channel         <= 8'd2;  // Default Telemetry Channel 2
@@ -253,6 +264,7 @@ module asp_pio_tile #(
                 sm_shiftctrl[s] <= 32'd0;
                 sm_pinctrl[s]   <= 32'd0;
                 sm_tx_wdata[s]  <= 32'd0;
+                sm_exec_instr[s] <= 16'd0;
             end
         end else begin
             wb_ack_o         <= 1'b0;
@@ -261,6 +273,7 @@ module asp_pio_tile #(
             sm_clkdiv_restart<= 4'd0;
             sm_tx_wvalid     <= 4'd0;
             sm_rx_ren        <= 4'd0;
+            sm_exec_valid    <= 4'd0;
             sm_trigger_pulse <= 1'b0;
 
             // Route TLP Shim read enable to active SM RX FIFO when streaming
@@ -305,7 +318,7 @@ module asp_pio_tile #(
                                 int base_sm;
                                 base_sm = 32'h100 + s * 32'h020;
                                 if (reg_offset == 12'(base_sm + 12'h00)) begin
-                                    sm_clkdiv[s] <= wb_dat_i[23:0];
+                                    sm_clkdiv[s] <= {wb_dat_i[31:16], wb_dat_i[15:8]};  // RP2040 CLKDIV: INT[31:16], FRAC[15:8]
                                 end else if (reg_offset == 12'(base_sm + 12'h04)) begin
                                     sm_execctrl[s] <= wb_dat_i;
                                 end else if (reg_offset == 12'(base_sm + 12'h08)) begin
@@ -316,6 +329,10 @@ module asp_pio_tile #(
                                     // TX FIFO Write
                                     sm_tx_wdata[s]  <= wb_dat_i;
                                     sm_tx_wvalid[s] <= 1'b1;
+                                end else if (reg_offset == 12'(base_sm + 12'h18)) begin
+                                    // SMx_INSTR: execute immediately ([SPEC-PIO-05])
+                                    sm_exec_instr[s] <= wb_dat_i[15:0];
+                                    sm_exec_valid[s] <= 1'b1;
                                 end else if (reg_offset == 12'(base_sm + 12'h1C)) begin
                                     // Software Trigger Pulse
                                     sm_trigger_pulse <= 1'b1;
@@ -364,7 +381,7 @@ module asp_pio_tile #(
                                     int base_sm;
                                     base_sm = 32'h100 + s * 32'h020;
                                     if (reg_offset == 12'(base_sm + 12'h00)) begin
-                                        wb_dat_o <= {8'd0, sm_clkdiv[s]};
+                                        wb_dat_o <= {sm_clkdiv[s][23:8], sm_clkdiv[s][7:0], 8'd0};
                                     end else if (reg_offset == 12'(base_sm + 12'h04)) begin
                                         wb_dat_o <= sm_execctrl[s];
                                     end else if (reg_offset == 12'(base_sm + 12'h08)) begin

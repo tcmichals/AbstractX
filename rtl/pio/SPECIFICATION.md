@@ -99,8 +99,8 @@ flowchart TD
      the threshold, and an `out` on an empty OSR with an empty FIFO stalls.
   4. `mov isr, x` clears the ISR shift count; `mov osr, x` sets the OSR count to 0 (full);
      `mov x, status` gives all-ones when the selected FIFO level is below `STATUS_N`, else zero.
-  5. `PINCTRL.SIDESET_COUNT` includes the enable bit when `EXECCTRL.SIDE_EN` is set (SDK
-     `sm_config_set_sideset(c, bits, optional, pindirs)` values work unchanged).
+  5. `PINCTRL.SIDESET_COUNT` includes the enable bit when `EXECCTRL.SIDE_EN` is set, as in the Pico
+     SDK and in the `sideset.size` field of `pioasm -o json`.
   6. `irq wait` sets the flag and waits until it is cleared; `irq rel` maps index `i` to
      `{i[2], (i[1:0] + sm) % 4}`.
   7. `SM_RESTART` clears the ISR/OSR shift counts, delay and stall, and returns the PC to
@@ -128,12 +128,15 @@ flowchart TD
   * `0x00`: Tile Control & Status (`ENABLE[3:0]`, `RESTART[3:0]`).
   * `0x04`: Internal IRQ Status & Clear.
   * `0x10 .. 0x8C`: Instruction Memory (32 words x 32-bit, lower 16 bits active).
-  * `0x100 + 0x20 * N`: SM `N` Clock Divider (`INT:16, FRAC:8`).
-  * `0x104 + 0x20 * N`: SM `N` Execution Control (`EXECCTRL`: wrap, side-set, jmp_pin).
-  * `0x108 + 0x20 * N`: SM `N` Shift Control (`SHIFTCTRL`: autopush, autopull, in/out dir).
-  * `0x10C + 0x20 * N`: SM `N` Pin Control (`PINCTRL`: in_base, out_base, set_base, side_base).
+  * `0x100 + 0x20 * N`: SM `N` Clock Divider, RP2040 `CLKDIV` layout (`INT[31:16]`, `FRAC[15:8]`).
+  * `0x104 + 0x20 * N`: SM `N` `EXECCTRL`, RP2040 layout (`STATUS_N[3:0]`, `STATUS_SEL[4]`, wrap, `JMP_PIN`, `SIDE_PINDIR`, `SIDE_EN`).
+  * `0x108 + 0x20 * N`: SM `N` `SHIFTCTRL`, RP2040 layout (autopush, autopull, in/out dir, thresholds).
+  * `0x10C + 0x20 * N`: SM `N` `PINCTRL`, RP2040 layout (`OUT_BASE[4:0]`, `SET_BASE[9:5]`, `SIDESET_BASE[14:10]`, `IN_BASE[19:15]`, `OUT_COUNT[25:20]`, `SET_COUNT[28:26]`, `SIDESET_COUNT[31:29]`).
   * `0x110 + 0x20 * N`: SM `N` TX FIFO (write).
   * `0x114 + 0x20 * N`: SM `N` RX FIFO (read).
+  * `0x118 + 0x20 * N`: read SM `N` status (`PC[4:0]`, stalled, active); write = `SMx_INSTR`: the
+    instruction runs on the next clock, also while the SM is disabled (used to set pin directions
+    and jump to a program's start, as `pio_sm_exec` does).
 * Software MUST be able to execute manual SPI or UART byte transfers through SM0 TX/RX FIFOs when autonomous sequencing is idle.
 * **Implementation Target**: `rtl/pio/asp_pio_tile.sv`
 * **Open check** (2026-10-26): a register-map parity check between this table, the RTL decode and the

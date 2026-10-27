@@ -146,9 +146,9 @@ async def test_wishbone_iram_and_registers(dut):
         assert readback == test_instructions[i], f"IRAM[{i}]: expected 0x{test_instructions[i]:04X}, got 0x{readback:04X}"
 
     # 3. Configure SM0 clock divider and control registers
-    await wb_write(dut, SM_CLKDIV(0), (2 << 8))  # Div = 2.0
+    await wb_write(dut, SM_CLKDIV(0), (2 << 16))  # Div = 2.0
     clkdiv0 = await wb_read(dut, SM_CLKDIV(0))
-    assert clkdiv0 == (2 << 8), f"SM0 CLKDIV expected 0x200, got 0x{clkdiv0:X}"
+    assert clkdiv0 == (2 << 16), f"SM0 CLKDIV expected 0x20000 (RP2040 INT[31:16]), got 0x{clkdiv0:X}"
 
     await wb_write(dut, SM_EXECCTRL(0), (31 << 12) | (0 << 7))  # Wrap top 31, bottom 0
     execctrl0 = await wb_read(dut, SM_EXECCTRL(0))
@@ -177,7 +177,7 @@ async def test_sm_gpio_set_and_jmp(dut):
     # PINCTRL for SM0: set_base = 0, set_count = 5
     await wb_write(dut, SM_PINCTRL(0), (5 << 26) | (0 << 10))
     # Clock divider = 1.0 (full speed)
-    await wb_write(dut, SM_CLKDIV(0), (1 << 8))
+    await wb_write(dut, SM_CLKDIV(0), (1 << 16))
     # Wrap config: wrap_top = 31, wrap_bottom = 0
     await wb_write(dut, SM_EXECCTRL(0), (31 << 12) | (0 << 7))
 
@@ -224,7 +224,7 @@ async def test_tx_fifo_pull_and_out(dut):
     # PINCTRL: out_base = 0, out_count = 8, set_base = 0, set_count = 5
     await wb_write(dut, SM_PINCTRL(0), (8 << 20) | (5 << 26) | 0)
     await wb_write(dut, SM_SHIFTCTRL(0), (1 << 19))  # Shift right (LSB first)
-    await wb_write(dut, SM_CLKDIV(0), (1 << 8))
+    await wb_write(dut, SM_CLKDIV(0), (1 << 16))
 
     # Enable SM0
     await wb_write(dut, REG_CTRL, 0x01)
@@ -298,12 +298,12 @@ async def test_supervisor_worker_irq_chaining(dut):
     # Configure SM0 PINCTRL & EXECCTRL
     await wb_write(dut, SM_PINCTRL(0), (2 << 26) | 0)
     await wb_write(dut, SM_EXECCTRL(0), (3 << 12) | (0 << 7))  # Wrap 0..3
-    await wb_write(dut, SM_CLKDIV(0), (1 << 8))
+    await wb_write(dut, SM_CLKDIV(0), (1 << 16))
 
     # Configure SM1 PINCTRL & EXECCTRL (start at PC = 8, wrap 8..13)
     await wb_write(dut, SM_PINCTRL(1), (2 << 26) | 0)
     await wb_write(dut, SM_EXECCTRL(1), (13 << 12) | (8 << 7))  # Wrap 8..13
-    await wb_write(dut, SM_CLKDIV(1), (1 << 8))
+    await wb_write(dut, SM_CLKDIV(1), (1 << 16))
 
     # Set SM1 PC to 8 by writing EXECCTRL or executing JMP
     # In asp_pio_sm, restarting or setting wrap will load PC from wrap_bottom
@@ -385,7 +385,7 @@ async def test_tlp_packetizer_and_trace_stream(dut):
         await wb_write(dut, IRAM_BASE + i * 4, inst)
 
     await wb_write(dut, SM_EXECCTRL(1), (12 << 12) | (0 << 7))
-    await wb_write(dut, SM_CLKDIV(1), (1 << 8))
+    await wb_write(dut, SM_CLKDIV(1), (1 << 16))
 
     # Enable SM1
     await wb_write(dut, REG_CTRL, 0x02 | (0x02 << 4))  # Enable SM1 & restart

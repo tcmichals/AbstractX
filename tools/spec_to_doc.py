@@ -134,13 +134,13 @@ def review_pio_code(root: Path) -> dict:
         ("0x008", "FSTAT", "RO", "0x0F000000", "FIFO Status: RX Empty [31:28], TX Full [27:24]"),
         ("0x00C", "TLP_CFG", "R/W", "0x00000000", "TLP Auto-DMA Config: Enable [0], Tag [15:8], Channel [23:16], Stream SM [25:24], Burst Words [28:26], Trace Enable [31]"),
         ("0x010..0x08C", "IRAM[0..31]", "R/W", "0x00000000", "Shared Instruction Memory (32 Words x 16-bit) for SM0..SM3"),
-        ("0x100 + 0x20*N", "SM[N]_CLKDIV", "R/W", "0x00000000", "SM N Clock Divider: Frac [7:0], Int [23:8] (0 = Full Fabric Clock)"),
-        ("0x104 + 0x20*N", "SM[N]_EXECCTRL", "R/W", "0x0001F000", "Execution Control: Wrap Bottom [11:7], Wrap Top [16:12], Side En [30], Side Pindir [29], JMP Pin [28:24]"),
+        ("0x100 + 0x20*N", "SM[N]_CLKDIV", "R/W", "0x00000000", "SM N Clock Divider (RP2040 layout): Int [31:16], Frac [15:8] (0 or 1.0 = full fabric clock)"),
+        ("0x104 + 0x20*N", "SM[N]_EXECCTRL", "R/W", "0x0001F000", "Execution Control (RP2040 layout): Status N [3:0], Status Sel [4], Wrap Bottom [11:7], Wrap Top [16:12], JMP Pin [28:24], Side Pindir [29], Side En [30]"),
         ("0x108 + 0x20*N", "SM[N]_SHIFTCTRL", "R/W", "0x00000000", "Shift Control: Autopull [17], Autopush [16], In Dir [18], Out Dir [19], Push Thresh [24:20], Pull Thresh [29:25]"),
-        ("0x10C + 0x20*N", "SM[N]_PINCTRL", "R/W", "0x00000000", "Pin Mapping: Out Base [4:0], Set Base [9:5], Sideset Base [14:10], In Base [19:15], Out Count [22:20], Set Count [25:23], Sideset Count [31:29]"),
+        ("0x10C + 0x20*N", "SM[N]_PINCTRL", "R/W", "0x00000000", "Pin Mapping (RP2040 layout): Out Base [4:0], Set Base [9:5], Sideset Base [14:10], In Base [19:15], Out Count [25:20], Set Count [28:26], Sideset Count [31:29] (includes the enable bit when Side En)"),
         ("0x110 + 0x20*N", "SM[N]_TXF", "WO", "-", "SM N TX FIFO Data Write (4 Words deep)"),
         ("0x114 + 0x20*N", "SM[N]_RXF", "RO", "-", "SM N RX FIFO Data Read (4 Words deep)"),
-        ("0x118 + 0x20*N", "SM[N]_STATUS", "RO", "0x00000000", "SM N Execution Status: PC [4:0], Stalled [5], Active [6]"),
+        ("0x118 + 0x20*N", "SM[N]_STATUS / SM[N]_INSTR", "R / W", "0x00000000", "Read: PC [4:0], Stalled [5], Active [6]. Write: execute this instruction immediately, even while disabled (RP2040 SMx_INSTR)"),
         ("0x11C + 0x20*N", "SM[N]_TRIGGER", "WO", "-", "Software Trigger Pulse (Forces SM out of `WAIT 1 PIN`)"),
     ]
 
