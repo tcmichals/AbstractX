@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793112294069,
+  "lastUpdate": 1793112965017,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Test Execution Metrics": [
@@ -2711,6 +2711,390 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/7639a980ae45cae219b80280af86d157fd084900"
         },
         "date": 1793112293523,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "board:e906:repl-system announce_abstractx-repl",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-tlp",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-trace",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system idle_no_recipient",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system new_no_recipient",
+            "value": 8,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_bounded",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_idle_silent",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system plane_isolation",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system repl_text",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_64B_all_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_payload_sequence",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps_valid",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_ctf_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_datagrams",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors duration_s",
+            "value": 5.22,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_3d_fix_acquired",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_serial_115200_active",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors i2c_compass_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors vector_synthesis_verified",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_received",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_attitude",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_gps",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_mag",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_valid_64b",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout seq_monotonic_rate",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_gps_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_yaw_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests_failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan passed",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan test_time_s",
+            "value": 1.12,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan passed",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan test_time_s",
+            "value": 0.52,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan tests",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug passed",
+            "value": 46,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug test_time_s",
+            "value": 2.2,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug tests",
+            "value": 46,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host passed",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host test_time_s",
+            "value": 1.09,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host tests",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan passed",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan test_time_s",
+            "value": 1.13,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer passed",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer tests",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint critical_warnings",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check multi_driver_modules",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix broken",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix failing",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix implemented",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix partial",
+            "value": 6,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix spec_only",
+            "value": 22,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix stale",
+            "value": 74,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix total",
+            "value": 179,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified",
+            "value": 40,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified_pct",
+            "value": 22.3,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "67278320c6f205cc5fe22faecbd364a02a24c76f",
+          "message": "feat(pio): bidirectional DShot600 and ESC passthrough as PIO programs; fix Gowin build (EL-1027-20, -40, -41)\n\nNo protocol logic in RTL ([SPEC-PIO-00]): both are pioasm programs the\nhost loads; only the divider changes per board clock.\n\n- dshot_bidir.pio (27 words): inverted DShot600 frame per TX word (no\n  repeat = failsafe), wire released, eRPM reply captured as 64 raw\n  samples; host decode reference tools/dshot_ref.py (Betaflight\n  algorithm)\n- esc_serial.pio (27 words): half-duplex 8N1 19200, one-bit guard then\n  release, glitch-rejecting RX, break by the host via SMx_INSTR\n- Gowin build broken since the PIO tile entered asp_top: synth script\n  never read rtl/pio; Yosys reader rejected return / unpacked ports\n  (fixed). First measured fit: LUT4 16126/20736 (77 %) with one tile\n  plus all old cores (EL-1027-41).\n- tools/run_cocotb.py --log DIR\n\nEvidence (this PC):\n- test_asp_pio_dshot_cocotb 5/5: timing within 1 clock + 3 % at 12/27/\n  50 MHz, eRPM decoded at nominal and +-3 % ESC clock; mutation fails 4/5\n- test_asp_pio_esc_serial_cocotb 3/3: 19200 8N1, guard, no echo, ESC\n  +-2 %, glitch, break; guard mutation fails\n- tools/run_cocotb.py: 20/20 targets; pio_programs --check 0 problems\n- verilator lint asp_pio_tile clean; ctest build_host 71/71\n- nextpnr utilisation (top_tang_nano20k): LUT4 77 %, DFF 56 %\n\nNot verified: placement/Fmax (running), hardware.",
+          "timestamp": "2026-10-27T09:47:40-05:00",
+          "tree_id": "45631ad24d95f6bf728d981476379980bc3fd03e",
+          "url": "https://github.com/tcmichals/AbstractX/commit/67278320c6f205cc5fe22faecbd364a02a24c76f"
+        },
+        "date": 1793112963306,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
