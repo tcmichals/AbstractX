@@ -126,250 +126,6 @@ protected:
     }
 };
 
-// UART3 HAL Adapter for E906 (u-blox NEO-M8N GPS on 40-Pin Header, Pins 16/31, PI11/PI12)
-class E906Uart3Driver final : public IUart {
-public:
-    static constexpr uintptr_t kUart3Base = 0x02500C00U;
-
-    E906Uart3Driver() = default;
-
-    void init(uint32_t baudrate) override {
-        // 1. Enable CCU bus clock gating & deassert reset
-        ::hal::Ccu::enable_module(::hal::Ccu::BusModule::Uart3);
-
-        // 2. Configure PIO pinmux: PI11 (TX) and PI12 (RX) -> Function 4 (UART3)
-        constexpr uintptr_t kPio = 0x02000000U;
-        auto& pi_cfg1 = *reinterpret_cast<volatile uint32_t*>(kPio + 0x0124U);
-        pi_cfg1 = (pi_cfg1 & ~0x000FF000U) | 0x00044000U;
-
-        // 3. Configure UART baud rate divisor
-        auto& u_lcr = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x0C);
-        auto& u_rbr = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x00);
-        auto& u_ier = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x04);
-        auto& u_fcr = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x08);
-
-        u_lcr = 0x83; // 8-N-1, DLAB=1
-        uint32_t baud = baudrate ? baudrate : 115200;
-        uint32_t div = 24000000U / (16U * baud);
-        u_rbr = div & 0xFF;        // DLL
-        u_ier = (div >> 8) & 0xFF; // DLH
-        u_lcr = 0x03; // DLAB=0, 8-N-1
-
-        // FIFO on, reset RX/TX
-        u_fcr = 0x07;
-    }
-
-    void write_byte(uint8_t ch) override {
-        auto& u_lsr = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x14);
-        auto& u_thr = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x00);
-        while ((u_lsr & (1U << 5)) == 0) {}
-        u_thr = ch;
-    }
-
-    void puts(const char* str) override {
-        if (!str) return;
-        while (*str) {
-            write_byte(static_cast<uint8_t>(*str++));
-        }
-    }
-
-    size_t write(std::span<const uint8_t> buffer) override {
-        for (uint8_t b : buffer) {
-            write_byte(b);
-        }
-        return buffer.size();
-    }
-
-    bool read_byte(uint8_t& ch) override {
-        auto& u_lsr = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x14);
-        if ((u_lsr & 0x01) == 0) return false;
-        auto& u_rbr = *reinterpret_cast<volatile uint32_t*>(kUart3Base + 0x00);
-        ch = static_cast<uint8_t>(u_rbr & 0xFF);
-        return true;
-    }
-
-    size_t read(std::span<uint8_t> buffer) override {
-        size_t count = 0;
-        for (auto& b : buffer) {
-            if (!read_byte(b)) break;
-            count++;
-        }
-        return count;
-    }
-
-    void flush() override {}
-
-protected:
-    void start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept override {
-        write(req.data);
-        UartResult res{};
-        res.status = UartStatus::Ok;
-        res.bytes_transferred = req.data.size();
-        push_completion_from_isr(req, res);
-        set_hardware_idle_from_isr();
-    }
-};
-
-// TWI1 HAL Adapter for E906 (HMC5883L/QMC5883L Compass on 40-Pin Header, Pins 3/5, PB0/PB1)
-class E906Twi1Driver final : public II2c {
-public:
-    static constexpr uintptr_t kTwi1Base = 0x02502400U;
-
-    E906Twi1Driver() = default;
-
-    bool init(const I2cConfig& config) override {
-        (void)config;
-        constexpr uintptr_t kCcu = 0x02001000U;
-        constexpr uintptr_t kPio = 0x02000000U;
-        auto& ccu_twi_bgr = *reinterpret_cast<volatile uint32_t*>(kCcu + 0x091CU);
-        auto& pb_cfg0 = *reinterpret_cast<volatile uint32_t*>(kPio + 0x0030U);
-
-        // Deassert TWI1 reset (bit 17) and enable TWI1 bus gate (bit 1)
-        ccu_twi_bgr |= (1U << 17) | (1U << 1);
-
-        // Configure PB0 (TWI1_SCK) and PB1 (TWI1_SDA) -> Function 4
-        pb_cfg0 = (pb_cfg0 & ~0x000000FFU) | 0x00000044U;
-
-        auto& twi_srst = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x18);
-        auto& twi_ccr  = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x14);
-        auto& twi_cntr = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x0C);
-
-        twi_srst = 1;
-        ::hal::Timer::delay_ms(1);
-        twi_srst = 0;
-
-        // 400 kHz @ 24 MHz APB: div_m = 2, div_n = 2
-        twi_ccr = (2U << 3) | 2U;
-        twi_cntr = (1U << 6); // Bus Enable (BUSEN)
-        return true;
-    }
-
-    bool set_frequency(uint32_t frequency_hz) override {
-        auto& twi_ccr = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x14);
-        if (frequency_hz >= 400'000) {
-            twi_ccr = (2U << 3) | 2U;
-        } else {
-            twi_ccr = (5U << 3) | 2U;
-        }
-        return true;
-    }
-
-    I2cCapabilities capabilities() const noexcept override {
-        I2cCapabilities caps{};
-        caps.max_hz = 400'000;
-        caps.max_msgs = 2;
-        caps.max_msg_bytes = 64;
-        return caps;
-    }
-
-    bool write_read_sync(uint8_t slave_addr,
-                         std::span<const uint8_t> tx_data,
-                         std::span<uint8_t> rx_data) override {
-        auto& twi_data = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x08);
-        auto& twi_cntr = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x0C);
-        auto& twi_stat = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x10);
-
-        // START
-        twi_cntr = (1U << 6) | (1U << 5) | (1U << 3);
-        if (!wait_int()) return false;
-        uint32_t st = twi_stat & 0xFF;
-        if (st != 0x08 && st != 0x10) return false;
-
-        // SLA + W
-        twi_data = (slave_addr << 1);
-        twi_cntr = (1U << 6) | (1U << 3);
-        if (!wait_int() || (twi_stat & 0xFF) != 0x18) return false;
-
-        // Write bytes
-        for (uint8_t b : tx_data) {
-            twi_data = b;
-            twi_cntr = (1U << 6) | (1U << 3);
-            if (!wait_int() || (twi_stat & 0xFF) != 0x28) return false;
-        }
-
-        if (!rx_data.empty()) {
-            // REPEATED START
-            twi_cntr = (1U << 6) | (1U << 5) | (1U << 3);
-            if (!wait_int()) return false;
-            st = twi_stat & 0xFF;
-            if (st != 0x10 && st != 0x08) return false;
-
-            // SLA + R
-            twi_data = (slave_addr << 1) | 1U;
-            twi_cntr = (1U << 6) | (1U << 3);
-            if (!wait_int()) return false;
-
-            for (size_t i = 0; i < rx_data.size(); ++i) {
-                bool ack = (i + 1 < rx_data.size());
-                twi_cntr = (1U << 6) | (ack ? (1U << 2) : 0U) | (1U << 3);
-                if (!wait_int()) return false;
-                rx_data[i] = static_cast<uint8_t>(twi_data & 0xFF);
-            }
-        }
-
-        // STOP
-        twi_cntr = (1U << 6) | (1U << 4) | (1U << 3);
-        return true;
-    }
-
-    bool write_sync(uint8_t slave_addr, std::span<const uint8_t> tx_data) override {
-        return write_read_sync(slave_addr, tx_data, {});
-    }
-
-    bool read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) override {
-        return write_read_sync(slave_addr, {}, rx_data);
-    }
-
-protected:
-    void start_hardware_transfer_from_isr(const I2cRequest& req) noexcept override {
-        uint8_t addr = req.address ? static_cast<uint8_t>(req.address & 0x7F) : req.slave_addr;
-        I2cResult res{};
-        bool ok = false;
-        if (!req.msgs.empty()) {
-            if (req.msgs.size() == 2 && !req.msgs[0].is_read() && req.msgs[1].is_read()) {
-                ok = write_read_sync(addr, req.msgs[0].tx, req.msgs[1].rx);
-                res.transferred_bytes = ok ? (req.msgs[0].tx.size() + req.msgs[1].rx.size()) : 0;
-                res.msgs_done = ok ? 2 : 0;
-            } else if (req.msgs.size() == 1) {
-                if (req.msgs[0].is_read()) {
-                    ok = read_sync(addr, req.msgs[0].rx);
-                    res.transferred_bytes = ok ? req.msgs[0].rx.size() : 0;
-                    res.msgs_done = ok ? 1 : 0;
-                } else {
-                    ok = write_sync(addr, req.msgs[0].tx);
-                    res.transferred_bytes = ok ? req.msgs[0].tx.size() : 0;
-                    res.msgs_done = ok ? 1 : 0;
-                }
-            }
-        } else {
-            if (!req.tx_data.empty() && !req.rx_data.empty()) {
-                ok = write_read_sync(addr, req.tx_data, req.rx_data);
-                res.transferred_bytes = ok ? (req.tx_data.size() + req.rx_data.size()) : 0;
-            } else if (!req.tx_data.empty()) {
-                ok = write_sync(addr, req.tx_data);
-                res.transferred_bytes = ok ? req.tx_data.size() : 0;
-            } else if (!req.rx_data.empty()) {
-                ok = read_sync(addr, req.rx_data);
-                res.transferred_bytes = ok ? req.rx_data.size() : 0;
-            }
-        }
-        res.status = ok ? I2cStatus::Ok : I2cStatus::BusError;
-        res.timestamp_us = ::hal::Timer::get_time_us();
-        push_completion_from_isr(req, res);
-        set_hardware_idle_from_isr();
-    }
-
-private:
-    static bool wait_int() noexcept {
-        auto& twi_cntr = *reinterpret_cast<volatile uint32_t*>(kTwi1Base + 0x0C);
-        uint64_t deadline = ::hal::Timer::get_time_us() + 10000ULL;
-        while (!(twi_cntr & (1U << 3))) {
-            if (::hal::Timer::get_time_us() >= deadline) return false;
-        }
-        return true;
-    }
-};
-
 // Timer HAL Adapter for E906
 class E906TimerDriver final : public ITimer {
 public:
@@ -465,10 +221,8 @@ public:
 
 static E906SpiDriver   g_e906_spi;
 static E906UartDriver  g_e906_uart;
-static E906Uart3Driver g_e906_uart3;
 static E906TimerDriver g_e906_timer;
 static E906GpioDriver  g_e906_gpio;
-static E906Twi1Driver  g_e906_twi1;
 
 ISpi& get_spi_driver() noexcept {
     return g_e906_spi;
@@ -478,12 +232,10 @@ IUart& get_uart_driver() noexcept {
     return g_e906_uart;
 }
 
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list; UART3/TWI1 not ports yet)
 IUart* get_uart_port(uint8_t index) noexcept {
     if (index == 0 || index == 2) {
         return &g_e906_uart;
-    }
-    if (index == 3) {
-        return &g_e906_uart3;
     }
     return nullptr;
 }
@@ -491,9 +243,6 @@ IUart* get_uart_port(uint8_t index) noexcept {
 II2c* get_i2c_port(uint8_t bus) noexcept {
     if (bus == 0) {
         return &get_e906_i2c();
-    }
-    if (bus == 1) {
-        return &g_e906_twi1;
     }
     return nullptr;
 }

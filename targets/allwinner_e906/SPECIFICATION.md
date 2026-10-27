@@ -681,6 +681,35 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Verified by**: `e906-board-selftest`, `host-tests`
 * **Implementation Target**: `targets/allwinner_e906/include/memory_map.h`, `targets/allwinner_e906/include/hal/dma.hpp`, `targets/allwinner_e906/include/hal/spi.hpp`, `targets/allwinner_e906/src/spi.cpp`, `targets/allwinner_e906/src/platform.cpp`, `apps/e906_repl_app/src/e906_periph.cpp`
 
+### `[SPEC-E906-HAL-04]` Bus Ports Exposed by the E906 Target (`get_uart_port` / `get_i2c_port`)
+* **Port list** (the per-target list [SPEC-HAL-10] asks for):
+
+  | Call | Port | Driver | Pins (40-pin header) |
+  | :--- | :--- | :--- | :--- |
+  | `get_uart_port(0)`, `get_uart_port(2)` | UART2 | `get_uart_driver()` | PB0 TX / PB1 RX (pins 11, 13) |
+  | `get_uart_port(3)` | UART3 | none yet (returns null) | PI11 TX / PI12 RX |
+  | `get_i2c_port(0)` | TWI0 | `get_e906_i2c()` | |
+  | `get_i2c_port(1)` | TWI1 | none yet (returns null) | PB4 SCL / PB5 SDA (pins 5, 3) |
+
+  UART3 and TWI1 already work, interrupt-driven, in `apps/e906_repl_app/src/e906_periph.cpp`
+  (UART3 receive by circular DMA, [SPEC-E906-HAL-02]). They become ports by moving that code into
+  this target, not by writing a second driver.
+* **Rules for every port driver** (2026-10-27, after `c5a1eaa`):
+  1. Interrupt- or DMA-driven ([SPEC-E906-HAL-01]); `start_hardware_transfer_from_isr` starts the
+     transfer and returns. It never waits on a status bit, and no wait anywhere is unbounded.
+  2. Pinmux touches only the port's own pins. PB0/PB1 belong to UART2, PB4/PB5 to TWI1,
+     PB11..PB14 to SPI1.
+  3. Clock and reset go through `Ccu::enable_module` (reset released before the gate opens).
+  4. Each driver lives in its own translation unit, so an app that never asks for the port does not
+     link it. Every E906 app must still fit `SRAM_FAST` ([SPEC-E906-MEM-01]).
+* **Why**: `c5a1eaa` added polled UART3/TWI1 classes to `platform.cpp`. They ran the whole I2C
+  transfer inside the ISR hook, switched UART2's PB0/PB1 to TWI1, and grew every E906 app by
+  about 14 KB, so `e906_repl_app` no longer linked (`SRAM_FAST` overflowed by 6192 B).
+  The classes were removed.
+* **Verified by**: `e906-build-layout` (every E906 app links and fits), `hal-concurrency-audit`,
+  `e906-board-selftest` (once UART3/TWI1 are ports)
+* **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`
+
 ## 7. Binary Telemetry & Observability (`SPEC-E906-TRACE`)
 
 

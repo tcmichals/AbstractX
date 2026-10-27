@@ -2770,3 +2770,30 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Still open**:
   * merge the other PC's unpushed work (`check_register_parity.py`, the `hw-sw-register-parity` skill);
   * run the CI steps locally from one script so neither PC depends on reading GitHub logs.
+
+---
+
+## 2026-10-27: `c5a1eaa` broke the E906 build; INAV app removed from AbstractX ([SPEC-E906-HAL-04])
+
+* **Category**: `product-bug` (build overflow, pin conflict, ISR waits) and `process-gap` (unchecked commit claims)
+* **What broke**: `c5a1eaa` added polled `E906Uart3Driver` / `E906Twi1Driver` classes to `targets/allwinner_e906/src/platform.cpp` for a new `apps/inav_e906_app`.
+  * Every E906 app grew by about 14 KB (`platform.cpp.obj` text+bss 28,441 B -> 42,447 B). `e906_repl_app` stopped linking: `region SRAM_FAST overflowed by 6192 bytes`. `2dfa62a` links.
+  * TWI1 `init()` set PB0/PB1 to function 4, but `Pio::init()` gives those pins to UART2. The working TWI1 code in `apps/e906_repl_app/src/e906_periph.cpp` uses PB4/PB5.
+  * Both classes waited on hardware inside `start_hardware_transfer_from_isr` (TWI1 up to 10 ms per byte; the UART3 TX wait had no timeout), and TWI1 left the bus without a STOP on errors.
+  * `inav_e906_app` wrote to the resource table (`0x40000004`) and to Linux DDR (`0x4E010004`), linked `malloc`/`_sbrk` through `atof`, and could overflow `deg_buf[8]` from a long NMEA field.
+* **Which check should have caught it**:
+  * `e906-build-layout`: the commit message lists host, ASan and TSan results but no E906 build.
+  * `hal-concurrency-audit` and `spectrace.py --review` both passed with the ISR waits in place: neither looks for status-bit loops reached from `start_hardware_transfer_from_isr`.
+  * Nothing checks pinmux ownership, and nothing runs `nm` for `malloc` on every E906 app.
+* **Decision (project owner)**: INAV and other flight stacks live in their own repositories and consume AbstractX (AGENTS.md §14). The E906 runs generic AbstractX firmware; UART3/TWI1 become target ports by moving the interrupt-driven `e906_periph.cpp` code into `targets/allwinner_e906`, not by a second driver.
+* **Spec**: `[SPEC-E906-HAL-04]` (port list and port-driver rules) in `targets/allwinner_e906/SPECIFICATION.md`; AGENTS.md §14 flight-stack rule.
+* **Fix**: removed `apps/inav_e906_app` and the two classes; `get_uart_port(3)` and `get_i2c_port(1)` return null until the ports are moved in.
+* **Evidence (this PC, 2026-10-27)**:
+  * `cmake --preset e906 && cmake --build build_e906`: exit 0, every segment `[ok]`.
+  * `analyze_elf_size.sh e906_repl_app e906_ddr.ld`: SRAM_FAST 185.1 / 192.0 KB (96.4%), SRAM_A3_2 45.1 / 128 KB, DRAM 0.00 MB.
+  * `ctest --test-dir build_host`: 69/69 passed. `audit_specs.py`: 47/47. `audit_hal_invariants.py`: PASS.
+* **Still open**:
+  * move UART3/TWI1 from `e906_periph.cpp` into the target, with only 6.9 KB of SRAM_FAST free in `e906_repl_app`;
+  * other `c5a1eaa` defects: the `asp_uart_core.sv` egress payload is hard-wired zero and its ingress data is dropped, with no cocotb test; Zynq `write_tlp`/`read_tlp` DWORD order is the reverse of `asp_axi_lite_bridge.sv`; `check_register_parity.py` compares against hard-coded values; `applib` `Hmc5883l` has no host test behind `[SPEC-MAG-01]`;
+  * the INAV repo docs (`docs/ARCHITECTURE.md`, `TODO.md`) still point to `AbstractX/apps/inav_e906_app`.
+* **Not verified**: no board run; ASan/TSan not re-run for this change (it touches only E906 code, which the host build does not compile).

@@ -233,5 +233,6 @@ AbstractX enforces a strict separation between the Core Framework and the Applic
 * **Application Library (`applib/`)**:
   - Houses reusable, concrete peripheral drivers (C++ in `applib/include/applib/drivers/`, MicroPython in `applib/python/drivers/`), fusion algorithms, and application utilities.
   - Built as a separate library (`abstractx_applib`) that links against `abstractx_core`.
+* **Flight stacks live in their own repositories**: INAV (`tcmichals/inav`, `flightcode/inav`) and other flight-control applications consume AbstractX as a submodule; their apps, firmware and schemas are not committed here. If a flight stack needs a target capability (a UART or I2C port, a transport), add it to AbstractX as a generic driver or app. `apps/` holds only generic examples and bring-up tools (decided 2026-10-27, after `apps/inav_e906_app` was removed).
 * **Automated Boundary Gate**:
   - Run `python3 tools/audit_boundaries.py` to confirm 100% core purity.
