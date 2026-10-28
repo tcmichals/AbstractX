@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793123880085,
+  "lastUpdate": 1793227948709,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Test Execution Metrics": [
@@ -5375,6 +5375,390 @@ window.BENCHMARK_DATA = {
           {
             "name": "spectrace:matrix verified_pct",
             "value": 22.3,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "291ed11362d3af501e3c9e71b827987ec5444e7a",
+          "message": "fix(core,targets): review fixes: one IoEngine, coroutine leaks, lost wakes, dead asserts, broken E906/Pico builds\n\nReview of AbstractX and all targets (engineering_log.md 2026-10-28, four entries).\n\nCoroutines [SPEC-ARCH-09/10/11]\n- when_any leaked a never-started loser (~470 calls emptied the pool, then a\n  null-handle segfault): Task::detach() destroys never-started tasks.\n- Semaphore: a woken waiter also took the next permit (two releases woke once).\n- Awaiting an empty Task (pool exhausted) reports via set_pool_exhausted_hook()\n  and traps instead of dereferencing null.\n\nI/O processor [SPEC-ARCH-13]\n- New include/abstractx/hal/io_engine.hpp: IoEngine + IIoBackend replace three\n  copied io_processor.cpp decoders (Linux, E906, Pico). Fixed with it: 32 B tx\n  buffer clocked for 64 B; host tx_len used as rx offset; one buffer shared by\n  all channels; DMA restarted in flight; E906/Pico swallowed every SPI/I2C/GPIO\n  bridge request; Linux SPI window could never match; GPIO 1 << pin >= 32.\n- Linux SpiWorker: unequal tx/rx rejected, atomic speed, stop() completes\n  queued requests as Cancelled (also I2cWorker).\n- E906 Spi1 DMA: second caller refused instead of overwriting the in-flight\n  descriptor and callback. E906 IoEngine back end uses the shared TWI0 driver\n  (get_e906_i2c(), upstream 75001f8 / EL-1027-06).\n\nLost wakes [SPEC-HAL-10] [SPEC-HAL-13]\n- UartRxRing and TriggerRing: wait/wake handshake was store->load on both\n  sides with release/acquire only; both could miss, reader never woken.\n  sim_test_uart_rx_ring hung in 3/300 runs at c5a1eaa (TSan silent).\n  seq_cst fence between publish and check on every path.\n- Dead E906 Timer::set_compare path removed\n  (its deadline was overwritten by the ISR); e906_freertos_app enabled the soft\n  IRQ line before its flag; Trace::putc S_UART0 spin bounded.\n\nBuilds\n- E906 Release was -O3 (CMake appends its default after *_RELEASE_INIT).\n  Toolchain seeds -O2 (CMakeCache CMAKE_CXX_FLAGS_RELEASE=-O2 -g -DNDEBUG).\n- Pico 2 W did not compile (MpscRingBuffer<uint8_t,512> vs ETL small model):\n  memory model follows capacity.\n\nChecks that missed all this, fixed [SPEC-AUDIT-15]\n- boundary_review.py now scans waiter slots incl. class members and fails on\n  HANDSHAKE (store->load with no seq_cst fence); `// handshake: <why>` waiver.\n  On c5a1eaa: 13 HANDSHAKE; now 0. All 22 unnoted shared variables answered.\n- sim/tests/examples build with -UNDEBUG: 11 sim tests (~276 asserts) had their\n  checks compiled out in the Release host build. sim_test_asserts_live guards it.\n- audit_ipc_invariants.py: comment \"nothing to return\" read as a return (false\n  IPC-STALL); bridge lease retry waived with reason. Audit is green again.\n- sim/test_coro_failures.cpp: <iostream> -> <cstdio>.\n\nRegression tests (each fails on the old code)\n- sim/test_coro_combinators.cpp case 6 (old: segfault)\n- tests/test_coro_primitives.cpp SemaphoreHandoffKeepsEveryPermit,\n  DetachNeverStartedTaskFreesFrame (old: 2 failures)\n- sim/test_coro_failures.cpp pool-exhausted death test (old: no hook)\n- sim/test_io_engine.cpp (new engine; clamps, overrun, lockout, slot pool,\n  bridge routing, 1000 rounds flat)\n- sim/test_linux_hal_completion.cpp [6][7] (old: status 0, 9/200 stranded)\n- sim/test_wake_handshake.cpp: 300,000 lockstep rounds per ring with watchdog.\n  Old headers 10/10 fail (\"UartRxRing: lost wake after 1237 of 300000 rounds\",\n  \"TriggerRing: lost wake after 41389 ...\"); new 0/20; uart_rx_ring 0/300.\n- tests/test_boundary_review.py, tests/test_ipc_invariants.py (old tool fails),\n  sim/test_asserts_live.cpp (g++ -DNDEBUG: #error)\n\nResults (rebased onto 559022f, this tree)\n- ctest host 76/76, ASan/UBSan 76/76, TSan 76/76 (no setarch needed on this\n  PC), 0 sanitizer reports (trac.py test --ctest debug/asan/tsan --record)\n- ctest --repeat until-fail:20 on uart_rx_ring|wake_handshake|bus_protocols|\n  linux_hal_completion|io_engine: host/ASan/TSan 5/5\n- E906 fresh build -O2 (riscv-none-elf-gcc 15.2.0), analyze_elf_size.sh\n  e906_repl_app: SRAM 0x3FFC0000 192.0 KB used 174.4 KB free 17.6 KB 90.8%\n  (upstream at -O3: 94.8%); .text 143,964 B, .bss 24,528 B, stack 8 KB.\n  No LOAD segment at 0x48000000+ (DRAM 0) and check_e906_layout ok for\n  e906_repl_app, gps_imu_app, serial_loopback_app, e906_bench_app,\n  e906_freertos_app. size (text data bss): e906_repl_app 173720 408 50676;\n  gps_imu_app 95318 424 49436; serial_loopback_app 55994 380 45760.\n- Pico 2 W build: gps_imu_app.elf, serial_loopback_app.elf\n- audit_specs, --check-drift, --check-skills, audit_boundaries,\n  audit_interfaces, audit_coro_contracts, boundary_review --check (24 shared,\n  0 missing, 0 handshake), audit_ipc_invariants: all rc 0.\n  --check-verifies: 65 unbacked, same as origin/main (EL-1027-32).\n  Matrix: 34 verified, 136 stale, 0 failing of 232.\n\nboundary-race-review checklist (touched boundaries)\n- UartRxRing / TriggerRing: one producer (ISR/thread), one reader; atomics +\n  seq_cst fence on both sides; check-then-act closed by the fence; reader\n  re-checks after publishing; test drives a real producer thread.\n- E906 timer deadlines: main under InterruptGuard, ISR with IRQs masked, single\n  hart, 64-bit values never read unguarded.\n- RPMsg doorbell ISR: waiter CAS-publishes then unmasks the level IRQ (same\n  hart), so no fence needed; recorded as `// handshake:`.\n- E906 UART/SPI DMA busy flags: test-and-set under InterruptGuard; ISR clears.\n\nNot verified\n- No board run: E906 is now -O2 (silicon was tested at -O3); run\n  e906-board-selftest. No Pico or ESP32-P4 hardware run.\n- E906 and Pico IoEngine I2C still block inside start_transfer() (the new E906\n  TWI driver has an async path: next); E906 DRDY hook not attached.\n- Upstream's new UART3 driver and split REPL files were only re-annotated\n  (boundary notes), not re-reviewed line by line.\n- Pico cross-core: bare-metal InterruptLock has one global depth/saved state\n  and excludes no other core (next commit). No RTL/cocotb run (no RTL changed).",
+          "timestamp": "2026-10-28T17:45:13-05:00",
+          "tree_id": "d6cbf62a88d2d50842ce0955df12cf1484749688",
+          "url": "https://github.com/tcmichals/AbstractX/commit/291ed11362d3af501e3c9e71b827987ec5444e7a"
+        },
+        "date": 1793227948066,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "board:e906:repl-system announce_abstractx-repl",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-tlp",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-trace",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system idle_no_recipient",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system new_no_recipient",
+            "value": 8,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_bounded",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_idle_silent",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system plane_isolation",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system repl_text",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_64B_all_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_payload_sequence",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps_valid",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_ctf_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_datagrams",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors duration_s",
+            "value": 5.22,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_3d_fix_acquired",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_serial_115200_active",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors i2c_compass_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors vector_synthesis_verified",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_received",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_attitude",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_gps",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_mag",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_valid_64b",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout seq_monotonic_rate",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_gps_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_yaw_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests_failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan passed",
+            "value": 76,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan test_time_s",
+            "value": 6.19,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan tests",
+            "value": 76,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan passed",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan test_time_s",
+            "value": 0.52,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan tests",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug passed",
+            "value": 76,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug test_time_s",
+            "value": 9.68,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug tests",
+            "value": 76,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host passed",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host test_time_s",
+            "value": 1.09,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host tests",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan passed",
+            "value": 76,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan test_time_s",
+            "value": 6.65,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan tests",
+            "value": 76,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer passed",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer tests",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint critical_warnings",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check multi_driver_modules",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix broken",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix failing",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix implemented",
+            "value": 31,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix partial",
+            "value": 5,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix spec_only",
+            "value": 26,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix stale",
+            "value": 136,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix total",
+            "value": 232,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified",
+            "value": 34,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified_pct",
+            "value": 14.7,
             "unit": "%"
           }
         ]
