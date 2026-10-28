@@ -22,6 +22,16 @@ e.g. // shared: msgbox ISR writes, main loop reads; std::atomic acq/rel
 
 The note is written by whoever answers the boundary-race-review checklist for that variable;
 the script only proves that nobody skipped one.
+
+It also checks the wake handshake ([SPEC-HAL-10], 2026-10-28): a waiter slot is a
+std::atomic<void*> / std::atomic<std::coroutine_handle<>> named *waiter* / *coroutine* / *handle*
+(class members included). Publishing yourself as waiter and then checking for data, or publishing
+data and then looking for a waiter, is a store followed by a load of another variable: without a
+std::atomic_thread_fence(std::memory_order_seq_cst) between them both sides can miss each other
+and the reader is never woken (TSan does not see it). Each such store must be followed by that
+fence before the next read, or carry a waiver with its reason on that line or the line above:
+    // handshake: <why no fence is needed>   (e.g. same hart, the waiter unmasks the IRQ after
+                                             publishing and the line is level-triggered)
 """
 
 import argparse
@@ -47,6 +57,10 @@ DECL = re.compile(
     r"(?P<name>[A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*(?:\{[^;]*\}|=[^;]*)?;", re.M)
 POST = re.compile(r"\b(?:IsrDispatcher::post|Dispatcher::post|isr_post_resume)\s*\(\s*(?:[\w:]+\()?(\w+)")
 NOTE = "shared:"
+WAITER_DECL = re.compile(
+    r"std::atomic<\s*(?:void\s*\*|std::coroutine_handle<[^>]*>)\s*>\s+(\w*(?:waiter|coroutine|handle)\w*)\b")
+STORE = re.compile(r"(?:\b|->|\.)(\w+)\s*\.\s*store\s*\(")
+FENCE = re.compile(r"atomic_thread_fence\s*\(\s*std::memory_order_seq_cst\s*\)")
 
 
 def strip_comments(text):
@@ -122,6 +136,65 @@ def scan(rel, text):
     return out
 
 
+def call_args(code, open_paren):
+    depth = 0
+    for i in range(open_paren, len(code)):
+        if code[i] == "(":
+            depth += 1
+        elif code[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return code[open_paren + 1:i], i + 1
+    return code[open_paren + 1:], len(code)
+
+
+def rest_of_block(code, pos):
+    depth = 0
+    for i in range(pos, len(code)):
+        if code[i] == "{":
+            depth += 1
+        elif code[i] == "}":
+            depth -= 1
+            if depth < 0:
+                return code[pos:i]
+    return code[pos:]
+
+
+# @impl [SPEC-AUDIT-15] docs/SPECTRACE.md
+def handshake_scan(rel, text, waiters):
+    """Store then read of a different atomic, where one side is a waiter slot, with no seq_cst fence."""
+    code = strip_comments(text)
+    names = waiters | set(WAITER_DECL.findall(code))
+    if not names:
+        return []
+    out = []
+    reads_waiter = re.compile(r"\b(?:%s)\s*\.\s*(?:load|exchange|compare_exchange_\w+)\s*\(|\bwake\w*\s*\("
+                              % "|".join(map(re.escape, sorted(names))))
+    for m in STORE.finditer(code):
+        var = m.group(1)
+        args, end = call_args(code, code.index("(", m.end() - 1))
+        if "memory_order_seq_cst" in args or not re.search(r"memory_order_(?:release|relaxed)", args):
+            continue                                   # seq_cst store (explicit or default)
+        tail = rest_of_block(code, end)
+        f = FENCE.search(tail)
+        upto = tail[:f.start()] if f else tail
+        if var in names:
+            if re.match(r"\s*(?:nullptr|\{\s*\}|0\s*,)", args):
+                continue                               # clearing the slot publishes nothing
+            hit = re.search(r"\.\s*load\s*\(|\b(?:satisfied|available|empty|ready)\s*\(", upto)
+            role = "waiter published, then data checked"
+        else:
+            hit = reads_waiter.search(upto)
+            role = "data published, then waiter checked"
+        if hit:
+            ln = code.count("\n", 0, m.start()) + 1
+            src = text.splitlines()
+            if any("handshake:" in l for l in src[max(0, ln - 2):ln]):
+                continue
+            out.append((rel, ln, var, role))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     ap.add_argument("--paths", nargs="*", default=DEFAULT_PATHS)
@@ -133,16 +206,35 @@ def main():
             if p.suffix in EXTS and p.is_file() and not (set(p.relative_to(ROOT).parts) & SKIP_PARTS):
                 rel = p.relative_to(ROOT).as_posix()
                 items += scan(rel, p.read_text(encoding="utf-8", errors="ignore"))
+    waiters = set()
+    files = []
+    for base in args.paths:
+        for p in sorted((ROOT / base).rglob("*")):
+            if p.suffix in EXTS and p.is_file() and not (set(p.relative_to(ROOT).parts) & SKIP_PARTS):
+                text = p.read_text(encoding="utf-8", errors="ignore")
+                files.append((p.relative_to(ROOT).as_posix(), text))
+                waiters |= set(WAITER_DECL.findall(strip_comments(text)))
+    handshakes = []
+    for rel, text in files:
+        handshakes += handshake_scan(rel, text, waiters)
     missing = [i for i in items if not i[4]]
     for rel, ln, name, why, note in items:
         tag = "ok     " if note else "MISSING"
         print(f"  {tag} {rel}:{ln}: {name} ({', '.join(why)})" + (f" -- {note}" if note else ""))
     print(f"Shared state: {len(items)} variable(s), {len(missing)} without an ownership note")
+    for rel, ln, var, role in handshakes:
+        print(f"  HANDSHAKE {rel}:{ln}: {var}.store(release/relaxed): {role} with no seq_cst fence between")
+    print(f"Wake handshakes: {len(handshakes)} store->load without a seq_cst fence")
+    rc = 0
     if args.check and missing:
         print("[FAIL] answer the boundary-race-review checklist and add '// shared: <owner>; <sync>' "
               "to each MISSING declaration")
-        return 1
-    return 0
+        rc = 1
+    if args.check and handshakes:
+        print("[FAIL] put std::atomic_thread_fence(std::memory_order_seq_cst) between the store and the "
+              "read on both sides of each HANDSHAKE ([SPEC-HAL-10] wake handshake)")
+        rc = 1
+    return rc
 
 
 if __name__ == "__main__":

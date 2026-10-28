@@ -1,4 +1,8 @@
 # examples/CMakeLists.txt
+# Tests check with assert(): keep it live in Release (CMake adds -DNDEBUG there). Until
+# 2026-10-28 eleven sim tests (~276 asserts) checked nothing in the default host build.
+add_compile_options(-UNDEBUG)
+
 
 function(add_abstractx_example TARGET_NAME SOURCE_FILE)
     add_executable(${TARGET_NAME} ${SOURCE_FILE})

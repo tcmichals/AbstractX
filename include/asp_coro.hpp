@@ -78,6 +78,26 @@ inline void set_unhandled_exception_hook(UnhandledExceptionHook hook) noexcept {
     detail::g_unhandled_exception_hook = hook;
 }
 
+// Awaiting an empty Task (frame pool exhausted) reports here, then traps.
+namespace detail {
+inline UnhandledExceptionHook g_pool_exhausted_hook = nullptr;
+
+[[noreturn]] inline void on_pool_exhausted() noexcept {
+    if (g_pool_exhausted_hook) g_pool_exhausted_hook();
+    __builtin_trap();
+}
+
+template <typename Handle>
+inline void require_frame(Handle h) noexcept {
+    if (!h) on_pool_exhausted();
+}
+} // namespace detail
+
+// @impl [SPEC-ARCH-09] docs/DESIGN_SPECIFICATION.md#spec-arch-09
+inline void set_pool_exhausted_hook(UnhandledExceptionHook hook) noexcept {
+    detail::g_pool_exhausted_hook = hook;
+}
+
 namespace detail {
 
 // Freed frames go on an intrusive free list (the link lives inside the dead
@@ -184,6 +204,7 @@ public:
         std::coroutine_handle<> continuation_{nullptr};
         detail::CompletionHook on_complete_{};
         bool detached_{false};   // [SPEC-ARCH-11] owner let go: free the frame at final suspend
+        bool started_{false};    // [SPEC-ARCH-11] ran past initial_suspend at least once
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
@@ -193,7 +214,13 @@ public:
             return Task{nullptr};
         }
 
-        std::suspend_always initial_suspend() noexcept { return {}; }
+        struct InitialAwaiter {
+            promise_type& p;
+            bool await_ready() const noexcept { return false; }
+            void await_suspend(std::coroutine_handle<>) const noexcept {}
+            void await_resume() const noexcept { p.started_ = true; }
+        };
+        InitialAwaiter initial_suspend() noexcept { return {*this}; }
 
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
@@ -259,7 +286,7 @@ public:
     // @impl [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md
     void detach() noexcept {
         if (!handle_) return;
-        if (handle_.done()) {
+        if (handle_.done() || !handle_.promise().started_) {   // nobody will ever resume it
             handle_.destroy();
         } else {
             handle_.promise().detached_ = true;
@@ -279,11 +306,12 @@ public:
     }
 
     T await_resume() noexcept {
+        detail::require_frame(handle_);
         return std::move(*handle_.promise().result_);
     }
 
-    const T& get_result() const { return *handle_.promise().result_; }
-    T& get_result() { return *handle_.promise().result_; }
+    const T& get_result() const { detail::require_frame(handle_); return *handle_.promise().result_; }
+    T& get_result() { detail::require_frame(handle_); return *handle_.promise().result_; }
 
     handle_type handle() const noexcept { return handle_; }
 
@@ -312,6 +340,7 @@ public:
                 return handle_;
             }
             T await_resume() const {
+                detail::require_frame(handle_);
                 return *handle_.promise().result_;
             }
         };
@@ -333,6 +362,7 @@ public:
         std::coroutine_handle<> continuation_{nullptr};
         detail::CompletionHook on_complete_{};
         bool detached_{false};   // [SPEC-ARCH-11] owner let go: free the frame at final suspend
+        bool started_{false};    // [SPEC-ARCH-11] ran past initial_suspend at least once
 
         Task get_return_object() noexcept {
             return Task{handle_type::from_promise(*this)};
@@ -342,7 +372,13 @@ public:
             return Task{nullptr};
         }
 
-        std::suspend_always initial_suspend() noexcept { return {}; }
+        struct InitialAwaiter {
+            promise_type& p;
+            bool await_ready() const noexcept { return false; }
+            void await_suspend(std::coroutine_handle<>) const noexcept {}
+            void await_resume() const noexcept { p.started_ = true; }
+        };
+        InitialAwaiter initial_suspend() noexcept { return {*this}; }
 
         struct FinalAwaiter {
             bool await_ready() noexcept { return false; }
@@ -406,7 +442,7 @@ public:
     // @impl [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md
     void detach() noexcept {
         if (!handle_) return;
-        if (handle_.done()) {
+        if (handle_.done() || !handle_.promise().started_) {   // nobody will ever resume it
             handle_.destroy();
         } else {
             handle_.promise().detached_ = true;
@@ -425,7 +461,7 @@ public:
         return handle_;
     }
 
-    void await_resume() noexcept {}
+    void await_resume() noexcept { detail::require_frame(handle_); }
 
     handle_type handle() const noexcept { return handle_; }
 
@@ -453,7 +489,7 @@ public:
                 handle_.promise().continuation_ = caller;
                 return handle_;
             }
-            void await_resume() const noexcept {}
+            void await_resume() const noexcept { detail::require_frame(handle_); }
         };
         return Awaiter{handle_};
     }
@@ -609,7 +645,8 @@ public:
             auto h = w->handle_;
             w->handle_ = nullptr;
             w->next_ = nullptr;
-            abstractx::Dispatcher::push(h);  // the waiter takes the count in await_resume()
+            w->granted_ = true;              // [SPEC-ARCH-10] this permit is the waiter's
+            abstractx::Dispatcher::push(h);
         } else {
             ++count_;
         }
@@ -619,6 +656,7 @@ public:
         Semaphore& sem_;
         std::coroutine_handle<> handle_{nullptr};
         AcquireAwaiter* next_{nullptr};
+        bool granted_{false};
 
         bool await_ready() const noexcept { return sem_.count_ > 0; }
         void await_suspend(std::coroutine_handle<> h) noexcept {
@@ -631,8 +669,9 @@ public:
             }
             sem_.waiters_tail_ = this;
         }
+        // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
         void await_resume() noexcept {
-            if (sem_.count_ > 0) --sem_.count_;
+            if (!granted_ && sem_.count_ > 0) --sem_.count_;   // hand-off already owns its permit
         }
 
         ~AcquireAwaiter() {
@@ -977,6 +1016,7 @@ private:
 
     template <size_t Index>
     void inject_callback() {
+        detail::require_frame(std::get<Index>(tasks_).handle());   // [SPEC-ARCH-09]
         std::get<Index>(tasks_).handle().promise().on_complete_ = {
             [](void* self) noexcept { static_cast<WhenAllAwaiter*>(self)->notify_done(); }, this};
     }
@@ -1025,6 +1065,8 @@ public:
 
     bool await_suspend(std::coroutine_handle<> caller) noexcept {
         caller_ = caller;
+        detail::require_frame(t1_.handle());   // [SPEC-ARCH-09]
+        detail::require_frame(t2_.handle());
 
         // Register callbacks BEFORE starting either task.
         t1_.handle().promise().on_complete_ = {
@@ -1056,7 +1098,7 @@ public:
         int idx = ready_index_.load(std::memory_order_acquire);
         if (idx == 0 || (idx == -1 && t1_.done())) {
             std::variant<T1, T2> r{std::in_place_index<0>, t1_.await_resume()};
-            t2_.detach();   // the loser runs on and frees itself; never destroyed while suspended
+            t2_.detach();   // the loser runs on and frees itself (freed now if it never started)
             return r;
         }
         std::variant<T1, T2> r{std::in_place_index<1>, t2_.await_resume()};

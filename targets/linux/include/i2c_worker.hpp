@@ -64,6 +64,15 @@ public:
                 ::close(fd_);
                 fd_ = -1;
             }
+            // Requests still queued would strand their awaiters: finish them as Cancelled.
+            hal::I2cRequest req;
+            while (queue_.pop(req)) {
+                hal::I2cResult res{};
+                res.status = hal::I2cStatus::Cancelled;
+                req.notify_rx_completion(res);
+                req.notify_tx_completion(res);
+                complete(req, res);
+            }
         }
     }
 
@@ -85,6 +94,7 @@ public:
         return true;
     }
 
+    bool is_running() const noexcept { return running_.load(std::memory_order_acquire); }
     int fd() const noexcept { return fd_; }
     bool is_hardware_active() const noexcept { return fd_ >= 0; }
 

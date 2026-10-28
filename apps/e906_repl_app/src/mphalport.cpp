@@ -26,7 +26,7 @@ extern "C" {
 #include <cstdint>
 
 namespace abstractx::hal {
-extern volatile uint32_t g_telemetry_dropped;
+extern volatile uint32_t g_telemetry_dropped;  // shared: see targets/allwinner_e906/src/platform.cpp (main-loop counter)
 extern ::hal::RpmsgTlpChannel g_tlp_channel;
 }
 

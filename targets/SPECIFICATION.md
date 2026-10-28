@@ -105,13 +105,17 @@ In AbstractX, the legacy `isr_dispatcher` is **completely eliminated and replace
 | **Bus Contention** | Undefined / Coroutines clash on bus | Hardware Bus Lockout: `ASP_STATUS_BUS_LOCKED` (0x05) error response |
 
 #### 2.1.2 Platform Instantiation of the Unified IP
-Every target instantiates this identical IP core using its platform-native event pump and hardware doorbell:
+The message loop itself is one core class, `abstractx::hal::IoEngine`
+(`include/abstractx/hal/io_engine.hpp`, [SPEC-ARCH-13]). Each target's `src/io_processor.cpp`
+only provides an `IIoBackend` (bus transfers, triggers, GPIO / virtual BAR, doorbell, idle wait)
+and returns the engine from `get_target_io_processor()`:
 
-| Target Silicon | Implementation File | Concrete Class | I/O Pump Mechanism | Hardware Doorbell | Idle Power State |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Linux Target** | `targets/linux/src/io_processor.cpp` | `LinuxIoProcessor` | POSIX `epoll` reactor + worker threads | `eventfd` | `epoll_wait` sleep |
-| **Allwinner E906** | `targets/allwinner_e906/src/io_processor.cpp` | `E906IoProcessor` | Sunxi DMA Engine + PLIC/CLINT ISRs | Hardware `MSGBOX` (IRQ 48/147) | `__asm__ volatile("wfi")` |
-| **Pico 2 W (RP2350)** | `targets/pico2w_rp2350/src/io_processor.cpp` | `PicoIoProcessor` | RP2350 DMA Channels + DREQ/GPIO ISRs | Hardware SIO FIFO (`sio_hw->fifo_wr`) | `__asm__ volatile("wfe")` |
+| Target Silicon | Back end (`src/io_processor.cpp`) | Transfers | Trigger | Hardware Doorbell | Idle Power State | Known gaps |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Linux Target** | `LinuxIoBackend` | spidev / i2c-dev worker threads | gpiod events in an `epoll` reactor | `eventfd` | `epoll_wait` | none |
+| **Allwinner E906** | `E906IoBackend` | SPI1 DMA (async); TWI blocking | `fc_gpio_drdy_isr()` hook | `MSGBOX` channel 0 | `wfi` | I2C bridge blocks; the DRDY hook is not attached to a CLIC line, so auto mode never triggers |
+| **Pico 2 W (RP2350)** | `PicoIoBackend` | `PicoSpi` DMA request queue (async); I2C blocking | GPIO edge IRQ | SIO FIFO (skipped when full) | `wfe` | I2C bridge blocks |
+| **Zynq-7000 / FPGA** | `Zynq7000IoProcessor` (no engine) | FPGA X-fabric | FPGA | UIO interrupt | `poll` | the engine runs in RTL; this target is a ring-to-BRAM pass-through |
 
 #### 2.1.3 The Message Processing Loop & Driver Message Posting
 The dedicated I/O core (Linux worker thread, E906 RISC-V core, or RP2350 Core 0) executes the **Message Processing Loop** (`ioProcessor::run()` or non-blocking `ioProcessor::step()`). All physical hardware drivers hook directly into this message pipeline:
@@ -155,7 +159,7 @@ sequenceDiagram
 
 #### 2.1.4 Core Invariants of the Unified `ioProcessor`:
 1. **Identical Name, Interface, and Factory**:
-   - Every target keeps the same filename: `src/io_processor.cpp`.
+   - Every target keeps the same filename: `src/io_processor.cpp`, and software targets put no TLP decoding in it ([SPEC-ARCH-13]).
    - Every target implements `abstractx::hal::IIoProcessor`.
    - Every target provides the global factory `abstractx::hal::get_target_io_processor()`.
 2. **Unified Driver Message Routing**:

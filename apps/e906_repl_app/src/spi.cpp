@@ -20,8 +20,8 @@ extern "C" {
 // Hardware SPI1 & Dual-SPI DMA Interface ([SPEC-E906-HAL-03], [SPEC-E906-REPL-20])
 // ---------------------------------------------------------------------------
 namespace {
-volatile bool s_spi_dma_done = false;
-volatile bool s_spi_dma_ok = false;
+volatile bool s_spi_dma_done = false;  // shared: main clears, SPI DMA ISR sets last; main polls with a deadline; single hart
+volatile bool s_spi_dma_ok = false;  // shared: SPI DMA ISR writes before s_spi_dma_done; single hart, volatile order
 __attribute__((section(".sram_c"))) static uint8_t s_spi_tx_staging[512];
 __attribute__((section(".sram_c"))) static uint8_t s_spi_rx_staging[512];
 

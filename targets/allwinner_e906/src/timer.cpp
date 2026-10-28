@@ -17,15 +17,15 @@ static constexpr uintptr_t MTIMECMP_BASE = 0xE0004000U;
 static constexpr uintptr_t MTIME_BASE    = 0xE000BFF8U;
 static constexpr uint64_t  kNever        = ~0ULL;
 
-static std::atomic<std::coroutine_handle<>> g_timer_coroutine{nullptr};
 using WaiterList = etl::intrusive_list<Timer::SleepAwaiter, etl::bidirectional_link<0>>;
 static WaiterList g_waiters{};
-// Two deadlines share one comparator: sleeping coroutines and a synchronous wake.
-static volatile uint64_t g_coro_target{kNever};
-static volatile uint64_t g_wake_target{kNever};
+// Two deadlines share one comparator: sleeping coroutines (always the front of g_waiters) and a
+// synchronous wake.
+static volatile uint64_t g_coro_target{kNever};  // shared: main under InterruptGuard, timer ISR (IRQs masked); single hart, 64-bit never read unguarded
+static volatile uint64_t g_wake_target{kNever};  // shared: arm_wake under InterruptGuard, timer ISR clears; single hart
 // Third deadline: profiler samples ([SPEC-E906-IRQ-06], [SPEC-TRACE-09]).
-static volatile uint64_t g_sample_target{kNever};
-static volatile uint64_t g_sample_period{0};
+static volatile uint64_t g_sample_target{kNever};  // shared: set_sample_period under InterruptGuard, timer ISR advances; single hart
+static volatile uint64_t g_sample_period{0};       // shared: set_sample_period under InterruptGuard, timer ISR reads; single hart
 
 static void program_compare(uint64_t target) noexcept {
     auto *cmp_lo = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE);
@@ -86,16 +86,6 @@ uint64_t Timer::get_time_ns() noexcept {
 
 uint32_t Timer::get_time_ms() noexcept {
     return static_cast<uint32_t>(get_ticks() / TICKS_PER_MS);
-}
-
-void Timer::set_compare(uint64_t target_ticks) noexcept {
-    abstractx::InterruptGuard guard;
-    g_coro_target = target_ticks;
-    reprogram();
-}
-
-void Timer::set_alarm_us(uint32_t us_from_now) noexcept {
-    set_compare(get_ticks() + (static_cast<uint64_t>(us_from_now) * TICKS_PER_US));
 }
 
 void Timer::cancel_alarm() noexcept {
@@ -174,13 +164,6 @@ void Timer::handle_irq() noexcept {
         }
         if (h) {
             abstractx::IsrDispatcher::post(h);
-        }
-    }
-    if (now >= g_coro_target) {
-        other = true;
-        auto handle = g_timer_coroutine.exchange(nullptr, std::memory_order_acq_rel);
-        if (handle) {
-            abstractx::IsrDispatcher::post(handle);
         }
     }
     g_coro_target = !g_waiters.empty() ? g_waiters.front().target_ticks : kNever;

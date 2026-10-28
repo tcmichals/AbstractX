@@ -70,6 +70,8 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Goal**: small, deterministic firmware. Storing and rethrowing exceptions (`std::exception_ptr`, `std::current_exception`, `std::rethrow_exception`) and type-erased callbacks (`std::function`) pull the C++ unwinder and RTTI support into every image (measured ~15.6 KB of libgcc unwinder on the E906, out of 192 KB SRAM).
 * **Requirement**: `Task<T>` MUST NOT store or propagate exceptions. An exception that escapes a coroutine body is a firmware bug: `unhandled_exception()` MUST report it through `abstractx::coro::set_unhandled_exception_hook()` (if set) and then stop with `__builtin_trap()`, so the target's trap handler records it (E906: `[SPEC-E906-CRASH-01]`, trace0). Errors that are expected at run time are returned as values (`Result`, status codes), not thrown.
 * **Completion callbacks** (used by `when_all` / `when_any`) MUST be a plain function pointer plus context pointer, not `std::function`.
+* **Frame pool exhausted**: when the static frame pool is full, a coroutine factory returns an empty `Task` (`get_return_object_on_allocation_failure`). Awaiting an empty `Task`, reading its result, or passing it to `when_all` / `when_any` MUST report through `abstractx::coro::set_pool_exhausted_hook()` (if set) and then stop with `__builtin_trap()`. It MUST NOT dereference the null handle, and a `Task<void>` MUST NOT silently "complete" without running. Code that can recover checks `task.handle()` before awaiting.
+* **Rationale (2026-10-28)**: a leak in `when_any` filled the pool after ~470 calls; the next `co_await` dereferenced the empty task's null handle (segfault), so the real cause (pool exhaustion) was invisible.
 * **Verified by**: `host-tests` (`sim/test_coro_failures.cpp`), `memory-footprint` (no `_Unwind_*` / `__cxa_rethrow` symbols in the E906 and Pico 2 W ELFs)
 * **Implementation Target**: `include/asp_coro.hpp`
 
@@ -82,12 +84,20 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   frame itself; its result is discarded and it never resumes the caller. A loser that waits on
   something that never happens keeps its frame (and any request it has pending) until it does: to
   stop it early, cancel its I/O (`[SPEC-HAL-07]`).
+* **Requirement (never-started tasks)**: a task that never ran (still at its initial suspend) holds
+  nothing and nobody will ever resume it, so `Task::detach()` MUST destroy it at once instead of
+  detaching it. This covers the `when_any` loser when the first task finishes inside
+  `await_suspend` before the second one was started.
+* **Rationale (2026-10-28)**: `when_any(ready(), waits())` detached the unstarted `waits()` frame on
+  every call; it was never freed and the pool ran out after ~470 calls. The 1000-round test only
+  raced two tasks that had both started.
 * **Rationale (2026-10-23)**: the loser used to be destroyed with the `when_any` awaiter while it was
   still suspended; its pending completion later resumed the freed frame (segfault in the plain
   build, ASan SEGV), the race/watchdog pattern taught in `examples/generic_protothread_replacements.cpp`.
   Found when the never-built `sim/test_coro_combinators.cpp` was rewritten to really call the combinators.
 * **Verified by**: `host-tests` (`sim/test_coro_combinators.cpp`: out-of-order completion, single
-  resume, loser completing after the caller moved on, 1000 rounds flat), `sanitizer-gate`
+  resume, loser completing after the caller moved on, unstarted loser freed, 1000 rounds flat;
+  `tests/test_coro_primitives.cpp`: `DetachNeverStartedTaskFreesFrame`), `sanitizer-gate`
 * **Implementation Target**: `include/asp_coro.hpp`
 
 ### `[SPEC-ARCH-12]` Repository Layout: Generic Core, Device Drivers, Applications
@@ -109,12 +119,56 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement**: `AsyncQueue::try_push` / `try_pop`, `Event::set` and `Semaphore::release` MUST NOT call
   `.resume()`. They hand the waiting handle to `Dispatcher::push()`; the waiter runs on the next
   `Dispatcher::process()` (from `step()`), after the producer has returned.
+* **Requirement (Semaphore hand-off)**: when `release()` wakes a waiter, that permit belongs to the
+  waiter (the count is not incremented). The woken waiter MUST NOT take another count in
+  `await_resume()`; only an acquire that did not suspend decrements the count. (2026-10-28: a
+  second `release()` before the waiter ran was swallowed, so two releases woke it once.)
 * **Rationale**: on 2026-10-21 the E906 RPMsg RX callback pushed a character into the REPL queue and
   `try_push` resumed the REPL inline, so a MicroPython script ran inside `Rpmsg::poll()`: the vring
   buffer was never returned, host kicks stayed disabled and Ctrl-C could not arrive. AGENTS §3 already
   says `step()` is the sole context that resumes coroutines; these primitives broke it.
-* **Verified by**: `host-tests` (`sim/test_async_queue_deferred_resume.cpp`), `e906-board-selftest` (`test_ctrl_c_interrupts_running_script`)
+* **Verified by**: `host-tests` (`sim/test_async_queue_deferred_resume.cpp`, `tests/test_coro_primitives.cpp`: `SemaphoreHandoffKeepsEveryPermit`), `e906-board-selftest` (`test_ctrl_c_interrupts_running_script`)
 * **Implementation Target**: `include/asp_coro.hpp`
+
+### `[SPEC-ARCH-13]` One I/O Processor Engine in Core, Thin Per-Target Bus Back Ends
+* **Goal**: one implementation of the I/O processor message loop, fixed and tested once, instead of a
+  copy per target.
+* **Requirement**:
+  1. `abstractx::hal::IoEngine` (`include/abstractx/hal/io_engine.hpp`) implements `IIoProcessor` for
+     every target that runs the I/O processor in software (Linux, E906, Pico 2 W, later ESP32-P4). It
+     owns the egress TLP decode (`DMA_CFG`, `MEM_RD` / `MEM_WR`, SPI / I2C / GPIO bridge), the
+     auto-channel table, the bus lockout ([SPEC-ARCH-01] invariant: `ASP_STATUS_BUS_LOCKED` while a
+     channel on that bus is in auto mode), the bridge slot pool, completion TLP framing and host
+     notification.
+  2. A target supplies only an `IIoBackend`: bus and trigger setup per channel, an asynchronous
+     transfer start that reports through the transfer's completion delegate, GPIO and virtual-BAR
+     register access, the host doorbell, and an optional event poll / idle wait. A target
+     `io_processor.cpp` contains no TLP decoding.
+  3. **Bounds**: every length the host supplies is clamped before use. Auto channel: command
+     `tx_len <= 8`, `tx + rx <= IoEngine::kAutoXferMax` (64), payload taken from offset `tx` (the
+     clamped length). Bridge: SPI `tx, rx <= 36`, I2C `tx <= 32`, `rx <= 36`. GPIO pin `>= 32` is
+     answered with an error status, never shifted. The tx and rx buffers of an SPI transfer are the
+     same length (tx zero-padded), because SPI clocks both.
+  4. **Concurrency**: each auto channel owns its tx/rx buffers, a config snapshot and an atomic busy
+     flag. A trigger only starts channels whose `trigger_pin` matches. A trigger while that channel's
+     transfer is still in flight is counted (`auto_overruns()`) and dropped; it never restarts the
+     transfer or reuses its buffers. Config writes (`DMA_CFG`, `set_auto_mode`) and the trigger's
+     snapshot are taken under `InterruptGuard`. Bridge transfers use a fixed slot pool; a full pool
+     answers `ASP_STATUS_QUEUE_FULL`. Each completion is matched to the slot or channel that started it.
+  5. **No blocking**: the engine never waits for a transfer. A back end whose bus only has a
+     synchronous primitive may complete inside `start_transfer()`; that gap is listed in the target
+     spec, not hidden.
+  6. Targets where the engine is in hardware (Zynq-7000 / FPGA X-fabric) keep a pass-through
+     `IIoProcessor` (rings to BRAM) and do not use `IoEngine`.
+* **Rationale (2026-10-28)**: the Pico, E906 and Linux `io_processor.cpp` were copies of one decoder
+  and shared its bugs: a 32-byte tx buffer clocked for up to 64 bytes, a host-controlled `tx_len`
+  (up to 255) used as the offset into a 64-byte rx buffer, one shared buffer and `active_auto_ch_`
+  for all channels, a new trigger restarting a DMA still in flight, config rewritten while the ISR
+  read it, and E906 starting every auto channel on any DRDY edge.
+* **Verified by**: `host-tests` (`sim/test_io_engine.cpp`: mock back end, bounds, overrun, lockout,
+  slot pool exhaustion, 1000 rounds flat; `sim/test_io_processor.cpp` on the Linux back end),
+  `sanitizer-gate`, `thread-sanitizer`, `e906-build-layout`
+* **Implementation Target**: `include/abstractx/hal/io_engine.hpp`, `targets/*/src/io_processor.cpp`
 
 ---
 
@@ -403,8 +457,15 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Not covered (2026-10-23)**: receive-until-delimiter (the reader scans the spans), timestamp of
   the first byte of a frame, 9-bit / multidrop addressing, XON/XOFF, an async drain before a baud
   change.
+* **Requirement (wake handshake, 2026-10-28)**: the producer publishes data then looks for a waiter;
+  the reader publishes itself as waiter then looks for data (and the same for cancel). Each side is a
+  store followed by a load of a different variable, so each side puts a
+  `std::atomic_thread_fence(std::memory_order_seq_cst)` between the two. Release/acquire alone lets
+  the load pass the store (x86 store buffer, Arm, RISC-V, a second core): both sides miss and the
+  reader is never woken. TSan does not report it (no data race, only too weak an order).
 * **Verified by**: `host-tests` (`sim/test_uart_rx_ring.cpp`: wrap, partial frame, timeout, cancel,
-  overrun, 1000-frame steady state, a producer thread for TSan; `sim/test_bus_protocols.cpp`: line
+  overrun, 1000-frame steady state, a producer thread for TSan; `sim/test_wake_handshake.cpp`:
+  300,000 lockstep rounds against a producer thread, a lost wake fails on a watchdog; `sim/test_bus_protocols.cpp`: line
   options and break gated by capability, the data hook sees every byte once across a wrap),
   `sanitizer-gate`, `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/uart_rx.hpp`, `include/abstractx/hal/uart.hpp`, `include/abstractx/hal/platform.hpp`
@@ -462,9 +523,11 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   (status, span into the slot, timestamp, drops since the last sample) and calls `release()` when
   done. One producer, one consumer; the consumer is resumed through the `Dispatcher`, never from
   the interrupt.
+* **Requirement (wake handshake, 2026-10-28)**: as [SPEC-HAL-10]: `commit_from_isr` and `pop()` /
+  `cancel()` each put a seq_cst fence between publishing and checking the other side.
 * **Verified by**: `host-tests` (`sim/test_bus_protocols.cpp`: arm refusals, samples in order with
   timestamps, overflow counted and the bus untouched, a producer thread for TSan, 1000 samples
-  steady state), `sanitizer-gate`, `thread-sanitizer`
+  steady state; `sim/test_wake_handshake.cpp`: 300,000 lockstep rounds, no lost wake), `sanitizer-gate`, `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/bus_trigger.hpp`, `include/abstractx/hal/spi.hpp`, `include/abstractx/hal/i2c.hpp`
 
 ### `[SPEC-HAL-14]` Bus Lock: Several Transactions With No Other Device In Between

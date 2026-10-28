@@ -78,9 +78,9 @@ namespace {
 uint8_t s_dma_src[1024];                                       // .bss, SRAM Space 0
 __attribute__((section(".sram_c"))) uint8_t s_dma_dst[1024];   // SRAM Space 1
 __attribute__((section(".sram_c"))) hal::DmaLli s_dma_lli;
-volatile bool s_dma_done = false;
-volatile bool s_dma_ok = false;
-volatile uint32_t s_dma_end = 0;
+volatile bool s_dma_done = false;  // shared: main clears, DMA ISR sets last; main polls with a deadline; single hart
+volatile bool s_dma_ok = false;  // shared: DMA ISR writes before s_dma_done, main reads after it; single hart, volatile order
+volatile uint32_t s_dma_end = 0;  // shared: as s_dma_ok
 
 uint32_t mcycle32() noexcept {
     uint32_t v = 0;

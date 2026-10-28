@@ -51,6 +51,7 @@ struct TriggerSlotMeta {
     uint32_t dropped_at{0};   // dropped_ counter when this slot was committed
 };
 
+// @impl [SPEC-HAL-13] docs/DESIGN_SPECIFICATION.md
 class TriggerRingBase {
 public:
     TriggerRingBase(const TriggerRingBase&) = delete;
@@ -81,6 +82,8 @@ public:
         m.timestamp_us = timestamp_us;
         m.dropped_at = dropped_.load(std::memory_order_relaxed);
         wr_.store(w + 1U, std::memory_order_release);
+        // @impl [SPEC-HAL-13] docs/DESIGN_SPECIFICATION.md (wake handshake: store, fence, load)
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         wake_from_isr();
     }
 
@@ -106,6 +109,7 @@ public:
         bool await_suspend(std::coroutine_handle<> h) noexcept {
             ring->reason_.store(kReasonNone, std::memory_order_relaxed);
             ring->waiter_.store(h.address(), std::memory_order_release);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
             if (ring->available()) {          // re-check after publishing: never miss a commit
                 if (ring->waiter_.exchange(nullptr, std::memory_order_acq_rel) != nullptr) {
                     ring->reason_.store(kReasonData, std::memory_order_relaxed);
@@ -141,6 +145,7 @@ public:
     // holding the waiter at this moment, it sees the request and delivers the cancel itself.
     void cancel() noexcept {
         cancel_req_.store(true, std::memory_order_release);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         void* h = waiter_.exchange(nullptr, std::memory_order_acq_rel);
         if (h != nullptr) {
             reason_.store(kReasonCancel, std::memory_order_relaxed);
@@ -188,6 +193,7 @@ private:
         }
         if (!available() && !cancel_req_.load(std::memory_order_acquire)) {
             waiter_.store(h, std::memory_order_release);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
             if (!cancel_req_.load(std::memory_order_acquire)) {
                 return;
             }

@@ -165,3 +165,41 @@ TEST(CoroPrimitivesTest, SteadyStateDispatcherResumes) {
 
     CHECK_EQUAL(dropped_before, Dispatcher::dropped_resumes());
 }
+
+// 6. Semaphore hand-off: a waiter woken by release() owns that permit and must not also
+//    take the next one (2026-10-28: two releases woke the waiter only once).
+TEST(CoroPrimitivesTest, SemaphoreHandoffKeepsEveryPermit) {
+    auto take_two = [](Semaphore& s, int& got) -> Task<void> {
+        co_await s.acquire();
+        ++got;
+        co_await s.acquire();
+        ++got;
+    };
+
+    for (int i = 0; i < 1000; ++i) {
+        Semaphore sem(0);
+        int got = 0;
+        auto t = take_two(sem, got);
+        t.resume();          // waits on the first acquire
+        sem.release();       // handed to the waiter
+        sem.release();       // no waiter queued yet: count = 1
+        while (Dispatcher::has_pending_resumes()) {
+            Dispatcher::process();
+        }
+        CHECK_EQUAL(2, got);
+        CHECK_TRUE(t.done());
+        CHECK_EQUAL(0U, sem.count());
+    }
+}
+
+// 7. detach() on a task that never started frees it now: nothing would ever resume it.
+TEST(CoroPrimitivesTest, DetachNeverStartedTaskFreesFrame) {
+    auto never_run = []() -> Task<int> { co_return 1; };
+    const size_t used0 = coro_pool_used();
+    for (int i = 0; i < 1000; ++i) {
+        auto t = never_run();
+        CHECK_TRUE(t.handle() != nullptr);
+        t.detach();
+        CHECK_EQUAL(used0, coro_pool_used());
+    }
+}

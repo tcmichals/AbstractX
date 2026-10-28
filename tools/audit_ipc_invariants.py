@@ -113,6 +113,7 @@ def functions(text):
         yield name, m.end() - 1, block_after(text, m.end() - 1)
 
 
+# @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
 def check_cpp(rel, text, out):
     def report(check, pos, msg):
         if not allowed(text, pos, check):
@@ -150,10 +151,12 @@ def check_cpp(rel, text, out):
             if re.search(r"\bvoid\b", sig) and re.search(r"\bs_\w+\s*=\s*handle\b", body):
                 report("IPC-SLOT", start, "void await_suspend stores into a global slot: a second waiter overwrites the first")
 
-    for m in re.finditer(r"ring_errors\w*\.fetch_add\([^;]*;\s*([^}]*)\}", text):
+    # Comments blanked (same offsets): "nothing to return" in a comment is not a return.
+    code = re.sub(r"//[^\n]*|/\*.*?\*/", lambda c: re.sub(r"[^\n]", " ", c.group(0)), text, flags=re.S)
+    for m in re.finditer(r"ring_errors\w*\.fetch_add\([^;]*;\s*([^}]*)\}", code):
         tail = m.group(1)
         if re.search(r"\breturn\b", tail) and "last_avail_idx" not in tail:
-            ctx = text[max(0, m.start() - 300):m.start()]
+            ctx = code[max(0, m.start() - 300):m.start()]
             if "avail->ring[" in ctx:
                 report("IPC-STALL", m.start(), "ring error returns without consuming or resyncing: RX/TX stalls for good")
 

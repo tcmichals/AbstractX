@@ -45,7 +45,7 @@ static int g_spi_rx_chan = -1;
 __attribute__((section(".sram_c"))) alignas(4) static ::hal::DmaLli g_spi_tx_lli;
 __attribute__((section(".sram_c"))) alignas(4) static ::hal::DmaLli g_spi_rx_lli;
 
-static volatile bool g_spi_busy = false;
+static volatile bool g_spi_busy = false;  // shared: start_dma_transfer sets (InterruptGuard test-and-set), SPI DMA ISR clears; volatile
 static int g_active_cs = -1;
 static etl::delegate<void(bool)> g_spi_callback{};
 static uint8_t g_dummy_tx = 0xFF;
@@ -193,7 +193,14 @@ bool Spi1::start_dma_transfer(
     if (len == 0) return true;
     if (g_spi_tx_chan < 0 || g_spi_rx_chan < 0) return false;
 
-    g_spi_busy = true;
+    // A transfer in flight owns the LLIs and the callback: refuse instead of overwriting them
+    // (callers run in thread and ISR context, so test-and-set with interrupts masked).
+    // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md
+    {
+        abstractx::InterruptGuard guard;
+        if (g_spi_busy) return false;
+        g_spi_busy = true;
+    }
     g_active_cs = cs_id;
     g_spi_callback = callback;
 

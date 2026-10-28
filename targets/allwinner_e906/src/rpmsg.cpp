@@ -721,8 +721,10 @@ void fc_msgbox_doorbell_isr() noexcept {
     hal::msgbox_rx_irq(false);
     hal::MsgBox::clear_irq_status(hal::MsgBox::Channel::Channel0);
     hal::MsgBox::clear_irq_status(hal::MsgBox::Channel::Channel1);
+    // handshake: same hart; the waiter CAS-publishes then unmasks this level IRQ, so the ISR runs after it
     hal::s_doorbell_armed.store(false, std::memory_order_release);
     hal::s_doorbell_irqs.fetch_add(1, std::memory_order_relaxed);
+    // handshake: as above (no load can pass the waiter's publish: the ISR starts after the unmask)
     hal::s_doorbell.store(true, std::memory_order_release);
 
     // Post the handle; abstractx::step() resumes it from the cooperative context.

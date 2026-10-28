@@ -2,468 +2,218 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX RP2350 / Pico 2 Target: I/O Processor Implementation
- * ---------------------------------------------------------------
- * Unified IIoProcessor IP Implementation for Raspberry Pi Pico 2 W (RP2350).
- * Operates an autonomous Sensor HW Fusion Engine on Core 0:
- * - Pin 3 (GP20) DRDY rising-edge ISR triggers simultaneous SPI1 DMA read ASAP
- * - DMA completion ISR pushes 64-byte DMA_Stream TLP into completion ring
- * - Signals SIO FIFO doorbell (sio_hw->fifo_wr = 1) to awaken Core 1
- * - Enforces Bus Lockout Invariant: rejects manual SPI access with ASP_STATUS_BUS_LOCKED
- * - Idles Core 0 in low-power WFE
+ * AbstractX Raspberry Pi Pico 2 W (RP2350): I/O processor back end (Core 0).
+ * The shared IoEngine ([SPEC-ARCH-13]) decodes TLPs; this file maps its transfers onto the
+ * PicoSpi DMA request queue and PicoI2c, its triggers onto GPIO edge interrupts, and its host
+ * notification onto the SIO FIFO doorbell to Core 1.
  */
 
-#include "abstractx/hal/io_processor.hpp"
+#include "abstractx/hal/io_engine.hpp"
 #include "abstractx_pico.hpp"
-#include "asp_tlp_msg.hpp"
-#include "tlp_ring.hpp"  // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
-#include "pcie_bar_map.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
 #include "pico/time.h"
 #include "hardware/gpio.h"
-#include "hardware/sync.h"
 #include "hardware/structs/sio.h"
 #endif
 
-#include <atomic>
 #include <array>
-#include <cstring>
+#include <atomic>
 
 namespace abstractx::target {
 
-class PicoIoProcessor final : public hal::IIoProcessor {
+// @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md
+class PicoIoBackend final : public hal::IIoBackend {
 public:
-    static constexpr size_t MAX_CHANNELS = 4;
+    PicoIoBackend() noexcept {
+        for (auto& j : jobs_) j.owner = this;
+    }
 
-    PicoIoProcessor() noexcept = default;
-    ~PicoIoProcessor() override { stop(); }
+    void attach(hal::IoEngine& engine) noexcept {
+        engine_ = &engine;
+        active_ = this;
+    }
 
-    bool configure(const hal::IoProcessorSetup& setup) override {
-        setup_ = setup;
-        num_channels_ = 0;
-
-        for (const auto& ch : setup_.channels) {
-            if (num_channels_ >= MAX_CHANNELS) break;
-            channels_[num_channels_] = ch;
-
-            // Bind physical trigger source (Pin 3 / GP20 DRDY)
-            if (ch.trigger_mode == hal::TriggerMode::GpioEdge) {
+    bool init_channel(const hal::AutoChannelConfig& ch) noexcept override {
 #ifdef PICO_ON_DEVICE
-                gpio_init(ch.trigger_pin);
-                gpio_set_dir(ch.trigger_pin, GPIO_IN);
-                uint32_t event_mask = 0;
-                if (ch.trigger_rising) event_mask |= GPIO_IRQ_EDGE_RISE;
-                else event_mask |= GPIO_IRQ_EDGE_FALL;
-
-                gpio_set_irq_enabled_with_callback(
-                    ch.trigger_pin,
-                    event_mask,
-                    true,
-                    &PicoIoProcessor::gpio_irq_forwarder
-                );
+        if (ch.trigger_mode == hal::TriggerMode::GpioEdge) {
+            gpio_init(ch.trigger_pin);
+            gpio_set_dir(ch.trigger_pin, GPIO_IN);
+            const uint32_t mask = ch.trigger_rising ? GPIO_IRQ_EDGE_RISE : GPIO_IRQ_EDGE_FALL;
+            gpio_set_irq_enabled_with_callback(ch.trigger_pin, mask, true, &PicoIoBackend::gpio_irq);
+        }
 #endif
-            }
+        if (ch.bus_type == hal::BusType::Spi) {
+            hal::SpiConfig cfg{};
+            cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 10'000'000;
+            cfg.mode = hal::SpiMode::Mode3;
+            spi_.init(cfg);
+            spi_ready_ = true;
+        } else if (ch.bus_type == hal::BusType::I2c) {
+            hal::I2cConfig cfg{};
+            cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 400'000;
+            i2c_.init(cfg);
+            i2c_ready_ = true;
+        }
+        return true;
+    }
 
-            // Bind physical SPI peripheral
-            if (ch.bus_type == hal::BusType::Spi) {
+    // SPI: queued on the PicoSpi DMA driver, completed from the DMA ISR. I2C: PicoI2c only has
+    // blocking calls, so it completes before returning ([SPEC-ARCH-13] 5).
+    bool start_transfer(const hal::IoTransfer& x) noexcept override {
+        if (x.bus == hal::BusType::Spi) {
+            if (!spi_ready_) {
                 hal::SpiConfig cfg{};
-                cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 10'000'000;
+                cfg.frequency_hz = 10'000'000;
                 cfg.mode = hal::SpiMode::Mode3;
                 spi_.init(cfg);
+                spi_ready_ = true;
             }
-
-            // Bind physical I2C peripheral
-            if (ch.bus_type == hal::BusType::I2c) {
+            Job* j = alloc_job();
+            if (!j) return false;
+            j->done = x.done;
+            hal::SpiRequest req{};
+            req.tx_data = x.tx;
+            req.rx_data = x.rx;
+            req.callback = etl::delegate<void(const hal::SpiResult&)>::create<Job, &Job::spi_done>(*j);
+            if (!spi_.submit_request(req)) {
+                j->in_use.store(false, std::memory_order_release);
+                return false;
+            }
+            return true;
+        }
+        if (x.bus == hal::BusType::I2c) {
+            if (!i2c_ready_) {
                 hal::I2cConfig cfg{};
-                cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 400'000;
+                cfg.frequency_hz = 400'000;
                 i2c_.init(cfg);
+                i2c_ready_ = true;
             }
-
-            num_channels_++;
-        }
-
-        active_instance_ = this;
-        configured_ = true;
-        return true;
-    }
-
-    bool start() override {
-        if (!configured_) return false;
-        running_.store(true, std::memory_order_release);
-        return true;
-    }
-
-    void stop() override {
-        running_.store(false, std::memory_order_release);
-    }
-
-    int step(int timeout_ms = 0) override {
-        (void)timeout_ms;
-        drain_egress_requests();
-        return 0;
-    }
-
-    void run() override {
-        running_.store(true, std::memory_order_release);
-        while (running_.load(std::memory_order_acquire)) {
-            drain_egress_requests();
-#ifdef PICO_ON_DEVICE
-            __asm__ volatile("wfe");
-#endif
-        }
-    }
-
-    coro::Task<void> run_coroutine() override {
-        running_.store(true, std::memory_order_release);
-        while (running_.load(std::memory_order_acquire)) {
-            drain_egress_requests();
-            co_await yield_to_dispatcher();
-        }
-    }
-
-    bool is_running() const noexcept override {
-        return running_.load(std::memory_order_acquire);
-    }
-
-    bool set_auto_mode(uint8_t channel_id, bool enable) override {
-        for (size_t i = 0; i < num_channels_; ++i) {
-            if (channels_[i].channel_id == channel_id) {
-                channels_[i].auto_mode = enable;
-                return true;
-            }
+            bool ok = true;
+            if (!x.tx.empty() && !x.rx.empty()) ok = i2c_.write_read_sync(x.device, x.tx, x.rx);
+            else if (!x.rx.empty())             ok = i2c_.read_sync(x.device, x.rx);
+            else if (!x.tx.empty())             ok = i2c_.write_sync(x.device, x.tx);
+            hal::IoResult r{};
+            r.ok = ok;
+            r.transferred = ok ? x.rx.size() : 0;
+            x.done(r);
+            return true;
         }
         return false;
     }
 
-    void handle_gpio_trigger_from_isr(uint gpio, uint32_t events) noexcept {
-        (void)events;
-        for (size_t i = 0; i < num_channels_; ++i) {
-            auto& ch = channels_[i];
-            if (ch.trigger_pin == gpio) {
-                if (!ch.auto_mode) return; // Auto mode disabled: do not poll ASAP
-
+    bool gpio(const asp_tlp_gpio_req_header_t& req, uint8_t& level) noexcept override {
+        const uint32_t bits = req.mask ? req.mask : (1U << req.pin);   // pin < 32 checked by the engine
+        switch (req.cmd) {
+        case ASP_GPIO_CMD_CONFIG:
+            hal::get_gpio().configure_pin(req.pin, static_cast<hal::PinMode>(req.mode),
+                                          static_cast<hal::PinPull>(req.pull_edge));
+            return true;
 #ifdef PICO_ON_DEVICE
-                uint64_t ts_ns = time_us_64() * 1000ULL;
+        case ASP_GPIO_CMD_SET: sio_hw->gpio_set = bits; return true;
+        case ASP_GPIO_CMD_CLR: sio_hw->gpio_clr = bits; return true;
+        case ASP_GPIO_CMD_XOR: sio_hw->gpio_togl = bits; return true;
 #else
-                uint64_t ts_ns = 0;
+        case ASP_GPIO_CMD_SET:
+        case ASP_GPIO_CMD_CLR:
+        case ASP_GPIO_CMD_XOR: (void)bits; return true;
 #endif
-                last_trigger_ts_ns_ = ts_ns;
-                active_auto_ch_ = ch;
-
-                if (ch.bus_type == hal::BusType::Spi) {
-                    size_t tx_n = (ch.tx_len > 8) ? 8 : ch.tx_len;
-                    std::memcpy(auto_tx_buf_, ch.tx_cmd, tx_n);
-                    size_t total_xfer = tx_n + ch.rx_len;
-                    if (total_xfer > sizeof(auto_rx_buf_)) total_xfer = sizeof(auto_rx_buf_);
-
-                    // Trigger instant DMA burst read directly from ISR!
-                    spi_.start_dma_transfer_raw(auto_tx_buf_, auto_rx_buf_, total_xfer);
-                }
-            }
+        case ASP_GPIO_CMD_WRITE:
+            hal::get_gpio().write_pin(req.pin, req.value != 0);
+            return true;
+        case ASP_GPIO_CMD_READ:
+            level = hal::get_gpio().read_pin(req.pin) ? 1 : 0;
+            return true;
+        default:
+            return false;
         }
     }
 
-    void on_auto_spi_dma_done() noexcept {
-        if (setup_.ingress_rx_ring) {
-            size_t header_skip = active_auto_ch_.tx_len;
-            size_t payload_len = active_auto_ch_.rx_len;
+    // Virtual BAR: the onboard LED is GPIO 25.
+    uint32_t read_reg(uint32_t addr) noexcept override {
+        if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) return hal::get_gpio().read_pin(25) ? 1U : 0U;
+        return 0;
+    }
+    void write_reg(uint32_t addr, uint32_t value) noexcept override {
+        if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) hal::get_gpio().write_pin(25, value != 0);
+    }
 
-            Tlp64 stream_tlp = Tlp64::make_stream_tx(
-                static_cast<Channel>(active_auto_ch_.tlp_channel),
-                0,
-                std::span<const uint8_t>(auto_rx_buf_ + header_skip, payload_len),
-                active_auto_ch_.tlp_tag
-            );
-            stream_tlp.wire.timestamp_ns = last_trigger_ts_ns_;
-            setup_.ingress_rx_ring->push(stream_tlp);
-
+    void notify_host() noexcept override {
 #ifdef PICO_ON_DEVICE
-            // Ring SIO FIFO doorbell to awaken Core 1
-            sio_hw->fifo_wr = 0x01;
+        if (sio_hw->fifo_st & SIO_FIFO_ST_RDY_BITS) sio_hw->fifo_wr = 0x01;   // Core 1 doorbell
 #endif
-            if (setup_.on_rx_pushed.is_valid()) {
-                setup_.on_rx_pushed();
-            }
-        }
+    }
+
+    void idle_wait() noexcept override {
+#ifdef PICO_ON_DEVICE
+        __asm__ volatile("wfe");
+#endif
+    }
+
+    uint64_t now_ns() noexcept override {
+#ifdef PICO_ON_DEVICE
+        return time_us_64() * 1000ULL;
+#else
+        return 0;
+#endif
     }
 
 private:
-    bool is_bus_locked(hal::BusType bus) const noexcept {
-        for (size_t i = 0; i < num_channels_; ++i) {
-            if (channels_[i].bus_type == bus && channels_[i].auto_mode) {
-                return true;
-            }
+    struct Job {
+        PicoIoBackend* owner{nullptr};
+        std::atomic<bool> in_use{false};
+        etl::delegate<void(const hal::IoResult&)> done{};
+
+        void spi_done(const hal::SpiResult& r) noexcept {
+            hal::IoResult out{};
+            out.ok = r.status == hal::SpiStatus::Ok;
+            out.transferred = r.transferred_bytes;
+            out.timestamp_ns = r.timestamp_us * 1000ULL;
+            auto cb = done;
+            in_use.store(false, std::memory_order_release);
+            if (cb.is_valid()) cb(out);
         }
-        return false;
-    }
+    };
 
-    void drain_egress_requests() noexcept {
-        if (!setup_.egress_tx_ring) return;
-
-        Tlp64 tlp{};
-        while (setup_.egress_tx_ring->pop(tlp)) {
-            if (tlp.wire.type == ASP_TLP_TYPE_DMA_CFG) {
-                const auto* cfg = reinterpret_cast<const asp_tlp_auto_dma_cfg_t*>(tlp.wire.payload);
-                uint8_t status = ASP_STATUS_OK;
-                if (cfg->cmd == ASP_DMA_CMD_ENABLE) {
-                    set_auto_mode(cfg->channel_id, true);
-                } else if (cfg->cmd == ASP_DMA_CMD_DISABLE) {
-                    set_auto_mode(cfg->channel_id, false);
-                } else if (cfg->cmd == ASP_DMA_CMD_SETUP) {
-                    if (cfg->channel_id < num_channels_) {
-                        auto& ch = channels_[cfg->channel_id];
-                        ch.trigger_pin = cfg->trigger_pin;
-                        ch.trigger_rising = (cfg->trigger_edge == 1 || cfg->trigger_edge == 3);
-                        ch.bus_type = static_cast<hal::BusType>(cfg->bus_type);
-                        ch.bus_index = cfg->bus_id;
-                        ch.tx_len = cfg->tx_len;
-                        ch.rx_len = cfg->rx_len;
-                        std::memcpy(ch.tx_cmd, cfg->tx_cmd, 8);
-                        ch.tlp_channel = cfg->tlp_channel;
-                        ch.tlp_tag = cfg->tlp_tag;
-                    }
-                }
-
-                if (setup_.ingress_rx_ring) {
-                    Tlp64 cpl = Tlp64::make_hw_fusion_cpl(tlp.tag(), status, cfg->cmd, cfg->channel_id);
-                    setup_.ingress_rx_ring->push(cpl);
-#ifdef PICO_ON_DEVICE
-                    sio_hw->fifo_wr = 0x01;
-#endif
-                    if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
-                }
-                continue;
-            }
-
-            // Virtual PCIe BAR MemWrite routing (e.g. LED, GPIO, Peripheral Registers)
-            if (tlp.wire.type == ASP_TLP_TYPE_MEM_WR) {
-                uint32_t addr = tlp.wire.target_address;
-                if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
-                    uint32_t val = (static_cast<uint32_t>(tlp.wire.payload[0]) << 24) |
-                                   (static_cast<uint32_t>(tlp.wire.payload[1]) << 16) |
-                                   (static_cast<uint32_t>(tlp.wire.payload[2]) << 8)  |
-                                   (static_cast<uint32_t>(tlp.wire.payload[3]));
-                    // Default onboard LED on Pico 2 is GPIO 25
-                    hal::get_gpio().write_pin(25, val != 0);
-                }
-                continue;
-            }
-
-            // Virtual PCIe BAR MemRead routing
-            if (tlp.wire.type == ASP_TLP_TYPE_MEM_RD) {
-                uint32_t addr = tlp.wire.target_address;
-                uint32_t val = 0;
-                if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
-                    val = hal::get_gpio().read_pin(25) ? 1 : 0;
-                }
-                if (setup_.ingress_rx_ring) {
-                    Tlp64 cpl = Tlp64::make_completion_data(tlp.tag(), val, tlp.channel());
-                    setup_.ingress_rx_ring->push(cpl);
-#ifdef PICO_ON_DEVICE
-                    sio_hw->fifo_wr = 0x01;
-#endif
-                    if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
-                }
-                continue;
-            }
-
-            uint8_t ch = static_cast<uint8_t>(tlp.channel());
-            if (ch == ASP_CHANNEL_SPI_BRIDGE || ch == 0x01) {
-                // HARDWARE INVARIANT: Once in Auto/DMA mode, manual reads and writes CANNOT happen!
-                if (is_bus_locked(hal::BusType::Spi)) {
-                    if (setup_.ingress_rx_ring) {
-                        Tlp64 err_cpl = Tlp64::make_spi_cpl(
-                            tlp.tag(),
-                            ASP_STATUS_BUS_LOCKED,
-                            {},
-                            0,
-                            0,
-                            tlp.channel()
-                        );
-                        setup_.ingress_rx_ring->push(err_cpl);
-#ifdef PICO_ON_DEVICE
-                        sio_hw->fifo_wr = 0x01;
-#endif
-                        if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
-                    }
-                    continue;
-                }
-
-                // Execute manual transfer via DMA
-                TlpSpiView spi_view(tlp);
-                auto tx = spi_view.tx_data();
-                const auto* hdr = spi_view.req_header();
-                size_t rx_len = hdr ? hdr->rx_len : 0;
-                size_t xfer_len = tx.empty() ? rx_len : tx.size();
-
-                spi_.start_dma_transfer_raw(tx.data(), bridge_rx_buf_, xfer_len);
-
-                // Wait for DMA completion interrupt in low-power WFE
-                while (spi_.is_hardware_busy()) {
-#ifdef PICO_ON_DEVICE
-                    __asm__ volatile("wfe");
-#endif
-                }
-
-                if (setup_.ingress_rx_ring) {
-                    Tlp64 cpl = Tlp64::make_spi_cpl(
-                        tlp.tag(),
-                        0,
-                        std::span<const uint8_t>(bridge_rx_buf_, rx_len),
-                        0,
-                        0,
-                        tlp.channel()
-                    );
-                    setup_.ingress_rx_ring->push(cpl);
-#ifdef PICO_ON_DEVICE
-                    sio_hw->fifo_wr = 0x01;
-#endif
-                    if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
-                }
-            } else if (ch == ASP_CHANNEL_I2C_BRIDGE || ch == 0x07) {
-                if (is_bus_locked(hal::BusType::I2c)) {
-                    if (setup_.ingress_rx_ring) {
-                        Tlp64 err_cpl = Tlp64::make_i2c_cpl(
-                            tlp.tag(),
-                            ASP_STATUS_BUS_LOCKED,
-                            {},
-                            0,
-                            0,
-                            tlp.channel()
-                        );
-                        setup_.ingress_rx_ring->push(err_cpl);
-#ifdef PICO_ON_DEVICE
-                        sio_hw->fifo_wr = 0x01;
-#endif
-                        if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
-                    }
-                    continue;
-                }
-
-                TlpI2cView i2c_view(tlp);
-                const auto* hdr = i2c_view.req_header();
-                uint8_t slave_addr = hdr ? hdr->slave_addr : 0;
-                uint8_t rx_len = hdr ? hdr->rx_len : 0;
-                if (rx_len > sizeof(bridge_rx_buf_)) rx_len = sizeof(bridge_rx_buf_);
-
-                bool success = false;
-                uint8_t reg_offset = hdr ? hdr->reg_offset : 0;
-                bool use_reg = (hdr && (hdr->sub_flags & ASP_I2C_FLAG_USE_REG));
-                auto tx = i2c_view.tx_data();
-
-                if (use_reg && rx_len > 0) {
-                    success = i2c_.write_read_sync(slave_addr, std::span<const uint8_t>(&reg_offset, 1), std::span<uint8_t>(bridge_rx_buf_, rx_len));
-                } else if (!tx.empty() && rx_len > 0) {
-                    success = i2c_.write_read_sync(slave_addr, tx, std::span<uint8_t>(bridge_rx_buf_, rx_len));
-                } else if (rx_len > 0) {
-                    success = i2c_.read_sync(slave_addr, std::span<uint8_t>(bridge_rx_buf_, rx_len));
-                } else if (!tx.empty()) {
-                    success = i2c_.write_sync(slave_addr, tx);
-                } else {
-                    success = true;
-                }
-
-                if (setup_.ingress_rx_ring) {
-                    Tlp64 cpl = Tlp64::make_i2c_cpl(
-                        tlp.tag(),
-                        success ? 0 : 1,
-                        std::span<const uint8_t>(bridge_rx_buf_, rx_len),
-                        0,
-                        0,
-                        tlp.channel()
-                    );
-                    setup_.ingress_rx_ring->push(cpl);
-#ifdef PICO_ON_DEVICE
-                    sio_hw->fifo_wr = 0x01;
-#endif
-                    if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
-                }
-            } else if (ch == ASP_CHANNEL_GPIO_BRIDGE || ch == 0x08) {
-                TlpGpioView gpio_view(tlp);
-                const auto* req = gpio_view.req_header();
-                if (req) {
-                    switch (req->cmd) {
-                    case ASP_GPIO_CMD_CONFIG:
-                        hal::get_gpio().configure_pin(req->pin, static_cast<hal::PinMode>(req->mode), static_cast<hal::PinPull>(req->pull_edge));
-                        break;
-                    case ASP_GPIO_CMD_SET:
-#ifdef PICO_ON_DEVICE
-                        sio_hw->gpio_set = req->mask ? req->mask : (1U << req->pin);
-#endif
-                        break;
-                    case ASP_GPIO_CMD_CLR:
-#ifdef PICO_ON_DEVICE
-                        sio_hw->gpio_clr = req->mask ? req->mask : (1U << req->pin);
-#endif
-                        break;
-                    case ASP_GPIO_CMD_XOR:
-#ifdef PICO_ON_DEVICE
-                        sio_hw->gpio_togl = req->mask ? req->mask : (1U << req->pin);
-#endif
-                        break;
-                    case ASP_GPIO_CMD_WRITE:
-                        hal::get_gpio().write_pin(req->pin, req->value != 0);
-                        break;
-                    case ASP_GPIO_CMD_READ: {
-                        bool lvl = hal::get_gpio().read_pin(req->pin);
-                        if (setup_.ingress_rx_ring) {
-                            Tlp64 cpl = Tlp64::make_gpio_cpl(tlp.tag(), 0, req->pin, lvl ? 1 : 0);
-                            setup_.ingress_rx_ring->push(cpl);
-#ifdef PICO_ON_DEVICE
-                            sio_hw->fifo_wr = 0x01;
-#endif
-                            if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
-                        }
-                        break;
-                    }
-                    default:
-                        break;
-                    }
-                }
-            }
+    Job* alloc_job() noexcept {
+        for (auto& j : jobs_) {
+            bool expected = false;
+            if (j.in_use.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) return &j;
         }
+        return nullptr;
     }
 
 #ifdef PICO_ON_DEVICE
-    static void gpio_irq_forwarder(uint gpio, uint32_t events) {
-        if (active_instance_) {
-            active_instance_->handle_gpio_trigger_from_isr(gpio, events);
-        }
+    static void gpio_irq(uint gpio, uint32_t events) {
+        (void)events;
+        if (active_ && active_->engine_) active_->engine_->on_trigger(gpio, time_us_64() * 1000ULL);
     }
 #endif
 
-    hal::IoProcessorSetup setup_{};
-    bool configured_{false};
-    std::atomic<bool> running_{false};
-
+    hal::IoEngine* engine_{nullptr};
     hal::PicoSpi spi_{};
     hal::PicoI2c i2c_{};
-    size_t num_channels_{0};
-    std::array<hal::AutoChannelConfig, MAX_CHANNELS> channels_{};
-
-    hal::AutoChannelConfig active_auto_ch_{};
-    uint64_t last_trigger_ts_ns_{0};
-    alignas(4) uint8_t auto_tx_buf_[32]{};
-    alignas(4) uint8_t auto_rx_buf_[64]{};
-    alignas(4) uint8_t bridge_rx_buf_[64]{};
-
-    static inline PicoIoProcessor* active_instance_{nullptr};
+    bool spi_ready_{false};
+    bool i2c_ready_{false};
+    std::array<Job, hal::IoEngine::kMaxChannels + hal::IoEngine::kBridgeSlots> jobs_{};
+    static inline PicoIoBackend* active_{nullptr};
 };
 
-static PicoIoProcessor g_pico_io_processor;
+struct PicoIoProcessor {
+    PicoIoBackend backend{};
+    hal::IoEngine engine{backend};
+    PicoIoProcessor() noexcept { backend.attach(engine); }
+};
 
-PicoIoProcessor& get_pico_io_processor() noexcept {
-    return g_pico_io_processor;
-}
+static PicoIoProcessor g_pico_io;
 
 } // namespace abstractx::target
 
 namespace abstractx::hal {
 
 IIoProcessor& get_target_io_processor() noexcept {
-    return target::get_pico_io_processor();
+    return target::g_pico_io.engine;
 }
 
 } // namespace abstractx::hal

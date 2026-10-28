@@ -295,6 +295,7 @@ def main() -> int:
             if time.monotonic() >= next_hello:
                 try:
                     bridge.hello()
+                # ipc-audit: allow PY-NBSPIN: periodic lease renewal, one try per second (next_hello), never a tight spin
                 except BlockingIOError:
                     pass  # retried next second
                 next_hello = time.monotonic() + 1.0

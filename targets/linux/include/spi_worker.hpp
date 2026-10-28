@@ -42,14 +42,14 @@ public:
     }
 
     bool start(const char* spidev_path = "/dev/spidev1.0", uint32_t speed_hz = 10'000'000, uint8_t mode = 0) noexcept {
-        speed_hz_ = speed_hz;
+        speed_hz_.store(speed_hz, std::memory_order_relaxed);
         mode_ = mode;
 
         if (spidev_path && spidev_path[0] != '\0') {
             fd_ = ::open(spidev_path, O_RDWR | O_CLOEXEC);
             if (fd_ >= 0) {
                 ::ioctl(fd_, SPI_IOC_WR_MODE, &mode_);
-                ::ioctl(fd_, SPI_IOC_WR_MAX_SPEED_HZ, &speed_hz_);
+                ::ioctl(fd_, SPI_IOC_WR_MAX_SPEED_HZ, &speed_hz);
             }
         }
 
@@ -68,6 +68,15 @@ public:
                 ::close(fd_);
                 fd_ = -1;
             }
+            // Requests still queued would strand their awaiters: finish them as Cancelled.
+            hal::SpiRequest req;
+            while (queue_.pop(req)) {
+                hal::SpiResult res{};
+                res.status = hal::SpiStatus::Cancelled;
+                req.notify_rx_completion(res);
+                req.notify_tx_completion(res);
+                complete(req, res);
+            }
         }
     }
 
@@ -84,14 +93,16 @@ public:
         return true;
     }
 
+    // Called from the owner thread while the worker may be transferring: speed_hz_ is atomic.
     bool set_frequency(uint32_t freq_hz) noexcept {
-        speed_hz_ = freq_hz;
+        speed_hz_.store(freq_hz, std::memory_order_relaxed);
         if (fd_ >= 0) {
-            return (::ioctl(fd_, SPI_IOC_WR_MAX_SPEED_HZ, &speed_hz_) == 0);
+            return (::ioctl(fd_, SPI_IOC_WR_MAX_SPEED_HZ, &freq_hz) == 0);
         }
         return true;
     }
 
+    bool is_running() const noexcept { return running_.load(std::memory_order_acquire); }
     int fd() const noexcept { return fd_; }
     bool is_hardware_active() const noexcept { return fd_ >= 0; }
 
@@ -112,12 +123,18 @@ private:
                     xfer_len = req.rx_data.size();
                 }
 
-                if (fd_ >= 0 && xfer_len > 0) {
+                // spidev reads tx and writes rx for xfer_len bytes: two buffers of different
+                // sizes would be over-read / overflowed by the kernel.
+                if (!req.tx_data.empty() && !req.rx_data.empty() &&
+                    req.tx_data.size() != req.rx_data.size()) {
+                    res.status = hal::SpiStatus::InvalidArgument;
+                    res.transferred_bytes = 0;
+                } else if (fd_ >= 0 && xfer_len > 0) {
                     struct spi_ioc_transfer tr{};
                     tr.tx_buf = reinterpret_cast<uint64_t>(req.tx_data.data());
                     tr.rx_buf = reinterpret_cast<uint64_t>(req.rx_data.data());
                     tr.len = static_cast<uint32_t>(xfer_len);
-                    tr.speed_hz = speed_hz_;
+                    tr.speed_hz = speed_hz_.load(std::memory_order_relaxed);
                     tr.bits_per_word = 8;
                     tr.cs_change = req.auto_cs ? 0 : 1;
 
@@ -200,7 +217,7 @@ private:
 
     CompletionSink       sink_{};
     int                  fd_{-1};
-    uint32_t             speed_hz_{10'000'000};
+    std::atomic<uint32_t> speed_hz_{10'000'000};
     uint8_t              mode_{0};
     RequestQueue         queue_{};
     EventFd              wakeup_eventfd_;

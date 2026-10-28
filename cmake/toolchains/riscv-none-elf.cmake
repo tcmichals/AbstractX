@@ -48,6 +48,10 @@ set(CMAKE_C_FLAGS_DEBUG_INIT     "-Og -g3")
 set(CMAKE_CXX_FLAGS_DEBUG_INIT   "-Og -g3")
 set(CMAKE_C_FLAGS_RELEASE_INIT   "-O2 -g -DNDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE_INIT "-O2 -g -DNDEBUG")
+# CMake appends its own "-O3 -DNDEBUG" after *_INIT, and the last -O wins: Release was really
+# -O3, and e906_repl_app overflowed SRAM_FAST (2026-10-28). Seed the cache so -O2 holds.
+set(CMAKE_C_FLAGS_RELEASE   "-O2 -g -DNDEBUG" CACHE STRING "E906 release flags")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -g -DNDEBUG" CACHE STRING "E906 release flags")
 
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)

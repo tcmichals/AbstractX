@@ -70,6 +70,13 @@ Task<void> any2(Gate& g1, Gate& g2, int& winner, uint32_t& value, int& resumes) 
     value = r.index() == 0 ? std::get<0>(r) : std::get<1>(r);
 }
 
+Task<void> any_now(Gate& g, int& winner, uint32_t& value, int& resumes) {
+    auto r = co_await when_any(now(11), after(g, 13));
+    ++resumes;
+    winner = static_cast<int>(r.index());
+    value = r.index() == 0 ? std::get<0>(r) : std::get<1>(r);
+}
+
 } // namespace
 
 int main() {
@@ -180,6 +187,29 @@ int main() {
         assert(coro_pool_high_water() == hw0 && Dispatcher::dropped_resumes() == dq0);
     }
 
-    std::printf("[PASS] when_all / when_any: out-of-order completion, single caller resume, loser detached and freed, 1000 rounds each flat\n");
+    // 6. when_any where the first task finishes inside await_suspend: the second was never
+    //    started, so nothing will ever resume it. It must be freed, not detached (2026-10-28:
+    //    each round leaked its frame and the 60 KB pool ran out after ~470 rounds).
+    {
+        Gate never;
+        int winner = -1, resumes = 0;
+        uint32_t value = 0;
+        {
+            auto w = any_now(never, winner, value, resumes);
+            w.resume();
+        }
+        const size_t used0 = abstractx::coro::coro_pool_used();
+        const size_t hw0 = coro_pool_high_water();
+        for (int i = 0; i < 1000; ++i) {
+            resumes = 0;
+            auto t = any_now(never, winner, value, resumes);
+            t.resume();
+            assert(t.done() && resumes == 1 && winner == 0 && value == 11);
+        }
+        assert(abstractx::coro::coro_pool_used() == used0 && coro_pool_high_water() == hw0);
+        assert(never.h == nullptr);   // the unstarted loser never reached the gate
+    }
+
+    std::printf("[PASS] when_all / when_any: out-of-order completion, single caller resume, loser detached and freed, unstarted loser freed, 1000 rounds each flat\n");
     return 0;
 }

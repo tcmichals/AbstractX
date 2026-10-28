@@ -34,6 +34,12 @@ Learned from the 2026-10-26 RPMsg review, where every test passed while 11 trans
    can be AArch64.
 7. **Independent cases.** Each case builds its own fixture; a long dependent `main()` hides every
    failure after the first.
+8. **Assertions are live.** `sim/`, `tests/` and `examples/` compile with `-UNDEBUG`, so `assert()`
+   runs in Release too; `sim_test_asserts_live` fails to build otherwise (2026-10-28: eleven sim tests,
+   ~276 asserts, checked nothing in the default host build).
+9. **Concurrency tests run more than once, and fail instead of hanging.** Loop a threaded test
+   (`ctest --repeat until-fail:20 -R <name>`) before calling it green, and give a handshake test a
+   watchdog that reports the lost wake (2026-10-28: `sim_test_uart_rx_ring` hung in ~1% of runs).
 
 ## Pass criteria
 

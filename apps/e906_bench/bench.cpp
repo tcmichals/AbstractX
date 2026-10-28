@@ -64,10 +64,10 @@ uint32_t s_rx_dropped = 0;
 uint32_t s_tx_fail = 0;
 
 // Shared with abx_bench_soft_isr() (ISR domain).
-std::atomic<uint32_t> s_soft_flag{0};
-std::coroutine_handle<> s_soft_waiter{};
-volatile uint32_t s_soft_t0 = 0;
-volatile uint32_t s_soft_tisr = 0;
+std::atomic<uint32_t> s_soft_flag{0};      // shared: soft ISR sets, probe coroutine reads; std::atomic release/acquire
+std::coroutine_handle<> s_soft_waiter{};   // shared: SoftIrqAwaiter sets before raising MSIP, soft ISR takes it; same hart, IRQ raised after the store
+volatile uint32_t s_soft_t0 = 0;           // shared: awaiter writes before MSIP, main reads after resume; same hart
+volatile uint32_t s_soft_tisr = 0;         // shared: soft ISR writes, main reads after resume (ordered by the Dispatcher post); same hart
 
 inline uint32_t now32() noexcept { return static_cast<uint32_t>(abx_bench_mcycle()); }
 

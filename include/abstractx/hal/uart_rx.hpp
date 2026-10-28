@@ -98,6 +98,8 @@ public:
         if (end_of_frame) {
             eof_wr_.store(w, std::memory_order_release);
         }
+        // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md (wake handshake: store, fence, load)
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         if (waiter_.load(std::memory_order_acquire) != nullptr && satisfied()) {
             wake(kReasonData, /*from_isr=*/true);
         }
@@ -152,6 +154,8 @@ public:
             const uint32_t token = ring->gen_.fetch_add(1, std::memory_order_acq_rel) + 1U;
             ring->waiter_.store(h.address(), std::memory_order_release);
             // Re-check after publishing: data or cancel that arrived in between must not be missed.
+            // The fence keeps the re-check after the store ([SPEC-HAL-10] wake handshake).
+            std::atomic_thread_fence(std::memory_order_seq_cst);
             if (ring->satisfied() || ring->cancel_req_.load(std::memory_order_acquire)) {
                 if (ring->waiter_.exchange(nullptr, std::memory_order_acq_rel) != nullptr) {
                     const bool cancelled = ring->cancel_req_.load(std::memory_order_relaxed) && !ring->satisfied();
@@ -209,6 +213,7 @@ public:
     // Complete a pending read with Cancelled (posted, not resumed inline).
     void cancel_read() noexcept {
         cancel_req_.store(true, std::memory_order_release);
+        std::atomic_thread_fence(std::memory_order_seq_cst);
         wake(kReasonCancel, /*from_isr=*/false);
     }
 
@@ -300,6 +305,7 @@ private:
         }
         if (reason == kReasonData && !satisfied() && !cancel_req_.load(std::memory_order_acquire)) {
             waiter_.store(h, std::memory_order_release);
+            std::atomic_thread_fence(std::memory_order_seq_cst);
             if (!cancel_req_.load(std::memory_order_acquire)) {
                 return;
             }

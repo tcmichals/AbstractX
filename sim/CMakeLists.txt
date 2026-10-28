@@ -1,4 +1,8 @@
 # sim/CMakeLists.txt
+# Tests check with assert(): keep it live in Release (CMake adds -DNDEBUG there). Until
+# 2026-10-28 eleven sim tests (~276 asserts) checked nothing in the default host build.
+add_compile_options(-UNDEBUG)
+
 
 function(add_abstractx_sim TARGET_NAME SOURCE_FILE)
     add_executable(${TARGET_NAME} ${SOURCE_FILE})
@@ -13,6 +17,7 @@ add_abstractx_sim(test_halo_worker_pool     test_halo_worker_pool.cpp)
 add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
 target_link_libraries(test_tlp_msg PRIVATE abstractx_drivers)
 add_abstractx_sim(test_io_processor        test_io_processor.cpp)
+add_abstractx_sim(test_io_engine           test_io_engine.cpp)
 # [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results
 add_abstractx_sim(test_linux_hal_completion test_linux_hal_completion.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
@@ -138,5 +143,7 @@ add_abstractx_sim(test_spi_transactions   test_spi_transactions.cpp)
 add_abstractx_sim(test_i2c_messages       test_i2c_messages.cpp)
 add_abstractx_sim(test_hal_cancel         test_hal_cancel.cpp)
 add_abstractx_sim(test_uart_rx_ring       test_uart_rx_ring.cpp)
+add_abstractx_sim(test_wake_handshake    test_wake_handshake.cpp)
+add_abstractx_sim(test_asserts_live      test_asserts_live.cpp)
 add_abstractx_sim(test_bus_protocols      test_bus_protocols.cpp)
 add_abstractx_sim(test_coro_combinators   test_coro_combinators.cpp)

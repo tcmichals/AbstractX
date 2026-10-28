@@ -351,6 +351,20 @@ python3 tools/run_adversarial_audit.py --all
   ownership note on the declaration: `// shared: <owner>, <sync>` (for example
   `// shared: msgbox ISR writes, main reads; std::atomic`). `--check` fails for any listed item
   without one. The agent fills in the note after answering the `boundary-race-review` checklist.
+* **Requirement (live assertions, 2026-10-28)**: test code (`sim/`, `tests/`, `examples/`) is built
+  with `-UNDEBUG`, so `assert()` checks in Release as well; `sim/test_asserts_live.cpp` fails to compile
+  when `NDEBUG` reaches the sim directory and fails at run time when `assert(false)` returns. A test
+  that cannot fail is not evidence. Rationale: eleven sim tests (~276 asserts) had their checks
+  compiled out in the default host build and still showed as passed.
+* **Requirement (wake handshakes, 2026-10-28)**: the inventory above only sees file-scope names, so
+  `boundary_review.py` also scans waiter slots, including class members (`std::atomic<void*>` or
+  `std::atomic<std::coroutine_handle<>>` named `*waiter*`, `*coroutine*`, `*handle*`). A
+  release/relaxed store of a waiter followed by a data check, or of data followed by a waiter
+  load / exchange / `wake*()` call, with no `std::atomic_thread_fence(std::memory_order_seq_cst)` in
+  between, is reported as `HANDSHAKE` and fails `--check`, unless the line or the one above carries
+  `// handshake: <why no fence is needed>`. Rationale: `UartRxRing` and `TriggerRing` lost wakes
+  (~1% of `sim_test_uart_rx_ring` runs hung); TSan, the shared-variable inventory and every single
+  test run passed.
 * **Rationale**: 2026-10-26: the RPMsg review found races (non-atomic ISR handle), memory bugs
   (host address passthrough, double reads) and a test that claimed a requirement it never ran. All
   of it was in code that every gate passed. TSan and RTL lint existed as skills but did not run in

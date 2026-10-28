@@ -17,6 +17,9 @@
 #include "abstractx/domain_dispatcher.hpp"
 #include "linux_spi_driver.hpp"
 #include "linux_i2c_driver.hpp"
+#include "spi_worker.hpp"
+
+#include <atomic>
 
 #include <array>
 #include <chrono>
@@ -160,6 +163,57 @@ void test_refused_submit_completes_with_error() {
     }
 }
 
+std::atomic<int> g_worker_done{0};
+std::atomic<int> g_worker_status{-1};
+void on_worker_done(const SpiResult& r) noexcept {
+    g_worker_status.store(static_cast<int>(r.status));
+    g_worker_done.fetch_add(1);
+}
+
+void test_spi_worker_rejects_unequal_buffers() {
+    std::printf("[6] SpiWorker: tx and rx of different sizes -> InvalidArgument, nothing clocked\n");
+    target::SpiWorker w;
+    w.start("");                       // no device: simulated path
+    std::array<uint8_t, 2> tx{0x80, 0};
+    std::array<uint8_t, 4> rx{};
+    SpiRequest req{};
+    req.tx_data = tx;
+    req.rx_data = rx;
+    req.on_rx_complete = etl::delegate<void(const SpiResult&)>::create<on_worker_done>();
+    g_worker_done = 0;
+    CHECK(w.submit(req), "submit refused");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (g_worker_done.load() == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+    }
+    CHECK(g_worker_status.load() == static_cast<int>(SpiStatus::InvalidArgument),
+          "status=%d", g_worker_status.load());
+    w.stop();
+}
+
+void test_spi_worker_stop_completes_queued() {
+    std::printf("[7] SpiWorker: stop() with requests queued -> every request completes once\n");
+    static std::array<uint8_t, 4> tx{1, 2, 3, 4};
+    static std::array<uint8_t, 4> rx{};
+    for (int round = 0; round < 200; ++round) {
+        target::SpiWorker w;
+        w.start("");
+        g_worker_done = 0;
+        int accepted = 0;
+        for (int i = 0; i < 16; ++i) {
+            SpiRequest req{};
+            req.tx_data = tx;
+            req.rx_data = rx;
+            req.on_rx_complete = etl::delegate<void(const SpiResult&)>::create<on_worker_done>();
+            accepted += w.submit(req) ? 1 : 0;
+        }
+        w.stop();
+        CHECK(g_worker_done.load() == accepted, "round %d: %d of %d completed", round,
+              g_worker_done.load(), accepted);
+        if (g_worker_done.load() != accepted) break;
+    }
+}
+
 } // namespace
 
 int main() {
@@ -168,6 +222,8 @@ int main() {
     test_i2c_ioctl_failure_is_reported();
     test_i2c_simulated_result_reaches_awaiter();
     test_refused_submit_completes_with_error();
+    test_spi_worker_rejects_unequal_buffers();
+    test_spi_worker_stop_completes_queued();
     // Leave no stale handles behind for later tests in the same process.
     Dispatcher::process();
     if (g_failures != 0) {

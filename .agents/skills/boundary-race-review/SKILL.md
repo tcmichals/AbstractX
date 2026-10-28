@@ -29,7 +29,12 @@ message.
 2. **Synchronisation.** `std::atomic` with which order, interrupts masked, or single-core and
    word-sized? `volatile` alone is not synchronisation between cores.
 3. **Check-then-act.** Is there a test followed by an action that the other side can invalidate in
-   between (lost wakeup, WFI race, flag cleared by a second consumer)?
+   between (lost wakeup, WFI race, flag cleared by a second consumer)? A wait/wake handshake (I
+   publish myself as waiter, then check for data; you publish data, then check for a waiter) is a
+   store followed by a load of a *different* variable on each side: release/acquire does not order
+   that, so both sides need `std::atomic_thread_fence(std::memory_order_seq_cst)` between the two
+   ([SPEC-HAL-10], 2026-10-28: a 1% hang TSan never reported). `boundary_review.py` flags it
+   (`HANDSHAKE`); a same-hart IRQ handshake that needs no fence carries `// handshake: <why>`.
 4. **Peer dead or lying.** If the other side stops, answers twice, or writes a bad index, length or
    address, does this side stay bounded and recover ([SPEC-E906-IPC-02])?
 5. **Lifetime.** Does every pointer, span or handle that crosses the boundary point at storage that
@@ -41,7 +46,7 @@ message.
 
 ## Pass criteria
 
-`boundary_review.py --check` exits 0 for the touched paths, and the checklist is answered in the
+`boundary_review.py --check` exits 0 for the touched paths (no MISSING note, no HANDSHAKE), and the checklist is answered in the
 commit message for each touched boundary.
 
 ## Evidence

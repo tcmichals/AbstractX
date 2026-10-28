@@ -40,10 +40,10 @@ StaticTask_t s_ax_tcb;
 StackType_t s_ax_stack[kAbstractxStackWords];
 TaskHandle_t s_ax_task = nullptr;
 
-volatile uint32_t s_unexpected_irqs = 0;
-volatile uint32_t s_idle_wakes = 0;
-volatile uint64_t s_idle_cycles = 0;
-volatile bool s_soft_irq_on = false;
+volatile uint32_t s_unexpected_irqs = 0;  // shared: interrupt handler only writes (statistics); single hart
+volatile uint32_t s_idle_wakes = 0;       // shared: idle hook writes, abx_bench_idle_stats reads; both inside taskENTER_CRITICAL
+volatile uint64_t s_idle_cycles = 0;      // shared: as s_idle_wakes (64-bit, so only inside taskENTER_CRITICAL)
+volatile bool s_soft_irq_on = false;      // shared: set before the soft line is enabled, interrupt handler reads; single hart
 
 void notify_from_isr() noexcept {
     if (s_ax_task) {
@@ -93,8 +93,8 @@ void abx_trace_task_switched_out(void) {
 }
 
 bool abx_bench_soft_irq_enable(void) {
+    s_soft_irq_on = true;            // before the line: a pending soft IRQ must not count as unexpected
     clic_enable(kLineSoft, true);
-    s_soft_irq_on = true;
     return true;
 }
 

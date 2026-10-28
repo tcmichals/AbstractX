@@ -187,11 +187,19 @@ using TlpChannelMultiplexer = SpscChannelArray<Tlp64, NumChannels, Capacity>;
 // all non-ISR push() operations acquire InterruptLock, serializing concurrent producers.
 // On bare-metal, InterruptLock disables interrupts, preventing ISR preemption during push.
 // Hence, it functions as a true Multi-Producer Single-Consumer (MPSC) queue.
+// The ETL memory model sets the index width: SMALL holds at most 255 entries (a 512-byte UART
+// ring failed to compile on the Pico 2 W), so pick the smallest model that fits Capacity.
+template <size_t Capacity>
+inline constexpr size_t kEtlMemoryModel =
+    Capacity <= 255U   ? etl::memory_model::MEMORY_MODEL_SMALL :
+    Capacity <= 65535U ? etl::memory_model::MEMORY_MODEL_MEDIUM :
+                         etl::memory_model::MEMORY_MODEL_LARGE;
+
 template <typename T, size_t Capacity = 64>
 using EtlMpscQueue = etl::queue_spsc_isr<T,
                                          Capacity,
                                          InterruptLock,
-                                         etl::memory_model::MEMORY_MODEL_SMALL>;
+                                         kEtlMemoryModel<Capacity>>;
 
 // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 template <typename T, size_t Capacity = 64>

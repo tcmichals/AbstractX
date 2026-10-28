@@ -3079,3 +3079,71 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-46 | tests | functional tests for the 41 pico-examples / Betaflight programs | [SPEC-PIO-14] | harness configuring SMs like `*_program_init`; one check per protocol | `cocotb-regression` |
 | EL-1027-47 | legal | Raspberry Pi may hold patents on PIO; no granted patent seen; other open-source PIO cores exist (does not settle it) | user question 2026-10-27 | patent search (Google Patents / Espacenet) and a patent attorney before commercial licensing; ISA is replaceable without changing the TLP fabric | review |
 | EL-1027-48 | FPGA targets | the all-PIO design targets the Zynq-7020 (~53k LUT6: fits) or several Tang Nano 20K, one tile each (needs the tile < ~15k LUT) | user direction 2026-10-27 | fit numbers per target after EL-1027-39 | `fpga-fit` |
+
+## 2026-10-28: Full review: coroutine leaks, three copied io_processors, E906/Pico builds broken at HEAD
+
+* **Category**: `product-bug` (coroutines, io_processors, drivers), `tool-bug` (CMake flags), `process-gap` (checks that passed while the bugs were present)
+* **Symptoms**:
+  * `co_await when_any(ready(), waits())` leaked the unstarted `waits()` frame on every call; after ~470 calls the 60 KB pool was empty and the next `co_await` dereferenced the empty Task's null handle (segfault in `WhenAnyAwaiter::await_resume`).
+  * `Semaphore`: two `release()` calls before the waiter ran woke it once; the second permit was lost.
+  * Pico, E906 and Linux `io_processor.cpp` were copies of one decoder with the same bugs: tx buffer 32 B clocked for up to 64 B; host `tx_len` (<= 255) used as the offset into a 64 B rx buffer; one buffer and `active_auto_ch_` shared by all channels; a trigger restarting a DMA in flight; `DMA_CFG` rewriting channels while the ISR read them; GPIO `1U << pin` for pin >= 32. On E906 and Pico every SPI/I2C/GPIO bridge request was swallowed: bridge TLPs are MemRead/MemWrite and the virtual-BAR branch came first. The Linux SPI window test `(addr & 0xFFFFFF00) == 0x40000180` could never match (it worked only through the Control-channel shortcut). The Pico auto-DMA completion `on_auto_spi_dma_done()` had no caller, and the E906 `fc_gpio_drdy_isr()` is attached to no interrupt line.
+  * Linux `SpiWorker` accepted tx and rx of different sizes and told spidev to clock the larger one into both (kernel writes past rx); `stop()` stranded queued requests (9 of 200 rounds in the repro).
+  * E906 `Spi1::start_dma_transfer`, `Uart2::write_async_dma` and `Uart2::AsyncTxAwaiter` overwrote the in-flight descriptor, callback or coroutine handle when called twice. (After the rebase onto `559022f` only the SPI fix remains: UART2 was removed on the other PC, `15f125c`.)
+  * From a clean checkout of `c5a1eaa`: `e906_repl_app` overflowed SRAM_FAST by 6,256 B and the Pico 2 W build failed (`MpscRingBuffer<uint8_t, 512>`: "Size too large for memory model").
+* **Root cause**:
+  * `Task::detach()` assumed every task had started; `Semaphore::AcquireAwaiter::await_resume()` decremented even for a hand-off. The 1000-round combinator test only raced tasks that had both started.
+  * Copy-paste across targets: a fix in one copy (Linux slot pool, 2026-10-17) never reached the others.
+  * CMake appends its built-in `-O3 -DNDEBUG` after `CMAKE_<LANG>_FLAGS_RELEASE_INIT`; the last `-O` wins, so the E906 Release build was `-O3` although the toolchain file says `-O2`. The checked-in `build_e906` predates the commits that grew the image, so nobody saw the overflow.
+* **Which check should have caught it, and why it did not**:
+  * `audit_coro_contracts.py` and the combinator test: no case where the first task finishes inside `await_suspend`.
+  * `audit_specs.py` / `spectrace.py --review`: tags only; three copies all carried the same `@impl` tags.
+  * No step builds the E906 and Pico targets from a clean tree; the commit message of `c5a1eaa` listed host results only.
+* **Spec (SSOT first)**: `[SPEC-ARCH-09]` (pool exhausted: report and trap), `[SPEC-ARCH-10]` (Semaphore hand-off), `[SPEC-ARCH-11]` (never-started tasks are destroyed), new `[SPEC-ARCH-13]` (one `IoEngine` in core, thin per-target `IIoBackend`, bounds and concurrency rules); `targets/SPECIFICATION.md` §2.1.2 lists each back end and its known gaps.
+* **Fix**:
+  * `include/asp_coro.hpp`: `promise_type::started_` set by the initial awaiter; `detach()` destroys never-started tasks; `Semaphore` hand-off flag; `set_pool_exhausted_hook()` + trap on every await/result path of an empty Task.
+  * `include/abstractx/hal/io_engine.hpp`: new `IoEngine` / `IIoBackend` / `IoTransfer`. `targets/{linux,allwinner_e906,pico2w_rp2350}/src/io_processor.cpp` are back ends only.
+  * `targets/linux/include/{spi,i2c}_worker.hpp`: unequal buffers refused, atomic speed, `stop()` completes queued requests as `Cancelled`, `is_running()`.
+  * `targets/allwinner_e906/src/{spi,uart}.cpp`: in-flight test-and-set under `InterruptGuard`.
+  * `include/tlp_ring.hpp`: ETL memory model chosen from the capacity.
+  * `cmake/toolchains/riscv-none-elf.cmake`: Release flags seeded in the cache so `-O2` holds.
+* **Regression tests (each fails on the old code)**:
+  * `sim/test_coro_combinators.cpp` case 6 (old: segfault), `tests/test_coro_primitives.cpp` `SemaphoreHandoffKeepsEveryPermit` and `DetachNeverStartedTaskFreesFrame` (old: 2 failures), `sim/test_coro_failures.cpp` pool-exhausted death test (old: no hook API).
+  * `sim/test_io_engine.cpp` (mock back end: clamps, own-pin trigger, overrun drop, lockout, slot pool, I2C/GPIO bridge routing, GPIO bounds, 1000 rounds flat).
+  * `sim/test_linux_hal_completion.cpp` [6] [7] (old header: status 0 for unequal buffers, 9/200 rounds stranded; new: `InvalidArgument`, 0/200).
+* **Not verified**: no board run. The E906 firmware is now built at `-O2` instead of the `-O3` it was tested with on silicon; run `e906-board-selftest` before trusting it. E906 and Pico I2C bridges still block inside `start_transfer()`. The E906 DRDY hook is still not attached. Pico cross-core ring safety is unchanged.
+
+## 2026-10-28: Lost wake in UartRxRing / TriggerRing (store->load handshake without a seq_cst fence)
+
+* **Category**: `product-bug` (rings), `process-gap` (single test runs, a review that missed it), `tool-bug` (boundary_review saw only globals)
+* **Symptoms**: `sim_test_uart_rx_ring` hung for 10 minutes in the full-suite run of the review batch above. Looping it: 3 of 300 runs hung at `c5a1eaa`, 2 of 200 with the batch. Earlier passing runs took anything from 0.02 s to 9 s, which nobody looked at.
+* **Root cause**: the wait/wake handshake is a store followed by a load of a different variable on both sides. The producer stores `wr_` (release), then loads `waiter_`; the reader stores `waiter_` (release), then loads `wr_` in `satisfied()`. Release/acquire does not stop a later load from passing an earlier store (the x86 store buffer does exactly that; Arm, RISC-V and a second Pico core too), so both sides miss each other and the reader sleeps forever. The cancel path (`cancel_req_` then `waiter_`) and the producer's "put the waiter back" path have the same shape. `TriggerRing` ([SPEC-HAL-13]) is a copy of the pattern. The E906 `Uart2::AsyncRxPacketAwaiter` had the same race plus a double resume (it cleared the slot with a plain store after the ISR could already have posted it) and an ISR that never cleared the slot; it had no callers and contradicted [SPEC-E906-HAL-02] (the whole UART2 driver was removed on the other PC in `15f125c`; this commit's removal was dropped in the rebase).
+* **Which check should have caught it, and why it did not**:
+  * TSan: there is no data race, only atomics with too weak an order; TSan does not model store->load reordering.
+  * `boundary_review.py`: inventories file-scope globals only; both rings keep their state in class members.
+  * The test itself: section 11 has a producer thread, but one run of ~8000 handshakes hits the window ~1% of the time. A single green run was taken as proof.
+  * Me, in the review earlier today: I read `uart_rx.hpp` for API mismatches and did not apply checklist item 3 (check-then-act) to it.
+* **Spec (SSOT first)**: `[SPEC-HAL-10]` and `[SPEC-HAL-13]` gain "wake handshake": a seq_cst fence between publishing and checking on both sides. `[SPEC-AUDIT-15]` (`docs/SPECTRACE.md`): `boundary_review.py` checks waiter slots including class members and fails on `HANDSHAKE`; a fence-free same-hart IRQ handshake must say why (`// handshake:`). The `boundary-race-review` checklist item 3 names the pattern.
+* **Fix**: `std::atomic_thread_fence(std::memory_order_seq_cst)` after the publishing store in `produced_from_isr`, `await_suspend`, `cancel_read`, `wake` (uart_rx.hpp) and `commit_from_isr`, `await_suspend`, `cancel`, `wake_from_isr` (bus_trigger.hpp). Also found while answering the checklist for the 22 unnoted shared variables: E906 `Timer` had a dead `g_timer_coroutine` / `set_compare()` path whose deadline the ISR overwrote (removed; no callers); `e906_freertos_app` enabled the soft-IRQ line before setting `s_soft_irq_on`, so a pending IRQ was counted as unexpected and the line disabled (order swapped); `Trace::putc` spun on S_UART0 LSR without a bound (bounded, the crash dump must not hang).
+* **Regression tests (each fails on the old code)**:
+  * `sim/test_wake_handshake.cpp`: 300,000 lockstep rounds per ring against a producer thread, watchdog instead of a hang. Old headers: 10/10 runs fail (`UartRxRing: lost wake after 1237 of 300000 rounds`, `TriggerRing: lost wake after 41389 ...`). New: 0/20; `sim_test_uart_rx_ring` 0/300.
+  * `tests/test_boundary_review.py`: old shapes flagged on both sides, fenced shapes pass, one-sided fix still flagged, waiver, whole repo clean. `boundary_review.py --check` on `c5a1eaa`: 13 HANDSHAKE; now 0, and 0 of 28 shared variables without a note (was 22).
+* **Lesson**: a concurrency test that passes once proves nothing about a race; loop it, and write the handshake test so that it fails instead of hanging. Release/acquire is for "data then flag" one way, never for two sides that each store then load.
+* **Not verified**: the fences on E906 / Pico hardware (single-hart ISR ordering only needs the compiler barrier the fence also gives; cross-core Pico rings are still the open TODO). No board run.
+
+## 2026-10-28: Eleven sim tests had their assert() compiled out in the host build
+
+* **Category**: `process-gap` (tests that could not fail), `tool-bug` (CMake Release default)
+* **Symptoms**: `-Wunused-variable` on `n` in `sim/test_coro_failures.cpp` after a rebuild: the variable is only used inside `assert()`. The host build is Release (`-O2 -g -DNDEBUG`), and 11 sim tests (`test_baremetal_isr_spsc`, `test_gps_imu_coro_pool`, `test_abstractx_runtime`, `test_coro_failures`, `test_pico_zero_copy_trace`, `test_halo_worker_pool`, `test_io_processor`, `test_tlp_msg`, `test_trace_zero_copy`, `test_zynq_target`, `test_spsc_channel_array`; ~276 asserts) do not `#undef NDEBUG`. Their checks never ran; they passed by exiting 0.
+* **Root cause**: each test was expected to `#undef NDEBUG` itself; nothing enforced it, and a passing ctest line looks the same either way.
+* **Which check should have caught it**: `host-tests` and `spectrace_matrix.py --check-verifies` count a test as evidence when it runs and claims a requirement; neither looks at whether it can fail. The compiler warning was there in every build log and was not read.
+* **Fix**: `add_compile_options(-UNDEBUG)` in `sim/`, `tests/` and `examples/` CMakeLists; `sim/test_asserts_live.cpp` fails to compile if NDEBUG comes back and fails at run time if `assert(false)` returns. The `host-tests` skill gains rules 8 (assertions live) and 9 (loop concurrency tests, watchdog instead of hang).
+* **Regression test**: `sim_test_asserts_live` (`g++ -DNDEBUG` on it: `#error "sim tests must be built with assert() enabled ..."`).
+* **Not verified**: results of the newly live asserts are in the commit that carries this entry.
+
+## 2026-10-28: ipc-transport-audit reported two findings that were not bugs
+
+* **Category**: `false-alarm` (both), `tool-bug` (IPC-STALL)
+* **What**: `audit_ipc_invariants.py` has failed since 2026-10-26 on `rpmsg.cpp:450` (IPC-STALL) and `e906_rpmsg_bridge.py:298` (PY-NBSPIN), so its exit code meant nothing and a new finding would not have been seen.
+* **IPC-STALL**: the regex read the comment `// invalid id: skip, nothing to return` as a `return`. The code advances `last_avail_idx` before the check and `continue`s. The audit now blanks comments before that match; `tests/test_ipc_invariants.py` (old tool: the comment case fails).
+* **PY-NBSPIN**: the lease renewal retries `hello()` once per second (`next_hello`), not in a tight loop. Waived in place with the reason (`ipc-audit: allow PY-NBSPIN`).
+* **Lesson**: a gate that is red for known reasons is a gate that is off; fix or waive (with the reason) the same day.

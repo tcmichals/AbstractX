@@ -5,7 +5,7 @@
  * AbstractX Serial Loopback & CPU Profiling Reference Application
  * ----------------------------------------------------------------
  * Demonstrates:
- * 1. C++20 Stackless Coroutines (co_await async_read_packet, async_write)
+ * 1. C++20 Stackless Coroutines (cooperative loop on co_await abstractx::step_async())
  * 2. Threshold-Balanced Serial I/O (Fast CPU FIFO <= 32B vs Hardware DMA > 32B)
  * 3. 64-byte TLP Packet Framing & barectf CTF 1.8 Binary Event Emission
  * 4. Microsecond CPU Active vs WFI Sleep Cycle Profiling

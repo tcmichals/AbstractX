@@ -17,7 +17,7 @@ static constexpr uintptr_t S_UART0_LSR = 0x07080014;
 // bsp/resource_table.c, whose address the remoteproc resource table publishes.
 // A second definition here only wasted 4 KB of SRAM.
 
-static volatile uint32_t g_trace_head = 0;
+static volatile uint32_t g_trace_head = 0;  // shared: main loop and the crash trap handler (never returns) write; unguarded, a crash inside putc loses at most one char; Linux only reads the buffer
 static bool g_mirror_uart           = false;
 
 void Trace::init(bool enable_uart_mirror) noexcept {
@@ -47,8 +47,10 @@ void Trace::putc(char c) noexcept {
         volatile uint32_t* lsr = reinterpret_cast<volatile uint32_t*>(S_UART0_LSR);
         volatile uint32_t* thr = reinterpret_cast<volatile uint32_t*>(S_UART0_THR);
 
-        // Wait until Transmit Holding Register Empty (THRE / bit 5) is set
-        while (!(*lsr & (1 << 5))) {
+        // Wait until Transmit Holding Register Empty (THRE / bit 5) is set, bounded: an unclocked
+        // or stuck S_UART0 must not hang the crash dump ([SPEC-E906-IPC-02] peer dead).
+        for (uint32_t spins = 0; !(*lsr & (1 << 5)); ++spins) {
+            if (spins > 100000U) return;
             __asm__ volatile("" : : : "memory");
         }
         *thr = static_cast<uint32_t>(c);

@@ -1,5 +1,9 @@
 # tests/CMakeLists.txt
 # CppUTest-based SITL Unit Testing & Hardware Mock Suite
+# Tests check with assert(): keep it live in Release (CMake adds -DNDEBUG there). Until
+# 2026-10-28 eleven sim tests (~276 asserts) checked nothing in the default host build.
+add_compile_options(-UNDEBUG)
+
 
 set(CMAKE_POLICY_VERSION_MINIMUM "3.5" CACHE STRING "Allow CppUTest legacy cmake_minimum_required")
 include(FetchContent)
@@ -78,6 +82,11 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     add_test(NAME py_test_spectrace_matrix
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_spectrace_matrix.py)
+    # [SPEC-AUDIT-15] boundary_review.py wake-handshake check
+    add_test(NAME py_test_boundary_review
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_boundary_review.py)
+    add_test(NAME py_test_ipc_invariants
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_ipc_invariants.py)
     # [SPEC-E906-IPC-04] Linux-side RPMsg <-> UDP bridge (no hardware needed)
     # [SPEC-AUDIT-09] Trac tools and evidence ledger
     add_test(NAME py_test_trac
