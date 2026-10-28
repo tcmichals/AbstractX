@@ -14,6 +14,7 @@
  */
 
 #include "abstractx/coro.hpp"
+#include "hand_clocked.hpp"  // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (hand-clocked helpers)
 #include "tlp_ring.hpp"  // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 #include "asp_tlp64.hpp"
 

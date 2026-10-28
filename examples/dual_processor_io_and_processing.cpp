@@ -33,6 +33,7 @@
 #include <atomic>
 #include <string>
 #include <cmath>
+#include <unordered_map>
 
 using namespace abstractx;
 using namespace abstractx::coro;

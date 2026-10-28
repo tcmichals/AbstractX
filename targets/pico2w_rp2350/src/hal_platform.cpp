@@ -62,6 +62,21 @@ void platform_init() noexcept {
 #endif
 }
 
+} // namespace abstractx::hal  (reopened below)
+
+namespace abstractx {
+// @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md (cross-core lock: core index for InterruptLock)
+uint32_t abstractx_core_id() noexcept {
+#ifdef PICO_ON_DEVICE
+    return get_core_num();
+#else
+    return 0U;
+#endif
+}
+} // namespace abstractx
+
+namespace abstractx::hal {
+
 void platform_launch_processing_domain(void (*entry)()) noexcept {
 #ifdef PICO_ON_DEVICE
     multicore_launch_core1(entry);

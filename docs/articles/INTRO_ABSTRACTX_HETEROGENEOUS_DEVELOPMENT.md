@@ -251,7 +251,7 @@ public:
             co_return false;
         }
         co_await m_bus.write_reg_async(0x4E, 0x0F);
-        co_await coro::sleep_for(std::chrono::milliseconds(1));
+        co_await abstractx::hal::get_timer_driver().sleep_ms_async(1);
         co_return true;
     }
 
@@ -268,7 +268,7 @@ public:
 ### Architectural Parity:
 * `await` becomes `co_await`.
 * `async def` becomes `coro::Task<T>`.
-* `asyncio.sleep()` becomes `co_await coro::sleep_for()`.
+* `asyncio.sleep()` becomes `co_await hal::get_timer_driver().sleep_ms_async()`.
 * `asyncio.Queue` becomes zero-copy `abstractx::AsyncQueue<T, N>`.
 * **Zero dynamic heap allocation (`malloc`/`new`) is used on the C++20 side**. All frames are statically pooled and 64-byte aligned in `.bss`.
 

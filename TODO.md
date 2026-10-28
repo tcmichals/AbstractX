@@ -155,7 +155,7 @@ Remaining:
   5. [x] Pico 2 W ([SPEC-PICO-TRACE-01]) and ESP32-P4 ([SPEC-ESP32P4-TRACE-01]): `PicoUdpTraceTransport`, `hal_platform.cpp`, elided static pool on Pico 2 W `[SPEC-PICO-TRACE-01]`, verified by `test_pico_zero_copy_trace.cpp`.
   6. [ ] Board test on the Cubie A5E: trace reaches the Studio; measure E906 loop jitter with `mcycle` (awaiting physical hardware bring-up).
 - [x] **E906 trap entry FPU state preservation & crash autopsy** fixed (2026-10-17, `[SPEC-E906-CRASH-01]`): allocated 416-byte `CrashFrame`, saving and restoring all 32 64-bit FP registers (`f0`..`f31`), `fcsr`, CSRs, and integer GPRs on trap entry/exit, preventing FP register corruption on ISR return with full autopsy logging.
-- [ ] **Pico Core 1 is never launched** (`platform_launch_processing_domain()` has no callers): `[SPEC-ARCH-05]` dual-core split is not implemented; the ISR's SIO FIFO doorbell has no reader. When implemented, `InterruptLock` (single-core masking) will not protect cross-core queues.
+- [ ] **Pico Core 1 is never launched** (`platform_launch_processing_domain()` has no callers): `[SPEC-ARCH-05]` dual-core split is not implemented; the ISR's SIO FIFO doorbell has no reader. The cross-core lock it needs is in place since 2026-10-28 (`SmpInterruptLock`, [SPEC-ARCH-01]).
 - [ ] **ESP32-P4 target is a stub** (141 lines; no io_processor/platform). Mark it as such in README/TODO.
 - [ ] Trace flushes in `step()` do blocking `fwrite`+`flush` and UDP send in the loop (AGENTS.md §7).
 - [ ] `targets/allwinner_e906/src/rpmsg.cpp` (502 lines) is not in the E906 CMake source list, so it is never compiled. Toolchain files hardcode `/home/tcmichals/...`; use `$ENV{HOME}`.
@@ -191,19 +191,21 @@ Fixed (see `engineering_log.md` 2026-10-28; the upstream tracker EL-1027-NN in t
 - [x] E906 Release was really `-O3` (CMake appends its default after `*_RELEASE_INIT`); `e906_repl_app` overflowed SRAM_FAST by 6,256 B at `c5a1eaa`. The toolchain now seeds `-O2`; all E906 apps link (`e906_repl_app` SRAM_FAST 97.3%). **Not run on the board yet.**
 
 Open:
-- [ ] Board run of the `-O2` E906 firmware (`e906-board-selftest`, with EL-1027-30): timing-sensitive paths were tested at `-O3`.
+- [x] Board run of the `-O2` E906 firmware (2026-10-28): 31 passed, 2 failed (both fail on the previous firmware too), 2 skipped (bench). Found and fixed: no RPMsg channel announced since `d8bcbac` (firmware refused the board's DDR `vdev@48000000` pool, [SPEC-E906-IPC-02]).
+- [ ] Board: `test_streamer_keeps_running_with_heartbeat` fails with "NMEA sentences failed their checksum" (also on the 2026-10-24 firmware): UART3 GPS stream corrupt after ~25 s (DMA ring overrun? baud?). Investigate on the board.
+- [ ] Board: `test_profiler_and_timeline_when_idle` fails, "1021 idle spans: sample interrupts woke the loop" (1028 on the 2026-10-24 firmware): profiler sample interrupts end the idle wait ([SPEC-E906-IRQ-06]).
+- [ ] Board: run `e906_bench_app` and `e906_freertos_app` (bench tests skipped), and the rest of EL-1027-30 (serial_loopback on header pins, TWI1 new CCR).
 - [ ] E906 SRAM_FAST budget for `e906_repl_app` in `[SPEC-E906-MEM-01]` (EL-1027-29).
-- [ ] `delay_*` / `sleep_*` / `wait_until` in `coro.hpp` never register the handle: they only work for callers that resume the task by hand (examples). Decide: make them Dispatcher/timer driven (and update the examples) or move them out of the public API.
+- [x] `delay_*` / `sleep_*` / `wait_until` moved to `examples/hand_clocked.hpp` (they keep no handle); TimerService removed; refused timer sleep reports `Error`; lint check for dropped handles ([SPEC-ARCH-10]).
 - [ ] `CoroutineIoEngine` (`asp_coro.hpp`) resumes coroutines inline in `poll_completions()`; only `sim/sitl_coro_sim.cpp` uses it. Remove or route through the Dispatcher.
-- [ ] Pico 2 W cross-core lock: bare-metal `InterruptLock` keeps one global `depth_` / `saved_flags_` for both cores and excludes no other core; `queue_spsc_isr` `current_size` is written by both sides. Spec text drafted ([SPEC-ARCH-01] cross-core lock), next commit.
-- [ ] Pico 2 W cross-core rings: `MpscRingBuffer` (ETL `queue_spsc_isr`) has a plain `current_size` counter written by both sides; unsafe once Core 1 consumes what Core 0 produces. Needs a lock-free index-only SPSC or the SIO spinlock.
+- [x] Pico 2 W cross-core lock: `SmpInterruptLock` (per-core depth/saved state + shared spinlock), `_from_isr` paths locked on SMP, `ABSTRACTX_SMP_CORES=2` on the Pico ([SPEC-ARCH-01]); `sim/test_smp_lock.cpp`. Not run on RP2350 silicon.
 - [x] `inav_e906_app` removed upstream (`2b3970a`, EL-1027-02). Was: no `SPECIFICATION.md`; links `malloc`/`strtod` (`atof` in the NMEA parser); `now_ns = ticks * 1000` (24 MHz ticks, ~24x off); its own ICM-42688 / compass / GPS drivers duplicate `applib/` and are not `IImuDriver`/`IMagDriver`; superloop with blocking SPI/I2C and `delay_ms`.
 - [ ] `e906_repl_app` already links `_malloc_r` / `free` (also in the 2026-10-25 build): find the caller. Same as EL-1027-31 (deferred by the project owner, 2026-10-27).
 - [x] Fixed upstream (`2b3970a`, `75001f8`, `15f125c`; EL-1027-03..05, -10): one TWI driver, one UART3 driver. Was: E906 drivers duplicated: UART3 in `platform.cpp`, `e906_periph.cpp` and INAV `GpsUartDriver`; TWI1 in three places. `platform.cpp` `E906Twi1Driver` sets PB0/PB1 function 4 (UART2's pins) and a 200 kHz divider; the tested `e906_periph.cpp` uses PB4/PB5 function 2, `0x12` for 400 kHz. `E906Uart3Driver::write_byte` spins on LSR with no bound.
 - [ ] DShot register map: `pcie_bar_map.hpp` `reg::esc` puts Motor1 at 0x08 (RTL: throttles at 0x10..0x1C, no telemetry registers); `asp_tlp64.h` `ASP_ADDR_DSHOT_BASE` 0x40000300 is the PWM decoder (RTL DShot is 0x40000200). `check_register_parity.py` does not cover it.
 - [ ] PIO / ESC pin mux (in progress upstream as EL-1027-20, [SPEC-PIO-*]; check `rtl/pio/SPECIFICATION.md` before working on it): `asp_top` leaves `u_pio_tile.o_gpio_out` / `o_gpio_pindir` unconnected; motor pins are output-only from `asp_dshot_core` (no output enable, no DShot / serial passthrough / PIO select register, no bidirectional DShot receive); Zynq top has no PIO; no C++ driver for DShot, PIO or the mux. Spec the pin-ownership state machine first (`rtl/pio/SPECIFICATION.md`, Tang Nano 20K and Zynq specs).
 - [ ] Python duplicates: `flight_sensors.py`, `sensor_contract.py` exist in `applib/python/drivers/` and `apps/e906_repl_app/`. Linux `spi_worker.hpp` / `hal_uart.cpp` embed ICM-42688 / UBX simulators in the target HAL (move to `sim/`).
-- [ ] ESP32-P4 stubs report `Ok` without doing anything; return `NotSupported`.
+- [ ] ESP32-P4 stubs report `Ok` without doing anything; return `NotSupported`. Also set `ABSTRACTX_SMP_CORES=2` there when the target builds.
 - [ ] SpecTrace (EL-1027-32): 65 `@verifies` claims after the merge with upstream with no test behind them (`--check-verifies`); `audit_specs.py` only reads `docs/DESIGN_SPECIFICATION.md` (47 of 221 requirements).
 
 ---

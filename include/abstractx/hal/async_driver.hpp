@@ -153,7 +153,7 @@ protected:
      * DMA / ISR Domain: Pull the next pending request to feed hardware.
      */
     bool pop_next_request_from_isr(TRequest& request) noexcept {
-#if ABSTRACTX_HOSTED
+#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
         return input_queue_.pop(request); // hosted: "ISR" is a worker thread
 #else
         return input_queue_.pop_from_isr(request);
@@ -170,7 +170,7 @@ protected:
         if (completed_req.result_slot) {
             *completed_req.result_slot = result;
         } else {
-#if ABSTRACTX_HOSTED
+#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
             pushed = output_queue_.push(result); // hosted: "ISR" is a worker thread
 #else
             pushed = output_queue_.push_from_isr(result);

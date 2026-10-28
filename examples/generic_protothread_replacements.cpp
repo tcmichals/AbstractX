@@ -18,6 +18,7 @@
  */
 
 #include "abstractx/coro.hpp"
+#include "hand_clocked.hpp"  // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (hand-clocked helpers)
 #include <iostream>
 #include <iomanip>
 #include <vector>

@@ -219,7 +219,7 @@ public:
 
     // Fast path when caller is already inside a bare-metal ISR with interrupts masked
     bool push_from_isr(const T& item) noexcept {
-#if ABSTRACTX_HOSTED
+#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
         return queue_.push(item);
 #else
         return queue_.push_from_isr(item);
@@ -239,7 +239,7 @@ public:
     }
 
     bool pop_from_isr(T& item) noexcept {
-#if ABSTRACTX_HOSTED
+#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
         return queue_.pop(item);
 #else
         return queue_.pop_from_isr(item);
@@ -253,7 +253,7 @@ public:
     }
 
     bool empty() const noexcept {
-#if ABSTRACTX_HOSTED
+#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
         return queue_.empty();
 #else
         return queue_.empty_from_isr();

@@ -12,6 +12,7 @@
 #include "CppUTest/TestHarness.h"
 #include "asp_coro.hpp"
 #include "abstractx/hal/bus_lock.hpp"
+#include "abstractx/hal/timer.hpp"
 #include <atomic>
 
 using namespace abstractx;
@@ -202,4 +203,36 @@ TEST(CoroPrimitivesTest, DetachNeverStartedTaskFreesFrame) {
         t.detach();
         CHECK_EQUAL(used0, coro_pool_used());
     }
+}
+
+// [SPEC-ARCH-10] A sleep the timer driver cannot queue completes at once with Error, not Ok.
+// (2026-10-28: SleepAwaiter returned false from await_suspend and left the default Ok.)
+namespace {
+class StuckTimer : public AsyncTimerDriver {
+public:
+    uint64_t get_time_us() const override { return 0; }
+    uint32_t get_time_ms() const override { return 0; }
+    void delay_us(uint32_t) override {}
+    void delay_ms(uint32_t) override {}
+
+protected:
+    void start_hardware_transfer_from_isr(const TimerRequest&) noexcept override {}  // never fires
+};
+} // namespace
+
+TEST(CoroPrimitivesTest, TimerSubmitFailureIsAnError) {
+    StuckTimer timer;
+    size_t queued = 0;
+    while (timer.submit_request(TimerRequest{})) {
+        ++queued;
+        CHECK_TRUE(queued <= 64);
+    }
+    TimerStatus st = TimerStatus::Ok;
+    auto sleeper = [](AsyncTimerDriver& t, TimerStatus& out) -> Task<void> {
+        TimerResult r = co_await t.sleep_ms_async(5);
+        out = r.status;
+    }(timer, st);
+    sleeper.resume();
+    CHECK_TRUE(sleeper.done());                 // refused: resumed at once, never left waiting
+    CHECK_TRUE(st == TimerStatus::Error);
 }

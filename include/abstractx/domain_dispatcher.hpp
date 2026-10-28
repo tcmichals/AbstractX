@@ -72,7 +72,7 @@ public:
         if (!is_resumable(handle)) {
             return false;
         }
-#if ABSTRACTX_HOSTED
+#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
         // Hosted: the posting "ISR" is a worker thread; take the lock.
         return record(queue_.push(handle));
 #else
@@ -121,7 +121,7 @@ public:
     }
 
     static inline bool has_pending_resumes() noexcept {
-#if ABSTRACTX_HOSTED
+#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
         return !queue_.empty();
 #else
         return !queue_.empty_from_isr();

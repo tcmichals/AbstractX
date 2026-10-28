@@ -23,7 +23,7 @@ This skill governs the exact transformation rules, type mappings, zero-heap cons
 | `async def foo(...) -> T:` | `abstractx::coro::Task<T> foo(...) noexcept` | Return stackless coroutine task |
 | `async def foo(...) -> None:` | `abstractx::coro::Task<void> foo(...) noexcept` | Void task specialization |
 | `await expr` | `co_await expr` | Cooperative yield to dispatcher |
-| `await asyncio.sleep(s)` | `co_await abstractx::coro::sleep_for(std::chrono::milliseconds(ms))` | Hardware timer awaiter |
+| `await asyncio.sleep(s)` | `co_await abstractx::hal::get_timer_driver().sleep_ms_async(ms)` | Target timer driver, resumed through the Dispatcher ([SPEC-ARCH-10], [SPEC-HAL-05]) |
 | `await bus.read_reg_async(reg)` | `co_await m_bus.read_reg_async(reg)` | Event-driven bus transaction |
 | `await bus.write_reg_async(reg, val)` | `co_await m_bus.write_reg_async(reg, val)` | Non-blocking write transaction |
 | `q = asyncio.Queue(maxsize=N)` | `abstractx::AsyncQueue<T, N> q{};` | Fixed static ring buffer (0 B heap) |
@@ -130,7 +130,7 @@ public:
 
         // Soft reset
         co_await m_bus.write_reg_async(REG_CMD, 0xB6);
-        co_await coro::sleep_for(std::chrono::milliseconds(5));
+        co_await abstractx::hal::get_timer_driver().sleep_ms_async(5);
 
         // Enable pressure and temp in normal mode
         co_await m_bus.write_reg_async(REG_PWR_CTRL, 0x33);

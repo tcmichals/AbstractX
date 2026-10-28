@@ -87,6 +87,12 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_boundary_review.py)
     add_test(NAME py_test_ipc_invariants
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_ipc_invariants.py)
+    # [SPEC-E906-IPC-02] every overlay RPMsg pool is a firmware host window
+    add_test(NAME py_test_e906_rpmsg_windows
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_e906_rpmsg_windows.py)
+    # [SPEC-ARCH-10] audit_coro_contracts.py: every public await_suspend keeps its handle
+    add_test(NAME py_test_coro_contracts
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_coro_contracts.py)
     # [SPEC-E906-IPC-04] Linux-side RPMsg <-> UDP bridge (no hardware needed)
     # [SPEC-AUDIT-09] Trac tools and evidence ledger
     add_test(NAME py_test_trac

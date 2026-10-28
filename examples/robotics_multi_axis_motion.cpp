@@ -29,6 +29,7 @@
 #include <thread>
 #include <atomic>
 #include <string>
+#include <unordered_map>
 #include <cmath>
 
 using namespace abstractx;

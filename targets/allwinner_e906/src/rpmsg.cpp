@@ -110,8 +110,8 @@ constexpr uint8_t  kRingResyncAfter = 3;
 constexpr size_t   kMaxEndpoints    = 8;
 constexpr size_t   kHdr             = sizeof(struct rpmsg_hdr);
 
-// Host physical -> E906 window that host buffers and vrings may use: the RPMsg pool
-// only ([SPEC-E906-IPC-02], [SPEC-E906-MEM-01]). Never pass an unknown address through.
+// Host physical -> E906 windows that host buffers and vrings may use: the RPMsg pools of the
+// two overlays only ([SPEC-E906-IPC-02], [SPEC-E906-MEM-01]). Never pass an unknown address through.
 // @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
 struct HostWindow {
     uint64_t  host;
@@ -119,17 +119,21 @@ struct HostWindow {
     uint32_t  size;
 };
 #if defined(__riscv)
-constexpr HostWindow s_window{0x072E0000u, 0x40020000u, 0x20000u};
+constexpr HostWindow s_windows[] = {
+    {0x48000000u, 0x48000000u, 0x100000u},  // flight-stack overlay: vdev@48000000 DDR pool (board)
+    {0x072E0000u, 0x40020000u, 0x20000u},   // SRAM-pool overlay: SRAM Space 1 upper half
+};
 #else
-HostWindow s_window{0, 0, 0};  // host tests: rpmsg_set_host_window()
+HostWindow s_windows[] = {{0, 0, 0}};  // host tests: rpmsg_set_host_window()
 #endif
 
 void *translate_buf(uint64_t host_addr, uint32_t len) {
-    if (len > s_window.size || host_addr < s_window.host ||
-        host_addr - s_window.host > s_window.size - len) {
-        return nullptr;
+    for (const HostWindow &w : s_windows) {
+        if (len <= w.size && host_addr >= w.host && host_addr - w.host <= w.size - len) {
+            return reinterpret_cast<void *>(w.core + static_cast<uintptr_t>(host_addr - w.host));
+        }
     }
-    return reinterpret_cast<void *>(s_window.core + static_cast<uintptr_t>(host_addr - s_window.host));
+    return nullptr;
 }
 
 bool setup_vq(VirtQueueLayout &vq, uint32_t da, uint32_t num, uint32_t align) {
@@ -543,7 +547,7 @@ bool is_rx_pending(Transport &t) {
 
 #if !defined(__riscv)
 void rpmsg_set_host_window(uintptr_t base, size_t size) noexcept {
-    s_window = HostWindow{base, base, static_cast<uint32_t>(size)};
+    s_windows[0] = HostWindow{base, base, static_cast<uint32_t>(size)};
 }
 #endif
 

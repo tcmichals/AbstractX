@@ -55,6 +55,7 @@ public:
      * Coroutine Awaiter: Sleep for specified microseconds asynchronously.
      * Coroutine yields to the work queue and never blocks the CPU thread.
      */
+    // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (timed waits: the driver posts the handle)
     struct SleepAwaiter {
         AsyncTimerDriver& driver;
         uint32_t          duration_us;
@@ -68,7 +69,12 @@ public:
             req.target_time_us = driver.get_time_us() + duration_us;
             req.coro_handle = handle;
             req.result_slot = &result;
-            return driver.submit_request(req);
+            // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (a refused sleep is an Error, never Ok)
+            if (!driver.submit_request(req)) {
+                result.status = TimerStatus::Error;
+                return false;
+            }
+            return true;
         }
 
         TimerResult await_resume() const noexcept { return result; }

@@ -11,11 +11,22 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 ### `[SPEC-ARCH-01]` Split-Transaction Asynchronous I/O Pipeline
 * **Requirement**: All physical peripheral interactions (SPI, UART, I2C, Timers) must be decoupled from the application thread using a split-transaction request/completion model.
 * **Mechanism**: Input Queue (Request) $\rightarrow$ Hardware DMA / ISR $\rightarrow$ Output Queue (Completion) $\rightarrow$ Coroutine Resumption.
-* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`: awaiter completion routing), `sanitizer-gate`
-* **Implementation Target**: `include/abstractx/hal/async_driver.hpp`
+* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`: awaiter completion routing; `sim/test_smp_lock.cpp`: two threads as cores, per-core nesting, MPSC ring and post paths under the shared lock), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `include/abstractx/hal/async_driver.hpp`, `include/abstractx/interrupt_lock.hpp`, `include/tlp_ring.hpp`, `include/abstractx/domain_dispatcher.hpp`
 * **Completion Correlation**: An awaiter MUST receive the result of its own request. Awaiters set `request.result_slot` to frame-owned storage and the driver writes the completion there; the shared output queue is only for callback/polling users that set no slot. Popping "the next" completion from a shared queue is forbidden.
 * **Submit Failure**: When `submit_request()` fails, the awaiter MUST set a `QueueFull` status and return `false` from `await_suspend()`. It MUST NOT call `handle.resume()` inline.
 * **Lost Wake-ups**: A failed `Dispatcher::post()`/`push()` means a coroutine will never resume. Every failure MUST be counted in `Dispatcher::dropped_resumes()`, which must stay 0 in a healthy system.
+* **Cross-core lock (SMP, 2026-10-28)**: on a bare-metal target where both cores touch the same
+  domain queue (Pico 2 W: Core 0 I/O processor and ISRs, Core 1 coroutine engine; ESP32-P4),
+  `InterruptLock` masks the local core's interrupts **and** holds one spinlock shared by the cores,
+  with the nesting depth and saved interrupt state kept **per core** (indexed by the core id). The
+  `_from_isr` paths of `MpscRingBuffer` and `Dispatcher::post()` take the same lock there (an ISR on
+  one core and a consumer on the other race exactly like two threads). The target build defines
+  `ABSTRACTX_SMP_CORES` (> 1) and `abstractx_core_id()`; single-core targets (E906) keep the plain
+  interrupt mask. The algorithm is `SmpInterruptLock<Platform>` (`include/abstractx/interrupt_lock.hpp`)
+  so the host can run it with threads as the cores. Rationale: until 2026-10-28 the bare-metal lock
+  had one global `depth_` / `saved_flags_` and excluded no other core, and ETL `queue_spsc_isr`
+  keeps a shared element counter that both sides write.
 
 ### `[SPEC-ARCH-02]` Zero Dynamic Memory Allocation (0 B Heap)
 * **Requirement**: No dynamic memory (`malloc`, `free`, `operator new`) is permitted in real-time execution paths.
@@ -123,12 +134,23 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   waiter (the count is not incremented). The woken waiter MUST NOT take another count in
   `await_resume()`; only an acquire that did not suspend decrements the count. (2026-10-28: a
   second `release()` before the waiter ran was swallowed, so two releases woke it once.)
+* **Requirement (every suspension has a waker, 2026-10-28)**: every awaiter in the public API
+  (`include/abstractx/`, `include/asp_coro.hpp`) that suspends hands its handle to something that
+  will post it: the `Dispatcher`, a driver request (`result_slot` + completion), a ring's waiter slot
+  or a wait list. An awaiter whose `await_suspend` drops the handle can only be resumed by hand, which
+  AGENTS §10.6 forbids. Timed waits use the target timer driver
+  (`co_await hal::get_timer_driver().sleep_ms_async(ms)` / `sleep_us_async(us)`, [SPEC-HAL-05]); a
+  timer request that cannot be queued completes with `TimerStatus::Error`, never `Ok`. The
+  hand-clocked protothread helpers (`delay_us(now)`, `sleep_for(now)`, `wait_until(pred)`, the
+  `AsyncDelayAwaiter` that only writes a comparator) are example code in
+  `examples/hand_clocked.hpp`, not core API. The unused ETL `TimerService` / `abstractx::sleep_ms`
+  (dropped the handle when its 32 slots were full or registration failed, then hung) is removed.
 * **Rationale**: on 2026-10-21 the E906 RPMsg RX callback pushed a character into the REPL queue and
   `try_push` resumed the REPL inline, so a MicroPython script ran inside `Rpmsg::poll()`: the vring
   buffer was never returned, host kicks stayed disabled and Ctrl-C could not arrive. AGENTS §3 already
   says `step()` is the sole context that resumes coroutines; these primitives broke it.
-* **Verified by**: `host-tests` (`sim/test_async_queue_deferred_resume.cpp`, `tests/test_coro_primitives.cpp`: `SemaphoreHandoffKeepsEveryPermit`), `e906-board-selftest` (`test_ctrl_c_interrupts_running_script`)
-* **Implementation Target**: `include/asp_coro.hpp`
+* **Verified by**: `host-tests` (`sim/test_async_queue_deferred_resume.cpp`, `tests/test_coro_primitives.cpp`: `SemaphoreHandoffKeepsEveryPermit`, `TimerSubmitFailureIsAnError`), `coro-contract-lint` (`tools/audit_coro_contracts.py`: no public awaiter drops its handle), `e906-board-selftest` (`test_ctrl_c_interrupts_running_script`)
+* **Implementation Target**: `include/asp_coro.hpp`, `include/abstractx/hal/timer.hpp`, `include/abstractx/coro.hpp`
 
 ### `[SPEC-ARCH-13]` One I/O Processor Engine in Core, Thin Per-Target Bus Back Ends
 * **Goal**: one implementation of the I/O processor message loop, fixed and tested once, instead of a

@@ -15,6 +15,11 @@ Verifies AbstractX C++20 coroutine contracts and safety invariants:
    or raw handle pointer must implement an RAII destructor that unlinks or clears the
    reference upon coroutine frame destruction/cancellation.
 4. Symmetric Transfer / Non-blocking Suspension: await_suspend must not spin or block.
+5. Every suspension has a waker ([SPEC-ARCH-10], 2026-10-28): in the public headers
+   (include/), an await_suspend whose handle parameter is unnamed or never used drops the
+   coroutine; only a hand-written .resume() could continue it. An awaiter whose handle is
+   owned elsewhere (initial_suspend: the Task object) says so on the line or the line above:
+   // waker: <who resumes it>
 """
 
 import re
@@ -54,6 +59,38 @@ NON_ATOMIC_COMBINATOR_PATTERNS = [
 
 # 3. Direct caller.resume() in combinators
 COMBINATOR_DIRECT_RESUME = re.compile(r"\bcaller\.resume\(\)")
+
+
+AWAIT_SUSPEND = re.compile(
+    r"\bawait_suspend\s*\(\s*std::coroutine_handle<[^>]*>\s*(?P<name>[A-Za-z_]\w*)?\s*\)[^{;]*\{")
+
+
+def _blank_comments(text: str) -> str:
+    return re.sub(r"//[^\n]*|/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+
+
+# @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (every suspension has a waker)
+def dropped_handles(text: str) -> list[int]:
+    """Line numbers of await_suspend bodies that never use their handle parameter."""
+    code = _blank_comments(text)
+    out = []
+    for m in AWAIT_SUSPEND.finditer(code):
+        depth, i = 0, m.end() - 1
+        for i in range(m.end() - 1, len(code)):
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+        body = code[m.end():i]
+        name = m.group("name")
+        if not name or not re.search(rf"\b{re.escape(name)}\b", body):
+            ln = code.count("\n", 0, m.start()) + 1
+            src = text.splitlines()
+            if not any("waker:" in l for l in src[max(0, ln - 2):ln]):
+                out.append(ln)
+    return out
 
 
 def check_coro_file(path: Path) -> list[str]:
@@ -122,6 +159,14 @@ def check_coro_file(path: Path) -> list[str]:
                     f"{path}: [CORO-LIFETIME-VIOLATION] {awaiter_name} registers an intrusive node but lacks an RAII destructor.\n"
                     f"    Fix: Implement ~{awaiter_name}() to unlink from list upon coroutine cancellation."
                 )
+
+    if "include" in path.parts:
+        for ln in dropped_handles(text):
+            violations.append(
+                f"{path}:{ln}: [CORO-WAKER-VIOLATION] await_suspend drops its coroutine handle.\n"
+                f"    Fix: register the handle with the Dispatcher, a driver request or a wait list "
+                f"([SPEC-ARCH-10] every suspension has a waker)."
+            )
 
     return violations
 

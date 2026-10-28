@@ -24,14 +24,67 @@
 // protect nothing. InterruptLock is a real recursive lock there.
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
 #define ABSTRACTX_HOSTED 1
-#include <atomic>
 #else
 #define ABSTRACTX_HOSTED 0
 #endif
 
+// Bare-metal targets whose cores share domain queues set ABSTRACTX_SMP_CORES (> 1) and provide
+// abstractx::abstractx_core_id() ([SPEC-ARCH-01] cross-core lock). Single-core targets leave it unset.
+#if !defined(ABSTRACTX_SMP_CORES)
+#define ABSTRACTX_SMP_CORES 1
+#endif
+#define ABSTRACTX_SMP (!ABSTRACTX_HOSTED && ABSTRACTX_SMP_CORES > 1)
+
+// The "_from_isr" shortcuts (no lock, interrupts already masked) are only safe when nothing else
+// can run at the same time: one core, no threads. Hosted and SMP builds take the lock instead.
+#define ABSTRACTX_LOCKED_ISR_PATHS (ABSTRACTX_HOSTED || ABSTRACTX_SMP)
+
+#include <atomic>
+
 namespace abstractx {
 
 using interrupt_flags_t = uint32_t;
+
+// Cross-core interrupt lock ([SPEC-ARCH-01]): mask this core's interrupts, then take one spinlock
+// shared by all cores. Depth and saved interrupt state are per core: each is written only by its
+// own core with that core's interrupts masked. Platform supplies core_id(), irq_save() and
+// irq_restore(); the host test runs it with threads as the cores.
+// @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md (cross-core lock)
+template <typename Platform, uint32_t Cores>
+class SmpInterruptLock {
+    static_assert(Cores >= 1, "at least one core");
+
+public:
+    static void lock() noexcept {
+        const interrupt_flags_t flags = Platform::irq_save();
+        const uint32_t c = Platform::core_id();
+        if (depth_[c] == 0U) {
+            while (flag_.test_and_set(std::memory_order_acquire)) {
+            }
+            saved_[c] = flags;
+        }
+        ++depth_[c];
+    }
+
+    static void unlock() noexcept {
+        const uint32_t c = Platform::core_id();
+        if (depth_[c] == 0U) {
+            return;
+        }
+        if (--depth_[c] == 0U) {
+            const interrupt_flags_t flags = saved_[c];
+            flag_.clear(std::memory_order_release);
+            Platform::irq_restore(flags);
+        }
+    }
+
+    static uint32_t depth(uint32_t core) noexcept { return depth_[core]; }
+
+private:
+    static inline std::atomic_flag flag_ = ATOMIC_FLAG_INIT;  // shared: every core; test_and_set acquire / clear release
+    static inline uint32_t depth_[Cores]{};                   // per core, own core only, its IRQs masked
+    static inline interrupt_flags_t saved_[Cores]{};          // per core, as depth_
+};
 
 #if ABSTRACTX_HOSTED
 
@@ -95,8 +148,21 @@ inline void restore_interrupts_flags(interrupt_flags_t flags) noexcept {
 #endif
 }
 
+#if ABSTRACTX_SMP
+// Target-provided: index of the calling core, 0 .. ABSTRACTX_SMP_CORES - 1.
+uint32_t abstractx_core_id() noexcept;
+
+struct BareMetalSmpPlatform {
+    static uint32_t core_id() noexcept { return abstractx_core_id(); }
+    static interrupt_flags_t irq_save() noexcept { return disable_interrupts_save_flags(); }
+    static void irq_restore(interrupt_flags_t f) noexcept { restore_interrupts_flags(f); }
+};
+
+// ETL `TAccess` policy on a multi-core target: excludes the other cores too ([SPEC-ARCH-01]).
+using InterruptLock = SmpInterruptLock<BareMetalSmpPlatform, ABSTRACTX_SMP_CORES>;
+#else
 // ETL `TAccess` policy: nesting-aware interrupt mask with exact state restore.
-// Single-core only: it does not exclude another core.
+// Single-core only: it does not exclude another core (ABSTRACTX_SMP_CORES > 1 selects the SMP lock).
 class InterruptLock {
 public:
     static void lock() noexcept {
@@ -122,6 +188,7 @@ private:
     static inline uint32_t depth_{0U};
     static inline interrupt_flags_t saved_flags_{0U};
 };
+#endif // ABSTRACTX_SMP
 
 #endif // ABSTRACTX_HOSTED
 

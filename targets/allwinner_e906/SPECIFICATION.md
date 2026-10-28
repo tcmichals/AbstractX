@@ -224,10 +224,21 @@ sequenceDiagram
     such reads in a row, the driver resyncs `last_avail_idx = avail->idx` and counts the error.
 * **Host-Controlled Addresses and Lengths Are Untrusted**:
   * `translate_buf(host_addr, len)` maps a host physical range to an E906 pointer only if the *whole*
-    range lies inside the RPMsg pool (host `0x072E0000`–`0x072FFFFF`, core `0x40020000`+,
-    [SPEC-E906-MEM-01]). Otherwise it returns `nullptr` and the descriptor is a ring error. Addresses
-    outside the pool (firmware SRAM, MMIO, DRAM) are never passed through. Host test builds
-    (non-RISC-V) register their own test window with `rpmsg_set_host_window()`.
+    range lies inside one RPMsg pool window. The windows are the two pools the overlays define, and
+    nothing else:
+    | Overlay | Pool (host) | Core address | Size |
+    | :--- | :--- | :--- | :--- |
+    | `apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso` (on the board) | `vdev@48000000` DDR carveout | `0x48000000` (same) | 1 MB |
+    | `cubie-a5e-abstractx-rpmsg-sram.dtso` | SRAM Space 1 upper half `0x072E0000` | `0x40020000` | 128 KB |
+    Otherwise it returns `nullptr` and the descriptor is a ring error. Addresses outside both pools
+    (firmware SRAM, MMIO, other DRAM) are never passed through. Host test builds (non-RISC-V)
+    register their own test window with `rpmsg_set_host_window()`.
+  * **Board fact (2026-10-28)**: kernel #10 with the flight-stack overlay places both vrings at
+    `0x48000000` / `0x48002000` (`/sys/kernel/debug/remoteproc/remoteproc0/resource_table`). From
+    `d8bcbac` to this fix the firmware accepted only the SRAM pool, so `setup_vq()` refused the vrings
+    and no channel was ever announced; every host test passed because the test window is set by the
+    test. A window change is verified on the board (`e906-board-selftest`
+    `test_three_channels_announced`), not only by host tests.
   * Every length that the host can change (`desc->len`, `rpmsg_hdr::len`) is read **once** into a
     local, bounded (`desc->len` to `RPMSG_BUFFER_SIZE`, `hdr->len` to `desc_len - sizeof(rpmsg_hdr)`),
     and only the local copy is used afterwards.

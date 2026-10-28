@@ -217,6 +217,7 @@ public:
         struct InitialAwaiter {
             promise_type& p;
             bool await_ready() const noexcept { return false; }
+            // waker: the Task object owns the handle (lazy start)
             void await_suspend(std::coroutine_handle<>) const noexcept {}
             void await_resume() const noexcept { p.started_ = true; }
         };
@@ -375,6 +376,7 @@ public:
         struct InitialAwaiter {
             promise_type& p;
             bool await_ready() const noexcept { return false; }
+            // waker: the Task object owns the handle (lazy start)
             void await_suspend(std::coroutine_handle<>) const noexcept {}
             void await_resume() const noexcept { p.started_ = true; }
         };
@@ -507,28 +509,9 @@ struct YieldAwaiter {
     void await_resume() noexcept {}
 };
 
-// Standard Asynchronous Delay / Sleep Awaiter (0 CPU Superloop Polling)
-struct AsyncDelayAwaiter {
-    uint64_t resume_at_us_{0};
-    uint64_t current_time_us_{0};
-    uint64_t* timer_comparator_reg_{nullptr};
-
-    constexpr AsyncDelayAwaiter(uint64_t resume_at_us, uint64_t current_time_us, uint64_t* timer_reg = nullptr) noexcept
-        : resume_at_us_(resume_at_us), current_time_us_(current_time_us), timer_comparator_reg_(timer_reg) {}
-
-    bool await_ready() const noexcept { return current_time_us_ >= resume_at_us_; }
-
-    void await_suspend(std::coroutine_handle<>) noexcept {
-        if (timer_comparator_reg_) {
-            *timer_comparator_reg_ = resume_at_us_;
-        }
-    }
-
-    void await_resume() noexcept {}
-};
-
-// Aliases for embedded flexibility
-using AsyncSleepAwaiter = AsyncDelayAwaiter;
+// Timed waits use the target timer driver: co_await hal::get_timer_driver().sleep_ms_async(ms)
+// ([SPEC-ARCH-10] every suspension has a waker). Hand-clocked delay / wait_until helpers for the
+// protothread examples live in examples/hand_clocked.hpp.
 
 // ============================================================================
 // 2. Generic Protothread Replacement Primitives (Zero-Heap Embedded Primitives)
@@ -537,42 +520,8 @@ using AsyncSleepAwaiter = AsyncDelayAwaiter;
 // Standard Cooperative Yield (replaces PT_YIELD)
 inline YieldAwaiter yield() noexcept { return {}; }
 
-// Standard Asynchronous Delay Helpers
-inline AsyncDelayAwaiter delay_us(uint64_t delta_us, uint64_t current_time_us, uint64_t* timer_reg = nullptr) noexcept {
-    return AsyncDelayAwaiter{current_time_us + delta_us, current_time_us, timer_reg};
-}
-
-inline AsyncDelayAwaiter delay_ms(uint64_t delta_ms, uint64_t current_time_ms, uint64_t* timer_reg = nullptr) noexcept {
-    return AsyncDelayAwaiter{current_time_ms + delta_ms, current_time_ms, timer_reg};
-}
-
-inline AsyncDelayAwaiter delay_until(uint64_t target_time, uint64_t current_time, uint64_t* timer_reg = nullptr) noexcept {
-    return AsyncDelayAwaiter{target_time, current_time, timer_reg};
-}
-
-inline AsyncDelayAwaiter sleep_until(uint64_t target_time_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
-    return AsyncDelayAwaiter{target_time_us, current_time_us, timer_comparator};
-}
-
-inline AsyncDelayAwaiter sleep_for(uint64_t delta_us, uint64_t current_time_us, uint64_t* timer_comparator = nullptr) noexcept {
-    return AsyncDelayAwaiter{current_time_us + delta_us, current_time_us, timer_comparator};
-}
-
-// Type-Safe Condition Awaiter (replaces PT_WAIT_UNTIL)
-template <typename Predicate>
-struct WaitUntilAwaiter {
-    Predicate pred_;
-    bool await_ready() const noexcept { return pred_(); }
-    void await_suspend(std::coroutine_handle<>) noexcept {}
-    void await_resume() noexcept {}
-};
-
-template <typename Predicate>
-auto wait_until(Predicate pred) noexcept {
-    return WaitUntilAwaiter<Predicate>{pred};
-}
-
 // Cooperative Event Signaling (replaces global flag synchronization)
+// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
 class Event {
 public:
     constexpr Event(bool initial_state = false) noexcept : state_(initial_state) {}
@@ -630,6 +579,7 @@ private:
 };
 
 // Cooperative Counting Semaphore (replaces pt-sem.h PT_SEM_WAIT / PT_SEM_SIGNAL)
+// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
 class Semaphore {
 public:
     explicit constexpr Semaphore(size_t initial_count = 0) noexcept : count_(initial_count) {}

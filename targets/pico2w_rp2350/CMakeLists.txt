@@ -40,8 +40,10 @@ if(COMMAND pico_sdk_init)
         hardware_sync
     )
 
+    # Two cores share domain queues: InterruptLock also excludes the other core ([SPEC-ARCH-01]).
     target_compile_definitions(abstractx_core PUBLIC
         ABSTRACTX_STATIC_TRACE_PACKETS=0
+        ABSTRACTX_SMP_CORES=2
     )
     target_compile_definitions(abstractx_target_pico2w PUBLIC
         TARGET_PICO2W_RP2350=1

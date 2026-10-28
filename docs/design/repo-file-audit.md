@@ -111,7 +111,7 @@ progress, out of scope).
 | `include/abstractx/isr_dispatcher.hpp` | keep (shim) | `include/abstractx/coro.hpp:25`; 4-line alias for `domain_dispatcher.hpp`, candidate to fold in |
 | `include/abstractx/interrupt_lock.hpp` | keep | `apps/e906_repl_app/src/e906_periph.cpp:14` |
 | `include/abstractx/platform_topology.hpp` | keep | `include/abstractx/abstractx.hpp:27` |
-| `include/abstractx/timer.hpp` | keep | `include/abstractx/coro.hpp:26` |
+| `include/abstractx/timer.hpp` | removed 2026-10-28 | unused ETL TimerService that dropped handles ([SPEC-ARCH-10]) |
 | `include/abstractx/hal/async_driver.hpp` | keep | `include/abstractx/hal/i2c.hpp:19` |
 | `include/abstractx/hal/gpio.hpp` | keep | `include/abstractx/hal/platform.hpp:23` |
 | `include/abstractx/hal/i2c.hpp`, `spi.hpp`, `uart.hpp`, `uart_rx.hpp`, `uart_status.hpp`, `io_status.hpp`, `timer.hpp`, `platform.hpp`, `io_processor.hpp` | keep | e.g. `include/abstractx/drivers/imu/icm42688p.hpp:22` (spi), `include/abstractx/hal/uart.hpp:20-21`, `include/abstractx/abstractx.hpp:22,26` |
