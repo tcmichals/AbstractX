@@ -381,8 +381,8 @@ module asp_top #(
         .o_uart_irq      ()
     );
 
-    // PIO Subsystem Tile 0 (Base: 0x40000700)
-    asp_pio_tile #(
+    // PIO Subsystem Tile 0 (Base: 0x40000700): pio2 tile behind the Wishbone -> AXI4-Lite wrapper ([SPEC-TLP-05])
+    asp_pio_wrap #(
         .BASE_ADDR(32'h40000700),
         .TILE_ID  (0)
     ) u_pio_tile (

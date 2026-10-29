@@ -231,6 +231,20 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 ---
 
 
+### `[SPEC-TLP-05]` PIO Tile Integration: AbstractX Wishbone to pio2 AXI4-Lite
+* **Requirement**: the PIO tile comes from the `rtl/pio` submodule (pio2), whose register port is
+  AXI4-Lite (pio2 `[SPEC-AXI-04]`). AbstractX keeps its Wishbone B4 classic fabric and connects through
+  `rtl/asp_pio_wrap.sv`: a classic-to-pipelined step (one request per transaction, re-armed on `ack`),
+  ZipCPU's `wbm2axilite` bridge (Apache-2.0, `rtl/pio/third_party/wb2axip`, not copied), and the tile.
+  An AXI `SLVERR` / `DECERR` comes back as an `ack` (AbstractX's fabric has no `err`). The wrapper keeps
+  the tile's former port list, so `asp_top` and the board tops change only the module name.
+* **Requirement**: every board top and the cocotb `asp_top` build read the wrapper, the bridge and the
+  submodule RTL; `git submodule update --init --recursive` fetches them.
+* **Verified by**: `cocotb-regression` (`sim-test-tlp64-top`: TLP over Dual-SPI into `asp_top`, through
+  the wrapper; `sim/cocotb/test_asp_pio_wrap_cocotb.py`: register writes and reads, classic bursts and
+  back-to-back accesses through the wrapper), `rtl-lint`, `fpga-build`
+* **Implementation Target**: `rtl/asp_pio_wrap.sv`, `rtl/asp_top.sv`
+
 ## 3. Hardware Abstraction Layer Specifications (`SPEC-HAL`)
 
 ### `[SPEC-HAL-01]` DMA/ISR Split-Queue Driver Base

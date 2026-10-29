@@ -38,6 +38,13 @@ else ifeq ($(TOPLEVEL), asp_pio_tile)
                       $(RTL_DIR)/pio/src/rtl/asp_pio_tlp_ingress.sv \
                       $(RTL_DIR)/pio/src/rtl/asp_pio_tlp_shim.sv \
                       $(RTL_DIR)/pio/src/rtl/asp_pio_tile.sv
+else ifeq ($(TOPLEVEL), asp_pio_wrap)
+    VERILOG_SOURCES = $(RTL_DIR)/pio/src/rtl/asp_pio_sm.sv \
+                      $(RTL_DIR)/pio/src/rtl/asp_pio_tlp_ingress.sv \
+                      $(RTL_DIR)/pio/src/rtl/asp_pio_tlp_shim.sv \
+                      $(RTL_DIR)/pio/src/rtl/asp_pio_tile.sv \
+                      $(RTL_DIR)/pio/third_party/wb2axip/rtl/wbm2axilite.v \
+                      $(RTL_DIR)/asp_pio_wrap.sv
 else ifeq ($(TOPLEVEL), asp_top)
     VERILOG_SOURCES = $(RTL_DIR)/asp_top.sv \
                       $(RTL_DIR)/asp_axis_fifo.sv \
@@ -53,7 +60,9 @@ else ifeq ($(TOPLEVEL), asp_top)
                       $(RTL_DIR)/pio/src/rtl/asp_pio_sm.sv \
                       $(RTL_DIR)/pio/src/rtl/asp_pio_tlp_ingress.sv \
                       $(RTL_DIR)/pio/src/rtl/asp_pio_tlp_shim.sv \
-                      $(RTL_DIR)/pio/src/rtl/asp_pio_tile.sv
+                      $(RTL_DIR)/pio/src/rtl/asp_pio_tile.sv \
+                      $(RTL_DIR)/pio/third_party/wb2axip/rtl/wbm2axilite.v \
+                      $(RTL_DIR)/asp_pio_wrap.sv
 endif
 
 # Module parameter overrides for a test variant, e.g. SIM_PARAMS=-GDUAL_SPI_ENABLE=0

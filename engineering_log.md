@@ -3198,3 +3198,19 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Found on the way**: `sim/CMakeLists.txt` registered `sim-test-pio-rtfc` (`test_asp_pio_rtfc_cocotb`), a file that was never committed; removed with the other PIO registrations.
 * **Evidence**: pio2 `tests/cocotb` 39/39 (tile 5, conformance 19, DShot 5, ESC serial 3, TLP path 7) on Verilator 5.049 via uv; AbstractX `run_cocotb.py` and `asp_top` lint (35 warnings before and after, 0 errors), gates below in the commit.
 * **Not verified**: Gowin bitstream build with the new paths (`fpga-build`); other PC's local PIO work since `559022f`, if any, must be ported to pio2.
+
+## 2026-10-29: pio2 tile register port is AXI4-Lite; AbstractX connects through asp_pio_wrap
+
+* **Category**: `process-gap` (bus change across a submodule boundary)
+* **What**: pio2 moved the tile's register port from Wishbone to AXI4-Lite (pio2 `[SPEC-AXI-04]`, all
+  inside pio2 is AXI4-Lite / AXI-Stream now). AbstractX keeps its Wishbone fabric: `rtl/asp_pio_wrap.sv`
+  ([SPEC-TLP-05]) = classic-to-pipelined step + ZipCPU `wbm2axilite` (Apache-2.0, from
+  `rtl/pio/third_party/wb2axip`, unmodified) + the tile, with the tile's former port list; `asp_top`
+  changes only the module name. Build files read the wrapper and the bridge (cocotb Makefile,
+  `gowin_synth.tcl`, `hw/Makefile`); `git submodule update --init --recursive` fetches them.
+* **Why the classic step**: `wbm2axilite` is a pipelined slave (a request is `stb && !stall`); AbstractX's
+  master holds `stb` until `ack`, so without the step every held clock would be a new request.
+  `sim/cocotb/test_asp_pio_wrap_cocotb.py` fails on that mutant (both tests).
+* **Licenses**: `docs/THIRD_PARTY.md` lists third-party code and how both the GPL and the commercial
+  route comply (Apache-2.0 text in `rtl/pio/LICENSES/`).
+* **Not verified**: Gowin place and route / bitstream; board.

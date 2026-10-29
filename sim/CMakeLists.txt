@@ -123,13 +123,14 @@ add_cocotb_test(sim-test-dshot-50m    asp_dshot_core    test_asp_dshot_core_coco
 add_cocotb_test(sim-test-neopixel-27m asp_neopixel_core test_asp_neopixel_core_cocotb SIM_PARAMS=-GCLK_FREQ_HZ=27000000)
 add_cocotb_test(sim-test-neopixel-12m asp_neopixel_core test_asp_neopixel_core_cocotb SIM_PARAMS=-GCLK_FREQ_HZ=12000000)
 add_cocotb_test(sim-test-neopixel-50m asp_neopixel_core test_asp_neopixel_core_cocotb)
+add_cocotb_test(sim-test-pio-wrap     asp_pio_wrap      test_asp_pio_wrap_cocotb)
 # The PIO tile's own regression (tile, conformance, DShot, ESC serial, TLP path) lives in the
 # rtl/pio submodule (pio2): cd rtl/pio/tests/cocotb && uv run make MODULE=<test>. asp_top above
 # still builds the PIO RTL from the submodule.
 
 # Run all defined simulation targets
 add_custom_target(sim-test-all
-    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite sim-test-dshot-27m sim-test-dshot-12m sim-test-dshot-50m sim-test-neopixel-27m sim-test-neopixel-12m sim-test-neopixel-50m
+    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite sim-test-dshot-27m sim-test-dshot-12m sim-test-dshot-50m sim-test-neopixel-27m sim-test-neopixel-12m sim-test-neopixel-50m sim-test-pio-wrap
     COMMENT "All simulation regression suites complete."
 )
 
