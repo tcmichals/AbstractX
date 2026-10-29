@@ -22,7 +22,8 @@ enum class MailboxStatus : uint8_t {
     Ok = 0,
     Timeout = 1,
     ChannelBusy = 2,
-    QueueFull = 3
+    QueueFull = 3,
+    NotSupported = 4   // [SPEC-ESP32P4-HAL-00]: no driver behind this mailbox yet
 };
 
 struct MailboxResult {

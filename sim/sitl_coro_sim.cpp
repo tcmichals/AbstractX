@@ -275,8 +275,9 @@ int main() {
     while (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - sim_start).count() < 500) {
         auto now = std::chrono::steady_clock::now();
 
-        // 1. Process all completed TLP packets from RX ring (resumes awaiting coroutines)
+        // 1. Match completed TLPs to their awaiters (posted), then run them like abstractx::step()
         io_engine.poll_completions();
+        while (Dispatcher::has_pending_resumes()) Dispatcher::process();
 
         // 2. Schedule 50 Hz Barometer task (every 20 ms)
         if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_baro_time).count() >= 20) {

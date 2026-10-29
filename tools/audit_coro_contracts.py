@@ -20,6 +20,9 @@ Verifies AbstractX C++20 coroutine contracts and safety invariants:
    coroutine; only a hand-written .resume() could continue it. An awaiter whose handle is
    owned elsewhere (initial_suspend: the Task object) says so on the line or the line above:
    // waker: <who resumes it>
+6. Who may resume ([SPEC-ARCH-10], 2026-10-29): in include/ and src/, every `.resume()` call is
+   either Dispatcher::process() or the start of a task that has never run, and says so with
+   `// resume: <why>` on the line or the line above. Completion paths post to the Dispatcher.
 """
 
 import re
@@ -67,6 +70,19 @@ AWAIT_SUSPEND = re.compile(
 
 def _blank_comments(text: str) -> str:
     return re.sub(r"//[^\n]*|/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+
+
+# @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (who may call .resume())
+def unannotated_resumes(text: str) -> list[int]:
+    """Line numbers of .resume() calls with no `// resume:` note on the line or the line above."""
+    code = _blank_comments(text)
+    src = text.splitlines()
+    out = []
+    for m in re.finditer(r"(?:\b\w+|\))\s*(?:\.|->)\s*resume\s*\(\s*\)", code):
+        ln = code.count("\n", 0, m.start()) + 1
+        if not any("resume:" in l for l in src[max(0, ln - 2):ln]):
+            out.append(ln)
+    return out
 
 
 # @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (every suspension has a waker)
@@ -159,6 +175,14 @@ def check_coro_file(path: Path) -> list[str]:
                     f"{path}: [CORO-LIFETIME-VIOLATION] {awaiter_name} registers an intrusive node but lacks an RAII destructor.\n"
                     f"    Fix: Implement ~{awaiter_name}() to unlink from list upon coroutine cancellation."
                 )
+
+    if "include" in path.parts or "src" in path.parts:
+        for ln in unannotated_resumes(text):
+            violations.append(
+                f"{path}:{ln}: [CORO-RESUME-VIOLATION] .resume() outside the Dispatcher with no `// resume:` reason.\n"
+                f"    Fix: post completions with Dispatcher::push(); only starting a never-run task may resume "
+                f"([SPEC-ARCH-10] who may call .resume())."
+            )
 
     if "include" in path.parts:
         for ln in dropped_handles(text):

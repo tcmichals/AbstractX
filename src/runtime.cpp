@@ -297,6 +297,7 @@ bool spawn(coro::Task<void> task) noexcept {
     // Kick off the coroutine into the cooperative scheduler
     {
         stats::ResumeScope charge(g_tasks.back().handle().address());  // [SPEC-TRACE-08]
+        // resume: spawn() starts a never-run task ([SPEC-ARCH-10])
         g_tasks.back().resume();
     }
     return true;
@@ -362,6 +363,7 @@ void run(coro::Task<void> main_app_task) {
         init();
     }
 
+    // resume: start the never-run main task ([SPEC-ARCH-10])
     main_app_task.resume();
 
     while (!main_app_task.done()) {

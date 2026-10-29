@@ -318,6 +318,7 @@ public:
 
     bool resume() {
         if (handle_ && !handle_.done()) {
+            // resume: Task<T>::resume(): the owner starts the task (examples, spawn)
             handle_.resume();
             return !handle_.done();
         }
@@ -469,6 +470,7 @@ public:
 
     bool resume() {
         if (handle_ && !handle_.done()) {
+            // resume: Task<void>::resume(): the owner starts the task (examples, spawn)
             handle_.resume();
             return !handle_.done();
         }
@@ -741,6 +743,7 @@ private:
 // 3. Coroutine I/O Engine & TLP Split-Transaction Dispatcher
 // ============================================================================
 
+// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (completions are posted, never resumed inline)
 class CoroutineIoEngine {
 public:
     static constexpr size_t MAX_PENDING_TAGS = 256;
@@ -795,7 +798,7 @@ public:
                     latest_stream_tlp_[ch] = tlp;
                     auto coro = stream_awaiters_[ch];
                     stream_awaiters_[ch] = nullptr;
-                    coro.resume();
+                    (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
                 }
                 continue;
             }
@@ -807,7 +810,7 @@ public:
                 pending_requests_[tag].active = false;
                 auto coro = pending_requests_[tag].awaiting_coro;
                 pending_requests_[tag].awaiting_coro = nullptr;
-                coro.resume();
+                (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
             }
         }
 
@@ -884,11 +887,21 @@ public:
 
         bool await_ready() const noexcept { return false; }
 
-        void await_suspend(std::coroutine_handle<> coro) {
-            engine.register_stream_awaiter(static_cast<uint8_t>(channel), coro);
+        bool refused{false};
+
+        // One waiter per channel: a second one is refused (empty TLP) instead of overwriting the first.
+        bool await_suspend(std::coroutine_handle<> coro) {
+            const auto ch = static_cast<uint8_t>(channel);
+            if (ch >= 8 || engine.stream_awaiters_[ch]) {
+                refused = true;
+                return false;
+            }
+            engine.register_stream_awaiter(ch, coro);
+            return true;
         }
 
         Tlp64 await_resume() noexcept {
+            if (refused) return Tlp64{};
             return engine.latest_stream_tlp_[static_cast<uint8_t>(channel)];
         }
     };
@@ -974,6 +987,7 @@ private:
     template <size_t Index>
     void start_one() {
         auto& task = std::get<Index>(tasks_);
+        // resume: when_all starts a child ([SPEC-ARCH-11])
         task.resume();
     }
 
@@ -1025,12 +1039,14 @@ public:
             [](void* self) noexcept { static_cast<WhenAnyAwaiter*>(self)->notify_winner(1); }, this};
 
         // Start t1.
+        // resume: when_any starts its first child ([SPEC-ARCH-11])
         t1_.resume();
         if (ready_index_.load(std::memory_order_acquire) != -1) {
             return false;
         }
 
         // Start t2.
+        // resume: when_any starts its second child ([SPEC-ARCH-11])
         t2_.resume();
 
         int prev = stage_.exchange(1, std::memory_order_acq_rel);

@@ -149,6 +149,22 @@ When implementing HAL drivers under `targets/esp32p4/src/`, AI agents must use s
 ### 3.5 Inter-Core Doorbell
 * **Header**: `#include "esp_ipc.h"` or FreeRTOS task notification across pinned cores (`xTaskNotifyFromISR`).
 
+### `[SPEC-ESP32P4-HAL-00]` Not Implemented Means NotSupported, Never Ok
+* **Requirement**: until a section 3 recipe is implemented, the ESP32-P4 HAL stub for it refuses
+  instead of pretending: `Esp32p4Spi::init()` returns `false` and every transfer completes with
+  `SpiStatus::NotSupported` and 0 bytes; `Esp32p4Mailbox::send_doorbell()` returns `false` and a
+  queued doorbell completes with `MailboxStatus::NotSupported`; a timer sleep completes with
+  `TimerStatus::Error`. Each completion goes through `push_completion_from_isr()` so the awaiting
+  coroutine is resumed ([SPEC-HAL-01]).
+* **Requirement (cores)**: the ESP32-P4 build sets `ABSTRACTX_SMP_CORES=2` and provides
+  `abstractx_core_id()` (from the ESP-IDF core-id call) once both cores share domain queues
+  ([SPEC-ARCH-01] cross-core lock).
+* **Rationale (2026-10-28)**: the SPI stub reported `Ok` with `tx_data.size()` bytes for a transfer
+  that never happened and the mailbox reported every doorbell as sent, so a missing driver looked
+  like a working one.
+* **Verified by**: `host-tests` (`sim/test_esp32p4_stubs.cpp`: the stubs compiled on the host)
+* **Implementation Target**: `targets/esp32p4/src/hal_spi.cpp`, `targets/esp32p4/src/hal_mailbox.cpp`, `targets/esp32p4/src/hal_timer.cpp`
+
 ### `[SPEC-ESP32P4-TRACE-01]` Zero-Copy Trace & Telemetry over UDP
 * **Requirement**: The ESP32-P4 side of `[SPEC-TRACE-07]` (`docs/DESIGN_SPECIFICATION.md`), using the
   ESP-IDF lwIP raw API exactly as `[SPEC-PICO-TRACE-01]`:

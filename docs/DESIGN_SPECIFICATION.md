@@ -134,6 +134,13 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   waiter (the count is not incremented). The woken waiter MUST NOT take another count in
   `await_resume()`; only an acquire that did not suspend decrements the count. (2026-10-28: a
   second `release()` before the waiter ran was swallowed, so two releases woke it once.)
+* **Requirement (who may call `.resume()`, 2026-10-29)**: in `include/` and `src/` only these call
+  `.resume()`: `Dispatcher::process()` (every wake), and code that *starts* a task that has never
+  run (`Task::resume()`, `abstractx::spawn()` / `run()`, `when_all` / `when_any` starting their
+  children). Each such line says so with `// resume: <why>`. Every completion path (drivers, rings,
+  I/O engines such as `CoroutineIoEngine::poll_completions()`) posts with `Dispatcher::push()` /
+  `post()`. Rationale: `CoroutineIoEngine` resumed the awaiting coroutine inside
+  `poll_completions()`, and the lint only looked at lines that mention `await_` or `notify_`.
 * **Requirement (every suspension has a waker, 2026-10-28)**: every awaiter in the public API
   (`include/abstractx/`, `include/asp_coro.hpp`) that suspends hands its handle to something that
   will post it: the `Dispatcher`, a driver request (`result_slot` + completion), a ring's waiter slot

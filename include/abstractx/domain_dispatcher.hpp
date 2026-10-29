@@ -106,6 +106,7 @@ public:
             if (is_resumable(handle) && !handle.done()) {
                 // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
                 stats::ResumeScope charge(handle.address());
+                // resume: the Dispatcher is the one place that wakes coroutines ([SPEC-ARCH-10])
                 handle.resume();
             }
         }

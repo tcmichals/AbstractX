@@ -14,6 +14,7 @@
 
 namespace abstractx::hal {
 
+// @impl [SPEC-ESP32P4-HAL-00] targets/esp32p4/SPECIFICATION.md (no alarm driver yet: sleeps fail)
 class Esp32p4Timer : public ITimer {
 public:
     void delay_us(uint32_t us) override {
@@ -46,6 +47,14 @@ public:
 #else
         return 0;
 #endif
+    }
+
+protected:
+    void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
+        TimerResult result{};
+        result.status = TimerStatus::Error;
+        push_completion_from_isr(req, result);
+        set_hardware_idle_from_isr();
     }
 };
 

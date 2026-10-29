@@ -10,11 +10,12 @@
 namespace abstractx::hal {
 
 // @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
+// @impl [SPEC-ESP32P4-HAL-00] targets/esp32p4/SPECIFICATION.md (no GDMA driver yet: refuse)
 class Esp32p4Spi : public ISpi {
 public:
     bool init(const SpiConfig& config) override {
         (void)config;
-        return true;
+        return false;
     }
 
     void select(bool active) override {
@@ -24,10 +25,9 @@ public:
 
 protected:
     void start_hardware_transfer_from_isr(const SpiRequest& req) noexcept override {
-        // ESP32-P4 GDMA SPI driver trigger
         SpiResult result{};
-        result.status = SpiStatus::Ok;
-        result.transferred_bytes = req.tx_data.size();
+        result.status = SpiStatus::NotSupported;
+        result.transferred_bytes = 0;
         push_completion_from_isr(req, result);
         set_hardware_idle_from_isr();
     }

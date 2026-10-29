@@ -197,7 +197,7 @@ Open:
 - [ ] Board: run `e906_bench_app` and `e906_freertos_app` (bench tests skipped), and the rest of EL-1027-30 (serial_loopback on header pins, TWI1 new CCR).
 - [ ] E906 SRAM_FAST budget for `e906_repl_app` in `[SPEC-E906-MEM-01]` (EL-1027-29).
 - [x] `delay_*` / `sleep_*` / `wait_until` moved to `examples/hand_clocked.hpp` (they keep no handle); TimerService removed; refused timer sleep reports `Error`; lint check for dropped handles ([SPEC-ARCH-10]).
-- [ ] `CoroutineIoEngine` (`asp_coro.hpp`) resumes coroutines inline in `poll_completions()`; only `sim/sitl_coro_sim.cpp` uses it. Remove or route through the Dispatcher.
+- [x] `CoroutineIoEngine::poll_completions()` posts through the Dispatcher; second stream waiter refused; lint check 6 (every `.resume()` needs a `// resume:` reason) ([SPEC-ARCH-10]).
 - [x] Pico 2 W cross-core lock: `SmpInterruptLock` (per-core depth/saved state + shared spinlock), `_from_isr` paths locked on SMP, `ABSTRACTX_SMP_CORES=2` on the Pico ([SPEC-ARCH-01]); `sim/test_smp_lock.cpp`. Not run on RP2350 silicon.
 - [x] `inav_e906_app` removed upstream (`2b3970a`, EL-1027-02). Was: no `SPECIFICATION.md`; links `malloc`/`strtod` (`atof` in the NMEA parser); `now_ns = ticks * 1000` (24 MHz ticks, ~24x off); its own ICM-42688 / compass / GPS drivers duplicate `applib/` and are not `IImuDriver`/`IMagDriver`; superloop with blocking SPI/I2C and `delay_ms`.
 - [ ] `e906_repl_app` already links `_malloc_r` / `free` (also in the 2026-10-25 build): find the caller. Same as EL-1027-31 (deferred by the project owner, 2026-10-27).
@@ -205,7 +205,8 @@ Open:
 - [ ] DShot register map: `pcie_bar_map.hpp` `reg::esc` puts Motor1 at 0x08 (RTL: throttles at 0x10..0x1C, no telemetry registers); `asp_tlp64.h` `ASP_ADDR_DSHOT_BASE` 0x40000300 is the PWM decoder (RTL DShot is 0x40000200). `check_register_parity.py` does not cover it.
 - [ ] PIO / ESC pin mux (in progress upstream as EL-1027-20, [SPEC-PIO-*]; check `rtl/pio/SPECIFICATION.md` before working on it): `asp_top` leaves `u_pio_tile.o_gpio_out` / `o_gpio_pindir` unconnected; motor pins are output-only from `asp_dshot_core` (no output enable, no DShot / serial passthrough / PIO select register, no bidirectional DShot receive); Zynq top has no PIO; no C++ driver for DShot, PIO or the mux. Spec the pin-ownership state machine first (`rtl/pio/SPECIFICATION.md`, Tang Nano 20K and Zynq specs).
 - [ ] Python duplicates: `flight_sensors.py`, `sensor_contract.py` exist in `applib/python/drivers/` and `apps/e906_repl_app/`. Linux `spi_worker.hpp` / `hal_uart.cpp` embed ICM-42688 / UBX simulators in the target HAL (move to `sim/`).
-- [ ] ESP32-P4 stubs report `Ok` without doing anything; return `NotSupported`. Also set `ABSTRACTX_SMP_CORES=2` there when the target builds.
+- [x] ESP32-P4 stubs refuse (SPI/mailbox `NotSupported`, sleep `Error`; timer stub was abstract) ([SPEC-ESP32P4-HAL-00], `sim/test_esp32p4_stubs.cpp`).
+- [ ] ESP32-P4: set `ABSTRACTX_SMP_CORES=2` + `abstractx_core_id()` when both cores share queues; no ESP-IDF build has been run.
 - [ ] SpecTrace (EL-1027-32): 65 `@verifies` claims after the merge with upstream with no test behind them (`--check-verifies`); `audit_specs.py` only reads `docs/DESIGN_SPECIFICATION.md` (47 of 221 requirements).
 
 ---

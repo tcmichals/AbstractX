@@ -3179,3 +3179,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   * `test_streamer_keeps_running_with_heartbeat`: "NMEA sentences failed their checksum" (26.6 s).
   * `test_profiler_and_timeline_when_idle`: "1021 idle spans: sample interrupts woke the loop" (old firmware: 1028).
 * **Not verified**: the SRAM-pool overlay on silicon; the two failures above (open in TODO).
+
+## 2026-10-29: CoroutineIoEngine resumed inline; lint only looked near `await_`; ESP32-P4 stubs reported Ok
+
+* **Category**: `product-bug` (CoroutineIoEngine, ESP32-P4 stubs), `tool-bug` (coro lint)
+* **Symptoms**: `CoroutineIoEngine::poll_completions()` (`asp_coro.hpp`) called `coro.resume()` for every matched completion and stream packet: the awaiting coroutine ran inside the poll, the pattern [SPEC-ARCH-10] forbids. A second `async_await_stream()` on one channel overwrote the first waiter's handle (the first never woke). ESP32-P4: `Esp32p4Spi::init()` returned `true` and every transfer completed `Ok` with `tx_data.size()` bytes; `Esp32p4Mailbox::send_doorbell()` returned `true`; `Esp32p4Timer` did not implement `start_hardware_transfer_from_isr()`, so it was abstract and could not even be instantiated.
+* **Which check should have caught it**: `audit_coro_contracts.py` flagged a direct `.resume()` only on lines containing `await_` or `notify_`; `coro.resume()` inside `poll_completions()` matched neither. No ESP32-P4 source is compiled anywhere outside ESP-IDF.
+* **Spec**: `[SPEC-ARCH-10]` "who may call `.resume()`" (only the Dispatcher and the start of a never-run task, each marked `// resume:`); new `[SPEC-ESP32P4-HAL-00]` (not implemented = NotSupported / Error, completed through the driver).
+* **Fix**: `poll_completions()` posts with `Dispatcher::push()`; a second stream waiter is refused (empty TLP); `sim/sitl_coro_sim.cpp` pumps the Dispatcher after polling. Lint check 6: every `.resume()` in `include/` and `src/` needs a `// resume:` reason (8 legitimate sites annotated). ESP32-P4 stubs refuse; `MailboxStatus::NotSupported` added.
+* **Regression tests (fail on the old code)**: `sim/test_coroutine_io_engine.cpp` (old header: `Assertion 'resumes == 0 && !t.done()' failed`); `tests/test_coro_contracts.py` (resume cases; old tree: 10 unannotated sites incl. the 2 inline wakes); `sim/test_esp32p4_stubs.cpp` (old stubs: `cannot declare variable 'timer' to be of abstract type 'Esp32p4Timer'`, and `Assertion '!spi.init(SpiConfig{})' failed`).
+* **Not verified**: the ESP32-P4 stubs under ESP-IDF (no IDF build here).

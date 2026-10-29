@@ -57,6 +57,35 @@ def test_comment_mentioning_the_name_does_not_count():
     assert acc.dropped_handles(src) == [1]
 
 
+RESUMES = """
+void poll() {
+    auto coro = slot;
+    coro.resume();
+}
+void process() {
+    // resume: the Dispatcher wakes coroutines
+    handle.resume();
+}
+void start() { task.resume();  // resume: start a never-run task
+}
+// coro.resume() in a comment is not a call
+"""
+
+
+def test_unannotated_resumes_are_found():
+    assert acc.unannotated_resumes(RESUMES) == [4]
+
+
+def test_core_has_no_unannotated_resume():
+    root = Path(__file__).resolve().parent.parent
+    hits = []
+    for base in ("include", "src"):
+        for p in sorted((root / base).rglob("*")):
+            if p.suffix in (".hpp", ".cpp", ".h"):
+                hits += [(p.name, ln) for ln in acc.unannotated_resumes(p.read_text(encoding="utf-8", errors="ignore"))]
+    assert hits == [], hits
+
+
 def test_public_headers_have_no_dropped_handle():
     root = Path(__file__).resolve().parent.parent / "include"
     hits = []
@@ -70,4 +99,6 @@ if __name__ == "__main__":
     test_registered_or_waived_handles_pass()
     test_comment_mentioning_the_name_does_not_count()
     test_public_headers_have_no_dropped_handle()
+    test_unannotated_resumes_are_found()
+    test_core_has_no_unannotated_resume()
     print("[PASS] audit_coro_contracts dropped handle")

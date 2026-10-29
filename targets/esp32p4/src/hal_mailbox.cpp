@@ -9,6 +9,7 @@
 
 namespace abstractx::hal {
 
+// @impl [SPEC-ESP32P4-HAL-00] targets/esp32p4/SPECIFICATION.md (no inter-core doorbell yet: refuse)
 class Esp32p4Mailbox : public IMailbox {
 public:
     void init() override {}
@@ -16,7 +17,7 @@ public:
     bool send_doorbell(uint32_t channel, uint32_t message) override {
         (void)channel;
         (void)message;
-        return true;
+        return false;
     }
 
     void register_receiver(uint32_t channel, MailboxCallback callback, void* context) override {
@@ -32,9 +33,8 @@ public:
 
 protected:
     void start_hardware_transfer_from_isr(const MailboxTxRequest& req) noexcept override {
-        send_doorbell(req.channel, req.message);
         MailboxResult result{};
-        result.status = MailboxStatus::Ok;
+        result.status = MailboxStatus::NotSupported;
         result.channel = req.channel;
         result.message = req.message;
         push_completion_from_isr(req, result);
