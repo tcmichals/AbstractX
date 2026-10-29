@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793272787387,
+  "lastUpdate": 1793274406987,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -3767,6 +3767,240 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/4289a958ca8e7fc4b4c16e0354cb9fe897833978"
         },
         "date": 1793272786458,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 93300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 52968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 145660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 6640,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 362076,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 152300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 355436,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "b239002261e93458bdd0349efa0e2768e2f98a22",
+          "message": "refactor(pio): move the PIO tile to its own repo (pio2); rtl/pio is now a submodule\n\nThe PIO block now lives in https://github.com/tcmichals/pio2 (owner decision,\n2026-10-29): it gets its own tools, docs and a visual single-step debugger\n(Verilator + imgui-bundle, rtl/pio/docs/debugger.md) without loading AbstractX.\nSubmodule rtl/pio at pio2 3b6b9d8.\n\nMoved (provenance in rtl/pio/docs/provenance.md): rtl/pio/*.sv, programs,\nSPECIFICATION.md ([SPEC-PIO-*]), README.md, tools/pio_programs.py,\ntools/pio_examples.py, tools/dshot_ref.py, sim/cocotb/test_asp_pio_{,conformance_,\ndshot_,esc_serial_,tlp_path_}cocotb.py.\n\nKept and repointed: asp_top builds the tile from rtl/pio/src/rtl (cocotb\nMakefile, hw/common/gowin_synth.tcl, hw/Makefile dependency wildcard, rtl-lint\ninclude path); docs and the barectf SPEC-PIO-07 note point into the submodule.\nRemoved the sim-test-pio-rtfc registration: its test file never existed.\n\nResults\n- pio2 tests/cocotb (uv, cocotb 2.1.0, Verilator 5.049): 39/39 (tile 5,\n  conformance 19, DShot 5, ESC serial 3, TLP path 7)\n- AbstractX tools/run_cocotb.py: 16/16 targets pass (incl. asp_top with the\n  submodule RTL)\n- verilator --lint-only -Wall asp_top: 35 warnings before and after, 0 errors\n- make -f hw/Makefile tang_nano20k.json (Yosys 0.66 synth_gowin): rc 0\n- audit_specs, --check-drift, --check-skills, --check-tests (0 orphans),\n  boundary_review --check: rc 0; --check-verifies 63 (was 64)\n\nNot verified: place and route / bitstream (fpga-fit, fpga-build); CI checkout\nof the submodule (pio2 cloned over https without credentials here).\nOther PC: port any local PIO changes since 559022f to pio2 before pulling.",
+          "timestamp": "2026-10-29T06:39:37-05:00",
+          "tree_id": "1f1311ab738637d6eee6f745e575f5aabc531e0b",
+          "url": "https://github.com/tcmichals/AbstractX/commit/b239002261e93458bdd0349efa0e2768e2f98a22"
+        },
+        "date": 1793274406143,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
