@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793227948709,
+  "lastUpdate": 1793232009869,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Test Execution Metrics": [
@@ -5759,6 +5759,390 @@ window.BENCHMARK_DATA = {
           {
             "name": "spectrace:matrix verified_pct",
             "value": 14.7,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "7be72793ecd382e91b416996a5039abc017cef8a",
+          "message": "fix(e906,core): RPMsg never announced since d8bcbac; awaiters without a waker; cross-core lock; first board run\n\nE906 RPMsg [SPEC-E906-IPC-02] (found on the board)\n- Since d8bcbac every e906_repl_app booted but Linux created no channel:\n  translate_buf() accepted only the SRAM pool 0x072E0000, while the board's\n  cubie-a5e-flight-stack-e906 overlay puts the vrings at vdev@48000000 (DDR,\n  1 MB; resource table vring0 0x48000000, vring1 0x48002000), so setup_vq()\n  refused them. Bisected on the board: d8bcbac~1 announces, d8bcbac and every\n  later main (2dfa62a 2b3970a 75001f8 15f125c 559022f) do not.\n- s_windows[] = both overlay pools, nothing else.\n- tests/test_e906_rpmsg_windows.py: every overlay shared-dma-pool must be a\n  firmware window (old rpmsg.cpp: \"firmware refuses these RPMsg pools: ...\n  flight-stack-e906.dtso: pool 0x48000000+0x100000; ...\").\n\nCoroutines [SPEC-ARCH-10]\n- delay_* / sleep_* / wait_until / AsyncDelayAwaiter kept no handle (only a\n  hand-written resume could continue them): moved to examples/hand_clocked.hpp.\n  Unused TimerService (dropped handles when full) removed. Skill and article\n  pointed at a non-existent coro::sleep_for(chrono): now the timer driver.\n- AsyncTimerDriver::SleepAwaiter: refused submit reported Ok, now Error\n  (TimerSubmitFailureIsAnError; old header: Failure in that TEST).\n- audit_coro_contracts.py check 5: public await_suspend that drops its handle\n  (tests/test_coro_contracts.py; old asp_coro.hpp: 4 hits).\n\nCross-core lock [SPEC-ARCH-01]\n- Bare-metal InterruptLock had one global depth/saved state and excluded no\n  other core. SmpInterruptLock<Platform, Cores> (per-core depth/saved state +\n  shared spinlock); _from_isr shortcuts take the lock on SMP\n  (ABSTRACTX_LOCKED_ISR_PATHS); Pico 2 W ABSTRACTX_SMP_CORES=2,\n  abstractx_core_id() = get_core_num(). E906 unchanged (single core).\n- sim/test_smp_lock.cpp, two threads as cores. Old algorithm\n  (-DABSTRACTX_TEST_LEGACY_LOCK): \"exclusion: counter 398348 of 400000,\n  overlap 1\", \"shared queue: 57001 of 100000 items, in order 0\". New: pass.\n\nAlso: two examples relied on <unordered_map> from the removed header; TODO\nreconciled with the other PC's tracker EL-1027-NN.\n\nResults (this tree)\n- Board (Cubie A5E, kernel #10 SMP PREEMPT_RT, overlays\n  cubie-a5e-flight-stack-e906 cubie-a5e-msgbox-txirq), e906_repl_app from this\n  tree at -O2: run_board_tests.py 31 passed, 2 failed, 2 skipped (bench\n  firmware not loaded); docs/verification/evidence/e906_selftest_20261028.json.\n  The 2 failures also fail on the board's previous firmware (2026-10-24):\n  test_streamer_keeps_running_with_heartbeat (\"NMEA sentences failed their\n  checksum\"), test_profiler_and_timeline_when_idle (\"1021 idle spans: sample\n  interrupts woke the loop\"; old firmware 1028). Open in TODO.\n  Board restored afterwards (riscv-firmware.elf, original e906_repl_app.elf).\n- ctest host 79/79, ASan/UBSan 79/79, TSan 79/79, 0 sanitizer reports;\n  --repeat until-fail:20 smp_lock|uart_rx_ring|wake_handshake|coro_primitives\n  host/ASan/TSan 4/4 (TSan 896 s).\n- E906 -O2: analyze_elf_size.sh e906_repl_app SRAM 192.0 KB used 174.5 KB\n  free 17.5 KB 90.9%; no LOAD segment at 0x48000000+ (DRAM 0); layout ok for\n  e906_repl_app 173828/408/50676, gps_imu_app 95438/424/49436,\n  serial_loopback_app 56098/380/45760, e906_bench_app 61636/384/47164,\n  e906_freertos_app 66482/392/58852 (text/data/bss).\n- Pico 2 W build ok with ABSTRACTX_SMP_CORES=2.\n- audit_specs, --check-drift, --check-skills, audit_boundaries,\n  audit_interfaces, audit_coro_contracts, boundary_review --check,\n  audit_ipc_invariants: rc 0. --check-verifies 64 (main: 65). 0 untraced.\n  Matrix 57 verified, 113 stale, 0 failing of 232.\n\nboundary-race-review: SmpInterruptLock flag_ shared by all cores\n(test_and_set acquire / clear release); depth_/saved_ per core, written by\ntheir own core with its IRQs masked; nested lock never re-enables early\n(tested); ISR on one core vs consumer on the other now both lock.\n\nNot verified\n- SMP lock on RP2350 silicon (Core 1 not launched yet); ESP32-P4 has no SMP\n  define. SRAM-pool overlay on silicon. Bench / FreeRTOS firmware board tests.",
+          "timestamp": "2026-10-28T18:51:47-05:00",
+          "tree_id": "d9175c56495ce1540c0b4c9904cf60be3c23b1dc",
+          "url": "https://github.com/tcmichals/AbstractX/commit/7be72793ecd382e91b416996a5039abc017cef8a"
+        },
+        "date": 1793232009198,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "board:e906:repl-system announce_abstractx-repl",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-tlp",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-trace",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system idle_no_recipient",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system new_no_recipient",
+            "value": 8,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_bounded",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_idle_silent",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system plane_isolation",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system repl_text",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_64B_all_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_payload_sequence",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps_valid",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_ctf_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_datagrams",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors duration_s",
+            "value": 5.22,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_3d_fix_acquired",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_serial_115200_active",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors i2c_compass_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors vector_synthesis_verified",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_received",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_attitude",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_gps",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_mag",
+            "value": 28,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_valid_64b",
+            "value": 84,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout seq_monotonic_rate",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_gps_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_yaw_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests_failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan passed",
+            "value": 79,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan test_time_s",
+            "value": 25.71,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan tests",
+            "value": 79,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan passed",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan test_time_s",
+            "value": 0.52,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan tests",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug passed",
+            "value": 79,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug test_time_s",
+            "value": 26.63,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug tests",
+            "value": 79,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host passed",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host test_time_s",
+            "value": 1.09,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host tests",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan passed",
+            "value": 79,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan test_time_s",
+            "value": 41.23,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan tests",
+            "value": 79,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer passed",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer tests",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint critical_warnings",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check multi_driver_modules",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix broken",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix failing",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix implemented",
+            "value": 31,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix partial",
+            "value": 5,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix spec_only",
+            "value": 26,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix stale",
+            "value": 113,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix total",
+            "value": 232,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified",
+            "value": 57,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified_pct",
+            "value": 24.6,
             "unit": "%"
           }
         ]
