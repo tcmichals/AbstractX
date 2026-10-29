@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793227946364,
+  "lastUpdate": 1793232006252,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -3299,6 +3299,240 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/291ed11362d3af501e3c9e71b827987ec5444e7a"
         },
         "date": 1793227945452,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 93300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 52968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 145660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 6640,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 362076,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 152300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 355436,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "7be72793ecd382e91b416996a5039abc017cef8a",
+          "message": "fix(e906,core): RPMsg never announced since d8bcbac; awaiters without a waker; cross-core lock; first board run\n\nE906 RPMsg [SPEC-E906-IPC-02] (found on the board)\n- Since d8bcbac every e906_repl_app booted but Linux created no channel:\n  translate_buf() accepted only the SRAM pool 0x072E0000, while the board's\n  cubie-a5e-flight-stack-e906 overlay puts the vrings at vdev@48000000 (DDR,\n  1 MB; resource table vring0 0x48000000, vring1 0x48002000), so setup_vq()\n  refused them. Bisected on the board: d8bcbac~1 announces, d8bcbac and every\n  later main (2dfa62a 2b3970a 75001f8 15f125c 559022f) do not.\n- s_windows[] = both overlay pools, nothing else.\n- tests/test_e906_rpmsg_windows.py: every overlay shared-dma-pool must be a\n  firmware window (old rpmsg.cpp: \"firmware refuses these RPMsg pools: ...\n  flight-stack-e906.dtso: pool 0x48000000+0x100000; ...\").\n\nCoroutines [SPEC-ARCH-10]\n- delay_* / sleep_* / wait_until / AsyncDelayAwaiter kept no handle (only a\n  hand-written resume could continue them): moved to examples/hand_clocked.hpp.\n  Unused TimerService (dropped handles when full) removed. Skill and article\n  pointed at a non-existent coro::sleep_for(chrono): now the timer driver.\n- AsyncTimerDriver::SleepAwaiter: refused submit reported Ok, now Error\n  (TimerSubmitFailureIsAnError; old header: Failure in that TEST).\n- audit_coro_contracts.py check 5: public await_suspend that drops its handle\n  (tests/test_coro_contracts.py; old asp_coro.hpp: 4 hits).\n\nCross-core lock [SPEC-ARCH-01]\n- Bare-metal InterruptLock had one global depth/saved state and excluded no\n  other core. SmpInterruptLock<Platform, Cores> (per-core depth/saved state +\n  shared spinlock); _from_isr shortcuts take the lock on SMP\n  (ABSTRACTX_LOCKED_ISR_PATHS); Pico 2 W ABSTRACTX_SMP_CORES=2,\n  abstractx_core_id() = get_core_num(). E906 unchanged (single core).\n- sim/test_smp_lock.cpp, two threads as cores. Old algorithm\n  (-DABSTRACTX_TEST_LEGACY_LOCK): \"exclusion: counter 398348 of 400000,\n  overlap 1\", \"shared queue: 57001 of 100000 items, in order 0\". New: pass.\n\nAlso: two examples relied on <unordered_map> from the removed header; TODO\nreconciled with the other PC's tracker EL-1027-NN.\n\nResults (this tree)\n- Board (Cubie A5E, kernel #10 SMP PREEMPT_RT, overlays\n  cubie-a5e-flight-stack-e906 cubie-a5e-msgbox-txirq), e906_repl_app from this\n  tree at -O2: run_board_tests.py 31 passed, 2 failed, 2 skipped (bench\n  firmware not loaded); docs/verification/evidence/e906_selftest_20261028.json.\n  The 2 failures also fail on the board's previous firmware (2026-10-24):\n  test_streamer_keeps_running_with_heartbeat (\"NMEA sentences failed their\n  checksum\"), test_profiler_and_timeline_when_idle (\"1021 idle spans: sample\n  interrupts woke the loop\"; old firmware 1028). Open in TODO.\n  Board restored afterwards (riscv-firmware.elf, original e906_repl_app.elf).\n- ctest host 79/79, ASan/UBSan 79/79, TSan 79/79, 0 sanitizer reports;\n  --repeat until-fail:20 smp_lock|uart_rx_ring|wake_handshake|coro_primitives\n  host/ASan/TSan 4/4 (TSan 896 s).\n- E906 -O2: analyze_elf_size.sh e906_repl_app SRAM 192.0 KB used 174.5 KB\n  free 17.5 KB 90.9%; no LOAD segment at 0x48000000+ (DRAM 0); layout ok for\n  e906_repl_app 173828/408/50676, gps_imu_app 95438/424/49436,\n  serial_loopback_app 56098/380/45760, e906_bench_app 61636/384/47164,\n  e906_freertos_app 66482/392/58852 (text/data/bss).\n- Pico 2 W build ok with ABSTRACTX_SMP_CORES=2.\n- audit_specs, --check-drift, --check-skills, audit_boundaries,\n  audit_interfaces, audit_coro_contracts, boundary_review --check,\n  audit_ipc_invariants: rc 0. --check-verifies 64 (main: 65). 0 untraced.\n  Matrix 57 verified, 113 stale, 0 failing of 232.\n\nboundary-race-review: SmpInterruptLock flag_ shared by all cores\n(test_and_set acquire / clear release); depth_/saved_ per core, written by\ntheir own core with its IRQs masked; nested lock never re-enables early\n(tested); ISR on one core vs consumer on the other now both lock.\n\nNot verified\n- SMP lock on RP2350 silicon (Core 1 not launched yet); ESP32-P4 has no SMP\n  define. SRAM-pool overlay on silicon. Bench / FreeRTOS firmware board tests.",
+          "timestamp": "2026-10-28T18:51:47-05:00",
+          "tree_id": "d9175c56495ce1540c0b4c9904cf60be3c23b1dc",
+          "url": "https://github.com/tcmichals/AbstractX/commit/7be72793ecd382e91b416996a5039abc017cef8a"
+        },
+        "date": 1793232005268,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
