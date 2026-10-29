@@ -468,7 +468,7 @@ On the Allwinner T527 heterogeneous architecture (quad Cortex-A55 Linux + XuanTi
 In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burning CPU cycles executing software driver routines, autonomous synthesizable SystemVerilog cores act as pure hardware drivers on Wishbone / AXI-Stream buses:
 * **[`rtl/asp_top.sv`](rtl/asp_top.sv)**: Top-level switch fabric wrapper interconnecting Wishbone / AXI-Stream buses.
 * **[`rtl/asp_router.sv`](rtl/asp_router.sv)**: Full-crossbar AXI-Stream router switching packets based on 64B TLP channel tags.
-* **[`rtl/pio/asp_pio_tile.sv`](rtl/pio/asp_pio_tile.sv)**: **Autonomous Programmable I/O Tile** with 4 concurrent state machines running RP2040/RP2350 ISA microcode. Delivers **0.0% CPU overhead** for 8 kHz IMU sampling with single-cycle 512-bit TLP auto-DMA, saving **~45% FPGA logic** (~940 LUTs / ~700 FFs vs separate hardwired cores).
+* **[`rtl/pio/src/rtl/asp_pio_tile.sv`](rtl/pio/src/rtl/asp_pio_tile.sv) (pio2 submodule)**: **Autonomous Programmable I/O Tile** with 4 concurrent state machines running RP2040/RP2350 ISA microcode. Delivers **0.0% CPU overhead** for 8 kHz IMU sampling with single-cycle 512-bit TLP auto-DMA, saving **~45% FPGA logic** (~940 LUTs / ~700 FFs vs separate hardwired cores).
 * **[`rtl/imu/asp_imu_auto_dma.sv`](rtl/imu/asp_imu_auto_dma.sv)**: Dedicated hardware Auto-DMA driver core latching DIO pin triggers (IMU DRDY) and clocking SPI bursts without CPU intervention.
 * **[`rtl/motor/asp_dshot_core.sv`](rtl/motor/asp_dshot_core.sv)**: 4-Channel hardware DShot actuator driver with bidirectional telemetry & PWM generation.
 * **[`rtl/serial/asp_uart_core.sv`](rtl/serial/asp_uart_core.sv)**: High-speed full-duplex UART core for GPS and RC receiver telemetry.

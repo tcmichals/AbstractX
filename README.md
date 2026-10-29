@@ -110,7 +110,7 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 ---
 
 ### 4. 🧩 Autonomous PIO & Synthesizable SystemVerilog
-* **Autonomous PIO Tile (`rtl/pio/asp_pio_tile.sv`)**: Quad-state-machine hardware tile executing RP2040/RP2350 ISA microcode directly on FPGA fabric. Delivers **0.0% CPU overhead** for 8 kHz IMU sampling with single-cycle 512-bit auto-DMA, saving **~45% FPGA logic** (~940 LUTs / ~700 FFs vs separate hardwired cores).
+* **Autonomous PIO Tile (`rtl/pio/src/rtl/asp_pio_tile.sv`, submodule [pio2](https://github.com/tcmichals/pio2))**: Quad-state-machine hardware tile executing RP2040/RP2350 ISA microcode directly on FPGA fabric. Delivers **0.0% CPU overhead** for 8 kHz IMU sampling with single-cycle 512-bit auto-DMA, saving **~45% FPGA logic** (~940 LUTs / ~700 FFs vs separate hardwired cores).
 * **Synthesizable SystemVerilog Hardware Fabric (`rtl/`)**:
   - `asp_top.sv`: Top-level Wishbone / AXI-Stream fabric wrapper.
   - `asp_router.sv`: Full-crossbar packet switch with credit-based flow control (`tvalid`/`tready`).
@@ -294,7 +294,7 @@ Explore the comprehensive engineering series detailing silicon bring-up, corouti
 * [**docs/ARCHITECTURE_AND_EXTENSIBILITY.md**](docs/ARCHITECTURE_AND_EXTENSIBILITY.md) — Polymorphic driver inheritance, `applib/` boundary contracts, and interface design.
 * [**docs/SPECTRACE_GUIDE.md**](docs/SPECTRACE_GUIDE.md) — Aerospace-grade SpecTrace development loop and closed-loop AI learning gate.
 * [**rtl/README.md**](rtl/README.md) — Synthesizable SystemVerilog FPGA switch fabric architecture.
-* [**rtl/pio/README.md**](rtl/pio/README.md) — Autonomous Programmable I/O (ASP-PIO) tile developer guide.
+* [**rtl/pio/README.md**](rtl/pio/README.md) — PIO tile (pio2 submodule): spec, programs, tests and the visual debugger.
 
 ---
 

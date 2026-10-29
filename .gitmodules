@@ -7,3 +7,6 @@
 [submodule "third_party/FreeRTOS-Kernel"]
 	path = third_party/FreeRTOS-Kernel
 	url = https://github.com/FreeRTOS/FreeRTOS-Kernel.git
+[submodule "rtl/pio"]
+	path = rtl/pio
+	url = https://github.com/tcmichals/pio2.git

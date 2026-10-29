@@ -25,7 +25,7 @@ Usage:
   python3 tools/spec_to_doc.py --target rtl --check
 
   # Arbitrary spec generation:
-  python3 tools/spec_to_doc.py --spec rtl/pio/SPECIFICATION.md --output rtl/pio/README.md
+  (PIO docs live in the rtl/pio submodule, pio2; generate them there)
 """
 
 import sys
@@ -104,7 +104,7 @@ def parse_spec(spec_text: str) -> dict:
 
 def review_pio_code(root: Path) -> dict:
     """Performs deep code review of the PIO subsystem RTL to extract registers, ports, and ISA."""
-    tile_path = root / "rtl" / "pio" / "asp_pio_tile.sv"
+    tile_path = root / "rtl" / "pio" / "src" / "rtl" / "asp_pio_tile.sv"
     sm_path = root / "rtl" / "pio" / "asp_pio_sm.sv"
     shim_path = root / "rtl" / "pio" / "asp_pio_tlp_shim.sv"
 
@@ -275,7 +275,7 @@ def generate_rtl_human_doc(root: Path) -> str:
     out = []
     out.append("# AbstractX Synthesizable SystemVerilog FPGA Fabric — Architecture Guide")
     out.append("")
-    out.append("> **SSOT Notice**: This documentation is automatically generated from authoritative specifications (`docs/DESIGN_SPECIFICATION.md`, `rtl/pio/SPECIFICATION.md`) and verified against SystemVerilog RTL source code by SpecTrace. Do not edit manually.")
+    out.append("> **SSOT Notice**: This documentation is automatically generated from authoritative specifications (`docs/DESIGN_SPECIFICATION.md`, `rtl/pio/docs/SPECIFICATION.md` (pio2 submodule)) and verified against SystemVerilog RTL source code by SpecTrace. Do not edit manually.")
     out.append("")
     out.append("## 1. Executive Architectural Overview")
     out.append("")

@@ -314,7 +314,7 @@ metadata:
             target_addr: uint32
             len_dw: uint16
 
-        # @impl [SPEC-PIO-07] rtl/pio/SPECIFICATION.md
+        # PIO trace stream: [SPEC-PIO-07] in rtl/pio/docs/SPECIFICATION.md (pio2 submodule)
         pio_event:
           fields:
             tile_id: uint8

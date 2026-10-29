@@ -1,6 +1,6 @@
 # AbstractX Synthesizable SystemVerilog FPGA Fabric — Architecture Guide
 
-> **SSOT Notice**: This documentation is automatically generated from authoritative specifications (`docs/DESIGN_SPECIFICATION.md`, `rtl/pio/SPECIFICATION.md`) and verified against SystemVerilog RTL source code by SpecTrace. Do not edit manually.
+> **SSOT Notice**: This documentation is automatically generated from authoritative specifications (`docs/DESIGN_SPECIFICATION.md`, `rtl/pio/docs/SPECIFICATION.md` (pio2 submodule)) and verified against SystemVerilog RTL source code by SpecTrace. Do not edit manually.
 
 ## 1. Executive Architectural Overview
 

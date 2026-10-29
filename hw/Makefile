@@ -62,7 +62,7 @@ $(BUILD_DIR)/primer20k.fs: $(BUILD_DIR)/primer20k_pnr.json
 # --- Tang Nano 20K (Cubie A5E test target, [SPEC-TN20K-01]) ---
 TN20_FAMILY = GW2A-18C
 TN20_DEVICE = GW2AR-LV18QN88C8/I7
-TN20_RTL = $(wildcard rtl/*.sv rtl/*/*.sv)
+TN20_RTL = $(wildcard rtl/*.sv rtl/*/*.sv rtl/pio/src/rtl/*.sv)
 
 tang_nano20k: $(BUILD_DIR)/tang_nano20k.fs
 
