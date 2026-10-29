@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793232006252,
+  "lastUpdate": 1793272787387,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -3533,6 +3533,240 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/7be72793ecd382e91b416996a5039abc017cef8a"
         },
         "date": 1793232005268,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 93300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 52968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 145660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 6640,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 362076,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 152300,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 355436,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "4289a958ca8e7fc4b4c16e0354cb9fe897833978",
+          "message": "fix(coro,esp32p4): CoroutineIoEngine resumed inline; every .resume() needs a reason; ESP32-P4 stubs refuse\n\n[SPEC-ARCH-10] who may call .resume()\n- CoroutineIoEngine::poll_completions() resumed awaiters inline; now\n  Dispatcher::push(). A second stream waiter on a channel overwrote the first\n  handle; now refused (empty TLP). sim/sitl_coro_sim.cpp pumps the Dispatcher.\n- audit_coro_contracts.py check 6: every .resume() in include/ and src/ needs a\n  `// resume: <why>` (the old check only looked at lines with await_/notify_).\n  8 legitimate starts annotated; the 2 inline wakes were the only others.\n\n[SPEC-ESP32P4-HAL-00] not implemented = NotSupported\n- Esp32p4Spi init false, transfers NotSupported/0 bytes (was Ok with tx size);\n  Esp32p4Mailbox send false, doorbells NotSupported (was Ok);\n  Esp32p4Timer completes sleeps with Error (was abstract: could not be\n  instantiated). MailboxStatus::NotSupported added.\n\nRegression tests (fail on the old code)\n- sim/test_coroutine_io_engine.cpp: old header \"Assertion `resumes == 0 &&\n  !t.done()' failed\"; posted completion, refused second waiter, 1000 rounds flat.\n- tests/test_coro_contracts.py resume cases (old tree: 10 unannotated sites).\n- sim/test_esp32p4_stubs.cpp: old stubs \"cannot declare variable 'timer' to be\n  of abstract type\", \"Assertion `!spi.init(SpiConfig{})' failed\".\n\nResults (this tree)\n- ctest host 81/81, ASan/UBSan 81/81, TSan 81/81, 0 sanitizer reports\n  (trac.py --record)\n- E906 -O2 e906_repl_app SRAM 174.5/192.0 KB (90.9%), DRAM 0, layout ok;\n  text/data/bss 173828/408/50676. Pico 2 W build ok.\n- audit_specs, drift, skills, boundaries, interfaces, coro contracts,\n  boundary_review --check, ipc audit: rc 0; --check-verifies 64.\n\nNot verified: ESP32-P4 under ESP-IDF (not built here); no board run for this\ncommit (E906 code unchanged by it).",
+          "timestamp": "2026-10-29T06:11:48-05:00",
+          "tree_id": "bda6f5645077a56516303486453fd0d541fdcce6",
+          "url": "https://github.com/tcmichals/AbstractX/commit/4289a958ca8e7fc4b4c16e0354cb9fe897833978"
+        },
+        "date": 1793272786458,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
