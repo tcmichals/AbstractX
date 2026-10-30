@@ -96,6 +96,10 @@ public:
             }
         }
 
+        // Re-arm the interrupt once a burst taken earlier has been drained (polled or woken).
+        // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+        bridge_.rearm_if_drained();
+
         // 3. If timeout requested and nothing was immediately processed, wait on UIO eventfd
         // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
         if (processed == 0 && timeout_ms > 0 && bridge_.fd() >= 0) {
@@ -107,6 +111,7 @@ public:
             if (ret > 0 && (pfd.revents & POLLIN)) {
                 uint32_t irq_count = 0;
                 [[maybe_unused]] auto bytes = ::read(bridge_.fd(), &irq_count, sizeof(irq_count));
+                bridge_.note_interrupt_taken();
 
                 // Drain incoming packets on interrupt wake
                 if (setup_.ingress_rx_ring) {
@@ -122,8 +127,8 @@ public:
                     }
                 }
 
-                // Acknowledge interrupt only after egress buffer has been drained
-                bridge_.ack_interrupt();
+                // Clear and re-arm if drained; otherwise a later step() re-arms it
+                bridge_.rearm_if_drained();
             }
         }
 

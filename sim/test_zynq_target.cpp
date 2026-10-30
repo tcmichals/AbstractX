@@ -206,6 +206,34 @@ void test_zynq_io_processor_reactor_loop() {
 
 } // namespace
 
+// [SPEC-ZYNQ-02] re-arm rule: an interrupt taken while egress still holds packets is
+// re-armed by the first later call that finds egress empty, never while it is non-empty.
+void test_uio_irq_rearm_after_burst() {
+    std::printf("[TEST] UIO interrupt re-armed after a burst outlasts one wake...\n");
+    MockUioEnvironment env;
+    env.set_reg(ZynqUioBridge::REG_HARDWARE_ID, ZynqUioBridge::HARDWARE_MAGIC);
+    env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 0);
+    ZynqUioBridge bridge;
+    assert(bridge.open_uio(env.path));
+    assert(bridge.irq_armed() && "armed after open");
+
+    env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 3);   // more packets arrived during the drain
+    env.set_reg(ZynqUioBridge::REG_IRQ_STATUS, 0);
+    bridge.ack_interrupt();
+    assert(!bridge.irq_armed() && "must stay masked while egress is non-empty");
+    assert(env.get_reg(ZynqUioBridge::REG_IRQ_STATUS) == 0 && "no W1C while egress is non-empty");
+    for (int i = 0; i < 1000; ++i) {
+        assert(!bridge.rearm_if_drained() && "no re-arm while egress is non-empty");
+    }
+
+    env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 0);   // a later polled step drained it
+    assert(bridge.rearm_if_drained() && "first call with egress empty re-arms");
+    assert(bridge.irq_armed());
+    assert(env.get_reg(ZynqUioBridge::REG_IRQ_STATUS) == 0x01 && "W1C written on re-arm");
+    bridge.close_uio();
+    std::printf("  -> re-arm after burst passed.\n");
+}
+
 int main() {
     std::printf("==============================================================================\n");
     std::printf(" Zynq-7000 Target HAL & IoProcessor Unit Verification\n");
@@ -213,6 +241,7 @@ int main() {
 
     test_uio_bridge_hardware_magic_and_enable();
     test_uio_bridge_tlp_ingress_and_egress();
+    test_uio_irq_rearm_after_burst();
     test_zynq_io_processor_reactor_loop();
 
     std::printf("------------------------------------------------------------------------------\n");

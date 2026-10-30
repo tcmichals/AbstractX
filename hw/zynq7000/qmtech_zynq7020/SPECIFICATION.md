@@ -187,9 +187,16 @@ configuration:
   };
   ```
 * The user-space driver MUST await the interrupt using `epoll()` / non-blocking read on `/dev/uio0` without busy-waiting or thread locks.
+* **Re-arm rule (2026-10-30)**: reading a UIO event leaves the interrupt masked by `generic-uio`.
+  The bridge records that (`note_interrupt_taken()`) and re-arms it (W1C `REG_IRQ_STATUS`, then
+  write `1` to the UIO fd) on the first `step()` that finds the egress buffer empty
+  (`rearm_if_drained()`), whether that `step()` was woken by the interrupt or by polling. It never
+  unmasks while egress is non-empty (the level interrupt would fire again at once). Rationale: the
+  old `ack_interrupt()` unmasked only if egress was empty at that instant and nothing re-armed it
+  later, so one burst left the processor on 10 ms poll timeouts for good (2026-10-30 code review).
 * **Refines**: `[SPEC-ARCH-01]`
 * **Method**: `Test`
-* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`)
+* **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`, `sim/test_zynq_target.cpp`)
 
 ### `[SPEC-ZYNQ-03]` Fixed 64-Byte TLP Routing (`asp-tlp-64b`)
 * All transactions between PS and PL MUST be encapsulated into strict 64-byte (16 x 32-bit DWORD) TLP containers.
@@ -201,6 +208,51 @@ configuration:
 * **Refines**: `[SPEC-TLP-01]`
 * **Method**: `Test`
 * **Verified by**: `cocotb-regression` (`test_asp_router_cocotb`)
+
+### `[SPEC-ZYNQ-07]` Two Transport Paths: Mailbox for Small Messages, DMA for Streams
+* **Decision (project owner, 2026-10-30)**: the FPGA is **100% PIO**: the pio2 tile
+  (`rtl/pio`, RP2040/RP2350 PIO ISA) and pio2's own interconnect (AXI4-Lite registers, event
+  FIFO, DMA engine and rings, trace; `rtl/pio/docs/INTERCONNECT_SPECIFICATION.md`). No other
+  peripheral IP: serial, DShot, PWM, NeoPixel and SPI sensors are PIO programs.
+* **Decision (2026-10-30)**: traffic is split by shape, not by device.
+  * **Small messages** (commands, register reads and writes, one IMU sample) go through pio2
+    channel 0 (addressed register access) and the PIO TX/RX FIFOs; A9 -> PL as posted writes over
+    GP0, PL -> A9 with `IRQ_F2P[0]` through `generic-uio` (`[SPEC-ZYNQ-02]` re-arm rule).
+  * **Byte streams** (serial RX/TX at 1 Mbaud and above, e.g. an RC receiver link; trace) never
+    reach the CPU per byte: a PIO program (UART RX/TX) feeds its FIFO, pio2's DMA engine, paced by
+    the FIFO's AXI-Stream handshake, moves it into a ring, and a ring is offered to the host after
+    N records or after its flush time (pio2 stream rule), which is the idle-line flush.
+  * The crossover is measured, not assumed: A9 cost per 64-byte read over GP0 (16 uncached
+    reads) on the board, against the combined rate (8 kHz IMU = 8,000 messages/s; 1 Mbaud 8N1
+    continuous = 100 kB/s).
+* **Requirement (where the 8 kHz loop runs, `[SPEC-ARCH-14]`)**: per-sample work never wakes Linux.
+  An RT thread pinned to one A9 core polls the IMU ring's hardware head (no interrupt per sample)
+  and runs the fast loop; Linux processes get fused state, telemetry and trace in blocks.
+* **Requirement (one interrupt, one loop)**: every source sets its own bit in pio2's `ISR`
+  (mailbox / channel-0 reply ready, each DMA ring with a block ready, TX space, errors and
+  overruns); `IMR` masks each source; `IRQ_F2P[0]` is held while `ISR & ~IMR` is non-zero. The
+  user-space driver waits on the one UIO fd, reads `ISR` once, services every pending source
+  (drain the mailbox, consume ring blocks up to the hardware head, refill TX), writes the handled
+  bits back to clear them (W1C), and re-arms the UIO interrupt only when no unmasked bit is still
+  pending (`[SPEC-ZYNQ-02]` re-arm rule, with "egress empty" generalised to "nothing pending").
+  Interrupt rate is bounded by the sources: one per mailbox message, one per ring block (N records
+  or flush time). A busy source may be masked in `IMR` while the loop drains it.
+* **Requirement**: no kernel driver. Register window, ring memory (`reserved-memory`, `no-map`)
+  and the interrupt are reached through `generic-uio`. Applications see the same endpoint numbering
+  as the E906 RPMsg path (1024 TLP, 1025 trace, 1026 REPL), mapped onto pio2 channels by the
+  AbstractX wrapper.
+* **Not chosen**: RPMsg-Lite with the PL as the remote side (virtqueue descriptor handling in RTL,
+  several uncached GP0 reads per message, kernel RPMsg would need a custom remoteproc driver);
+  right only if a soft CPU is added to the PL.
+* **Open (decide in pio2, it is a submodule)**: pio2 `[SPEC-ICN-11]` connects the Zynq PS through
+  the Xilinx AXI MCDMA. That is non-PIO IP with the Linux driver stack this decision avoids; the
+  alternative is pio2's DMA engine writing its rings into DDR over HP0 itself.
+* **Open (this repo)**: `rtl/asp_top.sv` and `top_qmtech_zynq7020.sv` still instantiate
+  fixed-function cores (`asp_uart_core`, `asp_dshot_core`, `asp_imu_auto_dma`,
+  `asp_neopixel_core`, `asp_pwm_decoder`) and `rtl/asp_axi_dma.sv` exists; under this decision
+  they are to be removed or replaced by PIO programs (not done).
+* **Verified by**: `cocotb-regression`, `board-bringup`
+* **Implementation Target**: `rtl/pio/`, `rtl/asp_pio_wrap.sv`, `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`, `targets/zynq7000/`
 
 ### `[SPEC-ZYNQ-04]` Autonomous IMU Auto-DMA & Direct SPI Engine
 * The PL MUST integrate a hardware SPI Master and Auto-DMA state machine mapped to Wishbone base `0x4000_0100`:

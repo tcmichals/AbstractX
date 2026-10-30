@@ -85,6 +85,7 @@ public:
 
         // Re-arm Linux UIO interrupt eventfd
         unmask_interrupt();
+        irq_armed_ = true;
 
         return true;
     }
@@ -153,17 +154,33 @@ public:
         }
     }
 
-    // Clear pending IRQ in FPGA register and unmask UIO event.
-    // Level-sensitive IRQ re-asserts if unconsumed packets remain in egress buffer;
-    // only unmask when egress is completely drained to prevent busy-spinning.
-    void ack_interrupt() noexcept {
+    // Reading a UIO event leaves the interrupt masked (generic-uio). Record it; the next
+    // step() that finds egress empty re-arms it ([SPEC-ZYNQ-02] re-arm rule).
+    // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+    void note_interrupt_taken() noexcept { irq_armed_ = false; }
+
+    // Re-arm only once egress is drained: the level IRQ would fire again at once otherwise.
+    // Called on every step(), so a burst that outlasts one wake cannot leave it masked.
+    // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+    bool rearm_if_drained() noexcept {
+        if (irq_armed_ || fd_ < 0) return irq_armed_;
+        if (egress_count() != 0) return false;
         write_reg(REG_IRQ_STATUS, 0x01);
-        if (egress_count() == 0) {
-            unmask_interrupt();
-        }
+        unmask_interrupt();
+        irq_armed_ = true;
+        return true;
     }
 
+    // Interrupt taken and egress drained by the caller: clear and re-arm if empty.
+    void ack_interrupt() noexcept {
+        note_interrupt_taken();
+        rearm_if_drained();
+    }
+
+    [[nodiscard]] bool irq_armed() const noexcept { return irq_armed_; }
+
 private:
+    bool irq_armed_{true};  // generic-uio enables the IRQ at probe
     int fd_{-1};
     volatile uint32_t* base_{nullptr};
 };
