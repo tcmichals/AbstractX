@@ -53,6 +53,35 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Mechanism**: Dual lock-free `SpscTlpRing<64>` and RP2350 hardware SIO FIFOs (`pico/multicore.h`).
 * **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `targets/pico2w_rp2350/`
 
+### `[SPEC-ARCH-14]` Accelerators Run the Buses; Linux Sees Results
+* **Goal (project owner, 2026-10-30)**: bypass Linux's slow `spidev` / `i2c-dev` path entirely. Every
+  sensor and actuator bus is driven by a processor or fabric dedicated to I/O, and the fast loop
+  runs where the samples land.
+* **Requirement**: Linux is never on a sensor or actuator bus in the data path (no `spidev`, no
+  `i2c-dev`, no Linux GPIO interrupts per sample). The bus owner per platform:
+
+  | Platform | I/O accelerator (owns the buses, DMA, the fast loop) | Results to |
+  | :--- | :--- | :--- |
+  | Pico 2 W (RP2350) | Core 0 + PIO + DMA (`[SPEC-ARCH-05]`) | Core 1 coroutines, Wi-Fi |
+  | ESP32-P4 | one HP core dedicated to I/O + GDMA | the other core |
+  | Cubie A5E | XuanTie E906 (`[SPEC-E906-HAL-05]`) | Linux over RPMsg |
+  | Zynq-7000 | pio2 in the PL (100% PIO, `[SPEC-ZYNQ-07]`); an RT A9 core polls the IMU ring | Linux over UIO rings |
+  | Tang Nano + external host | pio2 in the FPGA, host = Pico or E906 over the SPI link | that host |
+
+* **Requirement**: drivers are written for this split: the bus transfer, its DMA and its trigger
+  (DRDY edge, timer) run on the I/O side and complete into a ring; the consumer on the other side
+  awaits the ring, never a bus. Per-sample work (8 kHz IMU) stays on the I/O side or the core that
+  owns the ring; Linux receives fused state, telemetry and trace in blocks at a rate it can
+  afford, never per sample.
+* **Sizing (2026-10-30, estimate, not measured)**: 8 kHz IMU (one sample per frame) + 8 kHz DShot
+  + 1 Mbaud serial + trace over the pio2 Dual-SPI link at 10 MHz SCK is about 30 % of the link and
+  about 16,000 windows/s, each a DMA started from `INT_n` on the E906 or Pico (E906 measured 2026-10-29:
+  DRDY edge to DMA start ~6 us, 15-byte DMA ~14 us at 10 MHz).
+* **Exceptions**: desktop SITL (`targets/linux`, simulated buses) and benchmark comparison columns
+  (a Linux `spidev` column in `docs/articles/`) are not data paths.
+* **Verified by**: `board-bringup` (per platform: the loop rate on the accelerator, Linux CPU), `cocotb-regression` (pio2 link under the traffic mix above, once the link RTL exists)
+* **Implementation Target**: `targets/pico2w_rp2350/`, `targets/esp32p4/`, `targets/allwinner_e906/`, `targets/zynq7000/`, `rtl/pio/`
+
 ### `[SPEC-ARCH-06]` Unified AbstractX Runtime API & Autonomous Domain Placement
 * **Requirement**: Applications must interface with the framework exclusively through the unified `abstractx::` API (`init()`, `spawn()`, `step()`, `step_async()`, `run()`). The runtime must automatically determine target topology and assign `io_processor`, `trace_dispatcher`, and user coroutines to their optimal hardware execution domains (Core 0 vs Core 1 on dual-core MCU, E906 vs Linux on heterogeneous SoCs, or cooperative coroutine loop on SITL), guaranteeing 0 application `#ifdef`s.
 * **Idle Policy**: `run()` MAY call `platform_idle_wait()` only when `Dispatcher::has_pending_resumes()` is false. On bare-metal targets `platform_idle_wait()` MUST re-check the Dispatcher with interrupts masked and then sleep (`wfi`) so that an ISR posting between the check and the sleep is never slept through: either `wfi` with interrupts still masked (the core wakes on a pending interrupt), or, where that is not guaranteed (E906, `[SPEC-E906-IRQ-01]`), unmask immediately before `wfi` and have the trap entry return past that `wfi` when it interrupted it.

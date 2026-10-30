@@ -18,16 +18,42 @@
 
 ---
 
+## 🎯 What AbstractX Is: Accelerators Run the Buses, Linux Sees Results
+
+Linux is fast at many things, but not at driving sensors: `spidev`, `i2c-dev` and per-sample GPIO
+interrupts add system calls, scheduling delay and jitter to every read. AbstractX takes Linux off
+the sensor buses entirely ([`[SPEC-ARCH-14]`](docs/DESIGN_SPECIFICATION.md)):
+
+* **An I/O accelerator owns every bus.** A processor or fabric dedicated to I/O runs SPI, I2C,
+  UART, DShot and PWM with DMA, started by the sensor's own trigger (data-ready edge, timer).
+* **The fast loop runs where the samples land.** An 8 kHz IMU is read and fused on the
+  accelerator side; nothing waits on a bus.
+* **Everything else sees results.** Linux (or the other MCU core) gets fused state, telemetry and
+  trace through rings in shared memory (RPMsg, UIO rings, SIO FIFOs), in blocks, never per sample.
+  No custom kernel driver.
+* **The FPGA is 100% PIO.** On FPGA targets the accelerator is the [pio2](https://github.com/tcmichals/pio2)
+  tile running RP2040/RP2350 PIO programs (DShot, serial, PWM decode, NeoPixel, SPI sensors) with
+  its own DMA; no other peripheral IP.
+
+![AbstractX accelerator split: sensors and actuators are driven only by an I/O accelerator per platform (Pico 2 W core 0, an ESP32-P4 core, the XuanTie E906, pio2 on Zynq or Tang Nano), which hands results through rings to Core 1, the app core, Linux or the SPI-link host; only the E906 path is built and measured today](docs/articles/assets/abstractx-accelerator-split.svg)
+
+**Status (2026-10-30)**: the E906 path is built and measured on the Cubie A5E (DRDY edge -> DMA
+started ~6 µs, edge -> consumer coroutine ~31 µs average, 10,000 samples at 1 kHz,
+`docs/verification/evidence/e906_imu_drdy_baremetal.json`). The Pico 2 W core split, the
+ESP32-P4 back end and the pio2 Zynq / Tang paths are specified, not built (`TODO.md`).
+
+---
+
 ## ⚡ Core Technical Capabilities & Invariants
 
 Traditional embedded systems force an undesirable trade-off: allocate **20+ KB of preemptive RTOS thread stacks and mutexes**, or write **unreadable callback state machines with volatile flags**.
 
 AbstractX replaces both approaches with a unified event-driven coroutine architecture:
-* **Sub-microsecond, 15-cycle context switches** with C++20 stackless coroutines.
+* **Stackless C++20 coroutines** instead of thread stacks: a full yield round trip through the event loop measured **9.80 µs (1,961 cycles)** on the E906 at 200 MHz with AbstractX alone, no RTOS (Part 4).
 * **0 Bytes dynamic heap (`0 B`)** on a single shared 2 KB stack.
 * **Parallel in-flight sensor ingestion** (8 kHz IMU, 100 Hz Mag, 10 Hz GPS) without locks or spinloops.
 * **Bare-metal MicroPython with native DMA** for interactive hardware REPL and rapid bring-up on coprocessors.
-* **Autonomous FPGA PIO & SystemVerilog** hardware engines delivering **0.0% CPU overhead**.
+* **FPGA I/O that is 100% PIO** (pio2): bus work runs in PIO programs with DMA, not on a CPU.
 * **AbstractX Studio GUI** to profile exact sub-microsecond timing and test applications with or without hardware.
 
 > 📖 **Looking for the exhaustive technical deep dives, bus switch design, or Zephyr comparison?**  
@@ -39,10 +65,10 @@ AbstractX replaces both approaches with a unified event-driven coroutine archite
 
 ```mermaid
 flowchart LR
-    A["<b>1. FAST C++20 COROS</b><br/>• 15-cycle switch<br/>• 0 Bytes heap (0 B)<br/>• 2 KB shared stack<br/>• Zero RTOS jitter"]
+    A["<b>1. FAST C++20 COROS</b><br/>• 9.8 µs yield round trip (E906)<br/>• 0 Bytes heap (0 B)<br/>• 2 KB shared stack<br/>• Zero RTOS jitter"]
     B["<b>2. PARALLEL SENSORS</b><br/>• 8 kHz IMU + Mag + GPS<br/>• co_await when_all<br/>• Primary-Paced channels<br/>• Zero locks or spinloops"]
     C["<b>3. BARE-METAL MICROPYTHON</b><br/>• XuanTie E906 / RP2350<br/>• Quarantined SRAM heap<br/>• Direct DMA burst bindings<br/>• Python-to-C++ AI skill"]
-    D["<b>4. PIO & SYSTEMVERILOG</b><br/>• FPGA PIO tile (RP2040 ISA)<br/>• 0.0% CPU Auto-DMA<br/>• AXI-Stream crossbar router<br/>• 64B hardware framing"]
+    D["<b>4. PIO & SYSTEMVERILOG</b><br/>• FPGA PIO tile (RP2040 ISA)<br/>• PIO programs + DMA<br/>• AXI-Stream crossbar router<br/>• 64B hardware framing"]
     E["<b>5. STUDIO WORKBENCH</b><br/>• Sub-µs timing breakdown<br/>• Test with / without silicon<br/>• Interactive source jump<br/>• CTF 1.8 120 FPS trace"]
 
     A <--> B <--> C <--> D <--> E
@@ -53,7 +79,7 @@ flowchart LR
 ---
 
 ### 1. ⚡ Fast C++20 with Zero Heap Memory
-* **15-Cycle Function Jump**: Suspends and resumes tasks cooperatively via compiler-generated state machines. No register spilling, no OS tick preemption, no cache thrashing.
+* **Cooperative resume**: tasks suspend and resume through compiler-generated state machines; a resume is an indirect call from the dispatcher, with no OS tick and no per-task stack. A full yield round trip through the event loop is **9.80 µs** on the E906 with AbstractX alone (the `resume()` call itself is not measured).
 * **Zero Dynamic Heap (`0 B`)**: Enforces 100% freestanding C++20. Statically pools coroutine frames in `.bss` (under 120 bytes per task).
 * **Single Shared 2 KB Stack**: Runs the entire multi-task flight application on one shared CPU stack—saving over 20 KB of SRAM compared to FreeRTOS or Zephyr.
 
@@ -109,14 +135,17 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 
 ---
 
-### 4. 🧩 Autonomous PIO & Synthesizable SystemVerilog
-* **Autonomous PIO Tile (`rtl/pio/src/rtl/asp_pio_tile.sv`, submodule [pio2](https://github.com/tcmichals/pio2))**: Quad-state-machine hardware tile executing RP2040/RP2350 ISA microcode directly on FPGA fabric. Delivers **0.0% CPU overhead** for 8 kHz IMU sampling with single-cycle 512-bit auto-DMA, saving **~45% FPGA logic** (~940 LUTs / ~700 FFs vs separate hardwired cores).
-* **Synthesizable SystemVerilog Hardware Fabric (`rtl/`)**:
-  - `asp_top.sv`: Top-level Wishbone / AXI-Stream fabric wrapper.
-  - `asp_router.sv`: Full-crossbar packet switch with credit-based flow control (`tvalid`/`tready`).
-  - `asp_imu_auto_dma.sv`: Autonomous hardware SPI burst clocking on physical DRDY triggers.
-  - `asp_dshot_core.sv`: 4-channel bidirectional DShot motor controller with hardware telemetry.
-  - `asp_uart_core.sv`: High-speed full-duplex UART core with hardware FIFO.
+### 4. 🧩 The FPGA Is 100% PIO
+* **pio2 (`rtl/pio`, submodule [pio2](https://github.com/tcmichals/pio2))**: a four-state-machine tile
+  running the RP2040/RP2350 PIO instruction set in FPGA fabric, plus its own register bus, DMA
+  engine, rings and trace. Every FPGA peripheral is a PIO program: bidirectional DShot and ESC
+  serial passthrough (in `rtl/pio/src/programs/`), UART, RC PWM decoding, NeoPixel and SPI sensors.
+* **On a Zynq** the A9 reaches pio2 through `generic-uio` only: registers over GP0, streams in DDR
+  rings written by pio2's own DMA over HP0, one interrupt. No vendor DMA IP, no kernel driver
+  ([`[SPEC-ZYNQ-07]`](hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md)).
+* **Being retired**: the earlier fixed-function cores in `rtl/` (`asp_dshot_core`, `asp_uart_core`,
+  `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`, `asp_axi_dma`) are still in the current
+  tops until the PIO programs replace them (`TODO.md`).
 * **Nanosecond Hardware Timestamps**: Physical DIO edge triggers latch 64-bit nanosecond hardware timestamps directly into packet headers for end-to-end timing verification.
 
 ---
@@ -162,20 +191,31 @@ python3 tools/visualizer/abstractx_studio.py --sim
 
 ---
 
-## 📈 Proven on Real Silicon: Empirical Benchmarks
+## 📈 Measured on Real Silicon
 
-All metrics below are measured on physical hardware: **Radxa Cubie A5E** (Allwinner T527 XuanTie E906 @ 200 MHz), **Raspberry Pi Pico 2 W** (RP2350 @ 150 MHz), and **QMTech Zynq-7020 FPGA**.  
-Evidence logged in [`docs/verification/evidence/e906_bench_baremetal.json`](docs/verification/evidence/e906_bench_baremetal.json) and [`docs/articles/CASE_STUDIES_AND_BENCHMARKS.md`](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md).
+Only the **Radxa Cubie A5E** (XuanTie E906 @ 200 MHz) has board evidence so far. Pico 2 W, ESP32-P4
+and Zynq numbers will appear here when they are measured. Evidence:
+[`e906_bench_baremetal.json`](docs/verification/evidence/e906_bench_baremetal.json),
+[`e906_bench_freertos.json`](docs/verification/evidence/e906_bench_freertos.json),
+[`e906_imu_drdy_baremetal.json`](docs/verification/evidence/e906_imu_drdy_baremetal.json);
+write-ups in [Part 4](docs/articles/baremetal-vs-freertos-e906/README.md) and
+[Part 6](docs/articles/sensor-placement-t527/README.md).
 
-| Performance Metric | Bare-Metal AbstractX (E906 / RP2350) | FreeRTOS + AbstractX (E906) | Traditional Thread-per-Bus RTOS |
-| :--- | :--- | :--- | :--- |
-| **Yield Loop Round-Trip** | **1,961 cycles (9.80 µs)** | 1,997 cycles (9.98 µs) | 6,000+ cycles (> 30 µs) |
-| **Context Switch Overhead** | **15 cycles (~100 ns)** | ~60 cycles (300 ns) | 300–500 cycles (2–3 µs) |
-| **Dynamic Heap Allocation** | **0 Bytes (`0 B`)** | **0 Bytes (`0 B`)** | Dynamic Heap Required |
-| **RAM per Sensor Task** | **< 100 Bytes** (in `.bss`) | ~1 KB (Static Task Control) | 2,048–4,096 Bytes per thread |
-| **Idle Baseline CPU Load** | **0.01%** (0 background wakeups) | 5.5% (4,514 tick wakeups) | 5–8% (Tick-driven) |
-| **RPMsg / Bus Throughput** | **2.98 MB/s** (VirtIO zero-copy) | **2.98 MB/s** | < 800 KB/s (Serialized RPC) |
-| **Hardware DMA Bus Overhead**| **0.0% CPU wait states** (FPGA/PIO)| **0.0% CPU wait states** | CPU polling `while(busy)` |
+| Metric (E906, 200 MHz) | AbstractX (no RTOS) | FreeRTOS + AbstractX |
+| :--- | :--- | :--- |
+| Yield round trip through the event loop (avg) | 1,961 cycles (9.80 µs) | 1,997 cycles (9.98 µs) |
+| Soft-IRQ handler (avg) | 416 cycles (2.08 µs) | 222 cycles (1.11 µs) |
+| Interrupt -> waiting coroutine runs (avg) | 3,255 cycles (16.3 µs) | 2,537 cycles (12.7 µs) |
+| RPMsg echo, 496-byte messages | 0.20 MB/s, max ~1 s (open bug, `TODO.md` 2b) | 2.98 MB/s, max 388 µs |
+| Coroutine frame pool high water | 448 B | 448 B |
+| IMU DRDY edge -> DMA started (avg, 10,000 samples) | ~5.9 µs | not measured |
+| IMU DRDY edge -> consumer coroutine (avg) | ~31 µs | not measured |
+| Dynamic heap | zero-heap rule; `e906_repl_app` still links `_malloc_r` (open, `TODO.md`) | same |
+
+**AbstractX on its own is meant to beat FreeRTOS, and on these runs it does not yet**: FreeRTOS's
+interrupt-to-coroutine wake is shorter, and AbstractX's RPMsg echo has ~1 s stalls. Both are open
+work items (`TODO.md` 2b), not accepted results. The idle-only CPU load of
+either runtime is not measured yet.
 
 > 🔬 **Reproduce on Hardware**:
 > ```bash
@@ -189,13 +229,14 @@ Evidence logged in [`docs/verification/evidence/e906_bench_baremetal.json`](docs
 
 Write your application once against `abstractx::` and deploy it across microcontrollers, coprocessors, and FPGAs with **zero `#ifdef` directives**:
 
-| Silicon Target | Architecture | I/O Engine | Latency | Memory Overhead |
+| Silicon Target | Architecture | I/O accelerator (owns the buses) | Results to | Status |
 | :--- | :--- | :--- | :--- | :--- |
-| **Raspberry Pi Pico 2 W** | Dual ARM Cortex-M33 @ 150 MHz | Core 0 PIO DMA + CYW43 Wi-Fi | **4.2 µs** | `< 1 KB` SRAM |
-| [**Radxa Cubie A5E**](https://github.com/tcmichals/cubie-a5e) | Quad Cortex-A55 + XuanTie E906 | E906 On-Chip DMA + Shared SRAM | **0.8 µs** | `< 1 KB` SRAM |
-| **Espressif ESP32-P4** | Dual RISC-V @ 400 MHz | Core 0 GDMA + Wi-Fi 6 | **1.8 µs** | `< 1 KB` SRAM |
-| **QMTech Zynq / Gowin** | ARM Host + FPGA Fabric | SystemVerilog PIO & Auto-DMA | **0.4 µs** | Hardware Offloaded |
-| **Desktop SITL** | Native Linux x86_64 / AArch64 | POSIX epoll Software Reactor | **0.5 µs** | Desktop Process |
+| **Raspberry Pi Pico 2 W** | Dual Cortex-M33 @ 150 MHz | Core 0 + PIO + DMA | Core 1 coroutines | core split specified, Core 1 not launched yet |
+| [**Radxa Cubie A5E**](https://github.com/tcmichals/cubie-a5e) | Cortex-A55 + XuanTie E906 | E906 + DMA | Linux over RPMsg | built; DRDY edge -> DMA ~6 µs measured |
+| **Espressif ESP32-P4** | Dual RISC-V @ 400 MHz | one core + GDMA | the other core | stub, no back end yet |
+| **QMTech Zynq-7020** | Cortex-A9 + FPGA | pio2 (100% PIO) + RT A9 core | Linux over UIO rings | specified, not built |
+| **Tang Nano 9K / 20K** | FPGA, external host | pio2 over Dual-SPI link | Pico or E906 host | specified, not built |
+| **Desktop SITL** | Linux x86_64 / AArch64 | simulated buses, epoll reactor | same process | runs the host test suite |
 
 ---
 
@@ -278,7 +319,6 @@ Explore the comprehensive engineering series detailing silicon bring-up, corouti
 * **Coroutine Concurrency & Zero-Heap Determinism**:
   * [**Jumpstarting Heterogeneous Silicon: From Python `asyncio` to Freestanding C++20**](docs/articles/INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md) — Architectural pattern for heterogeneous multi-core SoCs, split-transaction drivers, and memory-mapped virtual BARs.
   * [**Straight-Line Async: Sub-Microsecond C++20 Coroutines on Raspberry Pi Pico 2 W**](docs/articles/gps-compass-straight-line-async/README.md) — 8 kHz IMU, GPS, and compass streaming on RP2350 dual Cortex-M33 with zero RTOS stacks.
-  * [**Multi-Silicon Benchmark Series & Case Studies**](docs/articles/CASE_STUDIES_AND_BENCHMARKS.md) — Empirical speed, memory efficiency, and silicon scaling benchmarks across four architectures.
 * **FPGA Hardware Switch Fabrics & RTL Acceleration**:
   * [**Polymorphic Silicon: C++ to SystemVerilog FPGA Switch Fabric (QMTech Zynq-7020)**](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md) — Offloading the C++ I/O processor into SystemVerilog AXI-Stream crossbars and auto-DMA.
   * [**Scalable X-Fabric: From 4K FPGA Logic to Multi-Core Silicon**](docs/articles/SCALABLE_X_FABRIC_4K_TO_BIG.md) — Scalable crossbar switch fabrics, Wishbone/AXI routing, and PIO tiles.

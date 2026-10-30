@@ -1,0 +1,35 @@
+title: "AbstractX: accelerators run the buses, the rest of the system sees results"
+desc: Sensors and actuators are driven only by an I/O accelerator on each platform (Pico 2 W core 0 with PIO and DMA, an ESP32-P4 core with GDMA, the XuanTie E906 on the Cubie A5E, the pio2 PIO fabric on a Zynq or Tang Nano FPGA). Each accelerator hands finished samples through a ring to the consumer (the other MCU core, Linux over RPMsg or UIO rings, or the SPI-link host). Linux never drives a sensor bus. Only the E906 path is built and measured today.
+grid: {col: 270, row: 78, gap_x: 150, gap_y: 22}
+nodes:
+  - id: bus
+    label: Sensors & actuators
+    text: ["IMU (SPI, DRDY)", "compass (I2C)", "GPS, RC link (UART)", "ESCs (DShot)", "LEDs, PWM in"]
+    at: [0, 0]
+    span: [1, 5]
+    kind: hw
+  - {id: pico, label: "Pico 2 W: core 0", text: ["PIO + DMA", "planned: core split not launched"], at: [1, 0]}
+  - {id: esp, label: "ESP32-P4: I/O core", text: ["GDMA", "planned: no back end yet"], at: [1, 1]}
+  - {id: e906, label: "Cubie A5E: E906", text: ["DRDY edge -> DMA in ~6 us", "built, measured 2026-10-29"], at: [1, 2]}
+  - {id: zynq, label: "Zynq: pio2 (100% PIO)", text: ["+ RT A9 core polls the ring", "planned"], at: [1, 3]}
+  - {id: tang, label: "Tang Nano: pio2", text: ["host: Pico or E906", "planned"], at: [1, 4]}
+  - {id: pico_r, label: "Core 1", text: ["coroutines, fusion, Wi-Fi"], at: [2, 0], kind: accent}
+  - {id: esp_r, label: "App core", text: ["coroutines, Wi-Fi 6"], at: [2, 1], kind: accent}
+  - {id: e906_r, label: "Linux (A55)", text: ["fused state, telemetry, trace"], at: [2, 2], kind: accent}
+  - {id: zynq_r, label: "Linux (A9)", text: ["blocks, never per sample"], at: [2, 3], kind: accent}
+  - {id: tang_r, label: "SPI-link host", text: ["Pico or E906 runs the loop"], at: [2, 4], kind: accent}
+groups:
+  - {label: "I/O accelerator: owns the buses", contains: [pico, esp, e906, zynq, tang]}
+  - {label: "Sees results", contains: [pico_r, esp_r, e906_r, zynq_r, tang_r], kind: accent}
+edges:
+  - {from: bus, to: pico}
+  - {from: bus, to: esp}
+  - {from: bus, to: e906}
+  - {from: bus, to: zynq}
+  - {from: bus, to: tang}
+  - {from: pico, to: pico_r, label: SIO FIFO + ring}
+  - {from: esp, to: esp_r, label: ring}
+  - {from: e906, to: e906_r, label: RPMsg}
+  - {from: zynq, to: zynq_r, label: UIO rings}
+  - {from: tang, to: tang_r, label: Dual-SPI link}
+notes: ["Linux never drives SPI or I2C here: no spidev, no i2c-dev, no per-sample Linux interrupt ([SPEC-ARCH-14])."]

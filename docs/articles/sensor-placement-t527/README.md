@@ -11,6 +11,11 @@ Linux and one 200 MHz XuanTie E906 RISC-V core that Linux leaves idle. A flight 
 robot needs an IMU sampled at a steady rate, with no lost samples and a known delay from "the
 sensor has data" to "the code has the data". Where should that code run?
 
+**AbstractX's answer is the E906** ([`[SPEC-ARCH-14]`](../../DESIGN_SPECIFICATION.md)): the
+accelerator owns the bus and Linux sees results. The Linux columns below are the baseline being
+measured against, run with the same channel code so the comparison is fair, not a candidate
+for the product. This article puts numbers on why.
+
 We run **the same work** on each runtime and measure it the same way:
 
 * ICM-42688-P on SPI1 CS0 at 10 MHz, 1 kHz output data rate, gyro + accel + temperature

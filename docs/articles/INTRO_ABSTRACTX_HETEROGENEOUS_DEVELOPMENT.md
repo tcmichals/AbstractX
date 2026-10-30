@@ -25,6 +25,22 @@ Traditional Embedded Cycle:
 
 Because Python's `asyncio` and AbstractX's C++20 coroutine engine share the exact same structural semantics (linear async tasks, lock-free queues, non-blocking I/O event loops), **prototyping a driver in Python is a 1-to-1 blueprint for the final freestanding C++20 firmware**.
 
+### The rule behind all of it: accelerators run the buses, Linux sees results
+
+The point of the E906 (and of the Pico's I/O core, the ESP32-P4's I/O core and the FPGA's PIO) is to
+take Linux **off the sensor buses**. `spidev`, `i2c-dev` and per-sample GPIO interrupts cost a system
+call, a scheduler wake-up and tens of microseconds of jitter per read. In AbstractX the I/O
+accelerator owns every bus, starts each transfer from the sensor's own data-ready edge with DMA, and
+runs the fast loop; Linux only receives fused state, telemetry and trace over RPMsg, in blocks
+([`[SPEC-ARCH-14]`](../DESIGN_SPECIFICATION.md)).
+
+![AbstractX accelerator split: sensors and actuators are driven only by an I/O accelerator per platform, which hands results through rings to Linux or the other core; only the E906 path is built and measured today](assets/abstractx-accelerator-split.svg)
+
+On the Cubie A5E this is measured: the E906 starts the IMU DMA about 6 µs after the DRDY edge and
+the consuming coroutine runs about 31 µs after it (10,000 samples at 1 kHz, Part 6). The Python
+stage below uses Linux `spidev` **for bring-up only**: it is where you learn the register sequence
+before the same driver moves to the accelerator. It is never the production data path.
+
 ---
 
 ## 2. The AbstractX Architecture at a Glance
@@ -76,9 +92,9 @@ flowchart TD
 
 ---
 
-## 3. Stage 1: Jumpstarting Drivers in Python with `asyncio`
+## 3. Stage 1: Jumpstarting Drivers in Python with `asyncio` (bring-up only)
 
-Before compiling a single line of C++ for the E906, you can bring up, sequence, and validate the peripheral driver directly on the Linux host using Python `asyncio`.
+Before compiling a single line of C++ for the E906, you can bring up, sequence, and validate the peripheral driver directly on the Linux host using Python `asyncio`. This stage exists to learn the device (register order, timing, quirks) quickly. Once the sequence is right, the driver moves to the accelerator (Stages 2 and 3) and Linux leaves the bus.
 
 Because the Linux kernel provides user-space drivers (`uio_pdrv_genirq`, `spidev`, `i2c-dev`, and `rpmsg_char`), Python can map physical memory registers via `mmap` and handle hardware interrupts without writing kernel C code:
 
@@ -331,9 +347,9 @@ AbstractX enforces a strict architectural separation between **Observability** a
 
 | Phase | Activity | Environment | Tools |
 |---|---|---|---|
-| **Phase 1** | Register sequencing, protocol validation, bus timing | Linux ARM64 | Python `asyncio`, `/dev/uio0`, `/dev/spidev` |
+| **Phase 1** (bring-up only) | Register sequencing, protocol validation, bus timing | Linux ARM64 | Python `asyncio`, `/dev/uio0`, `/dev/spidev` |
 | **Phase 2** | Live in-silicon register peeking & hardware probing | XuanTie E906 RISC-V | Quarantined MicroPython REPL in DSP SRAM (`0x00020000`) |
-| **Phase 3** | Flight implementation (8 kHz fusion, zero heap) | XuanTie E906 RISC-V | Freestanding C++20 (`abstractx::step()`, `coro::Task`) |
+| **Phase 3** (production) | Flight implementation (8 kHz fusion, zero heap); the E906 owns the buses, Linux sees results | XuanTie E906 RISC-V | Freestanding C++20 (`abstractx::step()`, `coro::Task`) |
 | **Phase 4** | Flight telemetry, TLP tracing & live tuning | Desktop / Host | AbstractX Studio (UDP :9870, :9871, TCP :1026) |
 
 By coupling Python's rapid prototyping flexibility with the zero-heap mathematical determinism of freestanding C++20 coroutines, **AbstractX bridges the chasm between Linux agility and bare-metal silicon determinism.**

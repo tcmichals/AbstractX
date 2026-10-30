@@ -56,6 +56,8 @@ public:
     // transfer completes before returning ([SPEC-ARCH-13] 5; listed in the target spec).
     // SPI always by DMA here, also below DMA_THRESHOLD: the auto read runs from the edge
     // handler and must not keep it busy for the burst ([SPEC-E906-HAL-05]).
+    // The E906 owns the sensor bus and Linux sees results ([SPEC-ARCH-14]; built on the E906 only).
+    // @impl [SPEC-ARCH-14] docs/DESIGN_SPECIFICATION.md
     bool start_transfer(const hal::IoTransfer& x) noexcept override {
         if (x.bus == hal::BusType::Spi) {
             if (fc::hal::Spi1::is_busy()) {                // one DMA at a time on SPI1: drop

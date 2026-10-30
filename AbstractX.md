@@ -45,7 +45,7 @@ Traditional embedded architectures often rely on a Real-Time Operating System (R
 
 AbstractX achieves extreme concurrency differently by introducing the **Coroutine-Native HAL**. Inspired by high-performance server paradigms (like Boost.Asio or epoll), it brings event-driven deterministic scheduling to bare-metal. By replacing OS threads with C++20 compiler-generated state machines, AbstractX achieves two fundamental hardware goals:
 1. **Limit Memory Usage**: A suspended coroutine frame consumes less than 120 bytes of static memory (in `.bss`), running the entire system on a single shared 2 KB stack. It enforces **0 bytes of dynamic heap allocation**.
-2. **Maximize Processor Speed**: By removing OS preemption, a context switch becomes a direct 15-cycle function pointer jump. Because the CPU never spins in blocking `while(busy)` loops, 100% of the processor's clock cycles are dedicated to useful work (like AHRS matrix math), extracting maximum theoretical throughput from the silicon.
+2. **Maximize Processor Speed**: By removing OS preemption, a context switch becomes an indirect call from the dispatcher (a full yield round trip through the event loop measured 9.80 µs on the bare-metal E906; the bare call alone is not measured). Because the CPU never spins in blocking `while(busy)` loops, 100% of the processor's clock cycles are dedicated to useful work (like AHRS matrix math), extracting maximum theoretical throughput from the silicon.
 
 ---
 

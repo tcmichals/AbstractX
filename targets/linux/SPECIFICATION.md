@@ -171,7 +171,7 @@ flowchart TD
 
     subgraph REACTOR["AbstractX Reactor (targets/linux/)"]
         EPOLL["<b>EpollReactor (epoll_create1)</b><br/><code>epoll_ctl(EPOLLIN | EPOLLOUT | EPOLLET)</code><br/>Zero Heap • Static <code>std::span&lt;epoll_event&gt;</code>"]
-        DISPATCHER["<b>Cooperative Dispatcher (step)</b><br/>Zero thread hops • 15-cycle function pointer jump"]
+        DISPATCHER["<b>Cooperative Dispatcher (step)</b><br/>Zero thread hops • direct <code>.resume()</code> call"]
     end
 
     subgraph CORO_ENGINE["AbstractX C++20 Coroutine Flight Stack"]
@@ -182,7 +182,7 @@ flowchart TD
 
     SOCK & RPMSG & UIO & TFD -->|Register FD| EPOLL
     EPOLL -->|Non-blocking Wakeup| DISPATCHER
-    DISPATCHER -->|15-Cycle <code>.resume()</code>| TASK1 & TASK2 & TASK3
+    DISPATCHER -->|<code>.resume()</code>| TASK1 & TASK2 & TASK3
 ```
 
 ### `[SPEC-REACTOR-01]` Zero-Heap C++20 AbstractX Reactor Demultiplexer
