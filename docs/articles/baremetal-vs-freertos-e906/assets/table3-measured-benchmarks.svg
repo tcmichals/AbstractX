@@ -62,7 +62,7 @@
   <text x="646" y="402" class="cell-mono">4,514 wakes over run (1000 Hz CLINT tick)</text>
   <rect x="32" y="417" width="940" height="38" fill="#141f36"/>
   <line x1="32" y1="455" x2="972" y2="455" stroke="#233554" stroke-width="1"/>
-  <text x="46" y="440" class="cell-bold">Idle CPU load</text>
-  <text x="306" y="440" class="cell-mono">0.01% busy (wfi sleep)</text>
-  <text x="646" y="440" class="cell-mono">5.5% kernel tick / 94.5% idle wfi</text>
+  <text x="46" y="440" class="cell-bold">Busy share of run</text>
+  <text x="306" y="440" class="cell-mono">not instrumented</text>
+  <text x="646" y="440" class="cell-mono">5.5% (whole run incl. bench)</text>
 </svg>

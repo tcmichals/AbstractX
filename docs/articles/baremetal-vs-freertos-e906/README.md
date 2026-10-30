@@ -116,19 +116,19 @@ if (notifier.wait(timeout_ticks)) {
 
 ## 6. Memory Footprint Analysis
 
-Both ELFs were compiled with xPack GNU RISC-V GCC 15.2.0 (`-O3 -DNDEBUG`, freestanding C++20, `-fno-exceptions -fno-rtti`) and linked with `newlib-nano`. Memory layouts are verified against Allwinner T527 remoteproc windows via `tools/check_e906_layout.py`:
+Both ELFs were compiled with xPack GNU RISC-V GCC 15.2.0 (Release, `-O2 -g -DNDEBUG` since 2026-10-28; earlier Release builds were really `-O3`), freestanding C++20, `-fno-exceptions -fno-rtti`, and linked with `newlib-nano`. Memory layouts are verified against Allwinner T527 remoteproc windows via `tools/check_e906_layout.py`:
 
 ![Memory Budget: Static RAM and Stack Allocation Breakdown](assets/table2-memory-footprint.svg)
 
 * **Code Size**: FreeRTOS adds only **4,986 bytes** of code (`.text`), encompassing the kernel scheduler (`tasks.c`, `list.c`, `queue.c`), the RISC-V port, and trap entry assembly.
 * **Static RAM**: FreeRTOS requires **11,696 bytes** of additional static RAM. Because AbstractX enforces zero dynamic heap allocation (AGENTS §2, `configSUPPORT_STATIC_ALLOCATION = 1`), task control blocks and stacks are statically allocated (8 KB `abstractx` stack, 2 KB ISR trap stack, and 1 KB idle stack).
-* **Heap Usage**: **0 bytes**. Neither build compiles `heap_*.c` or invokes `malloc()`.
+* **Heap Usage**: neither build compiles a FreeRTOS `heap_*.c`, and no AbstractX code calls `malloc()`. But newlib's `_malloc_r`, `_free_r` and `_sbrk` are still linked into both ELFs (`riscv-none-elf-nm`, 2026-10-30; EL-1027-31), so "zero heap" is a property of our code, not yet of the binary.
 
 ---
 
 ## 7. Empirical Hardware Benchmarks
 
-The benchmark suite was executed on real Radxa Cubie A5E silicon over VirtIO RPMsg endpoint 1030. 
+The benchmark suite was executed on real Radxa Cubie A5E silicon over VirtIO RPMsg endpoint 1030. The evidence files (`docs/verification/evidence/e906_bench_baremetal.json`, `e906_bench_freertos.json`) carry 1970 timestamps because the board clock was not set; the runs date from late October 2026.
 
 All figures below are taken directly from the verified evidence runs:
 
@@ -136,15 +136,15 @@ All figures below are taken directly from the verified evidence runs:
 
 ### Key Performance Findings:
 1. **Yield Round-Trip Parity**: A full loop pass (`co_await yield_to_dispatcher()`) takes **1,961 cycles (9.80 µs)** on bare metal vs **1,997 cycles (9.98 µs)** under FreeRTOS—a difference of just **36 clock cycles (180 ns)**.
-2. **Interrupt Latency Trade-Off**:
+2. **Interrupt Latency Trade-Off** (soft interrupt, trigger -> coroutine resumed):
    * FreeRTOS achieves slightly faster soft-IRQ trigger-to-coroutine wake (**12.69 µs** vs **16.28 µs**) because `vTaskNotifyGiveFromISR` immediately queues the task for execution before returning, whereas bare metal polls pending flags at the top of the idle loop.
    * Both runtimes comfortably satisfy sub-20 µs real-time interrupt response requirements.
 3. **RPMsg Round-Trip Latency**:
-   * Echo latencies for 16 B, 256 B, and 496 B payloads are essentially identical between runtimes (~100 µs for 16 B; ~320 µs for 496 B).
-   * Host-to-E906 RPMsg throughput reaches **2.98 MB/s** under FreeRTOS when backpressure is driven continuously.
-4. **The Idle Tick Cost**:
-   * **Bare Metal**: 0 background wake-ups. The core remains asleep in `wfi` until a physical hardware interrupt or timer deadline arrives. CPU load is **0.01%**.
-   * **FreeRTOS**: The 1 kHz CLINT timer tick (`mtime` at `0xE000BFF8`) woke the CPU **4,514 times** during the test run. While the idle hook puts the core back into `wfi`, the tick processing accounts for approximately **5.5% baseline CPU load** when completely idle.
+   * Median echo latencies are close (16 B: 100.8 µs bare metal, 111.2 µs FreeRTOS; 496 B: 328.7 µs vs ~330 µs), and p99 is under 400 µs on both.
+   * **But the bare-metal run has ~1 s outliers**: the maximum echo time was 999 ms (16 B), 997 ms (256 B) and 968 ms (496 B), against 214 / 292 / 388 µs under FreeRTOS. That is why the bare-metal 496 B throughput is 0.20 MB/s against 2.98 MB/s for FreeRTOS. The cause is not known yet; a one-second stall matches the once-a-second status report deadline, which is the first thing to check.
+4. **Idle and the Tick** (what was and was not measured):
+   * **Bare Metal**: the bench firmware does not count idle time (`"idle": "not-instrumented"` in the evidence), so there is no measured idle load or wake-up count for it. By design it has no periodic tick: it sleeps in `wfi` until an interrupt or a timer deadline it armed.
+   * **FreeRTOS**: the idle hook woke **4,514 times** in a window of 439.1 M cycles (2.2 s at 200 MHz), and the core was outside the idle hook for **5.5 %** of that window. That 5.5 % is the busy share of the whole benchmark run (yield loop, soft-IRQ test, RPMsg traffic) plus the 1 kHz tick, **not** the cost of the tick alone, and the wake-ups include every interrupt, not just the tick. An idle-only window is still to be measured.
 
 ---
 
