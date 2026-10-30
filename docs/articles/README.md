@@ -14,5 +14,6 @@ hardware setup instructions.
 - [Straight-Line Async: GPS + Compass with C++20 Coroutines](./gps-compass-straight-line-async/README.md)
 - [Experiment First, Compile Later: Python on Both Processors of the Allwinner T527 (Part 5: device tree, remoteproc, RPMsg streams, MicroPython on the E906, Studio)](./micropython-on-e906/README.md)
 - [Bare Metal + AbstractX vs FreeRTOS + AbstractX on the XuanTie E906](./baremetal-vs-freertos-e906/README.md)
+- [Where Should the IMU Live on the T527? Linux on the A55, or the E906? (Part 6, draft: E906 bare-metal column measured, others pending)](./sensor-placement-t527/README.md)
 - [Jumpstarting Heterogeneous Silicon with AbstractX: From Python `asyncio` to Freestanding C++20](./INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md)
 
