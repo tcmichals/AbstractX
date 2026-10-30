@@ -1,0 +1,2 @@
+# [SPEC-AUDIT-16] ASCII box diagrams tolerated for now: <markdown path>:<sha1[:12] of fence content>
+# This list only shrinks.
