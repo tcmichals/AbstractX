@@ -83,10 +83,17 @@ module asp_pio_wrap #(
         .s_axil_rdata(rdata), .s_axil_rresp(rresp), .s_axil_rvalid(rvalid), .s_axil_rready(rready),
         .s_tlp_tdata(s_tlp_tdata), .s_tlp_tvalid(s_tlp_tvalid), .s_tlp_tready(s_tlp_tready),
         .m_tlp_tdata(m_tlp_tdata), .m_tlp_tvalid(m_tlp_tvalid), .m_tlp_tready(m_tlp_tready),
-        .o_pio_irq(o_pio_irq)
+        .o_pio_irq(o_pio_irq),
+        // pio2 trace observation port: AbstractX traces through its TLP path, not used here
+        .o_obs_pc(obs_pc), .o_obs_stalled(obs_stalled), .o_obs_tx_empty(obs_tx_empty),
+        .o_obs_rx_full(obs_rx_full), .o_obs_irq(obs_irq)
     );
+    logic [19:0] obs_pc;
+    logic [3:0]  obs_stalled, obs_tx_empty, obs_rx_full;
+    logic [7:0]  obs_irq;
     /* verilator lint_off UNUSEDSIGNAL */
-    wire _unused = &{1'b0, awprot, arprot, wb_adr_i[1:0]};   // word addresses; prot not used by the tile
+    wire _unused = &{1'b0, awprot, arprot, wb_adr_i[1:0],   // word addresses; prot not used by the tile
+                     obs_pc, obs_stalled, obs_tx_empty, obs_rx_full, obs_irq};
     /* verilator lint_on UNUSEDSIGNAL */
 endmodule
 `default_nettype wire
