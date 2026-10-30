@@ -27,11 +27,27 @@ This document is the authoritative roadmap and active engineering task tracker f
 - [x] **One engine in core (`[SPEC-ARCH-13]`, 2026-10-28)**: `abstractx::hal::IoEngine` (`include/abstractx/hal/io_engine.hpp`) owns the TLP decode, auto channels, bus lockout, bridge slot pool and completion framing; Linux, E906 and Pico 2 W `io_processor.cpp` are now `IIoBackend`s only (`sim/test_io_engine.cpp`). Zynq stays a pass-through (engine in RTL).
 - [ ] Port the ESP32-P4 stub to an `IIoBackend` once its SPI/GDMA driver exists.
 - [ ] Async I2C on E906 (`E906I2c`) and Pico (`PicoI2c`): the engine's I2C bridge blocks in `start_transfer()` on both.
-- [x] E906 IMU DRDY: PI8 -> GIC 115 -> CLIC line 100 (`hal::gpio_irq`), SPI1 CS0 auto-DMA per edge ([SPEC-E906-IRQ-07], [SPEC-E906-HAL-05]); 3 x 10000 samples on the board, 0 drops (2026-10-29).
-- [ ] FreeRTOS: dispatch CLIC lines 88 (DMA) and 100 (GPIO) through `hal::irq` in `freertos_risc_v_application_interrupt_handler` so the `A` bench runs there.
+
+### 2a. Sensor Latency Comparison: DRDY Auto-DMA on Every Runtime (`[SPEC-E906-IRQ-07]`, `[SPEC-E906-HAL-05]`, `[SPEC-E906-BENCH-05]`)
+Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on each runtime, measured from the DRDY edge to the sample in the consumer, plus compass and GPS drained between IMU samples. Order: C++ first (MicroPython depends on it).
+- [x] Measure the DRDY path on the board: IMU on SPI1 CS0, INT1 -> PI8 (pin 29) -> GIC 115 -> S_INTC REG2 bit 19 -> CLIC line 100 (2026-10-29, `14e8a0f`).
+- [x] E906 bare metal + AbstractX: `hal::gpio_irq`, SPI1 auto-DMA per edge, `Icm42688p` DRDY init, bench `A`; 3 x 10000 samples, 0 drops, edge -> coroutine 31.0 us avg (`c97c331`, `docs/verification/evidence/e906_imu_drdy_baremetal.json`).
+- [ ] E906 FreeRTOS + AbstractX: dispatch CLIC lines 88 (DMA) and 100 (GPIO) through `hal::irq` in `freertos_risc_v_application_interrupt_handler`, then run `bench_e906_runtime.py --imu 10000` on `e906_freertos_app`.
+- [ ] E906 MicroPython: `abstractx` binding for a DRDY auto-DMA channel (await the next sample from Python), spec in `apps/e906_repl_app/SPECIFICATION.md`; same report keys as `A`.
+- [ ] Stream each sample to Linux over RPMsg with its edge timestamp and stage timings (today `A` only reports totals); Linux records arrival p50/p99/max.
+- [ ] Linux A55 + AbstractX: bank-I GPIO edges latch `EINT_STA` but never reach Linux's GIC (kernel 7.1, `gpiomon` count 0); fix or route DRDY to another bank, then `gpiod` edge -> `spidev` with the `cubie-a5e-flight-stack-linux.dtso` overlay. Optional: plain Python (`spidev`, `gpiod`) column.
+- [ ] One clock for edge -> Linux user space on every runtime: jumper DRDY to a second GPIO in another bank that Linux timestamps (needs the Linux GPIO interrupt above), or a logic analyzer on DRDY + a "done" GPIO.
+- [ ] Common JSON-lines output (one schema for all runtimes) and one script that builds the tables and SVGs.
+- [ ] Compass (TWI1) and GPS (UART3) as secondary streams drained between IMU samples (primary-paced pattern, AGENTS §5); check they do not disturb the IMU timing.
 - [ ] Board: compass not found on TWI1 (`SCAN []`) on 2026-10-29 with both this tree and `14e8a0f`; check the GPS puck power and SDA/SCL wiring.
-- [ ] Linux: bank-I GPIO edges latch `EINT_STA` but never reach Linux's GIC (kernel 7.1); needed for the Linux DRDY column.
-- [ ] E906 DRDY period jitter: sample period 971..1012 us at 1 kHz with a steady handler (edge->DMA 1165..1362 cycles); find whether it is the IMU clock or interrupt-entry delay (logic analyzer).
+- [ ] DRDY period spread: 971..1012 us at 1 kHz while the handler is steady (edge -> DMA 1165..1362 cycles); IMU clock or interrupt-entry delay? (logic analyzer).
+- [ ] Board-test the `A` timeout paths (no IMU, DRDY stops) ([SPEC-E906-BENCH-05]).
+- [ ] Shrink `run_imu` (13 KB `.text`, mostly inlined `Report` calls).
+
+### 2b. Articles (`docs/articles/`)
+- [ ] Part 4, `baremetal-vs-freertos-e906/README.md`: replace the bare-metal idle claim ("0 wake-ups, 0.01 %": evidence says `idle=not-instrumented`); the "5.5 % tick cost" is the busy share of the whole run incl. the benchmark, not the tick (measure an idle-only window); heap wording vs `_malloc_r`/`_sbrk` linked (EL-1027-31); evidence timestamps are 1970 (set the board clock). Add the FreeRTOS vs bare-metal IMU DRDY numbers when 2a has them.
+- [ ] New article: where should sensor I/O live on the T527, Linux on the A55 or the E906 (bare metal, FreeRTOS, MicroPython)? Same IMU work on each runtime, edge -> data latency (p50/p99/max), lost samples, CPU and RAM. Needs 2a.
+- [ ] Optional: native FreeRTOS version (task per sensor, blocking drivers, `xQueue`) vs AbstractX coroutines: RAM, latency, code shape.
 
 ### 3. Binary CTF 1.8 Tracing & Configurable Sinks `[SPEC-TRACE-04]` `[SPEC-TRACE-06]`
 - [x] **Startup Trace Configuration (`TraceConfig`)**:
@@ -198,7 +214,7 @@ Open:
 - [x] Board run of the `-O2` E906 firmware (2026-10-28): 31 passed, 2 failed (both fail on the previous firmware too), 2 skipped (bench). Found and fixed: no RPMsg channel announced since `d8bcbac` (firmware refused the board's DDR `vdev@48000000` pool, [SPEC-E906-IPC-02]).
 - [ ] Board: `test_streamer_keeps_running_with_heartbeat` fails with "NMEA sentences failed their checksum" (also on the 2026-10-24 firmware): UART3 GPS stream corrupt after ~25 s (DMA ring overrun? baud?). Investigate on the board.
 - [ ] Board: `test_profiler_and_timeline_when_idle` fails, "1021 idle spans: sample interrupts woke the loop" (1028 on the 2026-10-24 firmware): profiler sample interrupts end the idle wait ([SPEC-E906-IRQ-06]).
-- [ ] Board: run `e906_bench_app` and `e906_freertos_app` (bench tests skipped), and the rest of EL-1027-30 (serial_loopback on header pins, TWI1 new CCR).
+- [ ] Board: `e906_bench_app` ran on 2026-10-29 (`R` + echo + `A`, exit 0); still to run: `e906_freertos_app`, and the rest of EL-1027-30 (serial_loopback on header pins, TWI1 new CCR).
 - [ ] E906 SRAM_FAST budget for `e906_repl_app` in `[SPEC-E906-MEM-01]` (EL-1027-29).
 - [x] `delay_*` / `sleep_*` / `wait_until` moved to `examples/hand_clocked.hpp` (they keep no handle); TimerService removed; refused timer sleep reports `Error`; lint check for dropped handles ([SPEC-ARCH-10]).
 - [x] `CoroutineIoEngine::poll_completions()` posts through the Dispatcher; second stream waiter refused; lint check 6 (every `.resume()` needs a `// resume:` reason) ([SPEC-ARCH-10]).
