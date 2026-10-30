@@ -130,10 +130,10 @@ void describe(uint32_t line, const char* name, const volatile uint32_t* errors) 
 } // namespace hal::irq
 
 __attribute__((section(".fastcode")))
-static void dispatch_clic_line(uint32_t line) noexcept {
+static bool dispatch_clic_line(uint32_t line) noexcept {
     if (line >= hal::clic::kNumLines) {
         ++s_spurious;
-        return;
+        return false;
     }
     ++s_counts[line];
     const uint32_t start = mcycle_lo();
@@ -149,9 +149,9 @@ static void dispatch_clic_line(uint32_t line) noexcept {
         }
     } charge{line, start};
     switch (line) {
-        case hal::clic::kLineTimer:  fc_timer_tick_isr();      return;
-        case hal::clic::kLineMsgbox: fc_msgbox_doorbell_isr(); return;
-        case hal::clic::kLineDma:    fc_dma_isr();             return;
+        case hal::clic::kLineTimer:  fc_timer_tick_isr();      return true;
+        case hal::clic::kLineMsgbox: fc_msgbox_doorbell_isr(); return true;
+        case hal::clic::kLineDma:    fc_dma_isr();             return true;
         default: break;
     }
     bool handled = false;
@@ -166,6 +166,14 @@ static void dispatch_clic_line(uint32_t line) noexcept {
         hal::clic::disable(line);
         ++s_spurious;
     }
+    return handled;
+}
+
+// Same table for another trap entry, e.g. the FreeRTOS port ([SPEC-E906-RTOS-04]).
+// @impl [SPEC-E906-IRQ-01] targets/allwinner_e906/SPECIFICATION.md
+__attribute__((section(".fastcode")))
+bool hal::irq::dispatch(uint32_t line) noexcept {
+    return dispatch_clic_line(line);
 }
 
 // -----------------------------------------------------------------------------

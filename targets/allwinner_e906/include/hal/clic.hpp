@@ -73,6 +73,9 @@ using Handler = void (*)(void* ctx);
 
 // Attach a handler to a CLIC line and enable the line. Several handlers may share a line.
 bool attach(uint32_t line, Handler fn, void* ctx) noexcept;
+// Run the handlers for a line from a trap entry (interrupt context). false: no owner, the line
+// was disabled and counted as spurious ([SPEC-E906-IRQ-01]).
+bool dispatch(uint32_t line) noexcept;
 uint32_t count(uint32_t line) noexcept;
 uint32_t spurious() noexcept;
 // Runtime status ([SPEC-E906-IRQ-05]): a short name for a line and an error counter its

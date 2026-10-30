@@ -59,7 +59,8 @@ flowchart LR
   never matches `0x80000007`.
 * **Requirement**: lines used: 7 machine timer (kernel tick), 17 message box
   (`RISCV_MSGBOX_RISCV`), 3 machine software interrupt (benchmark only,
-  `[SPEC-E906-BENCH-03]`). Interrupts are masked from the end of `abstractx::init()` until
+  `[SPEC-E906-BENCH-03]`), 88 DMA and the GPIO group lines armed through `hal::gpio_irq`
+  (100 for the IMU DRDY on PI8, `[SPEC-E906-IRQ-07]`). Interrupts are masked from the end of `abstractx::init()` until
   the scheduler starts.
 * **Verified by**: `e906-disassembly-check`, `e906-board-selftest`
 * **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`, `apps/e906_freertos_app/FreeRTOSConfig.h`
@@ -71,10 +72,19 @@ flowchart LR
   the waiting RPMsg coroutine to `IsrDispatcher`), and wakes the AbstractX task with
   `vTaskNotifyGiveFromISR` + `portYIELD_FROM_ISR`. The RPMsg awaiter re-enables the RX
   interrupt when it next suspends. The handler never calls `.resume()`.
-* **Requirement**: an unexpected line is counted and disabled in the CLIC, so a level line
-  cannot storm.
-* **Verified by**: `e906-board-selftest`
-* **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`
+* **Requirement**: every other line goes to the target's CLIC dispatcher,
+  `hal::irq::dispatch(line)` (the same table and per-line accounting the bare-metal trap
+  handler uses, `[SPEC-E906-IRQ-01]`, `[SPEC-E906-IRQ-05]`): line 88 runs `fc_dma_isr()` and
+  lines with handlers attached by `hal::irq::attach` (the PI8 edge, `[SPEC-E906-HAL-05]`) run
+  those. If it handled the line, the handler wakes the AbstractX task as above, because a DMA
+  completion may have posted the consumer to `IsrDispatcher`. The FreeRTOS app never keeps
+  its own copy of a driver's interrupt handling.
+* **Requirement**: an unexpected line (one `hal::irq::dispatch` does not own) is counted and
+  disabled in the CLIC, so a level line cannot storm.
+* **Why**: until 2026-10-30 lines 88 and 100 counted as unexpected and were switched off, so the
+  bench `A` (DRDY auto-DMA) could not run on FreeRTOS.
+* **Verified by**: `e906-build-layout`, `e906-disassembly-check`, `e906-board-selftest`
+* **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`
 
 ### `[SPEC-E906-RTOS-05]` AbstractX Runs in One Task
 * **Requirement**: exactly one FreeRTOS task (`abstractx`, highest application priority)

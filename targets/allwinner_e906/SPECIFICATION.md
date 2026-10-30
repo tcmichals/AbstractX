@@ -453,6 +453,9 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   MPP/MPIE/MPIL into `mcause[29:16]`). Handlers are attached per line at run time
   (`hal::irq::attach(line, fn, ctx)`); a line may carry several handlers (shared S_INTC group lines).
   A line that fires with no handler is disabled and counted, never a hang.
+* **Requirement**: the same dispatch is callable as `hal::irq::dispatch(line)` (returns false for a
+  line it did not own, after disabling it), so another trap entry (the FreeRTOS port,
+  `[SPEC-E906-RTOS-04]`) reaches the same handlers and counts instead of keeping a copy.
 * **Requirement**: every line keeps a 32-bit interrupt count readable from the firmware
   (`hal::irq::count(line)`), so a board test can prove the interrupt path ran.
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `e906-build-layout`

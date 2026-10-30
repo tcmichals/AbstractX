@@ -8,6 +8,7 @@
 #include "abstractx/abstractx.hpp"
 #include "abstractx/trace/event_trace.hpp"
 #include "bench.hpp"
+#include "hal/clic.hpp"
 #include "hal/msgbox.hpp"
 #include "hal/trace.hpp"
 
@@ -118,6 +119,12 @@ void freertos_risc_v_application_interrupt_handler(uint32_t mcause) {
     }
     if (line == kLineSoft && s_soft_irq_on) {
         abx_bench_soft_isr();
+        notify_from_isr();
+        return;
+    }
+    // DMA (88) and attached lines (PI8 DRDY on 100): the target's table, which disables a line
+    // it does not own. A DMA completion may have posted the consumer, so wake the task.
+    if (line != kLineTimer && hal::irq::dispatch(line)) {
         notify_from_isr();
         return;
     }
