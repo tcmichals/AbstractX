@@ -443,6 +443,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 | DMAC channels 8-15 (`DMAC_IRQ1_NS`) | - | 88 | `DMA_MCU_IRQ_CTRL` | manual Table 2-16, not measured |
 | UART3 | 37 | 90 | S_INTC `GINTC_CONFIG_REG0` bit 5 | IP 0→1 with bit set, RX data |
 | TWI1 | 43 | 91 | S_INTC `GINTC_CONFIG_REG0` bit 11 | IP 0→1 after START with INT_EN |
+| GPIO bank I (PI8 = IMU INT1) | 115 | 100 | S_INTC `GINTC_CONFIG_REG2` bit 19 | 2026-10-29: IP 0→1 on a DRDY edge, 0 after W1C of `EINT_STA` bit 8, 1 again on the next sample |
 
 ### `[SPEC-E906-IRQ-01]` CLIC Mode and Dispatch
 * **Requirement**: the E906 has a T-Head CLIC at `0xE0800000` and no PLIC. `mtvec` MUST be written
@@ -528,6 +529,36 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   (SRAM Space 1, [SPEC-E906-MEM-01]).
 * **Verified by**: `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_trace.py`)
 * **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `targets/allwinner_e906/src/platform.cpp`
+
+### `[SPEC-E906-IRQ-07]` GPIO Edge Interrupt: IMU DRDY on PI8
+* **Why**: the IMU's own sample clock must start each read (auto-DMA, [SPEC-E906-HAL-05]), so that
+  every runtime is paced by the same edge and edge-to-data latency can be measured.
+* **Hardware** (measured 2026-10-29 through the REPL and Linux `gpiomon`/`devmem`):
+  - ICM-42688-P INT1 reaches **PI8** (header pin 29): with INT1 latched, `PI_DAT` (`0x02000190`)
+    bit 8 followed the INT1 polarity setting. The IMU answers on SPI1 **CS0** (PB11), WHO_AM_I `0x47`.
+  - Edge-interrupt registers are at `0x02000200 + 0x20 * bank` (PA = 0, so PF = `+0x2A0`, PI =
+    `+0x300`): `EINT_CFG0..3` (`+0x00..+0x0C`, 4 bits per pin: 0 rising, 1 falling, 2 high, 3 low,
+    4 both), `EINT_CTL` (`+0x10`), `EINT_STA` (`+0x14`, write 1 to clear), `EINT_DEB` (`+0x18`).
+    PI8 is `EINT_CFG1` bits [3:0], `EINT_CTL`/`EINT_STA` bit 8, and `PI_CFG1` (`0x02000184`)
+    bits [3:0] = `0xE` (EINT function). Linux armed exactly these bits for PI8 (and `+0x2A0`/`+0x2B0`
+    for its PF6 card detect).
+  - Bank I is GIC 115 (Linux `pinctrl@2000000` interrupt list: PB..PJ = GIC 101..117 step 2, PK = 172),
+    routed by `hal::clic::route_gic(115)` to CLIC line 100. The line is level: it stays pending
+    until `EINT_STA` bit 8 is cleared.
+* **Requirement**: the driver writes only PI8's 4-bit fields and bit 8, read-modify-write under
+  `InterruptGuard`: `PI_CFG1` also holds the UART3 pins (PI11/PI12) and the bank's other EINT bits
+  belong to whoever owns those pins.
+* **Requirement**: the line-100 handler checks `EINT_STA` bit 8 (the line is shared by the eight
+  GIC sources 112..119), clears it (W1C) before starting the read, records `mcycle` at entry as
+  the edge timestamp, counts the edge, and never resumes a coroutine ([SPEC-E906-IRQ-01]).
+* **Requirement**: in the E906 profile PI8 belongs to the E906; Linux must not request it as a
+  GPIO interrupt at the same time (both would program `EINT_CTL`).
+* **Not yet known**: with Linux `gpiomon` armed on PI8, `EINT_STA` bit 8 latched but the Linux
+  interrupt count stayed 0, so bank-I edges are not delivered to Linux's GIC on kernel 7.1. This
+  blocks the Linux DRDY column, not the E906.
+* **Verified by**: `e906-board-selftest`, `e906-build-layout`, `boundary-race-review`
+* **Implementation Target**: `targets/allwinner_e906/include/hal/gpio_irq.hpp`, `targets/allwinner_e906/src/gpio_irq.cpp`, `targets/allwinner_e906/include/hal/clic.hpp`
+
 ### [SPEC-E906-CRASH-01] Trap Classification, FPU State Preservation & Crash Dump
 * **Requirement**:
   1. The trap entry (`bsp/startup.S`) MUST allocate a 416-byte stack frame (`CrashFrame`) and save all 31 integer GPRs (`x1`..`x31`), 4 CSRs (`mepc`, `mcause`, `mtval`, `mstatus`), all 32 hardware floating-point registers (`f0`..`f31`, single precision `fsw` into 8-byte slots: the E906 has no D, `ilp32f`), and `fcsr` BEFORE branching to or calling any C/C++ code.
@@ -691,6 +722,25 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   - Transfers $> 64$ bytes stream via dual-channel DMA (TX channel + RX channel) with zero CPU bus cycles.
 * **Verified by**: `e906-board-selftest`, `host-tests`
 * **Implementation Target**: `targets/allwinner_e906/include/memory_map.h`, `targets/allwinner_e906/include/hal/dma.hpp`, `targets/allwinner_e906/include/hal/spi.hpp`, `targets/allwinner_e906/src/spi.cpp`, `targets/allwinner_e906/src/platform.cpp`, `apps/e906_repl_app/src/spi.cpp`
+
+### `[SPEC-E906-HAL-05]` DRDY-Triggered IMU Auto-DMA on SPI1
+* **Why**: the CPU must not be in the IMU read. The DRDY edge starts the SPI1 DMA burst from the
+  interrupt handler and the waiting coroutine wakes with the sample already in SRAM; this is the
+  `IoEngine` auto channel with `TriggerMode::GpioEdge` ([SPEC-ARCH-13]).
+* **Requirement**: on each PI8 edge ([SPEC-E906-IRQ-07]) the handler starts one 15-byte DMA
+  transfer on SPI1 CS0 (`0x9D` = `TEMP_DATA1 | 0x80`, then 14 dummy bytes). This transfer uses DMA
+  although it is below `DMA_THRESHOLD`: a FIFO transfer would keep the handler busy for the whole
+  burst (~12 µs at 10 MHz). It is the one stated exception to [SPEC-E906-HAL-01].
+* **Requirement**: TX and RX buffers are members of the auto-channel object in SRAM (DMA-reachable,
+  never the stack). If SPI1 is still busy when an edge arrives, the edge is counted as an overrun
+  and dropped; it is never queued or retried, so a late read cannot be mistaken for a new sample.
+* **Requirement**: each sample carries the edge `mcycle`, the DMA start and DMA done `mcycle`, and a
+  sequence number; the DMA completion posts the waiting coroutine through `IsrDispatcher`.
+* **Requirement**: the IMU is configured as in [SPEC-IMU-01]: INT1 pulsed push-pull active high,
+  DRDY cleared by the data read, and a known ODR. The DMA burst itself clears DRDY, so no status
+  read is needed.
+* **Verified by**: `e906-board-selftest`, `host-tests`, `boundary-race-review`
+* **Implementation Target**: `targets/allwinner_e906/src/io_processor.cpp`, `targets/allwinner_e906/src/gpio_irq.cpp`, `targets/allwinner_e906/src/spi.cpp`
 
 ### `[SPEC-E906-HAL-04]` Bus Ports Exposed by the E906 Target (`get_uart_port` / `get_i2c_port`)
 * **Port list** (the per-target list [SPEC-HAL-10] asks for):

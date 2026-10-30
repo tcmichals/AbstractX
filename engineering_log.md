@@ -3214,3 +3214,21 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Licenses**: `docs/THIRD_PARTY.md` lists third-party code and how both the GPL and the commercial
   route comply (Apache-2.0 text in `rtl/pio/LICENSES/`).
 * **Not verified**: Gowin place and route / bitstream; board.
+
+## 2026-10-29: IMU DRDY reaches the E906 on CLIC line 100; three code/spec mismatches; Linux misses bank-I edges
+
+* **Category**: `hardware-fact` (routing), `product-bug` (pin and chip-select mismatches), `process-gap` (IMU interrupt setup never specified)
+* **What was measured** (Cubie A5E, kernel 7.1, `e906_repl_app.elf` through `run_e906_script.py`, Linux `devmem`/`gpiomon`):
+  * ICM-42688-P answers on SPI1 **CS0** (PB11), WHO_AM_I `0x47`; burst decodes to ~23.5 °C, az ≈ +1.02 g.
+  * INT1 reaches **PI8** (pin 29): latched INT1, polarity flipped, only `PI_DAT` bit 8 followed it (all banks PA..PK compared).
+  * Edge-interrupt block = `0x02000200 + 0x20*bank`; Linux arming PI8 set `EINT_CFG1` (`+0x304`) [3:0], `EINT_CTL` (`+0x310`) bit 8 and `PI_CFG1` function `0xE`.
+  * Bank I = GIC 115 (`pinctrl@2000000` `interrupts`), S_INTC `GINTC_CONFIG_REG2` bit 19 -> **CLIC line 100**, level until `EINT_STA` bit 8 is cleared; pends again on the next sample.
+  * Linux: `EINT_STA` bit 8 latched with `gpiomon` armed on PI8 but the Linux interrupt count stayed 0: bank-I edges never reach Linux's GIC. Open; blocks the Linux DRDY column only.
+* **Mismatches found** (not yet fixed in code; specs updated first):
+  * `hal/pio.hpp` `get_imu_drdy()` reads **PC8** and calls it pin 29; pin 29 is PI8.
+  * `io_processor.cpp` auto-DMA uses **CS1 (PC7)**; the IMU is on CS0.
+  * `Icm42688p::init_async()` ignores WHO_AM_I, never enables the DRDY interrupt and hard-codes 8 kHz.
+* **Which check should have caught it, and why it did not**: nothing ran the DRDY path on the board (`fc_gpio_drdy_isr` was never attached, TODO.md); `hw-sw-register-parity` does not compare pin names in HAL comments against the overlays; no host test asserts the IMU interrupt registers.
+* **Spec**: new `[SPEC-E906-IRQ-07]` (PI8 edge interrupt, measured registers, ownership), new `[SPEC-E906-HAL-05]` (DRDY-triggered SPI1 auto-DMA, overrun = drop), IRQ table row; `[SPEC-IMU-01]` gains the ODR parameter and the INT1 settings.
+* **Tool facts**: board busybox has no `timeout`; the E906 MicroPython has no `enumerate` and no `time` module (`abstractx.ticks_ms()` instead).
+* **Not verified**: the IMU pulse rate at 1 kHz (Linux could not timestamp it); any C++ code for this (not written yet).
