@@ -18,6 +18,13 @@ add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
 target_link_libraries(test_tlp_msg PRIVATE abstractx_drivers)
 add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 add_abstractx_sim(test_io_engine           test_io_engine.cpp)
+# [SPEC-E906-HAL-03] real E906 spi.cpp against fake registers (sim/e906_shim) and a fake DMAC
+add_executable(test_e906_spi1_ownership test_e906_spi1_ownership.cpp
+               ${CMAKE_SOURCE_DIR}/targets/allwinner_e906/src/spi.cpp)
+target_include_directories(test_e906_spi1_ownership BEFORE PRIVATE
+               ${CMAKE_CURRENT_SOURCE_DIR}/e906_shim ${CMAKE_SOURCE_DIR}/targets/allwinner_e906/include)
+target_link_libraries(test_e906_spi1_ownership PRIVATE abstractx_core)
+add_test(NAME sim_test_e906_spi1_ownership COMMAND test_e906_spi1_ownership)
 # [SPEC-LINUX-GPIO-01] GPIO-edge auto channel on SITL
 add_abstractx_sim(test_linux_drdy_auto     test_linux_drdy_auto.cpp)
 # [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results

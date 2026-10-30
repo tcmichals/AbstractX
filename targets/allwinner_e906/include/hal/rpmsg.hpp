@@ -103,6 +103,8 @@ public:
     uint32_t get_tx_full_waits() noexcept override;
     uint32_t get_mbox_full_waits() noexcept override;
     uint32_t get_host_kicks() noexcept override;
+    // A kick the full message-box FIFO refused, still to be sent ([SPEC-E906-IPC-02]).
+    bool kick_owed() noexcept;
 
     // Zero-copy transmit ([SPEC-E906-IPC-04]): borrow the next free host
     // buffer if at least `min_free_after` would remain free (budget), write it

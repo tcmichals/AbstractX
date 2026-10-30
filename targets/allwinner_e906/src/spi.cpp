@@ -42,14 +42,29 @@ namespace {
 
 static int g_spi_tx_chan = -1;
 static int g_spi_rx_chan = -1;
-__attribute__((section(".sram_c"))) alignas(4) static ::hal::DmaLli g_spi_tx_lli;
-__attribute__((section(".sram_c"))) alignas(4) static ::hal::DmaLli g_spi_rx_lli;
+alignas(4) static ::hal::DmaLli g_spi_tx_lli __attribute__((section(".sram_c")));
+alignas(4) static ::hal::DmaLli g_spi_rx_lli __attribute__((section(".sram_c")));
 
-static volatile bool g_spi_busy = false;  // shared: start_dma_transfer sets (InterruptGuard test-and-set), SPI DMA ISR clears; volatile
+static volatile bool g_spi_busy = false;  // shared: claim_bus() sets (InterruptGuard test-and-set; FIFO and DMA paths), FIFO path or SPI DMA ISR clears; volatile
 static int g_active_cs = -1;
 static etl::delegate<void(bool)> g_spi_callback{};
 static uint8_t g_dummy_tx = 0xFF;
 static uint8_t g_dummy_rx = 0;
+
+// One owner of SPI1 at a time, FIFO or DMA, thread or ISR context.
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+bool claim_bus() noexcept {
+    abstractx::InterruptGuard guard;
+    if (g_spi_busy) return false;
+    g_spi_busy = true;
+    return true;
+}
+
+volatile bool g_sync_dma_ok = false;  // shared: SPI DMA ISR writes, sync wrapper (bus owner) reads; volatile
+
+void on_sync_dma_done(bool success) noexcept {
+    g_sync_dma_ok = success;
+}
 
 void on_spi_rx_dma_complete(uint8_t channel, bool success) noexcept {
     (void)channel;
@@ -134,6 +149,8 @@ bool Spi1::is_busy() noexcept {
 
 bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_buf, size_t length, bool dual) {
     if (length == 0) return true;
+    // @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+    if (!claim_bus()) return false;  // a DMA (or DRDY auto-DMA) owns SPI1
 
     // 1. Assert Chip Select
     if (cs_id == 0) Pio::set_cs0(true);
@@ -144,9 +161,9 @@ bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_bu
     SPI1_FCR = 0;
 
     // 3. Set Total Burst Counter
-    SPI1_MBC = length;
-    SPI1_MTC = length;
-    SPI1_BCC = dual ? ((1U << 28) | length) : length;
+    SPI1_MBC = static_cast<uint32_t>(length);
+    SPI1_MTC = static_cast<uint32_t>(length);
+    SPI1_BCC = dual ? ((1U << 28) | static_cast<uint32_t>(length)) : static_cast<uint32_t>(length);
 
     // 4. Manual CS mode (CS_MANUAL | CS_LEVEL)
     SPI1_TCR = (1U << 7) | (1U << 6);
@@ -166,6 +183,7 @@ bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_bu
     if (SPI1_TCR & (1U << 31)) {
         if (cs_id == 0) Pio::set_cs0(false);
         else if (cs_id == 1) Pio::set_cs1(false);
+        g_spi_busy = false;
         return false;
     }
 
@@ -179,6 +197,7 @@ bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_bu
     if (cs_id == 0) Pio::set_cs0(false);
     else if (cs_id == 1) Pio::set_cs1(false);
 
+    g_spi_busy = false;
     return true;
 }
 
@@ -196,11 +215,7 @@ bool Spi1::start_dma_transfer(
     // A transfer in flight owns the LLIs and the callback: refuse instead of overwriting them
     // (callers run in thread and ISR context, so test-and-set with interrupts masked).
     // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md
-    {
-        abstractx::InterruptGuard guard;
-        if (g_spi_busy) return false;
-        g_spi_busy = true;
-    }
+    if (!claim_bus()) return false;
     g_active_cs = cs_id;
     g_spi_callback = callback;
 
@@ -220,17 +235,17 @@ bool Spi1::start_dma_transfer(
     SPI1_FCR = (1U << 24) | (32U << 16) | (1U << 8) | (1U << 0);
 
     // 3. Set Total Burst Counter
-    SPI1_MBC = len;
-    SPI1_MTC = len;
-    SPI1_BCC = dual ? ((1U << 28) | len) : len;
+    SPI1_MBC = static_cast<uint32_t>(len);
+    SPI1_MTC = static_cast<uint32_t>(len);
+    SPI1_BCC = dual ? ((1U << 28) | static_cast<uint32_t>(len)) : static_cast<uint32_t>(len);
 
     // 4. Configure TCR (CS_MANUAL | CS_LEVEL)
     SPI1_TCR = (1U << 7) | (1U << 6);
 
     // 5. Setup RX DMA LLI (SPI1_RXD_8 -> rx buffer) ([SPEC-E906-HAL-01], [SPEC-E906-HAL-03])
-    g_spi_rx_lli.src = reinterpret_cast<uint32_t>(&SPI1_RXD_8);
+    g_spi_rx_lli.src = ::hal::DmaController::pa(&SPI1_RXD_8);
     g_spi_rx_lli.dst = ::hal::DmaController::pa(rx ? rx : &g_dummy_rx);
-    g_spi_rx_lli.len = len;
+    g_spi_rx_lli.len = static_cast<uint32_t>(len);
     g_spi_rx_lli.para = 0x40U;
     g_spi_rx_lli.p_lli_next = ::hal::LLI_LAST_ITEM;
     g_spi_rx_lli.cfg = ::hal::DmaController::build_cfg(
@@ -240,8 +255,8 @@ bool Spi1::start_dma_transfer(
 
     // 6. Setup TX DMA LLI (tx buffer -> SPI1_TXD_8)
     g_spi_tx_lli.src = ::hal::DmaController::pa(tx ? tx : &g_dummy_tx);
-    g_spi_tx_lli.dst = reinterpret_cast<uint32_t>(&SPI1_TXD_8);
-    g_spi_tx_lli.len = len;
+    g_spi_tx_lli.dst = ::hal::DmaController::pa(&SPI1_TXD_8);
+    g_spi_tx_lli.len = static_cast<uint32_t>(len);
     g_spi_tx_lli.para = 0x40U;
     g_spi_tx_lli.p_lli_next = ::hal::LLI_LAST_ITEM;
     g_spi_tx_lli.cfg = ::hal::DmaController::build_cfg(
@@ -274,7 +289,11 @@ bool Spi1::transceive_imu_single_sync(const uint8_t *tx_buf, uint8_t *rx_buf, si
     if (length <= DMA_THRESHOLD) {
         return transceive_fifo_sync(0 /* CS0: PB11 */, tx_buf, rx_buf, length, false);
     }
-    start_dma_transfer(0 /* CS0: PB11 */, tx_buf, rx_buf, length, {}, false);
+    g_sync_dma_ok = false;
+    if (!start_dma_transfer(0 /* CS0: PB11 */, tx_buf, rx_buf, length,
+                            etl::delegate<void(bool)>::create<on_sync_dma_done>(), false)) {
+        return false;  // another transfer owns SPI1; never wait for it ([SPEC-E906-HAL-03])
+    }
     const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
     while (is_busy()) {
 #if defined(__riscv)
@@ -285,7 +304,7 @@ bool Spi1::transceive_imu_single_sync(const uint8_t *tx_buf, uint8_t *rx_buf, si
 #endif
     }
     abstractx::restore_interrupts_flags(flags);
-    return true;
+    return !is_busy() && g_sync_dma_ok;
 }
 
 bool Spi1::transceive_fpga_dual_sync(const uint8_t *tx_buf, uint8_t *rx_buf, size_t length) {
@@ -293,7 +312,11 @@ bool Spi1::transceive_fpga_dual_sync(const uint8_t *tx_buf, uint8_t *rx_buf, siz
     if (length <= DMA_THRESHOLD) {
         return transceive_fifo_sync(0 /* CS0: PB11 */, tx_buf, rx_buf, length, true);
     }
-    start_dma_transfer(0 /* CS0: PB11 */, tx_buf, rx_buf, length, {}, true);
+    g_sync_dma_ok = false;
+    if (!start_dma_transfer(0 /* CS0: PB11 */, tx_buf, rx_buf, length,
+                            etl::delegate<void(bool)>::create<on_sync_dma_done>(), true)) {
+        return false;  // another transfer owns SPI1; never wait for it ([SPEC-E906-HAL-03])
+    }
     const abstractx::interrupt_flags_t flags = abstractx::disable_interrupts_save_flags();
     while (is_busy()) {
 #if defined(__riscv)
@@ -304,7 +327,7 @@ bool Spi1::transceive_fpga_dual_sync(const uint8_t *tx_buf, uint8_t *rx_buf, siz
 #endif
     }
     abstractx::restore_interrupts_flags(flags);
-    return true;
+    return !is_busy() && g_sync_dma_ok;
 }
 
 /* AsyncTransferAwaiter Implementation */
@@ -315,15 +338,11 @@ bool Spi1::AsyncTransferAwaiter::await_ready() const noexcept {
     return len == 0;
 }
 
-static std::coroutine_handle<> g_spi_coro_handle{nullptr};
-static bool *g_spi_completed_ptr = nullptr;
-
-static void on_spi_dma_coro_callback(bool success) noexcept {
-    if (g_spi_completed_ptr) {
-        *g_spi_completed_ptr = success;
-    }
-    auto handle = g_spi_coro_handle;
-    g_spi_coro_handle = nullptr;
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+void Spi1::AsyncTransferAwaiter::on_done(bool success) noexcept {
+    completed = success;
+    const auto handle = waiter;
+    waiter = {};
     if (handle) {
         abstractx::IsrDispatcher::post(handle);
     }
@@ -334,17 +353,17 @@ bool Spi1::AsyncTransferAwaiter::await_suspend(std::coroutine_handle<> handle) n
     // Threshold decision:
     // If len <= DMA_THRESHOLD, execute immediate fast-path FIFO and resume
     if (len <= DMA_THRESHOLD) {
-        transceive_fifo_sync(cs_id, tx, rx, len, dual);
-        completed = true;
+        completed = transceive_fifo_sync(cs_id, tx, rx, len, dual);
         return false; // resume immediately; never resume inline
     }
 
-    // Large payload: stream via dual DMA channels
-    g_spi_coro_handle = handle;
-    g_spi_completed_ptr = &completed;
-    if (!start_dma_transfer(cs_id, tx, rx, len, etl::delegate<void(bool)>::create<on_spi_dma_coro_callback>(), dual)) {
-        g_spi_coro_handle = nullptr;
-        g_spi_completed_ptr = nullptr;
+    // Large payload: stream via dual DMA channels. The handle and the result live in this
+    // awaiter (coroutine frame); a refused start leaves every other transfer untouched.
+    waiter = handle;
+    if (!start_dma_transfer(cs_id, tx, rx, len,
+                            etl::delegate<void(bool)>::create<AsyncTransferAwaiter, &AsyncTransferAwaiter::on_done>(*this),
+                            dual)) {
+        waiter = {};
         completed = false;
         return false;
     }

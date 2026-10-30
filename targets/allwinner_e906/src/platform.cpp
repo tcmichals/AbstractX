@@ -8,6 +8,7 @@
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/interrupt_lock.hpp"
+#include "hal/idle_policy.hpp"
 #include "hal/ccu.hpp"
 #include "hal/timer.hpp"
 #include "hal/uart.hpp"
@@ -262,8 +263,11 @@ __attribute__((noinline)) void platform_idle_wait() noexcept {
         __asm__ volatile("csrr %0, mstatus" : "=r"(mstatus));
         g_e906_diag[6] = mie;
         g_e906_diag[7] = mstatus;
-        // Wake for the next status report even if nothing else happens ([SPEC-E906-IRQ-05]).
-        const uint64_t due_us = status_deadline_us();
+        // Wake for the next status report even if nothing else happens ([SPEC-E906-IRQ-05]),
+        // sooner while a kick is owed: nothing else would retry it ([SPEC-E906-IPC-02]).
+        // @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
+        const uint64_t due_us = ::hal::idle::wake_deadline_us(::hal::Timer::get_time_us(),
+                                                              status_deadline_us(), g_rpmsg.kick_owed());
         if (due_us != UINT64_MAX) {
             ::hal::Timer::arm_wake(due_us * ::hal::Timer::TICKS_PER_US);
         }

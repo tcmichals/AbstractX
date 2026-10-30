@@ -76,6 +76,7 @@ sequenceDiagram
   | Space 0 shared tail | `0x3FFF0000` | `0x072B0000` | 64 KB | host IPC: ping channel `+0x0000`, DRAM-SPSC control `+0x2000`, crash dump `+0xFF00` |
   | SRAM Space 1, lower half | `0x40000000` | `0x072C0000` | 128 KB | resource table, trace0, firmware IPC state, cold code (`.text_cold`) and profiler/timeline rings (`.sram_c`) (`REMAP_CTRL_REG[1]=1`, set by remoteproc) |
   | SRAM Space 1, upper half | `0x40020000` | `0x072E0000` | 128 KB | Linux RPMsg DMA pool: vrings + RPMsg buffers (`[SPEC-E906-IPC-04]`); firmware places nothing here |
+  | DDR RPMsg pool | `0x48000000` | `0x48000000` | 1 MB | Linux RPMsg DMA pool (`vdev@48000000`, `shared-dma-pool`) of the board's flight-stack overlay (`apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso`): Linux allocates vrings and buffers here instead of in Space 1. The firmware only reads and writes it through `translate_buf()` (`[SPEC-E906-IPC-02]`); no firmware section is placed in DDR |
   | DRAM carveout | `0x48100000` | `0x48100000` | 1 MB | not used by AbstractX (SRAM-only rule, `[SPEC-E906-CACHE-02]`); allowed by the layout check for legacy images |
 
 * `0x07130000` is the RISC-V CFG register block (4 KB: `STA_ADD_REG` at `+0x204`,
@@ -217,6 +218,13 @@ sequenceDiagram
     *owed*, not lost: the used ring is already published, and the owed kick is retried by the next
     `poll()`, `tx_commit()`, `reply()` or `flush_kick()` (called every loop by
     `platform_poll_network()`).
+  * **An owed kick is pending work (2026-10-30)**: `Rpmsg::kick_owed()` reports it, and
+    `platform_idle_wait()` arms its timer wake no later than `hal::idle::kOwedRetryUs` (50 µs)
+    after now while a kick is owed (`hal::idle::wake_deadline_us()`), instead of only the next status
+    report. Rationale: the idle loop slept with an owed kick and nothing woke it until the 1 s
+    status timer; the AbstractX-only echo showed ~1 s maximums (999 / 997 / 968 ms) where FreeRTOS,
+    whose 1 kHz tick re-runs the loop every millisecond, showed < 0.4 ms. Not yet confirmed on the
+    board (the `mbox_full_waits` counter should rise at each stall before the fix).
 * **Ring Error Recovery (no permanent stall)**:
   * A descriptor index `>= num` in either ring is skipped (`last_avail_idx` advances; no used entry is
     written because the id is invalid) and counted in `s_ring_errors`.
@@ -505,7 +513,8 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   `timer` (7) and `msgbox` (17).
 * **Requirement**: `platform_runtime_stats()` reports up to six lines that fired, most interrupts
   first. The idle loop arms a timer wake for the next status deadline so a report goes out once a
-  second even when nothing else happens.
+  second even when nothing else happens. It wakes sooner while deferred work is owed (an owed
+  RPMsg kick, `[SPEC-E906-IPC-02]`): never later than `hal::idle::kOwedRetryUs` after now.
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_trace.py`), `e906-build-layout`
 * **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `targets/allwinner_e906/include/hal/clic.hpp`
 
@@ -723,7 +732,23 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Threshold-Balanced Execution**:
   - Transfers $\le 64$ bytes (hardware FIFO depth) execute directly via low-latency FIFO MMIO (`transceive_fifo_sync`), bypassing DMA setup overhead.
   - Transfers $> 64$ bytes stream via dual-channel DMA (TX channel + RX channel) with zero CPU bus cycles.
-* **Verified by**: `e906-board-selftest`, `host-tests`
+* **Requirement (one owner of SPI1, 2026-10-30)**: SPI1 has one transfer at a time, whoever starts
+  it. Every path (FIFO `transceive_fifo_sync`, `start_dma_transfer`, the sync DMA wrappers and the
+  coroutine awaiter) claims the bus with the same interrupt-masked test-and-set of the busy flag
+  before it touches a SPI1 register, and releases it on every exit (done, timeout, error).
+  * A refused claim fails the request at once: the sync calls return `false`, the awaiter resumes
+    with `false`. Nothing waits for another owner's transfer or reports its data as its own.
+  * A DRDY edge that arrives while any transfer (FIFO or DMA) holds the bus is a busy drop
+    (`[SPEC-E906-HAL-05]`); it never reprograms the FIFO under a running transfer.
+  * The awaiter keeps its coroutine handle and result in its own object (the coroutine frame) and
+    binds the completion callback to that object; there is no file-scope handle or result pointer
+    that a second awaiter could overwrite (AGENTS.md §10.4).
+* **Rationale**: 2026-10-30 code review: the FIFO path ignored the busy flag (a DRDY auto-DMA
+  could start in the middle of it, or it could reset the FIFO under a running DMA), the sync DMA
+  wrappers ignored a refused start and then waited on someone else's transfer, and the awaiter
+  wrote a global handle before the busy check, so a refused second awaiter left the first one
+  never resumed. No host test compiled `spi.cpp`.
+* **Verified by**: `e906-board-selftest`, `host-tests` (`sim/test_e906_spi1_ownership.cpp`), `boundary-race-review`
 * **Implementation Target**: `targets/allwinner_e906/include/memory_map.h`, `targets/allwinner_e906/include/hal/dma.hpp`, `targets/allwinner_e906/include/hal/spi.hpp`, `targets/allwinner_e906/src/spi.cpp`, `targets/allwinner_e906/src/platform.cpp`, `apps/e906_repl_app/src/spi.cpp`
 
 ### `[SPEC-E906-HAL-05]` DRDY-Triggered IMU Auto-DMA on SPI1

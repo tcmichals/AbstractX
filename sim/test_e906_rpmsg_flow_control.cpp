@@ -21,6 +21,7 @@
 // wrote through vring pointers of an earlier, unmapped FakeHost ([SPEC-E906-IPC-02]).
 #undef NDEBUG
 
+#include "hal/idle_policy.hpp"
 #include "hal/rpmsg.hpp"
 #include "resource_table.h"
 #include "abstractx/isr_dispatcher.hpp"
@@ -188,7 +189,18 @@ void reset_fake_env() {
 
 } // namespace
 
+static void test_idle_wake_deadline() {
+    using hal::idle::wake_deadline_us;
+    using hal::idle::kOwedRetryUs;
+    assert(wake_deadline_us(10, 1'000'010, false) == 1'000'010);
+    assert(wake_deadline_us(10, 1'000'010, true) == 10 + kOwedRetryUs);
+    assert(wake_deadline_us(10, 30, true) == 30 && "an earlier status deadline still wins");
+    assert(wake_deadline_us(10, UINT64_MAX, true) == 10 + kOwedRetryUs);
+    assert(wake_deadline_us(10, UINT64_MAX, false) == UINT64_MAX);
+}
+
 int main() {
+    test_idle_wake_deadline();
     std::cout << "[TEST] XuanTie E906 RPMsg Flow Control, Alignment & Kick Suppression Verification\n";
 
     // 1. Delivers posted messages in order and returns buffers
@@ -484,9 +496,15 @@ int main() {
         assert(g_received.size() == 1 && host.tx().used->idx == 1);
         assert(rpmsg.get_mbox_full_waits() == 256);
         assert(hal::g_fake_msgbox_sends[1] == 0);
+        // The owed kick is pending work: idle must wake within kOwedRetryUs, not at the
+        // 1 s status deadline ([SPEC-E906-IPC-02]; ~1 s echo stalls without it).
+        assert(rpmsg.kick_owed());
+        assert(hal::idle::wake_deadline_us(1000, 1'001'000, rpmsg.kick_owed()) == 1000 + hal::idle::kOwedRetryUs);
         hal::g_fake_msgbox_full_sends_left = 0;
         rpmsg.flush_kick();
         assert(hal::g_fake_msgbox_sends[1] == 1 && "owed kick retried");
+        assert(!rpmsg.kick_owed());
+        assert(hal::idle::wake_deadline_us(1000, 1'001'000, rpmsg.kick_owed()) == 1'001'000);
         rpmsg.flush_kick();
         assert(hal::g_fake_msgbox_sends[1] == 1 && "and only once");
         std::cout << "  -> FullMailboxNeverHangsAndTheKickIsRetried: PASS\n";

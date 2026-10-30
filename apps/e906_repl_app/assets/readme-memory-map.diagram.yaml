@@ -1,15 +1,16 @@
 title: RemoteProc memory carveouts (high address at top)
-desc: Firmware DRAM pool at 0x48100000-0x48200000, VirtIO vrings and DMA pool at 0x48000000-0x48100000, and MCU SRAM Space 0 at host 0x07280000-0x072C0000 (E906 view 0x3FFC0000-0x3FFFFFFF) holding text, data and BSS.
-grid: {col: 590, row: 80, gap_x: 60, gap_y: 12}
+desc: In the flight-stack overlay, a 1 MB DRAM carveout at 0x48100000 is reserved but unused by AbstractX firmware; the 1 MB DDR pool at 0x48000000 holds the VirtIO vrings and RPMsg buffers that Linux allocates; MCU SRAM Space 0 at host 0x07280000 (E906 view 0x3FFC0000) holds the firmware text, data and BSS.
+grid: {col: 620, row: 80, gap_x: 60, gap_y: 12}
 nodes:
   - id: fwdram
-    label: Firmware DRAM Pool
-    text: ["`0x48100000` - `0x48200000` (1 MB, rproc_dram)"]
+    label: DRAM carveout (reserved, unused)
+    text: ["`0x48100000` - `0x48200000` (1 MB, rproc_dram); no firmware section here"]
     at: [0, 0]
-    kind: mem
+    kind: muted
   - id: vring
-    label: VirtIO VRings & DMA
-    text: ["`0x48000000` - `0x48100000` (1 MB, rproc_vdev shared-dma-pool)"]
+    label: RPMsg DMA pool (Linux)
+    text: ["`0x48000000` - `0x48100000` (1 MB, rproc_vdev shared-dma-pool)",
+           "vrings + 512 B buffers; E906 reaches them via `translate_buf()`"]
     at: [0, 1]
     kind: mem
   - id: gap
@@ -18,7 +19,7 @@ nodes:
     span: [1, 0.5]
     kind: muted
   - id: sram0
-    label: MCU SRAM Space 0
+    label: MCU SRAM Space 0 (firmware)
     text: ["Text + Data + BSS (Zero-Heap Executable)",
            "host `0x07280000` - `0x072C0000` (256 KB, riscvsram0)",
            "E906 view `0x3FFC0000` - `0x3FFFFFFF`"]

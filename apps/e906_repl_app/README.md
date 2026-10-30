@@ -224,16 +224,18 @@ Radxa Cubie A5E Schematic v1.2 Sheet 19 proves that Pins 3 & 5 (`PB5`/`PB4`) hav
 
 In `cubie-a5e-flight-stack-e906.dtso`, the `&rproc` node attaches to the Linux kernel remoteproc subsystem with reserved physical memory carveouts:
 
-![RemoteProc memory carveouts: firmware DRAM pool at 0x48100000, VirtIO vrings and DMA at 0x48000000, MCU SRAM Space 0 at host 0x07280000 (E906 view 0x3FFC0000) holding text, data and BSS](assets/readme-memory-map.svg)
+![RemoteProc memory carveouts: unused DRAM carveout at 0x48100000, Linux RPMsg DMA pool (vrings and buffers) at 0x48000000, firmware in MCU SRAM Space 0 at host 0x07280000 (E906 view 0x3FFC0000)](assets/readme-memory-map.svg)
 
 1. **Dedicated MCU SRAM Space 0 (`0x07280000`, 256 KB)**:
    - Linux physical address: `0x07280000`–`0x072BFFFF`.
    - XuanTie E906 local memory bus: `0x3FFC0000`–`0x3FFFFFFF`.
    - Marked `no-map;` so Linux kernel memory management never touches it.
    - Houses the entire freestanding C++20 flight loop binary (`e906_repl_app.elf`).
-2. **VirtIO VRing DMA Pool (`0x48000000`, 1 MB)**:
-   - Houses the VirtIO ring descriptors and message buffers for inter-core communication.
-3. **Hardware Mailbox (`&msgbox`)**:
+2. **VirtIO VRing DMA Pool (`0x48000000`, 1 MB, DDR)**:
+   - Linux allocates the VirtIO ring descriptors and RPMsg buffers here (`&rproc` `memory-region = <&rproc_vdev>`).
+   - The E906 reaches them only through `translate_buf()`; no firmware code or data lives in DDR ([SPEC-E906-MEM-01], [SPEC-E906-IPC-02]). The SRAM-pool overlay puts the same pool in SRAM Space 1 instead.
+3. **DRAM carveout (`0x48100000`, 1 MB)**: reserved by the overlay, not used by AbstractX firmware.
+4. **Hardware Mailbox (`&msgbox`)**:
    - Enables the Allwinner hardware message box channels (`allwinner,sun55i-msgbox`) for bi-directional IRQ doorbells between the ARM Cortex-A55 host and XuanTie E906 coprocessor.
 
 

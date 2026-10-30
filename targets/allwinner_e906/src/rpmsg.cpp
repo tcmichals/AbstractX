@@ -644,6 +644,8 @@ uint32_t Rpmsg::get_ring_errors() noexcept { return s_linux.ring_errors.load(std
 uint32_t Rpmsg::get_tx_full_waits() noexcept { return s_linux.tx_full_waits.load(std::memory_order_relaxed); }
 uint32_t Rpmsg::get_mbox_full_waits() noexcept { return s_linux.mbox_full_waits.load(std::memory_order_relaxed); }
 uint32_t Rpmsg::get_host_kicks() noexcept { return s_linux.host_kicks.load(std::memory_order_relaxed); }
+// @impl [SPEC-E906-IPC-02] targets/allwinner_e906/SPECIFICATION.md
+bool Rpmsg::kick_owed() noexcept { return s_linux.ready && s_linux.kick_owed; }
 
 // ============================================================================
 // 2. RpmsgLiteMetal: same virtio core, kicks on Channel0, no name service.

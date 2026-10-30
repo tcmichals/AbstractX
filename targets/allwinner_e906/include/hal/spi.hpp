@@ -53,11 +53,13 @@ public:
         uint8_t *rx;
         size_t len;
         bool completed{false};
+        std::coroutine_handle<> waiter{};  // own slot, lives in the coroutine frame ([SPEC-E906-HAL-03])
 
         AsyncTransferAwaiter(SpiMode m, int cs, const uint8_t *t, uint8_t *r, size_t l);
         bool await_ready() const noexcept;
         bool await_suspend(std::coroutine_handle<> handle) noexcept;
         bool await_resume() noexcept;
+        void on_done(bool success) noexcept;  // DMA completion (ISR context)
     };
 
     static inline AsyncTransferAwaiter async_transceive_fpga_dual(const uint8_t *tx, uint8_t *rx, size_t len) {

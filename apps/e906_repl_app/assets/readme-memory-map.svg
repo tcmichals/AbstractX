@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 650 470.8" width="650" height="470.8" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 470.8" width="680" height="470.8" role="img" aria-labelledby="t d">
 <title id="t">RemoteProc memory carveouts (high address at top)</title>
-<desc id="d">Firmware DRAM pool at 0x48100000-0x48200000, VirtIO vrings and DMA pool at 0x48000000-0x48100000, and MCU SRAM Space 0 at host 0x07280000-0x072C0000 (E906 view 0x3FFC0000-0x3FFFFFFF) holding text, data and BSS.</desc>
+<desc id="d">In the flight-stack overlay, a 1 MB DRAM carveout at 0x48100000 is reserved but unused by AbstractX firmware; the 1 MB DDR pool at 0x48000000 holds the VirtIO vrings and RPMsg buffers that Linux allocates; MCU SRAM Space 0 at host 0x07280000 (E906 view 0x3FFC0000) holds the firmware text, data and BSS.</desc>
 <defs>
 <marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
 <marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
@@ -21,17 +21,18 @@
 </defs>
 <rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
 <text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">RemoteProc memory carveouts (high address at top)</text>
-<rect x="30" y="94" width="590" height="80" rx="12" fill="#122b22" stroke="#4ade80" stroke-width="2"/>
-<text x="325" y="130" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Firmware DRAM Pool</text>
-<text x="325" y="151" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48100000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48200000</tspan> (1 MB, rproc_dram)</text>
-<rect x="30" y="186" width="590" height="80" rx="12" fill="#122b22" stroke="#4ade80" stroke-width="2"/>
-<text x="325" y="222" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">VirtIO VRings &amp; DMA</text>
-<text x="325" y="243" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48000000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48100000</tspan> (1 MB, rproc_vdev shared-dma-pool)</text>
-<rect x="30" y="278" width="590" height="34" rx="12" fill="#151f33" stroke="#64748b" stroke-width="2"/>
-<text x="325" y="299.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">...</text>
-<rect x="30" y="342.4" width="590" height="98.4" rx="12" fill="#122b22" stroke="#4ade80" stroke-width="2"/>
-<text x="325" y="370.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">MCU SRAM Space 0</text>
-<text x="325" y="391.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Text + Data + BSS (Zero-Heap Executable)</text>
-<text x="325" y="408.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">host <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x07280000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x072C0000</tspan> (256 KB, riscvsram0)</text>
-<text x="325" y="425.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">E906 view <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x3FFC0000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x3FFFFFFF</tspan></text>
+<rect x="30" y="94" width="620" height="80" rx="12" fill="#151f33" stroke="#64748b" stroke-width="2"/>
+<text x="340" y="130" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">DRAM carveout (reserved, unused)</text>
+<text x="340" y="151" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48100000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48200000</tspan> (1 MB, rproc_dram); no firmware section here</text>
+<rect x="30" y="186" width="620" height="80" rx="12" fill="#122b22" stroke="#4ade80" stroke-width="2"/>
+<text x="340" y="213.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">RPMsg DMA pool (Linux)</text>
+<text x="340" y="234.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48000000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x48100000</tspan> (1 MB, rproc_vdev shared-dma-pool)</text>
+<text x="340" y="251.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">vrings + 512 B buffers; E906 reaches them via <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">translate_buf()</tspan></text>
+<rect x="30" y="278" width="620" height="34" rx="12" fill="#151f33" stroke="#64748b" stroke-width="2"/>
+<text x="340" y="299.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">...</text>
+<rect x="30" y="342.4" width="620" height="98.4" rx="12" fill="#122b22" stroke="#4ade80" stroke-width="2"/>
+<text x="340" y="370.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">MCU SRAM Space 0 (firmware)</text>
+<text x="340" y="391.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Text + Data + BSS (Zero-Heap Executable)</text>
+<text x="340" y="408.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">host <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x07280000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x072C0000</tspan> (256 KB, riscvsram0)</text>
+<text x="340" y="425.6" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">E906 view <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x3FFC0000</tspan> - <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">0x3FFFFFFF</tspan></text>
 </svg>
