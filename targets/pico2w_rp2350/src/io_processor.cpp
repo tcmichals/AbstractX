@@ -35,15 +35,16 @@ public:
         active_ = this;
     }
 
+    // @impl [SPEC-PICO-HAL-02] targets/pico2w_rp2350/SPECIFICATION.md
     bool init_channel(const hal::AutoChannelConfig& ch) noexcept override {
-#ifdef PICO_ON_DEVICE
+        if (ch.bus_type == hal::BusType::Spi && ch.cs_pin != 0) return false;   // only GP13 (CS0) is wired
         if (ch.trigger_mode == hal::TriggerMode::GpioEdge) {
-            gpio_init(ch.trigger_pin);
-            gpio_set_dir(ch.trigger_pin, GPIO_IN);
-            const uint32_t mask = ch.trigger_rising ? GPIO_IRQ_EDGE_RISE : GPIO_IRQ_EDGE_FALL;
-            gpio_set_irq_enabled_with_callback(ch.trigger_pin, mask, true, &PicoIoBackend::gpio_irq);
+            // Through PicoGpio's table: the SDK keeps one GPIO callback per core.
+            auto& gpio = hal::get_gpio();
+            gpio.configure_pin(ch.trigger_pin, hal::PinMode::Input, hal::PinPull::None);
+            const auto edge = ch.trigger_rising ? hal::EdgeTrigger::Rising : hal::EdgeTrigger::Falling;
+            if (!gpio.configure_interrupt(ch.trigger_pin, edge, &PicoIoBackend::on_gpio_edge, this)) return false;
         }
-#endif
         if (ch.bus_type == hal::BusType::Spi) {
             hal::SpiConfig cfg{};
             cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 10'000'000;
@@ -184,12 +185,11 @@ private:
         return nullptr;
     }
 
-#ifdef PICO_ON_DEVICE
-    static void gpio_irq(uint gpio, uint32_t events) {
-        (void)events;
-        if (active_ && active_->engine_) active_->engine_->on_trigger(gpio, time_us_64() * 1000ULL);
+    // GPIO interrupt context on Core 0: only starts the transfer, never resumes.
+    static void on_gpio_edge(uint32_t pin, void* ctx) {
+        auto* self = static_cast<PicoIoBackend*>(ctx);
+        if (self && self->engine_) self->engine_->on_trigger(pin, self->now_ns());
     }
-#endif
 
     hal::IoEngine* engine_{nullptr};
     hal::PicoSpi spi_{};

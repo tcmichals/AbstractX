@@ -294,6 +294,20 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
 
 ## 4. Execution Workflow & Step-by-Step Contract
 
+### [SPEC-PICO-HAL-02] GPIO-Edge Auto Channel: One GPIO Callback, Wired Chip Select Only
+* **Why**: the pico-sdk keeps one GPIO interrupt callback per core, and the last
+  `gpio_set_irq_enabled_with_callback` wins. Until 2026-10-30 the I/O back end registered its own
+  callback for DRDY, so either DRDY or every `PicoGpio` pin interrupt was silently lost. The back
+  end also used GP13 for every channel whatever its `cs_pin` said.
+* **Requirement**: a `GpioEdge` channel arms its pin through `hal::get_gpio().configure_interrupt()`
+  (`PicoGpio`'s per-pin table, the only SDK callback). The handler runs on Core 0, stamps the edge
+  with `now_ns()` and calls `IoEngine::on_trigger`; it never resumes a coroutine.
+* **Requirement**: `PicoSpi` drives one chip select (GP13, `cs_pin` 0). A SPI channel with another
+  `cs_pin` is refused by `init_channel` instead of reading the wrong device.
+* **Verified by**: `host-tests` (build only on the host), `board-bringup`
+* **Not verified yet**: on a Pico 2 W (no hardware on 2026-10-30).
+* **Implementation Target**: `targets/pico2w_rp2350/src/io_processor.cpp`
+
 ### 4.1 IMU Auto-Sample Pipeline
 1. **ICM-42688-P asserts `DRDY` (GP20 / Pin 3)**:
    - Hardware triggers GPIO interrupt on Core 0.
