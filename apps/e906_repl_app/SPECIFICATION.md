@@ -438,3 +438,37 @@ flowchart TD
 * **Verified by**: `e906-board-selftest`, `host-tests`
 * **Implementation Target**: `apps/e906_repl_app/src/i2c.cpp`, `apps/e906_repl_app/src/uart.cpp`, `apps/e906_repl_app/src/system.cpp`, `apps/e906_repl_app/include/repl_wait.hpp`, `apps/e906_repl_app/src/modabstractx.c`
 
+
+### `[SPEC-E906-REPL-21]` IMU DRDY Auto-DMA from MicroPython
+* **Why**: the sensor latency comparison (`TODO.md` 2a) needs the same IMU work as bench `A`
+  ([SPEC-E906-BENCH-05]) with MicroPython as the consumer, so the only difference between the
+  columns is who takes the sample.
+* **Requirement**: the read path is the target's, unchanged: the PI8 edge starts one SPI1 CS0 DMA
+  read (`0x9D` + 14 bytes) through the `IoEngine` GPIO-edge auto channel ([SPEC-E906-IRQ-07],
+  [SPEC-E906-HAL-05]); the sample lands in a TLP ring in SRAM. Python never starts a transfer.
+* **Requirement**: `abstractx` exposes
+  - `imu_drdy_start()`: runs `Icm42688p::init_async()` (10 MHz SPI, 1 kHz ODR, INT1 DRDY,
+    [SPEC-IMU-01]) as a spawned coroutine, waiting with `repl_wait_step` (at most 200 ms), then
+    configures and starts the channel. Returns `True`, or `False` (IMU init failed or timed out,
+    or a channel is already running).
+  - `imu_drdy_read_into(buf[, timeout_ms=0])`: pops one sample into a writable buffer of at least
+    22 bytes: `[0:8]` edge timestamp in ns (little endian, `hal::Timer` 24 MHz clock), `[8:22]`
+    the raw temp/accel/gyro bytes. `timeout_ms = 0` does not wait; otherwise it sleeps with
+    `repl_wait_step` (each DMA completion is an interrupt that ends the wait). Returns `True` if
+    a sample was copied. Allocates nothing on the GC heap.
+  - `imu_drdy_stop()`: stops the channel and waits (at most 5 ms) for a read already on SPI1 to
+    finish, so `spi_xfer` cannot start under it (idempotent).
+  - `imu_drdy_stats()`: a dict with the bench `A` keys: `samples`, `edges`, `overruns`,
+    `busy_drops`, `dma_ok`, `dma_failed`, `ingress_dropped`, `seq_gaps`, and `_min`/`_avg`/`_max`
+    of `period_ns`, `edge_to_dma_cycles`, `dma_cycles`, `edge_to_wake_ns` (here: edge -> the
+    sample handed to Python), for the run since the last `imu_drdy_start()`.
+* **Requirement**: while the channel runs, `spi_xfer` / `spi_xfer_into` raise `RuntimeError`
+  (code -5, SPI1 owned by the DRDY channel) instead of colliding with the auto read.
+* **Requirement**: the 22-byte copy from the SRAM ring into the Python buffer is the one copy on
+  this path. It is allowed under [SPEC-ARCH-08] because the MicroPython heap is in HiFi4 DSP RAM
+  ([SPEC-E906-REPL-02]), which the DMA cannot reach; the DMA itself writes into SRAM.
+* **Requirement**: `apps/e906_repl_app/imu_drdy_bench.py` reads N samples and prints the stats as
+  `key value` lines, the same keys and format as bench `A`, so one script compares both.
+* **Verified by**: `e906-build-layout`, `e906-board-selftest`
+* **Not verified yet**: on the board (no hardware on 2026-10-30).
+* **Implementation Target**: `apps/e906_repl_app/src/imu_drdy.cpp`, `apps/e906_repl_app/src/modabstractx.c`, `apps/e906_repl_app/src/spi.cpp`, `apps/e906_repl_app/imu_drdy_bench.py`

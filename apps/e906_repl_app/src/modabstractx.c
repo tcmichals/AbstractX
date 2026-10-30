@@ -1,8 +1,10 @@
 /*
  * modabstractx.c - Native MicroPython module for AbstractX hardware inspection
  *
- * @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-09] [SPEC-E906-REPL-10] [SPEC-E906-REPL-11] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
+ * @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-09] [SPEC-E906-REPL-10] [SPEC-E906-REPL-11] [SPEC-E906-REPL-16] [SPEC-E906-REPL-21] apps/e906_repl_app/SPECIFICATION.md
  */
+
+#include <string.h>
 
 #include "py/runtime.h"
 #include "py/obj.h"
@@ -421,6 +423,56 @@ static mp_obj_t mod_abstractx_spi_xfer_into(size_t n_args, const mp_obj_t *args)
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_spi_xfer_into_obj, 2, 3, mod_abstractx_spi_xfer_into);
 
+// ---------------------------------------------------------------------------
+// IMU DRDY auto-DMA ([SPEC-E906-REPL-21]); the channel lives in imu_drdy.cpp
+// ---------------------------------------------------------------------------
+extern bool e906_imu_drdy_start(void);
+extern bool e906_imu_drdy_read_into(uint8_t *buf, uint32_t timeout_ms);
+extern void e906_imu_drdy_stop(void);
+extern size_t e906_imu_drdy_stats(const char **keys, uint32_t *values, size_t max);
+
+// abstractx.imu_drdy_start() -> bool
+// @impl [SPEC-E906-REPL-21] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_imu_drdy_start(void) {
+    return mp_obj_new_bool(e906_imu_drdy_start());
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_imu_drdy_start_obj, mod_abstractx_imu_drdy_start);
+
+// abstractx.imu_drdy_read_into(buf[, timeout_ms]) -> bool; buf >= 22 bytes, no allocation
+// @impl [SPEC-E906-REPL-21] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_imu_drdy_read_into(size_t n_args, const mp_obj_t *args) {
+    mp_buffer_info_t bufinfo;
+    mp_get_buffer_raise(args[0], &bufinfo, MP_BUFFER_WRITE);
+    if (bufinfo.len < 22) {
+        mp_raise_ValueError(MP_ERROR_TEXT("buffer must be at least 22 bytes"));
+    }
+    uint32_t timeout_ms = n_args > 1 ? (uint32_t)mp_obj_get_int(args[1]) : 0;
+    return e906_imu_drdy_read_into((uint8_t *)bufinfo.buf, timeout_ms) ? mp_const_true : mp_const_false;
+}
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_imu_drdy_read_into_obj, 1, 2, mod_abstractx_imu_drdy_read_into);
+
+// abstractx.imu_drdy_stop()
+// @impl [SPEC-E906-REPL-21] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_imu_drdy_stop(void) {
+    e906_imu_drdy_stop();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_imu_drdy_stop_obj, mod_abstractx_imu_drdy_stop);
+
+// abstractx.imu_drdy_stats() -> dict with the bench 'A' keys
+// @impl [SPEC-E906-REPL-21] apps/e906_repl_app/SPECIFICATION.md
+static mp_obj_t mod_abstractx_imu_drdy_stats(void) {
+    const char *keys[24];
+    uint32_t values[24];
+    size_t n = e906_imu_drdy_stats(keys, values, 24);
+    mp_obj_t d = mp_obj_new_dict(n);
+    for (size_t i = 0; i < n; ++i) {
+        mp_obj_dict_store(d, mp_obj_new_str(keys[i], strlen(keys[i])), mp_obj_new_int_from_uint(values[i]));
+    }
+    return d;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_imu_drdy_stats_obj, mod_abstractx_imu_drdy_stats);
+
 static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_abstractx) },
     { MP_ROM_QSTR(MP_QSTR_peek), MP_ROM_PTR(&mod_abstractx_peek_obj) },
@@ -454,6 +506,10 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_spi_init), MP_ROM_PTR(&mod_abstractx_spi_init_obj) },
     { MP_ROM_QSTR(MP_QSTR_spi_xfer), MP_ROM_PTR(&mod_abstractx_spi_xfer_obj) },
     { MP_ROM_QSTR(MP_QSTR_spi_xfer_into), MP_ROM_PTR(&mod_abstractx_spi_xfer_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_imu_drdy_start), MP_ROM_PTR(&mod_abstractx_imu_drdy_start_obj) },
+    { MP_ROM_QSTR(MP_QSTR_imu_drdy_read_into), MP_ROM_PTR(&mod_abstractx_imu_drdy_read_into_obj) },
+    { MP_ROM_QSTR(MP_QSTR_imu_drdy_stop), MP_ROM_PTR(&mod_abstractx_imu_drdy_stop_obj) },
+    { MP_ROM_QSTR(MP_QSTR_imu_drdy_stats), MP_ROM_PTR(&mod_abstractx_imu_drdy_stats_obj) },
 };
 
 static MP_DEFINE_CONST_DICT(mp_module_abstractx_globals, mp_module_abstractx_globals_table);

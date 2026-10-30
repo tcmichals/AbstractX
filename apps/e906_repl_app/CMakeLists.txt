@@ -24,6 +24,7 @@ set(REPL_APP_SOURCES
     src/uart.cpp
     src/spi.cpp
     src/i2c.cpp
+    src/imu_drdy.cpp
     src/modabstractx.c
     ${MICROPY_SOURCE_PY}
     ${MICROPY_DIR}/shared/runtime/pyexec.c
@@ -65,6 +66,7 @@ add_dependencies(e906_repl_app BUILD_VERSION_HEADER)
 
 target_link_libraries(e906_repl_app PRIVATE
     abstractx_core
+    abstractx_applib
     abstractx_target_e906
     etl
     m

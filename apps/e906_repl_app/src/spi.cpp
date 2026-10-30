@@ -16,6 +16,8 @@
 
 extern "C" {
 
+bool e906_imu_drdy_running(void);   // imu_drdy.cpp
+
 // ---------------------------------------------------------------------------
 // Hardware SPI1 & Dual-SPI DMA Interface ([SPEC-E906-HAL-03], [SPEC-E906-REPL-20])
 // ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ bool e906_spi_init(uint32_t baud) {
 int e906_spi_xfer(const uint8_t *tx, uint8_t *rx, size_t len, bool dual) {
     if (len == 0) return 0;
     if (len > sizeof(s_spi_tx_staging)) return -4;
+    if (e906_imu_drdy_running()) return -5;   // SPI1 belongs to the DRDY channel ([SPEC-E906-REPL-21])
 
     if (len <= fc::hal::Spi1::DMA_THRESHOLD) {
         bool ok = fc::hal::Spi1::transceive_fifo_sync(0 /* CS0: PB11 */, tx, rx, len, dual);
