@@ -8,28 +8,7 @@ AbstractX provides a zero-allocation, high-throughput binary trace engine based 
 * **Buffer A (Active Fill Buffer)**: Fast producers (ISRs, coroutines, HAL drivers) write binary CTF 1.8 events into Buffer A with a direct memory copy and pointer increment ($< 50\text{ ns}$).
 * **Buffer B (Transmit Buffer)**: When Buffer A fills to 1,024 bytes (or a periodic flush timer expires), the buffers **swap instantly**. Buffer B is transmitted asynchronously to the configured trace sink (UDP port 9870, local `.ctf` file, or coprocessor shared SRAM ring) by the cooperative `trace_dispatcher_task()` coroutine.
 
-```
-       Producer Domain (8 kHz IMU, GPS, HAL ISRs)
-                           │
-                           ▼
-               ┌───────────────────────┐
-               │ Buffer A [1024 Bytes] │ <── Active FILLING
-               └───────────────────────┘
-                           │
-                 [Buffer Full / 10ms Swap]
-                           │
-                           ▼
-               ┌───────────────────────┐
-               │ Buffer B [1024 Bytes] │ ──► Active TRANSMITTING
-               └───────────────────────┘
-                           │
-                           ▼
-          trace_dispatcher_task() Coroutine
-      ┌────────────────────┼────────────────────┐
-      ▼                    ▼                    ▼
-UdpTraceSink        FileTraceSink       SharedSramTraceSink
-(:9870 Live)        ("trace.ctf")       (E906 -> Linux MSGBox)
-```
+![Producers fill Buffer A (1024 bytes); on buffer full or the 10 ms swap it becomes Buffer B, which trace_dispatcher_task() sends to the UDP, file or shared-SRAM trace sink](assets/how-to-ctf-ping-pong-tracing-buffers.svg)
 
 ---
 

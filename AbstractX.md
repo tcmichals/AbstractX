@@ -86,30 +86,7 @@ For extreme performance, AbstractX completely decouples application math (AHRS /
 * **The App Processor (Core 1 / Linux)**: Runs linear high-speed estimation and flight control algorithms. When it needs to interact with hardware (e.g. transmit an ESC serial command, read a sensor register, or toggle an LED), it constructs a 64-byte TLP and pushes it into the ring.
 * **The I/O Processor (Core 0 / RISC-V / FPGA)**: Acts as the **Bus Switch / Master**. It consumes TLPs from the ring, decodes the target endpoint from the virtual BAR map or channel ID, and routes the transaction directly onto the destination IP core (UART, SPI DMA, GPIO). If a read is requested, it routes a completion TLP (`CplD`) back to the App Processor.
 
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                   APPLICATION PROCESSOR (Core 1 / Linux)               │
-│         High-Speed Sensor Fusion Loop / Flight Control Math            │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ 64-Byte TLP (target_address, tag)
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                 LOCK-FREE SPSC RING (Shared SRAM / Mailbox)            │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Dequeue TLP
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│          I/O PROCESSOR (Core 0 / XuanTie E906 / asp_router.sv)         │
-│                        [ BUS SWITCH / ROUTER ]                         │
-│   Decodes Channel & BAR Address ────────► Routes to Downstream IP      │
-└───┬───────────────────────────────┬──────────────────────────────┬─────┘
-    │                               │                              │
-    ▼                               ▼                              ▼
-┌────────────────┐          ┌────────────────┐             ┌────────────────┐
-│  UART / ESC IP │          │  SPI / DMA IP  │             │  GPIO / LED IP │
-│  (bar::EscBase)│          │  (bar::ImuBase)│             │  (bar::LedBase)│
-└────────────────┘          └────────────────┘             └────────────────┘
-```
+![AMP I/O switch: the application processor pushes 64-byte TLPs into a lock-free SPSC ring; the I/O processor (E906 / asp_router.sv) decodes channel and BAR address and routes to the UART/ESC, SPI/DMA and GPIO/LED IP](assets/abstractx-io-switch.svg)
 
 ---
 

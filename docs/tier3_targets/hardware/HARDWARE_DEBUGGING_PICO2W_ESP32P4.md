@@ -70,25 +70,7 @@ Connect the **Raspberry Pi Debug Probe** (or any CMSIS-DAP / Picoprobe debugger)
 
 ### B. ICM-42688-P IMU & U-Blox GPS Wiring (Pico 2 W)
 
-```
-        Raspberry Pi Pico 2 W                    ICM-42688-P IMU (SPI0)
-     +-------------------------+              +-------------------------+
-     | 3V3(OUT) (Pin 36)       | ------------ | VDD / VDDIO             |
-     | GND      (Pin 38 / Pin 3| ------------ | GND                     |
-     | GPIO 18  (Pin 24, SCK)  | ------------ | SCLK / SCK              |
-     | GPIO 19  (Pin 25, MOSI) | ------------ | SDI / MOSI              |
-     | GPIO 16  (Pin 21, MISO) | ------------ | SDO / MISO              |
-     | GPIO 17  (Pin 22, CSn)  | ------------ | CS                      |
-     | GPIO 20  (Pin 26, INT1) | ------------ | INT1 (Data Ready)       |
-     +-------------------------+              +-------------------------+
-
-                                                 U-Blox UBX-NAV-PVT GPS
-     +-------------------------+              +-------------------------+
-     | GPIO 0   (Pin 1, UART0 TX) ---------- | RX                      |
-     | GPIO 1   (Pin 2, UART0 RX) ---------- | TX                      |
-     | 3V3(OUT) / GND          | ------------ | VCC / GND               |
-     +-------------------------+              +-------------------------+
-```
+![Pico 2 W wiring: GPIO 16-20 and power to the ICM-42688-P IMU on SPI0, GPIO 0/1 UART0 and power to the u-blox UBX-NAV-PVT GPS](assets/hardware-debugging-pico2w-esp32p4-pico2w-wiring.svg)
 
 ---
 

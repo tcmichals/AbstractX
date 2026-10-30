@@ -57,6 +57,7 @@ All SystemVerilog RTL modules compile without warnings or timing faults under Ve
 
 ## 4. Architectural Benchmarks & Comparisons
 
+<!-- ascii-ok: benchmark results table (terminal output) -->
 ```
 ====================================================================
  PERFORMANCE & TIMING METRICS (100,000 Iteration Loop Benchmark)

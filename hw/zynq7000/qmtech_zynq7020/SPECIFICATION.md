@@ -128,6 +128,7 @@ bitstream/overlay MUST identify one explicit mode:
 The following layout applies to either DDR mode; it is not the default bring-up
 configuration:
 
+<!-- ascii-ok: byte layout of the DDR ring slots (offset table) -->
 ```
 +-----------------------------------------------------------------------+
 |  AbstractX SPSC DDR Ring Buffer Layout (64-Byte Slot Aligned)          |

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1086 611" width="1086" height="611" role="img" aria-labelledby="t d">
+<title id="t">Single-thread coroutine executor over TLP rings</title>
+<desc id="d">Three coroutines on one main flight thread (8 kHz IMU, 50 Hz baro, EKF navigation task) issue TLPs into lock-free SPSC 64-byte TLP rings; the hardware coprocessor or SITL I/O worker layer streams TLPs to and from those rings without blocking.</desc>
+<defs>
+<marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
+<marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
+<marker id="a4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4ade80"/></marker>
+<marker id="a4ade80s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#4ade80"/></marker>
+<marker id="a64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker>
+<marker id="a64748bs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#64748b"/></marker>
+<marker id="a7dd3fc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a7dd3fcs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a9fb3d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9fb3d9"/></marker>
+<marker id="a9fb3d9s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#9fb3d9"/></marker>
+<marker id="ab79cff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/></marker>
+<marker id="ab79cffs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#b79cff"/></marker>
+<marker id="af5b942" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f5b942"/></marker>
+<marker id="af5b942s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f5b942"/></marker>
+<marker id="af87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f87171"/></marker>
+<marker id="af87171s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f87171"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
+<text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">Single-thread coroutine executor over TLP rings</text>
+<rect x="30" y="94" width="1026" height="148" rx="16" fill="#42d8f5" fill-opacity="0.05" stroke="#42d8f5" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="44" y="114" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#42d8f5" text-anchor="start" letter-spacing="1.2">SINGLE MAIN FLIGHT THREAD (C++20 COROUTINE EXECUTOR)</text>
+<path d="M193 224 L193 294" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M543 224 L543 294" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M893 224 L893 294" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M543 377 L543 464" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)" marker-start="url(#a9fb3d9s)"/>
+<rect x="48" y="124" width="290" height="100" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="193" y="161.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">8 kHz IMU Coroutine</text>
+<text x="193" y="182.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">co_await next_imu_stream()</text>
+<text x="193" y="199.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">executes in 5 us, yields</text>
+<rect x="398" y="124" width="290" height="100" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="543" y="161.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">50 Hz Baro Coroutine</text>
+<text x="543" y="182.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">co_await read_i2c(BARO)</text>
+<text x="543" y="199.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">suspends for 1.5 ms</text>
+<rect x="748" y="124" width="290" height="100" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="893" y="161.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">EKF Navigation Task</text>
+<text x="893" y="182.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">co_await when_all(</text>
+<text x="893" y="199.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">read_baro(), read_mag())</text>
+<rect x="48" y="294" width="990" height="83" rx="12" fill="#122b22" stroke="#4ade80" stroke-width="2"/>
+<text x="543" y="323" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Lock-free SPSC 64-byte TLP ring buffers (SpscTlpRing)</text>
+<text x="543" y="344" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Host TX ring (MemRd / MemWr)</text>
+<text x="543" y="361" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Host RX ring (CplD / DMA_Stream)</text>
+<rect x="48" y="464" width="990" height="117" rx="12" fill="#2a2416" stroke="#f5b942" stroke-width="2"/>
+<text x="543" y="501.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Hardware coprocessor / SITL I/O worker layer</text>
+<text x="543" y="522.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">FPGA autonomous Auto-DMA engine (<tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">asp_imu_auto_dma.sv</tspan>)</text>
+<text x="543" y="539.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">RP2350 PIO state machines and Core 0 DMA / STM32 BDMA stream controllers</text>
+<text x="543" y="556.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Linux SITL: background I/O worker threads executing synchronous bus transfers</text>
+<rect x="495.2" y="248.5" width="95.5" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="543" y="263.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">MemRd Tag #1</text>
+<rect x="832.5" y="248.5" width="121" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="893" y="263.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">MemRd Tag #2, #3</text>
+<rect x="449.8" y="410" width="186.4" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="543" y="425" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">Non-blocking TLP streaming</text>
+</svg>

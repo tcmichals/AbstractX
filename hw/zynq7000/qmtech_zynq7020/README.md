@@ -74,13 +74,7 @@ Output images are generated in `hw/zynq7000/bld.qmtech-20/images/`:
 
 The QMTECH Zynq-7020 Starter Kit Carrier board includes an onboard USB-to-UART bridge connected to Zynq PS UART0 (`ttyPS0`):
 
-```
-+------------------------------------+                  Micro-USB Cable                  +------------------------------------+
-|  QMTECH Carrier Board              |   ============================================>   |  Host Development Workstation      |
-|  - Micro-USB Port: "UART"          |             115200 Baud / 8N1                     |  - Port: /dev/ttyUSB0              |
-|  - Silicon Labs CP2102 / CH340     |                                                   |  - Terminal: picocom / minicom     |
-+------------------------------------+                                                   +------------------------------------+
-```
+![USB serial console: the QMTECH carrier board UART Micro-USB port (CP2102 / CH340) connects at 115200 8N1 to /dev/ttyUSB0 on the host workstation](assets/readme-uart-console.svg)
 
 ### 1. Connect and Identify the Port:
 Plug a standard Micro-USB cable from the **UART** port on the carrier board into your Linux workstation:
@@ -115,25 +109,7 @@ You can turn an inexpensive **$4 Raspberry Pi Pico (RP2040)** into a high-speed 
 
 Based on the [Adam Taylor MicroZed / Hackaday xvc-pico architecture](https://github.com/kholia/xvc-pico/):
 
-```
-+--------------------------+                  JTAG 3.3V LVCMOS Lines                  +-----------------------------------+
-|  Raspberry Pi Pico       |   ---------------------------------------------------->  |  QMTECH Zynq-7020 Board (JTAG)    |
-|  (Running xvc-pico.uf2)  |   GPIO 2 (Pin 4) -> TCK (Pin 6)                          |  - 14-pin Standard 2.0mm Header   |
-|                          |   GPIO 3 (Pin 5) -> TMS (Pin 4)                          |  - Bank 0 / JTAG Voltage: 3.3V    |
-|                          |   GPIO 4 (Pin 6) -> TDI (Pin 10)                         |                                   |
-|                          |   GPIO 5 (Pin 7) -> TDO (Pin 8)                          |                                   |
-|                          |   GND    (Pin 8) -> GND (Pins 3, 5, 7, 9)                |                                   |
-+--------------------------+                                                          +-----------------------------------+
-             |                                                                                          |
-             | USB CDC-ACM (/dev/ttyACM0)                                                              |
-             v                                                                                          |
-+-------------------------------------------------------------------------------------------------------+
-|  Host Workstation:                                                                                    |
-|  1. Runs `xvcd-pico -s /dev/ttyACM0` (Opens TCP localhost:2542)                                       |
-|  2. Vivado Hardware Manager connects via "Add Xilinx Virtual Cable (XVC)"                             |
-|  3. Inspects PL ILA signals & Cortex-A9 DAP cores in real-time                                        |
-+-------------------------------------------------------------------------------------------------------+
-```
+![XVC JTAG setup: a Raspberry Pi Pico running xvc-pico drives the Zynq-7020 JTAG header (GPIO 2-5 to TCK, TMS, TDI, TDO, plus GND) and talks USB CDC-ACM to the host, which runs xvcd-pico on TCP 2542 for Vivado Hardware Manager](assets/readme-xvc-jtag.svg)
 
 ### 1. JTAG Wiring Pinout Table
 
@@ -292,14 +268,7 @@ zynq_test --init-imu
 
 The QMTECH Zynq-7020 Carrier board features a Gigabit Ethernet RJ45 port (RTL8211E PHY) connected to the PS Gigabit Ethernet MAC (`GEM0`).
 
-```
-+------------------------------------+          UDP Port 9870           +------------------------------------+
-|  QMTECH Zynq-7020 Board (Target)   |   --------------------------->   |  Host Workstation / PC (Engineer)  |
-|  - Artix-7 PL Auto-DMA (8 kHz IMU) |   64-Byte TLP Telemetry Frames   |  - AbstractX Studio (Workbench)    |
-|  - Linux RT (Dual Cortex-A9)       |                                  |  - Flight Display (Cockpit PFD)    |
-|  - gps_imu_app / Telemetry Server  |                                  |  - 120 FPS Real-time Visualization |
-+------------------------------------+                                  +------------------------------------+
-```
+![Ethernet telemetry: the Zynq-7020 target (PL auto-DMA IMU, Linux RT, gps_imu_app) sends 64-byte TLP frames over UDP port 9870 to AbstractX Studio and the Flight Display on the host PC](assets/readme-ethernet-telemetry.svg)
 
 ### 1. Verify Target Network Connection:
 ```bash

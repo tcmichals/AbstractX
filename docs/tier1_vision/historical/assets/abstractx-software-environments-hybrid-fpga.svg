@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 704" width="1100" height="704" role="img" aria-labelledby="t d">
+<title id="t">Hybrid Linux host + FPGA co-processing</title>
+<desc id="d">A Linux host flight/robotics core awaits an FPGA telemetry stream, a Linux I2C barometer read and a Linux UART GPS read with when_all. Results arrive over a lock-free SPSC channel array from three workers. Worker 0 bridges to the AbstractX FPGA coprocessor over Dual-SPI at 50 MHz.</desc>
+<defs>
+<marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
+<marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
+<marker id="a4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4ade80"/></marker>
+<marker id="a4ade80s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#4ade80"/></marker>
+<marker id="a64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker>
+<marker id="a64748bs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#64748b"/></marker>
+<marker id="a7dd3fc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a7dd3fcs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a9fb3d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9fb3d9"/></marker>
+<marker id="a9fb3d9s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#9fb3d9"/></marker>
+<marker id="ab79cff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/></marker>
+<marker id="ab79cffs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#b79cff"/></marker>
+<marker id="af5b942" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f5b942"/></marker>
+<marker id="af5b942s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f5b942"/></marker>
+<marker id="af87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f87171"/></marker>
+<marker id="af87171s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f87171"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
+<text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">Hybrid Linux host + FPGA co-processing</text>
+<path d="M180 234 L180 314" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M550 234 L550 314" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M920 234 L920 314" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M180 454 L180 534" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<rect x="30" y="94" width="1040" height="140" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="550" y="126" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Hybrid Linux host real-time flight / robotics core</text>
+<text x="550" y="147" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">auto [fpga_imu, linux_baro, linux_gps] = co_await when_all(</text>
+<text x="550" y="164" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">fpga_bridge.async_await_stream(Channel::Telemetry),</text>
+<text x="550" y="181" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">linux_i2c.async_read(REG_BARO_PRESSURE),</text>
+<text x="550" y="198" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">linux_uart.async_read(REG_GPS_UBX)</text>
+<text x="550" y="215" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">);</text>
+<rect x="30" y="314" width="300" height="140" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="180" y="354.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Worker 0: FPGA SPI bridge</text>
+<text x="180" y="375.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">/dev/spidev0.0</tspan> (50 MHz)</text>
+<text x="180" y="392.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">8 kHz IMU Auto-DMA stream</text>
+<text x="180" y="409.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">DShot motor timers</text>
+<text x="180" y="426.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Sub-20ns latched TS</text>
+<rect x="400" y="314" width="300" height="140" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="550" y="354.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Worker 1: Linux native I2C</text>
+<text x="550" y="375.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">/dev/i2c-1</tspan> (400 kHz)</text>
+<text x="550" y="392.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Barometer / mag sensor</text>
+<text x="550" y="409.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Power monitoring IC</text>
+<text x="550" y="426.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">EEPROM calibration</text>
+<rect x="770" y="314" width="300" height="140" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="920" y="354.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Worker 2: Linux native UART</text>
+<text x="920" y="375.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">/dev/ttyUSB0</tspan> (2 Mbaud)</text>
+<text x="920" y="392.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">GPS / companion telemetry</text>
+<text x="920" y="409.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">MAVLink / serial telemetry</text>
+<text x="920" y="426.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Blackbox flash tunnel</text>
+<rect x="30" y="534" width="1040" height="140" rx="12" fill="#2a2416" stroke="#f5b942" stroke-width="2"/>
+<text x="550" y="566" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">AbstractX FPGA hardware coprocessor</text>
+<text x="550" y="587" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">(Gowin Tang Nano 9K / Tang Primer 20K / Xilinx Zynq-7020 PL)</text>
+<text x="550" y="604" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Autonomous SPI master engine (<tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">asp_imu_auto_dma.sv</tspan>)</text>
+<text x="550" y="621" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">512-bit vector switch fabric &amp; skid buffers (<tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">asp_router.sv</tspan>)</text>
+<text x="550" y="638" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Hardware DShot600 / DShot300 motor engine &amp; WS2812B RGB driver</text>
+<text x="550" y="655" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Cycle-accurate 64-bit hardware timestamp latching counter</text>
+<rect x="360.4" y="263.5" width="379.2" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="550" y="278.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">Lock-free SPSC channel array (<tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">SpscChannelArray&lt;T, 4&gt;</tspan>)</text>
+<rect x="124.1" y="483.5" width="111.8" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="180" y="498.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">Dual-SPI 50MHz</text>
+</svg>

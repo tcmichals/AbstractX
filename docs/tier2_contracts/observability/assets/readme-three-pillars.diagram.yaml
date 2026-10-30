@@ -1,0 +1,48 @@
+title: Observability pipeline - the three pillars
+desc: Pillar 1, the unified 64-byte TLP bus, feeds Pillar 2, the dynamic CTF 1.8 schema loader, over UDP port 9870 or shared SRAM; the loader feeds typed field dictionaries and metrics to Pillar 3, the two-level Studio GUI.
+grid: {col: 640, row: 110, gap_x: 60, gap_y: 70}
+nodes:
+  - id: p1
+    label: "Pillar 1: Unified 64-byte TLP bus"
+    text:
+      - "Hardware: FPGA Auto-DMA IP (`asp_imu_auto_dma.sv`, `asp_router.sv`)"
+      - "Software: C++20 SITL & Bare-Metal Tasks (gps_imu_app)"
+      - "20B Header + 40B CTF + 4B transport-integrity/reserved footer"
+    at: [0, 0]
+    kind: hw
+  - id: p2
+    label: "Pillar 2: Dynamic CTF 1.8 schema loader"
+    text:
+      - "Authoritative Schema: `trace/barectf_config.yaml` & `trace_schema.json`"
+      - "Loader Engine: `tools/visualizer/ctf_schema_loader.py`"
+      - "Compiles struct.Struct decoders at runtime (Zero hardcoded offsets)"
+    at: [0, 1]
+  - id: l1
+    label: "Level 1: Core System Platform Observability"
+    text:
+      - "`abstractx_studio.py`"
+      - "Platform Topology & Interconnect (Cores, SPU/CPU%, SPSC Rings)"
+      - "Dual-Plane Execution Timeline (ISR/DMA vs Coroutines + DWARF)"
+      - "Continuous Memory Observability (MemBrowse Section Budgets)"
+    at: [0, 2.3]
+    span: [1, 1.2]
+    kind: accent
+  - id: l2
+    label: "Level 2: User / Domain Extensible Plugins"
+    text:
+      - "`flight_plugin.py`"
+      - "Primary Flight Display (PFD) Artificial Horizon & Pitch Ladder"
+      - "3D Quadcopter Perspective Wireframe (Tait-Bryan rotation)"
+      - "Quad-X Motor Mixer Demands & Navigation Gauges"
+      - "8 kHz ICM-42688-P IMU Real-Time Oscilloscope (ImPlot)"
+    at: [0, 3.3]
+    span: [1, 1.35]
+    kind: accent
+groups:
+  - id: p3
+    label: "Pillar 3: Two-level Studio GUI (imgui-bundle)"
+    contains: [l1, l2]
+    kind: accent
+edges:
+  - {from: p1, to: p2, label: "UDP Port 9870 / Shared SRAM"}
+  - {from: p2, to: p3, label: "Typed Field Dictionaries & Metrics"}

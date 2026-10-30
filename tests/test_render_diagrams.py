@@ -81,6 +81,25 @@ def test_ascii_detection():
     assert len(scan(box)) == 1 and len(scan(plus)) == 1
     assert scan(tree) == [] and scan(mermaid) == [] and scan(marked) == []
     assert scan(box)[0][0] == 1  # 1-based line of the opening fence
+    # Arrows-only flow drawings have no box corner; they missed the first version of the scan.
+    flow = "```text\n[1. Observe]\n     │\n     ▼\n[2. Log it]\n```\n"
+    assert len(scan(flow)) == 1
+
+
+def test_plain_line_edges_have_no_arrowhead():
+    spec = {"nodes": [{"id": "a", "at": [0, 0]}, {"id": "b", "at": [1, 0]}],
+            "edges": [{"from": "a", "to": "b", "arrow": False}]}
+    path = [l for l in rd.render(spec).splitlines() if l.startswith("<path d=")]
+    assert len(path) == 1 and "marker-end" not in path[0]
+    spec["edges"][0]["arrow"] = True
+    assert "marker-end" in rd.render(spec)
+
+
+def test_diagram_sources_are_docs_not_code():
+    # The change review must not ask for @impl tags in drawing sources.
+    import spectrace_matrix as sm
+    assert not sm.is_code("docs/assets/x.diagram.yaml")
+    assert sm.is_code("tools/render_diagrams.py")
 
 
 if __name__ == "__main__":

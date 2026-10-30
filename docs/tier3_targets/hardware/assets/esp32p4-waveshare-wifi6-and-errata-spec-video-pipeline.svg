@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 634" width="620" height="634" role="img" aria-labelledby="t d">
+<title id="t">ESP32-P4 Video-to-SDCard DMA Pipeline</title>
+<desc id="d">Camera capture and ISP feed the hardware H.264 encoder, which feeds the split-transaction SDMMC DMA recorder; all three stages run on Core 0 and the recorder multiplexes video with 64-byte CTF 1.8 telemetry TLPs on the SD card.</desc>
+<defs>
+<marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
+<marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
+<marker id="a4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4ade80"/></marker>
+<marker id="a4ade80s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#4ade80"/></marker>
+<marker id="a64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker>
+<marker id="a64748bs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#64748b"/></marker>
+<marker id="a7dd3fc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a7dd3fcs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a9fb3d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9fb3d9"/></marker>
+<marker id="a9fb3d9s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#9fb3d9"/></marker>
+<marker id="ab79cff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/></marker>
+<marker id="ab79cffs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#b79cff"/></marker>
+<marker id="af5b942" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f5b942"/></marker>
+<marker id="af5b942s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f5b942"/></marker>
+<marker id="af87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f87171"/></marker>
+<marker id="af87171s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f87171"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
+<text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">ESP32-P4 Video-to-SDCard DMA Pipeline</text>
+<path d="M310 204 L310 254" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M310 364 L310 414" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<rect x="30" y="94" width="560" height="110" rx="12" fill="#2a2416" stroke="#f5b942" stroke-width="2"/>
+<text x="310" y="128" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Camera Capture &amp; ISP (Core 0)</text>
+<text x="310" y="149" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">OV5647 5MP Camera via 2-lane MIPI-CSI (D-PHY 800 Mbps/lane)</text>
+<text x="310" y="166" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Hardware ISP generates YUV420 / RGB565 frames</text>
+<text x="310" y="183" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">2D-DMA buffers frames into 64B-aligned PSRAM ping-pong buffers</text>
+<rect x="30" y="254" width="560" height="110" rx="12" fill="#2a2416" stroke="#f5b942" stroke-width="2"/>
+<text x="310" y="288" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Hardware Video Encoder (Core 0)</text>
+<text x="310" y="309" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Hardware H.264 Baseline Profile encoder (or JPEG codec)</text>
+<text x="310" y="326" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Produces compressed NAL units in PSRAM</text>
+<text x="310" y="343" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Calls <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">esp_cache_msync()</tspan> to flush dirty cachelines</text>
+<rect x="30" y="414" width="560" height="190" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="310" y="471" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Split-Transaction SDMMC DMA Recorder (Core 0)</text>
+<text x="310" y="492" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Writes H.264 frames to <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">/sdcard/flight_video.h264</tspan></text>
+<text x="310" y="509" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">SDMMC Slot 0 running in 4-bit mode @ 40 MHz</text>
+<text x="310" y="526" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Synchronously multiplexed with 64-byte CTF 1.8 telemetry TLPs:</text>
+<text x="310" y="543" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">/sdcard/flight_video.h264</tspan> (Raw H.264 video track)</text>
+<text x="310" y="560" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle"><tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">/sdcard/flight_telemetry.tlp</tspan> (Binary CTF 1.8 TLP frames)</text>
+</svg>

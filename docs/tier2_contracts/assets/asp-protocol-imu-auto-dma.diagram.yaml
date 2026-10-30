@@ -1,0 +1,29 @@
+title: IMU SPI Master and Auto-DMA dataflow
+desc: The IMU_INT trigger pin starts the SPI master burst engine, whose accel and gyro bytes go to the 64-byte TLP packetizer with timestamping, which feeds the host transport FIFO.
+grid: {col: 250, row: 90, gap_x: 90, gap_y: 70}
+nodes:
+  - id: trig
+    label: IMU_INT
+    text: ["hardware trigger pin"]
+    at: [0, 0]
+    kind: hw
+  - id: spi
+    label: SPI Master Burst Engine
+    text: ["Accel / Gyro regs"]
+    at: [1, 0]
+  - id: pkt
+    label: 64B TLP Packetizer
+    text: ["& timestamping"]
+    at: [2, 0]
+  - id: fifo
+    label: Host Transport FIFO
+    at: [2, 1]
+    kind: mem
+groups:
+  - id: ip
+    label: IMU Auto-DMA IP
+    contains: [trig, spi, pkt]
+edges:
+  - {from: trig, to: spi}
+  - {from: spi, to: pkt}
+  - {from: pkt, to: fifo}

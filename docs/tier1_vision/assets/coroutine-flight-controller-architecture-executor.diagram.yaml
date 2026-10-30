@@ -1,0 +1,29 @@
+title: Single-thread coroutine executor over TLP rings
+desc: Three coroutines on one main flight thread (8 kHz IMU, 50 Hz baro, EKF navigation task) issue TLPs into lock-free SPSC 64-byte TLP rings; the hardware coprocessor or SITL I/O worker layer streams TLPs to and from those rings without blocking.
+grid: {col: 290, row: 100, gap_x: 60, gap_y: 70}
+nodes:
+  - {id: imu, label: 8 kHz IMU Coroutine, text: ["`co_await next_imu_stream()`", "executes in 5 us, yields"], at: [0, 0]}
+  - {id: baro, label: 50 Hz Baro Coroutine, text: ["`co_await read_i2c(BARO)`", "suspends for 1.5 ms"], at: [1, 0]}
+  - {id: ekf, label: EKF Navigation Task, text: ["`co_await when_all(`", "`read_baro(), read_mag())`"], at: [2, 0]}
+  - id: rings
+    label: Lock-free SPSC 64-byte TLP ring buffers (SpscTlpRing)
+    text: ["Host TX ring (MemRd / MemWr)", "Host RX ring (CplD / DMA_Stream)"]
+    at: [0, 1]
+    span: [3, 0.9]
+    kind: mem
+  - id: hw
+    label: Hardware coprocessor / SITL I/O worker layer
+    text:
+      - "FPGA autonomous Auto-DMA engine (`asp_imu_auto_dma.sv`)"
+      - RP2350 PIO state machines and Core 0 DMA / STM32 BDMA stream controllers
+      - "Linux SITL: background I/O worker threads executing synchronous bus transfers"
+    at: [0, 2.0]
+    span: [3, 1.1]
+    kind: hw
+groups:
+  - {id: thread, label: Single main flight thread (C++20 coroutine executor), contains: [imu, baro, ekf]}
+edges:
+  - {from: imu, to: rings}
+  - {from: baro, to: rings, label: "MemRd Tag #1"}
+  - {from: ekf, to: rings, label: "MemRd Tag #2, #3"}
+  - {from: rings, to: hw, both: true, label: Non-blocking TLP streaming}

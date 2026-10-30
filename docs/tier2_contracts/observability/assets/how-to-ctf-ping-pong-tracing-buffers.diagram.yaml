@@ -1,0 +1,44 @@
+title: CTF 1.8 ping-pong trace buffers
+desc: Producers fill Buffer A (1024 bytes); on buffer full or the 10 ms swap it becomes Buffer B, which trace_dispatcher_task() transmits to the UDP, file or shared-SRAM trace sink.
+grid: {col: 270, row: 80, gap_x: 50, gap_y: 60}
+nodes:
+  - id: prod
+    label: Producer domain
+    text: ["8 kHz IMU, GPS, HAL ISRs"]
+    at: [1, 0]
+  - id: bufa
+    label: Buffer A [1024 Bytes]
+    text: ["Active FILLING"]
+    at: [1, 1]
+    kind: mem
+  - id: bufb
+    label: Buffer B [1024 Bytes]
+    text: ["Active TRANSMITTING"]
+    at: [1, 2]
+    kind: mem
+  - id: disp
+    label: "`trace_dispatcher_task()`"
+    text: ["coroutine"]
+    at: [1, 3]
+  - id: udp
+    label: UdpTraceSink
+    text: [":9870 Live"]
+    at: [0, 4]
+    kind: accent
+  - id: file
+    label: FileTraceSink
+    text: ["\"trace.ctf\""]
+    at: [1, 4]
+    kind: accent
+  - id: sram
+    label: SharedSramTraceSink
+    text: ["E906 -> Linux MSGBox"]
+    at: [2, 4]
+    kind: accent
+edges:
+  - {from: prod, to: bufa}
+  - {from: bufa, to: bufb, label: "Buffer Full / 10ms Swap"}
+  - {from: bufb, to: disp}
+  - {from: disp, to: udp, route: vhv}
+  - {from: disp, to: file}
+  - {from: disp, to: sram, route: vhv}

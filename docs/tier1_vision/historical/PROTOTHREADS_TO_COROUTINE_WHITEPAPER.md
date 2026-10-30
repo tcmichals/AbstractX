@@ -34,6 +34,7 @@ For two decades, embedded firmware engineers, robotics developers, and flight co
 
 ## 2. The 3 Eras of Embedded Concurrency
 
+<!-- ascii-ok: comparison table of the three eras -->
 ```
 ┌───────────────────────────────────┬───────────────────────────────────┬───────────────────────────────────┐
 │     ERA 1: PRE-2005 (RTOS)        │  ERA 2: 2005-2020 (MACROS/SCHED)  │       ERA 3: 2026+ (ABSTRACTX)    │
@@ -78,30 +79,7 @@ In classic Protothreads, the programmer was left on their own to manually implem
 
 ## 4. How the Smart I/O Dispatcher Works
 
-```
-┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                          APPLICATION COROUTINE THREAD                                  │
-│                                                                                        │
-│  co_await io.async_push(TARGET, DATA);          // Push-and-Forget                     │
-│  auto res = co_await io.async_request(CMD);     // Request-Response with correlated Tag│
-│  co_await timer.async_sleep_us(9040);           // Hardware Comparator Sleep (0 Poll)  │
-└───────────────────────────────────────────┬────────────────────────────────────────────┘
-                                            │ 64-Byte TLP Framing / Lock-Free SPSC
-┌───────────────────────────────────────────▼────────────────────────────────────────────┐
-│                    SMART I/O DISPATCHER & COMPLETION MATCHING ENGINE                   │
-│                                                                                        │
-│  - Tag Correlation: Matches completion packets in 2-5 ns and resumes suspended         │
-│    coroutine handles strictly on the Main Thread (Rule 4.2: Zero Thread Hopping).      │
-└───────────────────────────────────────────▲────────────────────────────────────────────┘
-                                            │
-┌───────────────────────────────────────────┴────────────────────────────────────────────┐
-│               PHYSICAL TRANSPORT WORKER / HARDWARE COPROCESSOR LAYER                   │
-│  • Linux SBC: Background POSIX I/O Thread Pool (/dev/i2c-1, /dev/spidev0.0)           │
-│  • Pico 2 (RP2350): Core 1 PIO/I2C State Machine (SRAM SPSC Rings)                     │
-│  • ESP32-P4/S3: Dual-Core RISC-V DMA Interrupt Engine                                 │
-│  • FPGA: SystemVerilog Autonomous Auto-DMA RTL (Tang Nano 9K / Primer 20K)             │
-└────────────────────────────────────────────────────────────────────────────────────────┘
-```
+![Application coroutine thread sending TLP-framed requests to the smart I/O dispatcher, which matches completions coming up from the physical transport worker or hardware coprocessor layer](assets/protothreads-to-coroutine-whitepaper-io-dispatcher.svg)
 
 ---
 

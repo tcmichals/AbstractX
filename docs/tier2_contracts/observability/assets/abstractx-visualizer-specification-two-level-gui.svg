@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 792 712.5" width="792" height="712.5" role="img" aria-labelledby="t d">
+<title id="t">Two-level GUI architecture</title>
+<desc id="d">AbstractX Studio (imgui-bundle) holds Level 1, the core framework layer standard across all apps, and Level 2, the user and domain extensible layer of pluggable app modules such as the gps_imu_app flight plugin.</desc>
+<defs>
+<marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
+<marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
+<marker id="a4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4ade80"/></marker>
+<marker id="a4ade80s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#4ade80"/></marker>
+<marker id="a64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker>
+<marker id="a64748bs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#64748b"/></marker>
+<marker id="a7dd3fc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a7dd3fcs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a9fb3d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9fb3d9"/></marker>
+<marker id="a9fb3d9s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#9fb3d9"/></marker>
+<marker id="ab79cff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/></marker>
+<marker id="ab79cffs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#b79cff"/></marker>
+<marker id="af5b942" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f5b942"/></marker>
+<marker id="af5b942s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f5b942"/></marker>
+<marker id="af87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f87171"/></marker>
+<marker id="af87171s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f87171"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
+<text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">Two-level GUI architecture</text>
+<rect x="48" y="334.5" width="696" height="330" rx="16" fill="#b79cff" fill-opacity="0.05" stroke="#b79cff" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="62" y="354.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#b79cff" text-anchor="start" letter-spacing="1.2">LEVEL 2: USER &amp; DOMAIN EXTENSIBLE LAYER</text>
+<rect x="30" y="94" width="732" height="588.5" rx="16" fill="#64748b" fill-opacity="0.05" stroke="#64748b" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="44" y="114" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#64748b" text-anchor="start" letter-spacing="1.2">ABSTRACTX STUDIO (IMGUI-BUNDLE)</text>
+<rect x="66" y="124" width="660" height="178" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="396" y="166.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Level 1: Core AbstractX Framework Layer</text>
+<text x="396" y="187.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Standard across all apps</text>
+<text x="396" y="204.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">64-byte TLP Ingestion (UDP, Serial, Shared SRAM)</text>
+<text x="396" y="221.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Platform Topology &amp; Interconnect (Cores, SPU/CPU%, SPSC Rings)</text>
+<text x="396" y="238.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Dual-Plane Timeline (Hardware ISR/DMA vs C++20 Tasks)</text>
+<text x="396" y="255.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Source Inspector: Jump to <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">__FILE__ : __LINE__</tspan> on <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">co_await</tspan></text>
+<text x="396" y="272.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Memory Observability &amp; Static Section Budgets (MemBrowse)</text>
+<rect x="66" y="364.5" width="660" height="74" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="396" y="397.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Pluggable App Modules</text>
+<text x="396" y="418.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Pluggable tab interface (e.g. <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">tools/visualizer/flight_plugin.py</tspan>)</text>
+<rect x="66" y="494.5" width="660" height="152" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="396" y="532.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">For gps_imu_app</text>
+<text x="396" y="553.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Primary Flight Display (PFD) Artificial Horizon &amp; Pitch Ladder</text>
+<text x="396" y="570.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">3D Quadcopter Perspective Wireframe (Tait-Bryan rotation)</text>
+<text x="396" y="587.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Quad-X Motor Mixer Demand Bars (100..1000 µs)</text>
+<text x="396" y="604.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Aviation Navigation Gauges &amp; Stream Rates (IMU/Mag/GPS/AHRS)</text>
+<text x="396" y="621.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">8 kHz IMU Oscilloscope (ImPlot real-time waveforms)</text>
+</svg>

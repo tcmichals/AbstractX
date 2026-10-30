@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1046 453" width="1046" height="453" role="img" aria-labelledby="t d">
+<title id="t">ArduPilot threads over lock-free TLP rings</title>
+<desc id="d">ArduPilot's main flight, EKF3 navigation and MAVLink/telemetry threads exchange TLPs with the physical hardware coprocessor layer through lock-free 64-byte TLP shared memory rings.</desc>
+<defs>
+<marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
+<marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
+<marker id="a4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4ade80"/></marker>
+<marker id="a4ade80s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#4ade80"/></marker>
+<marker id="a64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker>
+<marker id="a64748bs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#64748b"/></marker>
+<marker id="a7dd3fc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a7dd3fcs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a9fb3d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9fb3d9"/></marker>
+<marker id="a9fb3d9s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#9fb3d9"/></marker>
+<marker id="ab79cff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/></marker>
+<marker id="ab79cffs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#b79cff"/></marker>
+<marker id="af5b942" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f5b942"/></marker>
+<marker id="af5b942s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f5b942"/></marker>
+<marker id="af87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f87171"/></marker>
+<marker id="af87171s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f87171"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
+<text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">ArduPilot threads over lock-free TLP rings</text>
+<rect x="30" y="94" width="986" height="138" rx="16" fill="#42d8f5" fill-opacity="0.05" stroke="#42d8f5" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="44" y="114" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#42d8f5" text-anchor="start" letter-spacing="1.2">ARDUPILOT MULTI-THREADED ARCHITECTURE</text>
+<path d="M523 232 L523 314" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)" marker-start="url(#a9fb3d9s)"/>
+<rect x="48" y="124" width="290" height="90" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="193" y="156.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Main Flight Thread</text>
+<text x="193" y="177.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">400 Hz attitude PID</text>
+<text x="193" y="194.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Motor output command</text>
+<rect x="378" y="124" width="290" height="90" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="523" y="156.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">EKF3 Navigation Thread</text>
+<text x="523" y="177.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">24-state EKF matrix</text>
+<text x="523" y="194.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Position/velocity calc</text>
+<rect x="708" y="124" width="290" height="90" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="853" y="156.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">MAVLink / Telemetry Thread</text>
+<text x="853" y="177.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">MAVLink 2 / ground station</text>
+<text x="853" y="194.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Logging and telemetry link</text>
+<rect x="48" y="314" width="950" height="109" rx="12" fill="#2a2416" stroke="#f5b942" stroke-width="2"/>
+<text x="523" y="347.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Physical hardware coprocessor layer</text>
+<text x="523" y="368.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">(Gowin FPGA / RP2350 Core 0 + PIO / STM32 TIM IC + MDMA streams)</text>
+<text x="523" y="385.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Autonomous SPI sensor polling and 64-bit nanosecond hardware timestamping</text>
+<text x="523" y="402.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Pushes ready 64-byte DMA_Stream TLPs into lock-free shared RAM rings</text>
+<rect x="368.9" y="255" width="308.2" height="36" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="523" y="270" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">Lock-free 64B TLP shared memory rings</text>
+<text x="523" y="285" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">(zero mutex locks, zero context switch stalls)</text>
+</svg>

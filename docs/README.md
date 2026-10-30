@@ -28,29 +28,7 @@ complement—not replace—the normative specifications and target build guides.
   isolated in dormant Cadence HiFi4 DSP SRAM on the XuanTie E906 coprocessor,
   interfacing with Linux host flight stacks via 3-plane RPMsg and AbstractX Studio.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│      TIER 1: ABSTRACT VISION & ARCHITECTURAL INVARIANTS                │
-│      • docs/tier1_vision/SYSTEM_INVARIANTS.md                          │
-│      • Zero dynamic heap, single shared stack, Primary-Paced channels  │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ Governs
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│      TIER 2: SYSTEM CONTRACTS, PROTOCOL & OBSERVABILITY                │
-│      • docs/tier2_contracts/TLP_BUS_SPECIFICATION.md                   │
-│      • docs/tier2_contracts/HAL_INTERFACES.md                          │
-│      • docs/tier2_contracts/OBSERVABILITY_SCHEMA.md                    │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ Implemented by
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│      TIER 3: CONCRETE TARGET BSPS, HARDWARE & APPLICATIONS             │
-│      • docs/tier3_targets/bsp/ (Pico 2 W, ESP32-P4, Allwinner E906)    │
-│      • docs/tier3_targets/hardware/ (Waveshare P4 Errata, Tang Pinouts)│
-│      • apps/gps_imu_app/ (Reference Flight Application)                │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![Documentation tiers: tier 1 vision and invariants govern tier 2 system contracts, which are implemented by tier 3 target BSPs, hardware and applications](assets/readme-doc-tiers.svg)
 
 ---
 

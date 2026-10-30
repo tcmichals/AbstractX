@@ -1,0 +1,28 @@
+title: One application API over three execution environments
+desc: A single-process, single-coroutine-thread application at the top reaches three execution environments (Linux host threaded I/O workers, multi-core MCU remote processor with interrupt/DMA, FPGA hardware offloader) through lock-free SPSC TLP message rings.
+grid: {col: 220, row: 90, gap_x: 90, gap_y: 70}
+nodes:
+  - id: app
+    label: "Unified top level: single process, single coroutine thread"
+    text: ["`auto [sensor_a, sensor_b] = co_await when_all(read_a(), read_b());`",
+           "Identical C++20 application code across all 3 environments"]
+    at: [0, 0]
+    span: [3, 1]
+  - id: env1
+    label: Environment 1
+    text: ["Linux / Host", "Threaded I/O", "Workers (SITL)"]
+    at: [0, 1]
+    kind: accent
+  - id: env2
+    label: Environment 2
+    text: ["Multi-Core MCU", "Remote Proc /", "Interrupt/DMA"]
+    at: [1, 1]
+  - id: env3
+    label: Environment 3
+    text: ["FPGA Hardware", "Offloader &", "On-Board Fabric"]
+    at: [2, 1]
+    kind: hw
+edges:
+  - {from: app, to: env1}
+  - {from: app, to: env2, label: Lock-free SPSC TLP message rings}
+  - {from: app, to: env3}

@@ -60,6 +60,7 @@ sequenceDiagram
 
 All RPMsg communications between the Linux host and XuanTie E906 occur inside **on-chip SRAM Space 1** (`0x40020000`–`0x4003FFFF`, 128 KB), eliminating DRAM bus contention, MMU translation overhead, and cache maintenance operations (`[SPEC-E906-CACHE-02]`):
 
+<!-- ascii-ok: table: SRAM Space 1 buffer budget (component and size) -->
 ```text
 +-----------------------------------------------------------------------------------+
 |                        Allwinner SRAM Space 1 (128 KB Pool)                       |
@@ -83,6 +84,7 @@ A standard VirtIO RPMsg buffer is 512 bytes:
 * **Maximum TLPs Per Message**:
   $$\lfloor 496 / 64 \rfloor = 7 \text{ TLPs} \quad (7 \times 64 = 448 \text{ bytes payload, } 48 \text{ bytes padding})$$
 
+<!-- ascii-ok: packet byte layout of the 512-byte RPMsg buffer -->
 ```
 +-----------------------------------------------------------------------------------+
 |                         512-Byte VirtIO RPMsg Buffer                              |
@@ -209,6 +211,7 @@ if abstractx.tlp_poll_into(cmd_buf):
 ### 8.1 Serial Data Encapsulation in 64-Byte TLPs (`[SPEC-E906-REPL-11]`)
 In the AbstractX hardware switch fabric and processor runtime, streaming serial interfaces (such as UART GPS, bidirectional ESC telemetry, and MAVLink radio links) do not bypass the bus as unmanaged raw byte streams. Instead, serial traffic is tunneled across **`Channel::EscSerial` (`0x05`)**:
 
+<!-- ascii-ok: packet byte layout of the 64-byte serial TLP -->
 ```
 +-----------------------------------------------------------------------------------------+
 |                              64-Byte Serial TLP Packet                                  |

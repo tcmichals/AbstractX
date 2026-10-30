@@ -19,24 +19,7 @@ The AbstractX IMU IP core integrates:
 
 ## 2. Hardware Signal Interfaces & Block Architecture
 
-```
-+-----------------------------------------------------------------------------------+
-|                            IMU SPI Master & Auto-DMA IP                           |
-|                                                                                   |
-|  External Pins                Hardware State Machine                 Fabric Output|
-|  +---------+   IMU_INT Pulse  +-------------------+   Latch 64b Timer +------------+
-|  | IMU_INT | ---------------> | Latch Timestamp   | ----------------> | 64-Byte    |
-|  +---------+                  | Execute SPI Burst |                   | TLP Stream |
-|                               +-------------------+                   | Generator  |
-|                                         |                             +------------+
-|                                         v                                    |
-|                               +-------------------+                          v
-|  External SPI Pins            | SPI Master Core   |                    Transport FIFO
-|  +------------------------+   | (SCLK, CS_N,      |                    (Dual-SPI Link)
-|  | SCLK, CS_N, MOSI, MISO | <---|  MOSI, MISO)    |                                 
-|  +------------------------+   +-------------------+                                 
-+-----------------------------------------------------------------------------------+
-```
+![IMU SPI Master and Auto-DMA IP: an IMU_INT pulse makes the state machine latch the timestamp and run an SPI burst through the SPI master core; the 64-byte TLP stream generator feeds the Dual-SPI transport FIFO](assets/imu-auto-dma-ip-spec-block.svg)
 
 ### Pin Definitions:
 - `o_imu_sclk` (FPGA Output): Serial Clock to external IMU.

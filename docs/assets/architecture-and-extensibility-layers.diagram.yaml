@@ -1,0 +1,22 @@
+title: AbstractX 3-Tier Layering
+desc: Application domain on top of the domain driver layer on top of the HAL and transport plane.
+grid: {col: 720, row: 100, gap_x: 60, gap_y: 14}
+nodes:
+  - id: app
+    label: Application Domain (Linear, Deterministic C++20 Coroutines)
+    text: ["Fusion Loops (Mahony 9-DoF AHRS, Cascaded PIDs)",
+           "Multi-Rate Pacing via Primary-Paced Channel Pattern"]
+    at: [0, 0]
+  - id: drv
+    label: Domain Driver Layer (Polymorphic, Zero-Heap Hardware Drivers)
+    text: ["`IImuDriver`, `IMagDriver`, `IGpsDriver` (`drivers/include/abstractx/...`)",
+           "Asynchronous lifecycle (`init_async()`) and sampling coroutines"]
+    at: [0, 1]
+  - id: hal
+    label: HAL & Transport Plane (Split-Queue DMA & Event Demultiplexing)
+    text: ["`AsyncDriverBase<TReq, TRes, Depth>`, `IIoProcessor`",
+           "Lock-Free SPSC & ISR-Safe MPSC Rings (`include/tlp_ring.hpp`)",
+           "Linux epoll Reactor (`targets/linux/include/abstractx/reactor/...`)"]
+    at: [0, 2]
+    span: [1, 1.2]
+    kind: mem

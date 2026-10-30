@@ -224,18 +224,7 @@ Radxa Cubie A5E Schematic v1.2 Sheet 19 proves that Pins 3 & 5 (`PB5`/`PB4`) hav
 
 In `cubie-a5e-flight-stack-e906.dtso`, the `&rproc` node attaches to the Linux kernel remoteproc subsystem with reserved physical memory carveouts:
 
-```text
-+-----------------------+ 0x48200000
-| Firmware DRAM Pool    | (1 MB @ 0x48100000 - rproc_dram)
-+-----------------------+ 0x48100000
-| VirtIO VRings & DMA   | (1 MB @ 0x48000000 - rproc_vdev shared-dma-pool)
-+-----------------------+ 0x48000000
-           ...
-+-----------------------+ 0x072C0000 (E906 view: 0x3FFFFFFF)
-| MCU SRAM Space 0      | (256 KB @ 0x07280000 - riscvsram0)
-| Text + Data + BSS     | (E906 view: 0x3FFC0000 - Zero-Heap Executable)
-+-----------------------+ 0x07280000 (E906 view: 0x3FFC0000)
-```
+![RemoteProc memory carveouts: firmware DRAM pool at 0x48100000, VirtIO vrings and DMA at 0x48000000, MCU SRAM Space 0 at host 0x07280000 (E906 view 0x3FFC0000) holding text, data and BSS](assets/readme-memory-map.svg)
 
 1. **Dedicated MCU SRAM Space 0 (`0x07280000`, 256 KB)**:
    - Linux physical address: `0x07280000`–`0x072BFFFF`.

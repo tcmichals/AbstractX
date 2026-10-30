@@ -325,6 +325,7 @@ Course Over Ground (COG).
 
 ### 3. Vector-Rendered Compass Rose & HSI Instrument
 
+<!-- ascii-ok: sketch of the compass instrument face, not a block diagram -->
 ```text
                      [ 042° NE ]  <-- Digital Heading Placard
                          ▲ Fixed Lubber Line

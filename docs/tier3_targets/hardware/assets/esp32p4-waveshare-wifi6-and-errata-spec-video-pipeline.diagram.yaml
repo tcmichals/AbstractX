@@ -1,0 +1,30 @@
+title: ESP32-P4 Video-to-SDCard DMA Pipeline
+desc: Camera capture and ISP feed the hardware H.264 encoder, which feeds the split-transaction SDMMC DMA recorder; all three stages run on Core 0 and the recorder multiplexes video with 64-byte CTF 1.8 telemetry TLPs on the SD card.
+grid: {col: 560, row: 110, gap_x: 60, gap_y: 50}
+nodes:
+  - id: cam
+    label: Camera Capture & ISP (Core 0)
+    text: ["OV5647 5MP Camera via 2-lane MIPI-CSI (D-PHY 800 Mbps/lane)",
+           "Hardware ISP generates YUV420 / RGB565 frames",
+           "2D-DMA buffers frames into 64B-aligned PSRAM ping-pong buffers"]
+    at: [0, 0]
+    kind: hw
+  - id: enc
+    label: Hardware Video Encoder (Core 0)
+    text: ["Hardware H.264 Baseline Profile encoder (or JPEG codec)",
+           "Produces compressed NAL units in PSRAM",
+           "Calls `esp_cache_msync()` to flush dirty cachelines"]
+    at: [0, 1]
+    kind: hw
+  - id: sd
+    label: Split-Transaction SDMMC DMA Recorder (Core 0)
+    text: ["Writes H.264 frames to `/sdcard/flight_video.h264`",
+           "SDMMC Slot 0 running in 4-bit mode @ 40 MHz",
+           "Synchronously multiplexed with 64-byte CTF 1.8 telemetry TLPs:",
+           "`/sdcard/flight_video.h264` (Raw H.264 video track)",
+           "`/sdcard/flight_telemetry.tlp` (Binary CTF 1.8 TLP frames)"]
+    at: [0, 2]
+    span: [1, 1.5]
+edges:
+  - {from: cam, to: enc}
+  - {from: enc, to: sd}

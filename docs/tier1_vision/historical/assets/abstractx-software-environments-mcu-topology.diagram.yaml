@@ -1,0 +1,18 @@
+title: Microcontroller hardware topology matrix
+desc: Configuration A, single-core MCU (STM32G4/S3), a hardware DMA or peripheral ISR pushes into one lock-free SPSC ring in RAM that the main-loop coroutine task pops. Configuration B, dual-core AMP (RP2350/P4), Core 0 I/O coprocessor pushes into a shared-SRAM SPSC array that the Core 1 flight-loop task pops.
+grid: {col: 440, row: 70, gap_x: 70, gap_y: 70}
+nodes:
+  - {id: a_prod, label: Hardware DMA / peripheral ISR, text: ["(producer)"], at: [0, 1]}
+  - {id: a_ring, label: Single lock-free SPSC ring buffer, text: ["(RAM)"], at: [0, 2], kind: mem}
+  - {id: a_cons, label: Main-loop C++20 coroutine task, text: ["(consumer)"], at: [0, 3]}
+  - {id: b_prod, label: "Core 0: dedicated I/O coprocessor engine", at: [1, 1]}
+  - {id: b_ring, label: Shared SRAM lock-free SPSC array, at: [1, 2], kind: mem}
+  - {id: b_cons, label: "Core 1: main C++20 flight loop task", at: [1, 3]}
+groups:
+  - {id: cfg_a, label: "Configuration A: single-core MCU (STM32G4/S3)", contains: [a_prod, a_ring, a_cons], kind: hw}
+  - {id: cfg_b, label: "Configuration B: dual-core AMP (RP2350/P4)", contains: [b_prod, b_ring, b_cons], kind: hw}
+edges:
+  - {from: a_prod, to: a_ring, label: "`g_spsc_channel.push()`"}
+  - {from: a_ring, to: a_cons, label: "`g_spsc_channel.pop()`"}
+  - {from: b_prod, to: b_ring, label: "`g_spsc_channel_sram.push()`"}
+  - {from: b_ring, to: b_cons, label: "`g_spsc_channel_sram.pop()`"}

@@ -29,28 +29,7 @@ The **Gowin FPGA flight controller offload board** is the canonical reference im
 
 ## 3. Three-Layer Architecture
 
-```
-+----------------------------------------------------------------+
-|  LAYER 3: APPLICATION (C++20 Coroutines)                       |
-|  100% portable code. Same source across all platforms.         |
-|  co_await io.async_read(REG_SENSOR)                            |
-|  co_await when_all(read_imu(), read_baro())                    |
-+----------------------------+-----------------------------------+
-                             | Lock-free SPSC queues
-+----------------------------v-----------------------------------+
-|  LAYER 2: MESSAGE (64-byte TLP)                                |
-|  Fixed-size PCIe-like packets. CRC32. Hardware timestamps.     |
-|  MemRd / MemWr / CplD / DMA_Stream / DMA_Cfg                  |
-|  Compact 24B on MCU, Full 64B on FPGA, Descriptor on Linux     |
-+----------------------------+-----------------------------------+
-                             | Platform-specific transport
-+----------------------------v-----------------------------------+
-|  LAYER 1: TRANSPORT (Platform-specific)                        |
-|  FPGA:   Dual-SPI 50 MHz / AXI-Stream                         |
-|  MCU:    Core-to-Core SRAM + ISR/DMA callbacks                 |
-|  Linux:  POSIX worker threads + eventfd                        |
-+----------------------------------------------------------------+
-```
+![Three layers: application coroutines over lock-free SPSC queues to 64-byte TLP messages over a platform-specific transport](assets/abstractx-design-goals-three-layers.svg)
 
 ---
 

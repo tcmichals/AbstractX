@@ -10,6 +10,7 @@
 
 In real-time embedded flight control systems, sensors operate at vastly different update rates and physical hardware latency profiles:
 
+<!-- ascii-ok: table of sensor rates and latencies -->
 ```
 +---------------------------+-----------------------+---------------------------------------------+
 | Sensor Subsystem          | Target Rate           | Physical Hardware Latency                   |
@@ -170,6 +171,7 @@ McuTask<void> ms5611_coroutine_driver(SpscTlpRing<64>& tx, SpscTlpRing<64>& rx, 
 ## 4. Empirical Comparison & Multi-Target Execution Matrix
 
 ### 4.1 Head-to-Head Scheduler Comparison (Betaflight/INAV vs AbstractX)
+<!-- ascii-ok: terminal output (comparison result table) -->
 ```
 ====================================================================================
  EMPIRICAL ARCHITECTURAL COMPARISON (1.0 Second / 8,000 IMU 8 kHz Samples)
@@ -191,6 +193,7 @@ McuTask<void> ms5611_coroutine_driver(SpscTlpRing<64>& tx, SpscTlpRing<64>& rx, 
 ### 4.2 Multi-Target Hardware Execution Matrix
 The exact same C++20 coroutine driver (`universal_ms5611_baro_driver`) was executed across 4 distinct physical hardware backends ([`examples/simple_proof_benchmark.cpp`](file:///home/tcmichals/ssdData/projects/home/AbstractX/examples/simple_proof_benchmark.cpp)):
 
+<!-- ascii-ok: terminal output (benchmark result table) -->
 ```
 ===================================================================================================
  MULTI-TARGET HARDWARE EXECUTION MATRIX (1.0 Second of Flight / 8,000 IMU 8 kHz Samples)           

@@ -33,6 +33,7 @@ When the host issues `0xA0`, the FPGA returns a 4-byte status payload:
 
 All Wishbone registers are targeted by `MemRd` (Type `0x01`) and `MemWr` (Type `0x02`) TLPs using the 32-bit `Target Address` field in the TLP header:
 
+<!-- ascii-ok: table: Wishbone base address map -->
 ```
 +------------------+-----------------------------------------------+
 | Address Range    | Peripheral Target                             |

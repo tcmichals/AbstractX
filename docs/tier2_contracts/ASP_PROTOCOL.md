@@ -100,20 +100,7 @@ To optimize transmission efficiency over Dual-SPI, the UART ESC DMA engine imple
 
 The AbstractX core includes a dedicated hardware **IMU SPI Master & Auto-DMA Controller**:
 
-```
-+-----------------------------------------------------------------------+
-|                           IMU Auto-DMA IP                             |
-|                                                                       |
-|  +-------------------+     +------------------+     +--------------+  |
-|  | IMU_INT Hardware  | --> | SPI Master Burst | --> | 64B TLP      |  |
-|  | Trigger Pin       |     | Engine (Accel/   |     | Packetizer & |  |
-|  +-------------------+     |  Gyro Regs)      |     | Timestamping |  |
-|                            +------------------+     +--------------+  |
-|                                                                |      |
-+----------------------------------------------------------------|------+
-                                                                 v
-                                                        Host Transport FIFO
-```
+![IMU Auto-DMA IP: the IMU_INT trigger pin starts the SPI master burst engine (accel/gyro registers), which feeds the 64B TLP packetizer and timestamper, which pushes into the host transport FIFO](assets/asp-protocol-imu-auto-dma.svg)
 
 ### 4.1 Theory of Operation
 1. External IMU asserts hardware interrupt line (`IMU_INT`).

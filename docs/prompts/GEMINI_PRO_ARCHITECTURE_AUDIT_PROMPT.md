@@ -8,30 +8,7 @@ This document provides a **structured, 3-tiered prompt framework** designed for 
 
 Rather than dumping a single monolithic prompt that leads to generalized, hand-waving outputs, this framework uses **Three Iterative Tiers**. Each tier focuses Gemini Pro's attention on a specific architectural plane, producing rigorous, immediately executable deliverables before proceeding to the next tier:
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│      TIER 1: REPOSITORY INVENTORY, DEDUPLICATION & TAXONOMY            │
-│      • Macro-structure & folder taxonomy                               │
-│      • Narrative deduplication across 35+ markdown files               │
-│      • Target & BSP clean separation                                   │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ Produces: Master Migration Matrix
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│      TIER 2: SPECIFICATION-DRIVEN (SSOT) & TRACEABILITY AUDIT          │
-│      • Markdown Drives Code ([SPEC-*] <-> // @impl) audit              │
-│      • Freestanding C++20 zero-heap invariant enforcement              │
-│      • Modular Spec Template (decoupling Core, Target, and App specs)  │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ Produces: Specification Architecture
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│      TIER 3: OBSERVABILITY & ABSTRACTX STUDIO GUI FRAMEWORK            │
-│      • Two-Level Dear ImGui Studio Architecture (Core vs Plugins)      │
-│      • Dynamic CTF 1.8 schema engine & MemBrowse memory integration    │
-│      • AbstractX Studio Plugin SDK definition                          │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![Audit tiers: tier 1 repository inventory produces the master migration matrix for tier 2 SSOT and traceability audit, which produces the specification architecture for tier 3 observability and Studio GUI framework](assets/gemini-pro-architecture-audit-prompt-tiers.svg)
 
 ---
 

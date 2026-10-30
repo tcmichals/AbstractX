@@ -1,0 +1,26 @@
+title: How the smart I/O dispatcher works
+desc: The application coroutine thread sends 64-byte TLP-framed requests over lock-free SPSC to the smart I/O dispatcher and completion matching engine; the physical transport worker or hardware coprocessor layer sends completions back up to the dispatcher, which resumes coroutines on the main thread.
+grid: {col: 820, row: 120, gap_x: 110, gap_y: 70}
+nodes:
+  - id: app
+    label: Application coroutine thread
+    text: ["`co_await io.async_push(TARGET, DATA); // Push-and-Forget`",
+           "`auto res = co_await io.async_request(CMD); // Request-Response with correlated Tag`",
+           "`co_await timer.async_sleep_us(9040); // Hardware Comparator Sleep (0 Poll)`"]
+    at: [0, 0]
+  - id: disp
+    label: Smart I/O dispatcher & completion matching engine
+    text: ["Tag correlation: matches completion packets in 2-5 ns and resumes suspended",
+           "coroutine handles strictly on the main thread (Rule 4.2: zero thread hopping)."]
+    at: [0, 1]
+  - id: phys
+    label: Physical transport worker / hardware coprocessor layer
+    text: ["Linux SBC: background POSIX I/O thread pool (`/dev/i2c-1`, `/dev/spidev0.0`)",
+           "Pico 2 (RP2350): Core 1 PIO/I2C state machine (SRAM SPSC rings)",
+           "ESP32-P4/S3: dual-core RISC-V DMA interrupt engine",
+           "FPGA: SystemVerilog autonomous Auto-DMA RTL (Tang Nano 9K / Primer 20K)"]
+    at: [0, 2]
+    kind: hw
+edges:
+  - {from: app, to: disp, label: 64-byte TLP framing / lock-free SPSC}
+  - {from: phys, to: disp}

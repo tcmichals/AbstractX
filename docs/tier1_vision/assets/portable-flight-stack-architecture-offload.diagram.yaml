@@ -1,0 +1,34 @@
+title: One TLP bus, chip-specific hardware offload
+desc: Existing Betaflight, iNav and ArduPilot AP_HAL APIs sit on a uniform 64-byte PCIe-like TLP message bus, which fans out to RP2350, Allwinner Cubie A5E, STM32 and Linux/Jetson back ends, each driving the hardware offload and physical IO layer.
+grid: {col: 240, row: 110, gap_x: 40, gap_y: 60}
+nodes:
+  - id: api
+    label: Existing Betaflight / iNav / ArduPilot AP_HAL APIs
+    text: [Preserves 100% backward compatibility with flight code and MSP/MAVLink]
+    at: [0, 0]
+    span: [4, 0.75]
+  - id: bus
+    label: Uniform 64-byte PCIe TLP message bus (tlp64_ring)
+    text: ["MemRd (0x01), MemWr (0x02), CplD (0x03), DMA_Stream (0x10)"]
+    at: [0, 0.75]
+    span: [4, 0.75]
+    kind: mem
+  - {id: rp, label: RP2350 (Pico 2), text: [PIO state machines, Core 0 TLP engine, SRAM ring buffer], at: [0, 1.6], kind: hw}
+  - {id: aw, label: Allwinner Cubie A5E, text: [FPGA coprocessor, E906 RISC-V core, Dual-SPI MAC], at: [1, 1.6], kind: hw}
+  - {id: stm, label: STM32 H7/F7/G4, text: [TIM input capture, MDMA streams, HRTIM DShot], at: [2, 1.6], kind: hw}
+  - {id: lnx, label: Linux / Jetson, text: [ArduPilot Linux, AP_HAL_AbstractX, Shared RAM / TLP], at: [3, 1.6], kind: accent}
+  - id: phys
+    label: Hardware offload execution and physical IO layer
+    at: [0, 2.6]
+    span: [4, 0.6]
+    kind: hw
+edges:
+  - {from: api, to: bus}
+  - {from: bus, to: rp}
+  - {from: bus, to: aw}
+  - {from: bus, to: stm}
+  - {from: bus, to: lnx}
+  - {from: rp, to: phys}
+  - {from: aw, to: phys}
+  - {from: stm, to: phys}
+  - {from: lnx, to: phys}

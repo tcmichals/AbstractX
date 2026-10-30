@@ -184,32 +184,7 @@ The onboard ESP32-C6 connects as an SDIO slave to the P4 host using **SDMMC Host
 
 AbstractX structures video streaming and telemetry logging as non-blocking, split-transaction coroutines:
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   CAMERA CAPTURE & ISP (CORE 0)                        │
-│   • OV5647 5MP Camera via 2-lane MIPI-CSI (D-PHY 800 Mbps/lane)       │
-│   • Hardware ISP generates YUV420 / RGB565 frames                      │
-│   • 2D-DMA buffers frames into 64B-aligned PSRAM ping-pong buffers     │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   HARDWARE VIDEO ENCODER (CORE 0)                      │
-│   • Hardware H.264 Baseline Profile encoder (or JPEG codec)            │
-│   • Produces compressed NAL units in PSRAM                             │
-│   • Calls esp_cache_msync() to flush dirty cachelines                  │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│              SPLIT-TRANSACTION SDMMC DMA RECORDER (CORE 0)             │
-│   • Writes H.264 frames to /sdcard/flight_video.h264                   │
-│   • SDMMC Slot 0 running in 4-bit mode @ 40 MHz                        │
-│   • Synchronously multiplexed with 64-byte CTF 1.8 telemetry TLPs:     │
-│       - /sdcard/flight_video.h264 (Raw H.264 video track)              │
-│       - /sdcard/flight_telemetry.tlp (Binary CTF 1.8 TLP frames)       │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![ESP32-P4 video pipeline on Core 0: camera capture and ISP into PSRAM, hardware H.264 encoder, then the split-transaction SDMMC DMA recorder writing video and CTF 1.8 telemetry TLP files to the SD card](assets/esp32p4-waveshare-wifi6-and-errata-spec-video-pipeline.svg)
 
 ### Coroutine Multiplexing in AbstractX
 Because both the IMU flight loop and the video logging engine use non-blocking split transactions:

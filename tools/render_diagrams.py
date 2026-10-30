@@ -19,6 +19,7 @@ Diagram source (all coordinates in grid cells; fractions allowed):
       text: ["bare metal", "`run_imu()`"]   # optional lines; `x` renders monospace
       at: [0, 1]                            # column, row
       span: [1, 1]                          # optional width, height in cells
+                                            # (height = h*row + (h-1)*gap_y, so 0.5 < half a cell)
       kind: default | accent | hw | mem | soft | muted | warn
   groups:                                   # drawn behind; may contain earlier groups
     - id: soc
@@ -27,7 +28,8 @@ Diagram source (all coordinates in grid cells; fractions allowed):
       kind: muted
   edges:
     - {from: a, to: b, label: RPMsg, dashed: false, both: false,
-       route: auto | hv | vh, kind: default}
+       arrow: true,   # false: plain line (wire, bus) with no arrowhead
+       route: auto | hv | vh | hvh | vhv, kind: default}
   notes: ["one line per note under the drawing"]
 """
 from __future__ import annotations
@@ -219,8 +221,9 @@ def render(spec: dict, name: str = "diagram") -> str:
         d = "M" + " L".join(f"{f(x)} {f(y)}" for x, y in pts)
         dash = ' stroke-dasharray="7 5"' if e.get("dashed") else ""
         start = f' marker-start="url(#{mid}s)"' if e.get("both") else ""
+        end = f' marker-end="url(#{mid})"' if e.get("arrow", True) else ""
         edge_svg.append(f'<path d="{d}" fill="none" stroke="{stroke}" stroke-width="2"'
-                        f'{dash} marker-end="url(#{mid})"{start}/>')
+                        f'{dash}{end}{start}/>')
         if e.get("label"):
             lx, ly, horizontal = label_point(pts)
             lines = lines_of(e["label"])
@@ -353,7 +356,8 @@ def tracked(pattern: str) -> list[Path]:
 
 
 FENCE = re.compile(r"^(\s*)(```|~~~)(.*)$")
-CORNER = re.compile(r"[┌╔╭]|\+[-=]{3,}")
+# Vertical arrow glyphs or a connector line on its own: an arrows-only flow drawing.
+ARROWS = re.compile(r"[▼▲]|^\s*│\s*$", re.M)
 
 
 def ascii_fences(md: Path) -> list[tuple[int, str]]:
@@ -371,8 +375,9 @@ def ascii_fences(md: Path) -> list[tuple[int, str]]:
             j += 1
         content = "\n".join(lines[start + 1 : j])
         marked = any("ascii-ok:" in lines[k] for k in range(max(0, start - 2), start))
-        boxy = bool(re.search(r"[┌╔╭]", content)) or (
-            bool(re.search(r"\+[-=]{3,}", content)) and "|" in content)
+        boxy = (bool(re.search(r"[┌╔╭]", content))
+                or (bool(re.search(r"\+[-=]{3,}", content)) and "|" in content)
+                or bool(ARROWS.search(content)))
         if lang != "mermaid" and boxy and not marked:
             found.append((start + 1, hashlib.sha1(content.encode()).hexdigest()[:12]))
         i = j + 1

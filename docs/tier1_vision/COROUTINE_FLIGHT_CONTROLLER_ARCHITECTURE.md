@@ -23,31 +23,7 @@ By pairing **C++20 Stackless Coroutines (`co_await`, `Task<T>`)** with **PCIe-li
 2. **Zero-Overhead Single-Threaded Execution**: Coroutines suspend and resume via simple function pointer dispatches (`handle.resume()`) without kernel context switches, OS thread stacks, or mutex locks.
 3. **Hardware Offloading via Split-Transaction TLPs**: The CPU core never spins on a physical bus. Request TLPs (`MemRd`, `MemWr`) are queued with unique correlation `Tag`s, and completion TLPs (`CplD`, `DMA_Stream`) are posted by hardware DMA/coprocessors into lock-free SPSC ring buffers (`SpscTlpRing`).
 
-```
-+-----------------------------------------------------------------------------------+
-|               SINGLE MAIN FLIGHT THREAD (C++20 Coroutine Executor)               |
-|                                                                                   |
-|  [8 kHz IMU Coroutine]       [50 Hz Baro Coroutine]       [EKF Navigation Task]   |
-|  co_await next_imu_stream()   co_await read_i2c(BARO)      co_await when_all(     |
-|  (Executes in 5 us, yields)   (Suspends for 1.5 ms)          read_baro(),         |
-|         │                            │                       read_mag())          |
-+─────────┼────────────────────────────┼────────────────────────────┼───────────────+
-          │                            │ (MemRd Tag #1)             │ (MemRd Tag #2,3)
-          ▼                            ▼                            ▼
-+───────────────────────────────────────────────────────────────────────────────────+
-|               LOCK-FREE SPSC 64-BYTE TLP RING BUFFERS (SpscTlpRing)               |
-|          - Host TX Ring (MemRd / MemWr)     - Host RX Ring (CplD / DMA_Stream)    |
-+───────────────────────────────────────────────────────────────────────────────────+
-                                       ▲
-                                       │ Non-blocking TLP Streaming
-                                       ▼
-+───────────────────────────────────────────────────────────────────────────────────+
-|               HARDWARE COPROCESSOR / SITL I/O WORKER LAYER                        |
-|  - FPGA Autonomous Auto-DMA Engine (asp_imu_auto_dma.sv)                          |
-|  - RP2350 PIO State Machines & Core 0 DMA / STM32 BDMA Stream Controllers        |
-|  - Linux SITL: Background I/O worker threads executing synchronous bus transfers  |
-+───────────────────────────────────────────────────────────────────────────────────+
-```
+![Single main flight thread running the 8 kHz IMU, 50 Hz baro and EKF coroutines, which issue MemRd TLPs into lock-free SPSC TLP rings that the hardware coprocessor or SITL I/O worker layer streams to and from](assets/coroutine-flight-controller-architecture-executor.svg)
 
 ---
 
@@ -130,6 +106,7 @@ Executable: [**`examples/simple_proof_benchmark.cpp`**](../examples/simple_proof
 g++ -std=c++20 -O2 -pthread -Iinclude examples/simple_proof_benchmark.cpp -o examples/simple_proof_benchmark && ./examples/simple_proof_benchmark
 ```
 
+<!-- ascii-ok: terminal output table from simple_proof_benchmark -->
 ```
 ===================================================================================================
  MULTI-TARGET HARDWARE EXECUTION MATRIX (1.0 Second of Flight / 8,000 IMU 8 kHz Samples)           

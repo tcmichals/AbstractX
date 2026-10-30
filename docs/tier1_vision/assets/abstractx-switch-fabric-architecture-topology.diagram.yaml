@@ -1,0 +1,19 @@
+title: AbstractX switch fabric top-level topology
+desc: A Dual-SPI or SPI translator core sends 64-byte TLPs over AXI-Stream to the AXI-Stream hub (channel/AXID router), which routes them to the Wishbone master gateway, the IMU Auto-DMA core and the UART ESC DMA tunnel, and feeds the egress TLP FIFO.
+grid: {col: 230, row: 80, gap_x: 160, gap_y: 50}
+nodes:
+  - {id: xlat, label: Dual-SPI / SPI, text: [Translator Core], at: [0, 0]}
+  - {id: hub, label: AXI-Stream Hub, text: [Channel/AXID router], at: [1, 0]}
+  - {id: egress, label: Egress TLP FIFO, at: [1, 1], kind: mem}
+  - {id: wb, label: Wishbone, text: [Master Gateway], at: [2, 0]}
+  - {id: imu, label: IMU Auto-DMA Core, at: [2, 1]}
+  - {id: esc, label: UART ESC, text: [DMA Tunnel], at: [2, 2]}
+groups:
+  - {id: g_ext, label: External transport, contains: [xlat]}
+  - {id: g_hub, label: Fabric hub / router, contains: [hub, egress]}
+  - {id: g_ep, label: Endpoints, contains: [wb, imu, esc]}
+  - {id: fabric, label: AbstractX switch fabric, contains: [g_ext, g_hub, g_ep], kind: muted}
+edges:
+  - {from: xlat, to: hub, label: "64B TLP (AXIS)"}
+  - {from: hub, to: g_ep}
+  - {from: hub, to: egress}

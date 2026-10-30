@@ -34,33 +34,7 @@ This forced the maintainer to manually code-review every single line of code.
 
 To eliminate manual review fatigue and guarantee 100% bug-free implementations, AbstractX adopts a **two-pillar automated verification architecture** inspired by the Linux kernel **Sashiko-bot**:
 
-```text
-+---------------------------------------------------------------------------------------------+
-|                                AbstractX Quality Gate Pipeline                              |
-+---------------------------------------------------------------------------------------------+
-                                               │
-                                               ▼
-               [ Pillar 1: CppUTest Test-Driven Development (TDD) ]
-          • Before writing or modifying any driver code, the AI must
-            read the CppUTest test suite and mock contracts.
-          • The CppUTest test defines the unambiguous ground truth:
-            mock register sequences, DRDY interrupts, and error states.
-          • Tests run natively on host (`ABSTRACTX_TARGET=host`).
-          • CppUTest MemoryLeakDetector asserts 0 bytes leaked.
-                                               │
-                                               ▼
-               [ Pillar 2: 5-Stage Sashiko-Grade Adversarial Audit ]
-          • The code diff is subjected to 5 distinct, isolated audit
-            stages with zero tolerance for invariant violations:
-            Stage 1: Zero-Heap & Freestanding Invariant Gate
-            Stage 2: Non-Blocking HAL & Split-Transaction Gate
-            Stage 3: ISR Domain & Coroutine Dispatcher Gate
-            Stage 4: Hardware Endianness & Wire Framing Gate
-            Stage 5: CppUTest Verification & Gatekeeper Verdict
-                                               │
-                                               ▼
-                         [ Automated Merge / Commit Acceptance ]
-```
+![Quality gate pipeline: pillar 1 CppUTest TDD, then pillar 2 five-stage adversarial audit, then automated merge or commit acceptance](assets/sashiko-adversarial-review-and-cpputest-guide-quality-gate.svg)
 
 ---
 

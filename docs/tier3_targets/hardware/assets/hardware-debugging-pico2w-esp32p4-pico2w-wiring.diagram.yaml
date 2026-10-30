@@ -1,0 +1,42 @@
+title: "Pico 2 W Wiring: ICM-42688-P IMU and u-blox GPS"
+desc: "Raspberry Pi Pico 2 W pins wired to the ICM-42688-P IMU on SPI0 (power, ground, SCK, MOSI, MISO, CS, INT1 data ready) and to the u-blox UBX-NAV-PVT GPS on UART0 (TX, RX, power). Arrows show signal direction."
+grid: {col: 290, row: 34, gap_x: 160, gap_y: 10}
+nodes:
+  - {"id": "p3v3", "label": "3V3(OUT) (Pin 36)", "at": [0, 0], "kind": "hw"}
+  - {"id": "i_vdd", "label": "VDD / VDDIO", "at": [1, 0], "kind": "hw"}
+  - {"id": "pgnd", "label": "GND (Pin 38 / Pin 3)", "at": [0, 1], "kind": "hw"}
+  - {"id": "i_gnd", "label": "GND", "at": [1, 1], "kind": "hw"}
+  - {"id": "psck", "label": "GPIO 18 (Pin 24, SCK)", "at": [0, 2], "kind": "hw"}
+  - {"id": "i_sck", "label": "SCLK / SCK", "at": [1, 2], "kind": "hw"}
+  - {"id": "pmosi", "label": "GPIO 19 (Pin 25, MOSI)", "at": [0, 3], "kind": "hw"}
+  - {"id": "i_sdi", "label": "SDI / MOSI", "at": [1, 3], "kind": "hw"}
+  - {"id": "pmiso", "label": "GPIO 16 (Pin 21, MISO)", "at": [0, 4], "kind": "hw"}
+  - {"id": "i_sdo", "label": "SDO / MISO", "at": [1, 4], "kind": "hw"}
+  - {"id": "pcs", "label": "GPIO 17 (Pin 22, CSn)", "at": [0, 5], "kind": "hw"}
+  - {"id": "i_cs", "label": "CS", "at": [1, 5], "kind": "hw"}
+  - {"id": "pint", "label": "GPIO 20 (Pin 26, INT1)", "at": [0, 6], "kind": "hw"}
+  - {"id": "i_int", "label": "INT1 (Data Ready)", "at": [1, 6], "kind": "hw"}
+  - {"id": "ptx", "label": "GPIO 0 (Pin 1, UART0 TX)", "at": [0, 8.2], "kind": "hw"}
+  - {"id": "g_rx", "label": "RX", "at": [1, 8.2], "kind": "hw"}
+  - {"id": "prx", "label": "GPIO 1 (Pin 2, UART0 RX)", "at": [0, 9.2], "kind": "hw"}
+  - {"id": "g_tx", "label": "TX", "at": [1, 9.2], "kind": "hw"}
+  - {"id": "ppwr", "label": "3V3(OUT) / GND", "at": [0, 10.2], "kind": "hw"}
+  - {"id": "g_pwr", "label": "VCC / GND", "at": [1, 10.2], "kind": "hw"}
+groups:
+  - {"id": "pico1", "label": "Raspberry Pi Pico 2 W", "contains": ["p3v3", "pgnd", "psck", "pmosi", "pmiso", "pcs", "pint"], "kind": "hw"}
+  - {"id": "imu", "label": "ICM-42688-P IMU (SPI0)", "contains": ["i_vdd", "i_gnd", "i_sck", "i_sdi", "i_sdo", "i_cs", "i_int"], "kind": "hw"}
+  - {"id": "pico2", "label": "Raspberry Pi Pico 2 W", "contains": ["ptx", "prx", "ppwr"], "kind": "hw"}
+  - {"id": "gps", "label": "U-Blox UBX-NAV-PVT GPS", "contains": ["g_rx", "g_tx", "g_pwr"], "kind": "hw"}
+edges:
+  - {"from": "p3v3", "to": "i_vdd"}
+  - {"from": "pgnd", "to": "i_gnd"}
+  - {"from": "psck", "to": "i_sck"}
+  - {"from": "pmosi", "to": "i_sdi"}
+  - {"from": "i_sdo", "to": "pmiso"}
+  - {"from": "pcs", "to": "i_cs"}
+  - {"from": "i_int", "to": "pint"}
+  - {"from": "ptx", "to": "g_rx"}
+  - {"from": "g_tx", "to": "prx"}
+  - {"from": "ppwr", "to": "g_pwr"}
+notes:
+  - "Arrows point in the signal direction (MISO and INT1 run from the IMU to the Pico; GPS TX drives Pico UART0 RX)."

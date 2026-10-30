@@ -47,6 +47,7 @@ Status: **exists** = in the repo and in use; **planned** = described in
 | `tools/spectrace_drift.py`, `spectrace_dedupe.py` | repo-wide requirement parity, duplicate requirement text | exists |
 | `tools/audit_specs.py` | tag presence for `DESIGN_SPECIFICATION.md` only; **not** evidence of correctness | exists (legacy) |
 | `tools/log_mistake.py` | engineering-log entry template | exists |
+| `tools/render_diagrams.py [--check]` | renders `*.diagram.yaml` block diagrams to SVG; `--check` fails on stale SVGs and ASCII box art in Markdown (`[SPEC-AUDIT-16]`, skill `doc-diagrams`) | exists |
 | `tools/trac.py size\|perf\|report\|export-benchmark` | runs sizeTrac / perfTrac checks, appends evidence to `docs/verification/evidence/<YYYY-MM>/<host>.jsonl`, reports latest result and change, exports github-action-benchmark JSON | exists |
 | status report, skill scorecard | "are things working, are we getting better" | planned |
 

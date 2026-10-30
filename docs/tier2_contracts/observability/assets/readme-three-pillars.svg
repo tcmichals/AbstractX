@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 736 909" width="736" height="909" role="img" aria-labelledby="t d">
+<title id="t">Observability pipeline - the three pillars</title>
+<desc id="d">Pillar 1, the unified 64-byte TLP bus, feeds Pillar 2, the dynamic CTF 1.8 schema loader, over UDP port 9870 or shared SRAM; the loader feeds typed field dictionaries and metrics to Pillar 3, the two-level Studio GUI.</desc>
+<defs>
+<marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
+<marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
+<marker id="a4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4ade80"/></marker>
+<marker id="a4ade80s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#4ade80"/></marker>
+<marker id="a64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker>
+<marker id="a64748bs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#64748b"/></marker>
+<marker id="a7dd3fc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a7dd3fcs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a9fb3d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9fb3d9"/></marker>
+<marker id="a9fb3d9s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#9fb3d9"/></marker>
+<marker id="ab79cff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/></marker>
+<marker id="ab79cffs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#b79cff"/></marker>
+<marker id="af5b942" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f5b942"/></marker>
+<marker id="af5b942s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f5b942"/></marker>
+<marker id="af87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f87171"/></marker>
+<marker id="af87171s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f87171"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
+<text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">Observability pipeline - the three pillars</text>
+<rect x="30" y="478" width="676" height="401" rx="16" fill="#b79cff" fill-opacity="0.05" stroke="#b79cff" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="44" y="498" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#b79cff" text-anchor="start" letter-spacing="1.2">PILLAR 3: TWO-LEVEL STUDIO GUI (IMGUI-BUNDLE)</text>
+<path d="M368 204 L368 274" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M368 384 L368 478" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<rect x="48" y="94" width="640" height="110" rx="12" fill="#2a2416" stroke="#f5b942" stroke-width="2"/>
+<text x="368" y="128" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Pillar 1: Unified 64-byte TLP bus</text>
+<text x="368" y="149" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Hardware: FPGA Auto-DMA IP (<tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">asp_imu_auto_dma.sv</tspan>, <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">asp_router.sv</tspan>)</text>
+<text x="368" y="166" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Software: C++20 SITL &amp; Bare-Metal Tasks (gps_imu_app)</text>
+<text x="368" y="183" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">20B Header + 40B CTF + 4B transport-integrity/reserved footer</text>
+<rect x="48" y="274" width="640" height="110" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="368" y="308" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Pillar 2: Dynamic CTF 1.8 schema loader</text>
+<text x="368" y="329" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Authoritative Schema: <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">trace/barectf_config.yaml</tspan> &amp; <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">trace_schema.json</tspan></text>
+<text x="368" y="346" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Loader Engine: <tspan font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace">tools/visualizer/ctf_schema_loader.py</tspan></text>
+<text x="368" y="363" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Compiles struct.Struct decoders at runtime (Zero hardcoded offsets)</text>
+<rect x="48" y="508" width="640" height="146" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="368" y="551.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Level 1: Core System Platform Observability</text>
+<text x="368" y="572.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">abstractx_studio.py</text>
+<text x="368" y="589.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Platform Topology &amp; Interconnect (Cores, SPU/CPU%, SPSC Rings)</text>
+<text x="368" y="606.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Dual-Plane Execution Timeline (ISR/DMA vs Coroutines + DWARF)</text>
+<text x="368" y="623.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Continuous Memory Observability (MemBrowse Section Budgets)</text>
+<rect x="48" y="688" width="640" height="173" rx="12" fill="#1d1a3f" stroke="#b79cff" stroke-width="2"/>
+<text x="368" y="736.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Level 2: User / Domain Extensible Plugins</text>
+<text x="368" y="757.5" font-family="'JetBrains Mono', 'DejaVu Sans Mono', Menlo, Consolas, monospace" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">flight_plugin.py</text>
+<text x="368" y="774.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Primary Flight Display (PFD) Artificial Horizon &amp; Pitch Ladder</text>
+<text x="368" y="791.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">3D Quadcopter Perspective Wireframe (Tait-Bryan rotation)</text>
+<text x="368" y="808.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Quad-X Motor Mixer Demands &amp; Navigation Gauges</text>
+<text x="368" y="825.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">8 kHz ICM-42688-P IMU Real-Time Oscilloscope (ImPlot)</text>
+<rect x="268" y="228.5" width="199.9" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="368" y="243.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">UDP Port 9870 / Shared SRAM</text>
+<rect x="250.3" y="420.5" width="235.4" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="368" y="435.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">Typed Field Dictionaries &amp; Metrics</text>
+</svg>

@@ -1,0 +1,27 @@
+title: RemoteProc memory carveouts (high address at top)
+desc: Firmware DRAM pool at 0x48100000-0x48200000, VirtIO vrings and DMA pool at 0x48000000-0x48100000, and MCU SRAM Space 0 at host 0x07280000-0x072C0000 (E906 view 0x3FFC0000-0x3FFFFFFF) holding text, data and BSS.
+grid: {col: 590, row: 80, gap_x: 60, gap_y: 12}
+nodes:
+  - id: fwdram
+    label: Firmware DRAM Pool
+    text: ["`0x48100000` - `0x48200000` (1 MB, rproc_dram)"]
+    at: [0, 0]
+    kind: mem
+  - id: vring
+    label: VirtIO VRings & DMA
+    text: ["`0x48000000` - `0x48100000` (1 MB, rproc_vdev shared-dma-pool)"]
+    at: [0, 1]
+    kind: mem
+  - id: gap
+    label: "..."
+    at: [0, 2]
+    span: [1, 0.5]
+    kind: muted
+  - id: sram0
+    label: MCU SRAM Space 0
+    text: ["Text + Data + BSS (Zero-Heap Executable)",
+           "host `0x07280000` - `0x072C0000` (256 KB, riscvsram0)",
+           "E906 view `0x3FFC0000` - `0x3FFFFFFF`"]
+    at: [0, 2.7]
+    span: [1, 1.2]
+    kind: mem

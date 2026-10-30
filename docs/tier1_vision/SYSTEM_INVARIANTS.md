@@ -23,29 +23,7 @@ It provides a single C++20 stackless coroutine application layer that executes s
 
 ## 2. The Three-Layer Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│  LAYER 3: APPLICATION (C++20 Stackless Coroutines)                     │
-│  100% portable code. Same source across MCU, Linux, and FPGA.          │
-│  co_await io.async_read(REG_SENSOR)                                    │
-│  co_await when_all(read_imu(), read_baro())                            │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ Lock-free SPSC queues
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  LAYER 2: MESSAGE (64-Byte Transaction Layer Packet - TLP)             │
-│  Fixed-size PCIe-like packets. CRC32. Hardware nanosecond timestamps.  │
-│  MemRd / MemWr / CplD / DMA_Stream / DMA_Cfg                           │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ Platform-specific transport
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  LAYER 1: TRANSPORT (Silicon & Bus Specific)                           │
-│  FPGA:   Dual-SPI 50 MHz / AXI-Stream Crossbar (asp_router.sv)          │
-│  MCU:    Core-to-Core Shared SRAM + Hardware Doorbells (SIO / IPC)     │
-│  Linux:  POSIX epoll / Shared SRAM A3/C + msgbox mailboxes             │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![Three layers: application coroutines over lock-free SPSC queues to 64-byte TLP messages over a platform-specific transport](assets/system-invariants-three-layers.svg)
 
 ---
 

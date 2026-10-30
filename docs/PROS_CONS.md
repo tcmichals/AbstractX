@@ -62,26 +62,7 @@ Task<void> handle_telemetry(hal::IUart& uart, hal::ITimer& timer) {
 
 ### Pillar 2: Memory Footprint (Single Stack vs. RTOS Multi-Stack Bloat)
 
-```text
-Traditional RTOS Architecture (Heavy Multi-Stack)
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ Task 1 Stack │ │ Task 2 Stack │ │ Task 3 Stack │ │ Task 4 Stack │
-│ (2 - 8 KB)   │ │ (2 - 8 KB)   │ │ (2 - 8 KB)   │ │ (2 - 8 KB)   │
-└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
-Result: 10 tasks = 20 KB to 80 KB of RAM locked in idle stacks + jitter.
-
-AbstractX Architecture (Single Execution Stack + Tiny Coroutine Frames)
-┌──────────────────────────────────────────────────────────────────┐
-│ Single Processor Stack (1 KB - 2 KB for all interrupts / calls)  │
-└──────────────────────────────────────────────────────────────────┘
-    ▲                ▲                ▲                ▲
-    │                │                │                │
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ Coro 1 Frame│  │ Coro 2 Frame│  │ Coro 3 Frame│  │ Coro 4 Frame│
-│ (64 - 128 B)│  │ (64 - 128 B)│  │ (64 - 128 B)│  │ (64 - 128 B)│
-└─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘
-Result: 10 tasks = ~1 KB of coroutine frames. Up to 95% RAM savings.
-```
+![Memory footprint: a traditional RTOS gives each task its own 2-8 KB stack, AbstractX runs all coroutines on one 1-2 KB stack with 64-128 B coroutine frames](assets/pros-cons-stack-vs-frames.svg)
 
 #### Bare-Metal Execution:
 * The entire CPU core runs on a **single execution stack** (typically 1–2 KB)

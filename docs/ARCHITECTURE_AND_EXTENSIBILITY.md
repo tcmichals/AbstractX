@@ -10,24 +10,7 @@
 
 AbstractX is designed for polymorphic silicon scaling across bare-metal MCUs (RP2350, ESP32-P4, XuanTie E906), FPGA fabrics (QMTech Zynq-7020, Gowin Tang Nano 20K), and Linux RT hosts with **zero dynamic heap allocation** and **zero application `#ifdef`s**.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                      AbstractX 3-Tier Layering                         │
-├────────────────────────────────────────────────────────────────────────┤
-│ Application Domain (Linear, Deterministic C++20 Coroutines)            │
-│ • Fusion Loops (Mahony 9-DoF AHRS, Cascaded PIDs)                      │
-│ • Multi-Rate Pacing via Primary-Paced Channel Pattern                  │
-├────────────────────────────────────────────────────────────────────────┤
-│ Domain Driver Layer (Polymorphic, Zero-Heap Hardware Drivers)           │
-│ • IImuDriver, IMagDriver, IGpsDriver (drivers/include/abstractx/...)   │
-│ • Asynchronous lifecycle (init_async()) and sampling coroutines        │
-├────────────────────────────────────────────────────────────────────────┤
-│ HAL & Transport Plane (Split-Queue DMA & Event Demultiplexing)         │
-│ • AsyncDriverBase<TReq, TRes, Depth>, IIoProcessor                     │
-│ • Lock-Free SPSC & ISR-Safe MPSC Rings (include/tlp_ring.hpp)          │
-│ • Linux epoll Reactor (targets/linux/include/abstractx/reactor/...)    │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![AbstractX 3-tier layering: application domain over the domain driver layer over the HAL and transport plane](assets/architecture-and-extensibility-layers.svg)
 
 ---
 

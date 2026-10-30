@@ -18,32 +18,7 @@ AbstractX splits Linux responsibilities cleanly:
 2. **The Data Plane**: **ETL (Embedded Template Library)** provides lock-free, zero-heap SPSC rings (`etl::queue_spsc_isr`) and type-safe delegates (`etl::delegate`).
 3. **Dedicated Bus Workers**: Independent background worker threads (`SpiWorker`, `I2cWorker`) execute blocking bus `ioctl()`s without contending with or stalling each other.
 
-```
-+--------------------------------------------------------------------------------+
-|                             Main epoll Reactor                                 |
-|                      (Monitors UART, GPIO DRDY, RxEventFd)                     |
-+--------------------------------------------------------------------------------+
-             |                                              |
-      etl::queue_spsc_isr                            etl::queue_spsc_isr
-     + spi_eventfd.notify()                         + i2c_eventfd.notify()
-             v                                              v
-+-----------------------------+                +-----------------------------+
-|      SPI Worker Thread      |                |      I2C Worker Thread      |
-| Waits on: spi_eventfd       |                | Waits on: i2c_eventfd       |
-| Hardware: /dev/spidevX.Y    | (Runs 100% in  | Hardware: /dev/i2c-X        |
-| Speed:    10 - 24 MHz       |   parallel)    | Speed:    100 - 400 kHz     |
-| Action:   ioctl(SPI_IOC_MSG)|                | Action:   ioctl(I2C_RDWR)   |
-+-----------------------------+                +-----------------------------+
-             |                                              |
-             +----------------------+-----------------------+
-                                    |
-                    notify_completion() via etl::delegate
-                    g_rx_ring.push(Tlp64) + rx_eventfd.notify()
-                                    v
-+--------------------------------------------------------------------------------+
-|                   Main epoll Reactor Wakes Up & Resumes Coro                   |
-+--------------------------------------------------------------------------------+
-```
+![Linux hybrid reactor: the main epoll reactor hands requests to the SPI and I2C worker threads through etl::queue_spsc_isr rings and eventfd notifies; the workers run blocking ioctl()s in parallel and complete through notify_completion(), g_rx_ring and rx_eventfd, waking the reactor to resume the coroutine](assets/specification-reactor-workers.svg)
 
 ### 1.1 Industrial IIO Subsystem Model & Seamless Hardware Offload
 

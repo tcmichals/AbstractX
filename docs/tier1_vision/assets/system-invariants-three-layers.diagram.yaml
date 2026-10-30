@@ -1,0 +1,21 @@
+title: AbstractX three-layer architecture
+desc: Layer 3 application coroutines talk over lock-free SPSC queues to layer 2, fixed 64-byte TLP messages, which travel over a platform-specific layer 1 transport.
+grid: {col: 720, row: 130, gap_x: 60, gap_y: 70}
+nodes:
+  - id: app
+    label: "Layer 3: Application (C++20 stackless coroutines)"
+    text: ["100% portable code. Same source across MCU, Linux, and FPGA.", "`co_await io.async_read(REG_SENSOR)`", "`co_await when_all(read_imu(), read_baro())`"]
+    at: [0, 0]
+  - id: msg
+    label: "Layer 2: Message (64-byte Transaction Layer Packet, TLP)"
+    text: ["Fixed-size PCIe-like packets. CRC32. Hardware nanosecond timestamps.", "MemRd / MemWr / CplD / DMA_Stream / DMA_Cfg"]
+    at: [0, 1]
+    kind: mem
+  - id: xport
+    label: "Layer 1: Transport (silicon and bus specific)"
+    text: ["FPGA: Dual-SPI 50 MHz / AXI-Stream crossbar (`asp_router.sv`)", "MCU: core-to-core shared SRAM + hardware doorbells (SIO / IPC)", "Linux: POSIX epoll / shared SRAM A3/C + msgbox mailboxes"]
+    at: [0, 2]
+    kind: hw
+edges:
+  - {from: app, to: msg, label: Lock-free SPSC queues}
+  - {from: msg, to: xport, label: Platform-specific transport}

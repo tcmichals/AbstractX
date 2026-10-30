@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1142 560" width="1142" height="560" role="img" aria-labelledby="t d">
+<title id="t">AbstractX switch fabric top-level topology</title>
+<desc id="d">A Dual-SPI or SPI translator core sends 64-byte TLPs over AXI-Stream to the AXI-Stream hub (channel/AXID router), which routes them to the Wishbone master gateway, the IMU Auto-DMA core and the UART ESC DMA tunnel, and feeds the egress TLP FIFO.</desc>
+<defs>
+<marker id="a42d8f5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#42d8f5"/></marker>
+<marker id="a42d8f5s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#42d8f5"/></marker>
+<marker id="a4ade80" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#4ade80"/></marker>
+<marker id="a4ade80s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#4ade80"/></marker>
+<marker id="a64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#64748b"/></marker>
+<marker id="a64748bs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#64748b"/></marker>
+<marker id="a7dd3fc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a7dd3fcs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#7dd3fc"/></marker>
+<marker id="a9fb3d9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#9fb3d9"/></marker>
+<marker id="a9fb3d9s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#9fb3d9"/></marker>
+<marker id="ab79cff" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#b79cff"/></marker>
+<marker id="ab79cffs" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#b79cff"/></marker>
+<marker id="af5b942" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f5b942"/></marker>
+<marker id="af5b942s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f5b942"/></marker>
+<marker id="af87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#f87171"/></marker>
+<marker id="af87171s" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M10 0 L0 5 L10 10 Z" fill="#f87171"/></marker>
+</defs>
+<rect width="100%" height="100%" rx="18" fill="#0f1a30"/>
+<text x="30" y="52" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" font-weight="800" fill="#f2f6ff" text-anchor="start">AbstractX switch fabric top-level topology</text>
+<rect x="48" y="124" width="266" height="128" rx="16" fill="#42d8f5" fill-opacity="0.05" stroke="#42d8f5" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="62" y="144" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#42d8f5" text-anchor="start" letter-spacing="1.2">EXTERNAL TRANSPORT</text>
+<rect x="438" y="124" width="266" height="258" rx="16" fill="#42d8f5" fill-opacity="0.05" stroke="#42d8f5" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="452" y="144" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#42d8f5" text-anchor="start" letter-spacing="1.2">FABRIC HUB / ROUTER</text>
+<rect x="828" y="124" width="266" height="388" rx="16" fill="#42d8f5" fill-opacity="0.05" stroke="#42d8f5" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="842" y="144" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#42d8f5" text-anchor="start" letter-spacing="1.2">ENDPOINTS</text>
+<rect x="30" y="94" width="1082" height="436" rx="16" fill="#64748b" fill-opacity="0.05" stroke="#64748b" stroke-opacity="0.7" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="44" y="114" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#64748b" text-anchor="start" letter-spacing="1.2">ABSTRACTX SWITCH FABRIC</text>
+<path d="M296 194 L456 194" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M686 194 L828 194" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<path d="M571 234 L571 284" fill="none" stroke="#9fb3d9" stroke-width="2" marker-end="url(#a9fb3d9)"/>
+<rect x="66" y="154" width="230" height="80" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="181" y="190" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Dual-SPI / SPI</text>
+<text x="181" y="211" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Translator Core</text>
+<rect x="456" y="154" width="230" height="80" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="571" y="190" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">AXI-Stream Hub</text>
+<text x="571" y="211" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Channel/AXID router</text>
+<rect x="456" y="284" width="230" height="80" rx="12" fill="#122b22" stroke="#4ade80" stroke-width="2"/>
+<text x="571" y="328.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Egress TLP FIFO</text>
+<rect x="846" y="154" width="230" height="80" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="961" y="190" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">Wishbone</text>
+<text x="961" y="211" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">Master Gateway</text>
+<rect x="846" y="284" width="230" height="80" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="961" y="328.5" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">IMU Auto-DMA Core</text>
+<rect x="846" y="414" width="230" height="80" rx="12" fill="#14233f" stroke="#42d8f5" stroke-width="2"/>
+<text x="961" y="450" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="17" font-weight="700" fill="#f2f6ff" text-anchor="middle">UART ESC</text>
+<text x="961" y="471" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" font-weight="400" fill="#aebcda" text-anchor="middle">DMA Tunnel</text>
+<rect x="318.3" y="170" width="115.4" height="21" rx="5" fill="#0f1a30" fill-opacity="0.92"/>
+<text x="376" y="185" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="12" font-weight="400" fill="#aebcda" text-anchor="middle">64B TLP (AXIS)</text>
+</svg>

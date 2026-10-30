@@ -1,0 +1,42 @@
+title: Two-level GUI architecture
+desc: AbstractX Studio (imgui-bundle) holds Level 1, the core framework layer standard across all apps, and Level 2, the user and domain extensible layer of pluggable app modules such as the gps_imu_app flight plugin.
+grid: {col: 660, row: 100, gap_x: 60, gap_y: 30}
+nodes:
+  - id: l1
+    label: "Level 1: Core AbstractX Framework Layer"
+    text:
+      - "Standard across all apps"
+      - "64-byte TLP Ingestion (UDP, Serial, Shared SRAM)"
+      - "Platform Topology & Interconnect (Cores, SPU/CPU%, SPSC Rings)"
+      - "Dual-Plane Timeline (Hardware ISR/DMA vs C++20 Tasks)"
+      - "Source Inspector: Jump to `__FILE__ : __LINE__` on `co_await`"
+      - "Memory Observability & Static Section Budgets (MemBrowse)"
+    at: [0, 0]
+    span: [1, 1.6]
+  - id: l2
+    label: "Pluggable App Modules"
+    text:
+      - "Pluggable tab interface (e.g. `tools/visualizer/flight_plugin.py`)"
+    at: [0, 1.85]
+    span: [1, 0.8]
+    kind: accent
+  - id: app
+    label: "For gps_imu_app"
+    text:
+      - "Primary Flight Display (PFD) Artificial Horizon & Pitch Ladder"
+      - "3D Quadcopter Perspective Wireframe (Tait-Bryan rotation)"
+      - "Quad-X Motor Mixer Demand Bars (100..1000 µs)"
+      - "Aviation Navigation Gauges & Stream Rates (IMU/Mag/GPS/AHRS)"
+      - "8 kHz IMU Oscilloscope (ImPlot real-time waveforms)"
+    at: [0, 2.85]
+    span: [1, 1.4]
+    kind: accent
+groups:
+  - id: lv2
+    label: "Level 2: User & Domain Extensible Layer"
+    contains: [l2, app]
+    kind: accent
+  - id: studio
+    label: "AbstractX Studio (imgui-bundle)"
+    contains: [l1, lv2]
+    kind: muted

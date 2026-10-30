@@ -1,0 +1,37 @@
+title: AbstractX Studio Workbench Layout
+desc: Studio workbench window layout. A title bar on top; Window 1 AbstractX Core Studio with the CoreStudioTabBar on the left (54% width); Window 2 User Domain Instruments top right (46% width, 64% height); Window 3 TLP Bus Debugger and Window 4 Event Log bottom right (23% width each); status and layout-preset bar at the bottom.
+grid: {col: 400, row: 50, gap_x: 60, gap_y: 12}
+nodes:
+  - {id: bar, label: ABSTRACTX STUDIO WORKBENCH, text: ["Platform: Radxa Cubie A5E (ARM64+E906) | Stream: 8.2 kHz | 0 B Heap"], at: [0, 0], span: [4, 1], kind: accent}
+  # Window 1
+  - {id: tabbar, label: "[CoreStudioTabBar]", at: [0, 1.9], span: [2, 1], kind: muted}
+  - {id: cpu, label: CPU Gauges & Topology, text: ["busy %, tasks, drivers, pools"], at: [0, 3.033], span: [2, 1]}
+  - {id: timeline, label: Timeline, text: ["resumes | ISRs | idle swimlanes"], at: [0, 4.167], span: [2, 1]}
+  - {id: source, label: Source Code & RTL Inspector, text: ["live per-line CPU (PC samples)"], at: [0, 5.3], span: [2, 1]}
+  - {id: membrowse, label: MemBrowse CI Report, at: [0, 6.433], span: [2, 1]}
+  - {id: cli, label: CLI Console & REPL, at: [0, 7.567], span: [2, 1]}
+  - {id: simonly, label: "--sim / FPGA only", text: ["Coroutine Inspector, Flow Integrity, FPGA Peripherals"], at: [0, 8.7], span: [2, 1], kind: muted}
+  # Window 2
+  - {id: pfd, label: Primary Flight Display (PFD) Artificial Horizon, text: ["Pitch ladder (+/-30°), Roll arc (-60°..+60°)"], at: [2, 1.9], span: [2, 1], kind: soft}
+  - {id: wire, label: 3D Quadcopter Perspective Attitude Wireframe, text: ["Tait-Bryan Euler orientation (Roll, Pitch, Yaw)"], at: [2, 2.9], span: [2, 1], kind: soft}
+  - {id: mixer, label: Quad-X Motor Mixer Demands (M1..M4), at: [2, 3.9], span: [2, 1], kind: soft}
+  - {id: scope, label: 8 kHz IMU Oscilloscope, text: ["(ImPlot Real-Time Waves)"], at: [2, 4.9], span: [2, 1], kind: soft}
+  # Window 3
+  - {id: stream, label: 64B Stream Table, at: [2, 6.7]}
+  - {id: hdr, label: 20B Header Decode, at: [2, 7.7]}
+  - {id: hex, label: Color Hex Dump, at: [2, 8.7]}
+  # Window 4
+  - {id: level, label: Level Filters, at: [3, 6.7]}
+  - {id: logs, label: Live Trace Logs, at: [3, 7.7]}
+  - {id: search, label: Substring Search, at: [3, 8.7]}
+  - id: status
+    label: "Status: [ONLINE] | Radxa Cubie A5E | Packets: 124,592 | Rate: 8,240 pkts/s | Dynamic Heap: 0 B"
+    text: ["Layout: [Studio Workbench] [Balanced] [Flight Focus] [Core Studio] [Source] [FPGA] [🔄 Restore]"]
+    at: [0, 10.3]
+    span: [4, 1]
+    kind: accent
+groups:
+  - {id: w1, label: "Window 1: AbstractX Core Studio (LeftSpace: 54% Width)", contains: [tabbar, cpu, timeline, source, membrowse, cli, simonly]}
+  - {id: w2, label: "Window 2: User Domain Instruments (MainDockSpace: 46% Width, 64% Height)", contains: [pfd, wire, mixer, scope], kind: soft}
+  - {id: w3, label: "Window 3: TLP Bus Debugger (BottomSpace: 23% W)", contains: [stream, hdr, hex]}
+  - {id: w4, label: "Window 4: Event Log (BottomRight: 23% W)", contains: [level, logs, search]}

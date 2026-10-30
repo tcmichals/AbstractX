@@ -8,23 +8,7 @@ This document defines the internal hardware architecture for the AbstractX switc
 
 External transports (Dual-SPI, Single-SPI, DMA) act as **Translators** that serialize/deserialize fixed 64-byte TLPs between physical pins and the internal AXI-Stream / Wishbone switch fabric.
 
-```
- +-------------------------------------------------------------------------+
- |                         ABSTRACTX SWITCH FABRIC                         |
- |                                                                         |
- |  External Transport             Fabric Hub / Router       Endpoints     |
- |  +------------------+           +------------------+   +--------------+ |
- |  | Dual-SPI / SPI   |  64B TLP  | AXI-Stream Hub   |   | Wishbone     | |
- |  | Translator Core  | --------> | (Channel/AXID    | ->| Master Gateway| |
- |  +------------------+  AXIS     |  Router)         |   +--------------+ |
- |                                 +------------------+   | IMU Auto-DMA | |
- |                                          |             | Core         | |
- |                                          |             +--------------+ |
- |                                          |             | UART ESC     | |
- |                                          v             | DMA Tunnel   | |
- |                                   Egress TLP FIFO      +--------------+ |
- +-------------------------------------------------------------------------+
-```
+![Switch fabric topology: Dual-SPI/SPI translator sends 64-byte TLPs over AXI-Stream to the AXI-Stream hub, which routes to the Wishbone master gateway, IMU Auto-DMA core and UART ESC DMA tunnel endpoints and feeds the egress TLP FIFO](assets/abstractx-switch-fabric-architecture-topology.svg)
 
 ---
 

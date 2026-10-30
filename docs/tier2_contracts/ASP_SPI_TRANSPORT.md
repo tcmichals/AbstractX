@@ -84,14 +84,7 @@ Every Dual-SPI burst begins with a 1-byte command phase issued by the host while
 
 The SPI slave module presents a clean 512-bit parallel interface seam to internal fabric routers:
 
-```
-                  +-------------------------------+
-  SPI Pins        |       asp_spi_frontend        |     AXIS / Wishbone Seam
-  --------------> |                               | ----------------------------->
-  SCLK, CS_N,     |  512-Bit Fixed Shift Register | tdata[511:0] (64-Byte TLP)
-  IO0, IO1        |  Parallel CRC32 Engine        | tvalid, tready, tlast
-                  +-------------------------------+
-```
+![SPI pins (SCLK, CS_N, IO0, IO1) enter asp_spi_frontend (512-bit fixed shift register, parallel CRC32 engine), which drives the AXIS / Wishbone seam with tdata[511:0] (one 64-byte TLP), tvalid, tready and tlast](assets/asp-spi-transport-frontend-seam.svg)
 
 ### RTL Interface Seam Signals:
 - `tdata[511:0]`: Complete 64-byte TLP parallel vector.

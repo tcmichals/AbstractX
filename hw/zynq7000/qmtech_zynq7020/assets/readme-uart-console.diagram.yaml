@@ -1,0 +1,8 @@
+title: QMTECH Zynq-7020 USB Serial Console
+desc: The QMTECH carrier board's Micro-USB UART port (CP2102 or CH340 bridge to PS UART0) connects over a Micro-USB cable at 115200 baud 8N1 to the host workstation's /dev/ttyUSB0, opened with picocom or minicom.
+grid: {col: 320, row: 100, gap_x: 220, gap_y: 60}
+nodes:
+  - {id: board, label: QMTECH Carrier Board, text: ["Micro-USB Port: \"UART\"", "Silicon Labs CP2102 / CH340"], at: [0, 0], kind: hw}
+  - {id: host, label: Host Development Workstation, text: ["Port: `/dev/ttyUSB0`", "Terminal: picocom / minicom"], at: [1, 0], kind: accent}
+edges:
+  - {from: board, to: host, label: ["Micro-USB Cable", "115200 Baud / 8N1"]}

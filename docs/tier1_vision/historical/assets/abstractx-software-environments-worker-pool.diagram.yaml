@@ -1,0 +1,29 @@
+title: 4-thread I/O worker pool (Linux) vs. bare-metal ISR/DMA
+desc: The main control thread (reactor event loop) drains completed events and resumes coroutine handles. Below it, on Linux / SITL, a 4-thread background I/O worker pool; on bare-metal MCU / FPGA, hardware ISR and DMA engines.
+grid: {col: 420, row: 120, gap_x: 60, gap_y: 80}
+nodes:
+  - id: main
+    label: Main control thread (reactor event loop)
+    text: ["Drains completed events from StaticRingQueue (wait-free, zero-allocation)",
+           "Resumes coroutine handles: `event.handle.resume()`"]
+    at: [0, 0]
+    span: [2, 1]
+  - id: pool
+    label: 4-thread background I/O worker pool
+    text: ["Worker Thread 0: SPI Master (`/dev/spidev`)",
+           "Worker Thread 1: I2C Master (`/dev/i2c-dev`)",
+           "Worker Thread 2: UART Serial (`/dev/ttyUSB`)",
+           "Worker Thread 3: PCIe TLP Transaction Engine"]
+    at: [0, 1]
+    kind: accent
+  - id: hw
+    label: Hardware ISR & DMA engines
+    text: ["Direct hardware DMA bus burst controller",
+           "Raw hardware Interrupt Service Routine (ISR)",
+           "FPGA autonomous Auto-DMA engine",
+           "Zero OS threads: ISR pushes handle to queue"]
+    at: [1, 1]
+    kind: hw
+edges:
+  - {from: main, to: pool, label: On Linux / SITL}
+  - {from: main, to: hw, label: On bare-metal MCU / FPGA}

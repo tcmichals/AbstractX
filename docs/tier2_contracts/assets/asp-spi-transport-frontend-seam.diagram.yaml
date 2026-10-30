@@ -1,0 +1,21 @@
+title: asp_spi_frontend shift-register seam
+desc: SPI pins SCLK, CS_N, IO0 and IO1 enter asp_spi_frontend (512-bit fixed shift register and parallel CRC32 engine), which presents a 64-byte TLP on the AXIS / Wishbone seam as tdata[511:0] with tvalid, tready and tlast.
+grid: {col: 240, row: 100, gap_x: 120, gap_y: 60}
+nodes:
+  - id: pins
+    label: SPI Pins
+    text: ["`SCLK`, `CS_N`", "`IO0`, `IO1`"]
+    at: [0, 0]
+    kind: hw
+  - id: fe
+    label: asp_spi_frontend
+    text: ["512-bit fixed shift register", "parallel CRC32 engine"]
+    at: [1, 0]
+  - id: seam
+    label: AXIS / Wishbone Seam
+    text: ["`tdata[511:0]` (64-byte TLP)", "`tvalid`, `tready`, `tlast`"]
+    at: [2, 0]
+    kind: soft
+edges:
+  - {from: pins, to: fe}
+  - {from: fe, to: seam}

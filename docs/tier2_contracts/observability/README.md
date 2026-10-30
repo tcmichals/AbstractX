@@ -8,36 +8,7 @@ This guide explains the end-to-end architecture of the AbstractX observability p
 
 AbstractX observability is built upon three decoupled pillars:
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                   PILLAR 1: UNIFIED 64-BYTE TLP BUS                    │
-│   • Hardware: FPGA Auto-DMA IP (asp_imu_auto_dma.sv, asp_router.sv)     │
-│   • Software: C++20 SITL & Bare-Metal Tasks (gps_imu_app)              │
-│   • 20B Header + 40B CTF + 4B transport-integrity/reserved footer      │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ UDP Port 9870 / Shared SRAM
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│               PILLAR 2: DYNAMIC CTF 1.8 SCHEMA LOADER                  │
-│   • Authoritative Schema: trace/barectf_config.yaml & trace_schema.json│
-│   • Loader Engine: tools/visualizer/ctf_schema_loader.py               │
-│   • Compiles struct.Struct decoders at runtime (Zero hardcoded offsets)│
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ Typed Field Dictionaries & Metrics
-                                   ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│            PILLAR 3: TWO-LEVEL STUDIO GUI (imgui-bundle)               │
-│   • Level 1: Core System Platform Observability (abstractx_studio.py)  │
-│       - Platform Topology & Interconnect (Cores, SPU/CPU%, SPSC Rings) │
-│       - Dual-Plane Execution Timeline (ISR/DMA vs Coroutines + DWARF)  │
-│       - Continuous Memory Observability (MemBrowse Section Budgets)    │
-│   • Level 2: User / Domain Extensible Plugins (flight_plugin.py)       │
-│       - Primary Flight Display (PFD) Artificial Horizon & Pitch Ladder │
-│       - 3D Quadcopter Perspective Wireframe (Tait-Bryan rotation)      │
-│       - Quad-X Motor Mixer Demands & Navigation Gauges                 │
-│       - 8 kHz ICM-42688-P IMU Real-Time Oscilloscope (ImPlot)          │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![The three observability pillars: the 64-byte TLP bus feeds the dynamic CTF 1.8 schema loader over UDP 9870 or shared SRAM, which feeds typed fields and metrics to the two-level Studio GUI](assets/readme-three-pillars.svg)
 
 ---
 

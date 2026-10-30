@@ -1,0 +1,21 @@
+title: IMU SPI Master & Auto-DMA IP
+desc: Inside the IP, an IMU_INT pulse from the external pin makes the hardware state machine latch the timestamp and execute an SPI burst through the SPI master core on the external SPI pins; the latched 64-bit timer goes to the 64-byte TLP stream generator, whose output feeds the transport FIFO on the Dual-SPI link.
+grid: {col: 240, row: 80, gap_x: 150, gap_y: 70}
+nodes:
+  - {id: int, label: "`IMU_INT`", text: ["data-ready pin"], at: [0, 0], kind: hw}
+  - {id: pins, label: External SPI Pins, text: ["`SCLK, CS_N, MOSI, MISO`"], at: [0, 1], kind: hw}
+  - {id: fsm, label: Latch Timestamp, text: ["Execute SPI Burst"], at: [1, 0]}
+  - {id: spi, label: SPI Master Core, text: ["`SCLK, CS_N, MOSI, MISO`"], at: [1, 1]}
+  - {id: tlp, label: 64-Byte TLP, text: ["Stream Generator"], at: [2, 0]}
+  - {id: fifo, label: Transport FIFO, text: ["(Dual-SPI Link)"], at: [2, 1], kind: mem}
+groups:
+  - {id: ext, label: External Pins, contains: [int, pins], kind: hw}
+  - {id: sm, label: Hardware State Machine, contains: [fsm, spi]}
+  - {id: out, label: Fabric Output, contains: [tlp, fifo]}
+  - {id: ip, label: IMU SPI Master & Auto-DMA IP, contains: [ext, sm, out], kind: muted}
+edges:
+  - {from: int, to: fsm, label: IMU_INT Pulse}
+  - {from: fsm, to: tlp, label: Latch 64b Timer}
+  - {from: fsm, to: spi}
+  - {from: spi, to: pins}
+  - {from: tlp, to: fifo}

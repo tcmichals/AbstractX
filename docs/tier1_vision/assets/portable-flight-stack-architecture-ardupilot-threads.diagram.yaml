@@ -1,0 +1,20 @@
+title: ArduPilot threads over lock-free TLP rings
+desc: ArduPilot's main flight, EKF3 navigation and MAVLink/telemetry threads exchange TLPs with the physical hardware coprocessor layer through lock-free 64-byte TLP shared memory rings.
+grid: {col: 290, row: 90, gap_x: 40, gap_y: 100}
+nodes:
+  - {id: main, label: Main Flight Thread, text: [400 Hz attitude PID, Motor output command], at: [0, 0]}
+  - {id: ekf, label: EKF3 Navigation Thread, text: [24-state EKF matrix, Position/velocity calc], at: [1, 0]}
+  - {id: mav, label: MAVLink / Telemetry Thread, text: [MAVLink 2 / ground station, Logging and telemetry link], at: [2, 0]}
+  - id: hw
+    label: Physical hardware coprocessor layer
+    text:
+      - (Gowin FPGA / RP2350 Core 0 + PIO / STM32 TIM IC + MDMA streams)
+      - Autonomous SPI sensor polling and 64-bit nanosecond hardware timestamping
+      - Pushes ready 64-byte DMA_Stream TLPs into lock-free shared RAM rings
+    at: [0, 1]
+    span: [3, 1.1]
+    kind: hw
+groups:
+  - {id: ap, label: ArduPilot multi-threaded architecture, contains: [main, ekf, mav]}
+edges:
+  - {from: ap, to: hw, both: true, label: ["Lock-free 64B TLP shared memory rings", "(zero mutex locks, zero context switch stalls)"]}

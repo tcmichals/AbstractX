@@ -41,6 +41,7 @@ This specification formalizes:
 
 In Linux deployments, the application automatically determines or receives its silicon topology configuration. The four canonical Linux deployment models are:
 
+<!-- ascii-ok: table of the four Linux topology configurations -->
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                CANONICAL LINUX TOPOLOGY CONFIGURATIONS                           │
@@ -206,6 +207,7 @@ When the Visualizer Studio receives this packet:
 
 The Visualizer Studio is structured into three dedicated, synchronized windows:
 
+<!-- ascii-ok: mock text screenshot of the Studio windows with sample values -->
 ```
 +===================================================================================================+
 | ABSTRACTX STUDIO | Platform: Linux + XuanTie E906 + FPGA | Target: Radxa Cubie A5E | Stream: 8.2 kHz |

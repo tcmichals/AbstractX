@@ -145,6 +145,7 @@ Inside the Studio plugin:
 
 The instrument is rendered using `imgui-bundle` `ImDrawList` primitives (matching professional aviation Primary Flight Display / HSI standards):
 
+<!-- ascii-ok: sketch of the round compass rose instrument face, not a block diagram -->
 ```
                      [ 000° N ]  <-- Digital Heading Box
                          ▲ Fixed Lubber Line

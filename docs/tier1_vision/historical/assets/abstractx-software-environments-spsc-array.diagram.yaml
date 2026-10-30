@@ -1,0 +1,30 @@
+title: Dedicated lock-free SPSC channel array
+desc: Four background I/O worker threads (PCIe TLP, SPI IMU, I2C baro, ADC/mag) each push into their own SPSC queue; the main flight loop thread pops all four queues round-robin without blocking and is the only caller of resume().
+grid: {col: 280, row: 60, gap_x: 110, gap_y: 30}
+nodes:
+  - {id: w0, label: "Worker 0: PCIe TLP thread", at: [0, 0], kind: accent}
+  - {id: w1, label: "Worker 1: SPI IMU thread", at: [0, 1], kind: accent}
+  - {id: w2, label: "Worker 2: I2C Baro thread", at: [0, 2], kind: accent}
+  - {id: w3, label: "Worker 3: ADC / Mag thread", at: [0, 3], kind: accent}
+  - {id: q0, label: "Queue [0]: PCIe SPSC", at: [1, 0], kind: mem}
+  - {id: q1, label: "Queue [1]: IMU SPSC", at: [1, 1], kind: mem}
+  - {id: q2, label: "Queue [2]: Baro SPSC", at: [1, 2], kind: mem}
+  - {id: q3, label: "Queue [3]: ADC SPSC", at: [1, 3], kind: mem}
+  - id: main
+    label: Main core loop
+    text: ["Non-blocking round-robin", "Safely calls `.resume()`"]
+    at: [2, 0]
+    span: [1, 4]
+groups:
+  - {label: Background I/O worker threads, contains: [w0, w1, w2, w3], kind: accent}
+  - {label: Dedicated SPSC ring array, contains: [q0, q1, q2, q3], kind: mem}
+  - {label: Main flight loop thread, contains: [main]}
+edges:
+  - [w0, q0]
+  - [w1, q1]
+  - [w2, q2]
+  - [w3, q3]
+  - {from: q0, to: main, label: "`pop()`"}
+  - {from: q1, to: main, label: "`pop()`"}
+  - {from: q2, to: main, label: "`pop()`"}
+  - {from: q3, to: main, label: "`pop()`"}

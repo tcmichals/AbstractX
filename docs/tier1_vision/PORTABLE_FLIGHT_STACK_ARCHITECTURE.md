@@ -6,32 +6,7 @@ Flight control software (**Betaflight**, **iNav**, **ArduPilot / ArduCopter**) h
 
 The **AbstractX PCIe TLP Architecture** establishes **PCIe-like 64-Byte TLPs (`asp-tlp-64b`)** as the universal inter-core and inter-chip transport. Crucially, this abstraction allows **each chip architecture to deploy its unique hardware offload capabilities** (FPGA, PIO, or STM32 Timer/DMA) under the hood without changing a single line of flight code!
 
-```
-+-----------------------------------------------------------------------------------+
-|               EXISTING BETAFLIGHT / INAV / ARDUPILOT AP_HAL APIs                  |
-|               (Preserves 100% backward compatibility with Flight Code & MSP/MAVLink)|
-+-----------------------------------------------------------------------------------+
-                                         │
-                                         ▼
-+-----------------------------------------------------------------------------------+
-|                   UNIFORM 64-BYTE PCIe TLP MESSAGE BUS (tlp64_ring)              |
-|        - MemRd (0x01), MemWr (0x02), CplD (0x03), DMA_Stream (0x10)               |
-+-----------------------------------------------------------------------------------+
-                                         │
-       ┌─────────────────────┬───────────┴───────────┬─────────────────────┐
-       ▼                     ▼                       ▼                     ▼
-+-------------------+ +-------------------+ +-------------------+ +-------------------+
-| RP2350 (Pico 2)   | | Allwinner CubieA5E| | STM32 H7/F7/G4    | | Linux / Jetson    |
-| - PIO State Mach. | | - FPGA Coprocessor| | - TIM Input Capt. | | - ArduPilot Linux |
-| - Core 0 TLP Engine| | - E906 RISC-V Core| | - MDMA Streams    | | - AP_HAL_AbstractX|
-| - SRAM Ring Buffer| | - Dual-SPI MAC    | | - HRTIM DShot     | | - Shared RAM / TLP|
-+-------------------+ +-------------------+ +-------------------+ +-------------------+
-       │                     │                       │                     │
-       ▼                     ▼                       ▼                     ▼
-+-----------------------------------------------------------------------------------+
-|                  HARDWARE OFFLOAD EXECUTION & PHYSICAL IO LAYER                   |
-+-----------------------------------------------------------------------------------+
-```
+![Existing Betaflight/iNav/ArduPilot AP_HAL APIs over a uniform 64-byte TLP message bus that fans out to RP2350, Allwinner Cubie A5E, STM32 and Linux/Jetson back ends above the hardware offload and physical IO layer](assets/portable-flight-stack-architecture-offload.svg)
 
 ---
 
@@ -39,26 +14,7 @@ The **AbstractX PCIe TLP Architecture** establishes **PCIe-like 64-Byte TLPs (`a
 
 Unlike Betaflight/iNav (which use single-stack cooperative task schedulers with driver state machines), **ArduPilot** uses multi-threaded execution (ChibiOS threads on RTOS, POSIX `pthreads` on Linux):
 
-```
-+-----------------------------------------------------------------------------------+
-|                     ARDUPILOT MULTI-THREADED ARCHITECTURE                         |
-|                                                                                   |
-|  [Main Flight Thread]      [EKF3 Navigation Thread]    [MAVLink / Telemetry Thread]|
-|  - 400 Hz Attitude PID     - 24-State EKF Matrix       - MAVLink 2 / Ground Station|
-|  - Motor Output Command    - Position/Velocity Calc    - Logging & Telemetry Link  |
-+-----------------------------------------------------------------------------------+
-                                         ▲
-                                         │  Lock-Free 64B TLP Shared Memory Rings
-                                         │  (Zero Mutex Locks, Zero Context Switch Stalls)
-                                         ▼
-+-----------------------------------------------------------------------------------+
-|                     PHYSICAL HARDWARE COPROCESSOR LAYER                           |
-|       (Gowin FPGA / RP2350 Core 0 + PIO / STM32 TIM IC + MDMA Streams)            |
-|                                                                                   |
-|  - Autonomous SPI Sensor Polling & 64-bit Nanosecond Hardware Timestamping        |
-|  - Pushes ready 64-Byte DMA_Stream TLPs into Lock-Free Shared RAM Rings           |
-+-----------------------------------------------------------------------------------+
-```
+![ArduPilot main flight, EKF3 navigation and MAVLink/telemetry threads exchanging TLPs with the physical hardware coprocessor layer through lock-free 64-byte TLP shared memory rings](assets/portable-flight-stack-architecture-ardupilot-threads.svg)
 
 ### Why AbstractX Elevates Multi-Threaded ArduPilot Execution:
 1. **Elimination of Mutex Locks & Thread Contention**:

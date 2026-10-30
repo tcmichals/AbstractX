@@ -1,0 +1,8 @@
+title: Zynq-7020 Ethernet Telemetry to AbstractX Studio
+desc: The QMTECH Zynq-7020 target (Artix-7 PL auto-DMA 8 kHz IMU, Linux RT on dual Cortex-A9, gps_imu_app telemetry server) sends 64-byte TLP telemetry frames over UDP port 9870 to the host workstation running AbstractX Studio and the Flight Display.
+grid: {col: 340, row: 120, gap_x: 240, gap_y: 60}
+nodes:
+  - {id: board, label: QMTECH Zynq-7020 Board (Target), text: ["Artix-7 PL Auto-DMA (8 kHz IMU)", "Linux RT (Dual Cortex-A9)", "`gps_imu_app` / Telemetry Server"], at: [0, 0], kind: hw}
+  - {id: host, label: Host Workstation / PC (Engineer), text: ["AbstractX Studio (Workbench)", "Flight Display (Cockpit PFD)", "120 FPS Real-time Visualization"], at: [1, 0], kind: accent}
+edges:
+  - {from: board, to: host, label: ["UDP Port 9870", "64-Byte TLP Telemetry Frames"]}

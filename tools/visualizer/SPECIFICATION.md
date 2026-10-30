@@ -86,29 +86,7 @@ The visualizer enforces a strict architectural boundary between the **AbstractX 
    - A popped-out tab shows a placeholder with `🗗 Pop In`; no surface is ever drawn twice, and no layout preset opens a second copy of a tab in its own window.
 
 
-```
-+===================================================================================================+
-| ABSTRACTX STUDIO WORKBENCH | Platform: Radxa Cubie A5E (ARM64+E906) | Stream: 8.2 kHz | 0 B Heap |
-+===================================================================================================+
-| [WINDOW 1: ABSTRACTX CORE STUDIO]         | [WINDOW 2: USER DOMAIN INSTRUMENTS]                   |
-| (LeftSpace: 54% Width)                    | (MainDockSpace: 46% Width, 64% Height)                |
-| [CoreStudioTabBar]:                        | ├─ Primary Flight Display (PFD) Artificial Horizon    |
-| ├─ [CPU Gauges & Topology]                | │  Pitch ladder (+/-30°), Roll arc (-60°..+60°)       |
-| │  busy %, tasks, drivers, pools          | ├─ 3D Quadcopter Perspective Attitude Wireframe       |
-| ├─ [Timeline]                             | │  Tait-Bryan Euler orientation (Roll, Pitch, Yaw)    |
-| │  resumes | ISRs | idle swimlanes        | ├─ Quad-X Motor Mixer Demands (M1..M4)                |
-| ├─ [Source Code & RTL Inspector]          | └─ 8 kHz IMU Oscilloscope (ImPlot Real-Time Waves)    |
-| │  live per-line CPU (PC samples)         +-------------------------------------------------------+
-| ├─ [MemBrowse CI Report]                  | [WINDOW 3: TLP BUS DEBUGGER] | [WINDOW 4: EVENT LOG]  |
-| ├─ [CLI Console & REPL]                   | (BottomSpace: 23% Width)     | (BottomRight: 23% W)   |
-| └─ --sim / FPGA only: Coroutine Inspector,| ├─ 64B Stream Table          | ├─ Level Filters       |
-|    Flow Integrity, FPGA Peripherals       | ├─ 20B Header Decode         | ├─ Live Trace Logs     |
-|                                           | └─ Color Hex Dump            | └─ Substring Search    |
-+-------------------------------------------+------------------------------+------------------------+
-| Status: [ONLINE] | Radxa Cubie A5E | Packets: 124,592 | Rate: 8,240 pkts/s | Dynamic Heap: 0 B    |
-| Layout: [Studio Workbench] [Balanced] [Flight Focus] [Core Studio] [Source] [FPGA] [🔄 Restore]  |
-+===================================================================================================+
-```
+![Studio workbench layout: title bar; Window 1 Core Studio with the CoreStudioTabBar tabs on the left; Window 2 User Domain Instruments top right; Window 3 TLP Bus Debugger and Window 4 Event Log bottom right; status and layout-preset bar at the bottom](assets/specification-workbench-layout.svg)
 
 ---
 

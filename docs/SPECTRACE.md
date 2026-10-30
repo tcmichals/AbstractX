@@ -389,19 +389,24 @@ python3 tools/run_adversarial_audit.py --all
   dispatcher -> coroutine, link handshakes) are Mermaid UML `sequenceDiagram`s; lifecycles and
   modes are Mermaid `stateDiagram-v2`. GitHub renders both natively, so they stay in the
   Markdown. Mermaid `flowchart`s that are really block diagrams may stay until they are touched.
-* **Requirement (what stays text)**: Directory trees, register bit layouts, packet byte layouts, terminal output
-  and tables stay as text. A code fence that the check below flags but is one of these carries
+* **Requirement (what stays text)**: directory trees, register bit layouts, packet byte layouts,
+  terminal output, tables and sketches of a physical face (a round instrument, a connector) stay
+  as text. Files that agents load as instructions (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+  `.agents/rules/`, `.agents/skills/`) use numbered lists instead of drawings, because an agent
+  reads them as text and cannot see an image. A code fence that the check below flags but is one of these carries
   `<!-- ascii-ok: <reason> -->` on the line above it.
 * **Requirement (check)**: `python3 tools/render_diagrams.py --check` exits 1 when (a) an SVG
   differs from what its YAML renders (stale or hand-edited), or (b) a tracked Markdown file has a
-  code fence with a box corner (`┌`, `╔`, `╭` or an ASCII `+---` corner joined to a `|` side) and
-  no `ascii-ok` marker. Fences listed in `tools/ascii_diagram_baseline.txt` are tolerated and the
+  code fence with a box corner (`┌`, `╔`, `╭` or an ASCII `+---` corner joined to a `|` side) or
+  an arrows-only flow (`▼`, `▲`, or a line holding only `│`) and no `ascii-ok` marker. Fences listed in `tools/ascii_diagram_baseline.txt` are tolerated and the
   list only shrinks (same rule as `[SPEC-AUDIT-14]`).
 * **Rationale**: 2026-10-30: 57 ASCII box diagrams in 39 Markdown files broke with proportional
   fonts, wrapped on narrow screens, and could not be restyled together; the project owner asked
-  for SVG block diagrams in the specs and docs.
+  for SVG block diagrams in the specs and docs. The first scan matched box corners only and
+  missed an arrows-only flow drawing; the conversion agents found it, and the check now matches
+  arrow glyphs as well.
 * **Verified by**: `doc-diagrams` (`tests/test_render_diagrams.py`)
-* **Implementation Target**: `tools/render_diagrams.py`, `tools/ascii_diagram_baseline.txt`, `.agents/skills/doc-diagrams/SKILL.md`
+* **Implementation Target**: `tools/render_diagrams.py`, `tools/ascii_diagram_baseline.txt`, `.agents/skills/doc-diagrams/SKILL.md`, `tools/spectrace_matrix.py` (`*.diagram.yaml` counts as docs, not code)
 
 ### `[SPEC-AUDIT-01]` Module-Scoped Audit Inputs
 * The default audit scope MUST be the current staged, unstaged, and untracked

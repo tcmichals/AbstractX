@@ -17,6 +17,7 @@ Unlike legacy serial packet protocols with variable-length headers and byte-stuf
 
 ## 2. Complete Memory BAR Register Map (`0x40000000..0x40000600`)
 
+<!-- ascii-ok: table: Wishbone BAR register map -->
 ```
 +-----------------------------------------------------------------------------------+
 |                           ABSTRACTX WISHBONE BAR MAP                              |

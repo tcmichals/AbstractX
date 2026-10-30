@@ -221,6 +221,7 @@ Each macro emits a `CoroEventPayload` (38 bytes) into the CTF TLP telemetry stre
 
 The 38-byte `CoroEventPayload` is wrapped in a `Tlp64` frame via `CtfTraceEngine::make_coro_tlp()`:
 
+<!-- ascii-ok: TLP packet byte layout -->
 ```
 +--------+--------+--------+--------+----------+---------+---------------------+
 |  Type  | Flags  |  Tag   |  Chan  | Target   | Seq#    | Timestamp ns        |

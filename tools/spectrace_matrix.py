@@ -127,6 +127,8 @@ def git(root: Path, *args: str) -> str:
 
 def is_code(path: str) -> bool:
     p = Path(path)
+    if p.name.endswith(".diagram.yaml"):  # @impl [SPEC-AUDIT-16] docs/SPECTRACE.md (drawing source = docs)
+        return False
     return p.suffix in CODE_EXTS and not (set(p.parts) & EXCLUDED_PARTS)
 
 

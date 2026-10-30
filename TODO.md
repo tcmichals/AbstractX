@@ -67,6 +67,8 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 - [ ] Scripted pass/fail for board-bringup, e906-disassembly-check (FP-reachability walk used on 2026-10-30 could become a tool), rtl-synth-check, fpga-fit, quality-trends.
 - [ ] Stale facts: silicon atlas (trace0 location, Space 0/1 split vs [SPEC-E906-MEM-01]), AGENTS §6 ("SPI0, TWI0, UART2", "sub-16 KB binaries"), toolchain files hardcode `/home/tcmichals/.tools` (use `$ENV{HOME}`), AGENTS §9.5 `build` vs §10 `build_host`; zero-heap Stage 1 header list incomplete.
 - [ ] Context load: CLAUDE.md imports AGENTS.md + six rules (~540 lines); move atlas / memory-tracking / toolchain rules to skills or on-demand docs.
+- [ ] CI: run `python3 tools/render_diagrams.py --check` ([SPEC-AUDIT-16]; passes locally since 2026-10-30, 32 SVGs, 0 ASCII box diagrams left).
+- [ ] `apps/e906_repl_app/README.md` memory map (now `assets/readme-memory-map.diagram.yaml`) shows firmware DRAM at `0x48100000` and vrings in DDR, against [SPEC-E906-MEM-01] zero DDR; correct both the YAML and the prose from the current linker script and overlay.
 - [ ] `tests/test_live_profile.py` hard-codes `build_e906_irq`: take the ELF from an env var or skip when its DWARF paths are not under this checkout.
 
 ### 3. Binary CTF 1.8 Tracing & Configurable Sinks `[SPEC-TRACE-04]` `[SPEC-TRACE-06]`

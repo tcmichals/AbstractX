@@ -1,0 +1,29 @@
+title: Memory footprint, RTOS multi-stack vs. single stack + coroutine frames
+desc: A traditional RTOS gives every task its own 2-8 KB stack; AbstractX runs all coroutines on one 1-2 KB processor stack with 64-128 B coroutine frames.
+grid: {col: 180, row: 70, gap_x: 30, gap_y: 70}
+nodes:
+  - {id: t1, label: Task 1 Stack, text: ["(2 - 8 KB)"], at: [0, 0], kind: warn}
+  - {id: t2, label: Task 2 Stack, text: ["(2 - 8 KB)"], at: [1, 0], kind: warn}
+  - {id: t3, label: Task 3 Stack, text: ["(2 - 8 KB)"], at: [2, 0], kind: warn}
+  - {id: t4, label: Task 4 Stack, text: ["(2 - 8 KB)"], at: [3, 0], kind: warn}
+  - id: stack
+    label: Single Processor Stack
+    text: ["(1 KB - 2 KB for all interrupts / calls)"]
+    at: [0, 1.25]
+    span: [4, 1]
+    kind: mem
+  - {id: c1, label: Coro 1 Frame, text: ["(64 - 128 B)"], at: [0, 2.25]}
+  - {id: c2, label: Coro 2 Frame, text: ["(64 - 128 B)"], at: [1, 2.25]}
+  - {id: c3, label: Coro 3 Frame, text: ["(64 - 128 B)"], at: [2, 2.25]}
+  - {id: c4, label: Coro 4 Frame, text: ["(64 - 128 B)"], at: [3, 2.25]}
+groups:
+  - {label: Traditional RTOS Architecture (Heavy Multi-Stack), contains: [t1, t2, t3, t4], kind: warn}
+  - {label: AbstractX (Single Execution Stack + Tiny Coroutine Frames), contains: [stack, c1, c2, c3, c4], kind: default}
+edges:
+  - {from: c1, to: stack}
+  - {from: c2, to: stack}
+  - {from: c3, to: stack}
+  - {from: c4, to: stack}
+notes:
+  - "RTOS result: 10 tasks = 20 KB to 80 KB of RAM locked in idle stacks + jitter."
+  - "AbstractX result: 10 tasks = ~1 KB of coroutine frames. Up to 95% RAM savings."

@@ -28,6 +28,7 @@
 
 Tested on physical 40-pin expansion header of Radxa Cubie A5E:
 
+<!-- ascii-ok: wiring table (pin, signal, wire colour, peripheral) -->
 ```
 +-----------------------------------------------------------------------------------+
 | Radxa Cubie A5E 40-Pin Header Wiring Ground Truth                                 |

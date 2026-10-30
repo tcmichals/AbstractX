@@ -1,0 +1,16 @@
+title: Linux Hybrid Reactor + Dedicated Bus Workers
+desc: The main epoll reactor (monitoring UART, GPIO DRDY and the RX eventfd) hands SPI and I2C requests to dedicated worker threads through etl::queue_spsc_isr rings plus an eventfd notify; the workers run blocking ioctl()s in parallel, and on completion notify_completion() via etl::delegate pushes a Tlp64 into g_rx_ring and notifies rx_eventfd, so the reactor wakes up and resumes the coroutine.
+grid: {col: 360, row: 110, gap_x: 50, gap_y: 80}
+nodes:
+  - {id: reactor, label: Main epoll Reactor, text: ["(Monitors UART, GPIO DRDY, RxEventFd)"], at: [0, 0], span: [3, 0.7], kind: accent}
+  - {id: spi, label: SPI Worker Thread, text: ["Waits on: `spi_eventfd`", "Hardware: `/dev/spidevX.Y`", "Speed: 10 - 24 MHz", "Action: `ioctl(SPI_IOC_MSG)`"], at: [0, 1], kind: accent}
+  - {id: par, label: Runs 100% in parallel, at: [1, 1.15], span: [1, 0.8], kind: muted}
+  - {id: i2c, label: I2C Worker Thread, text: ["Waits on: `i2c_eventfd`", "Hardware: `/dev/i2c-X`", "Speed: 100 - 400 kHz", "Action: `ioctl(I2C_RDWR)`"], at: [2, 1], kind: accent}
+  - {id: done, label: "`notify_completion()`", text: ["via `etl::delegate`", "`g_rx_ring.push(Tlp64)` + `rx_eventfd.notify()`"], at: [1, 2], span: [1, 0.8], kind: mem}
+  - {id: wake, label: Main epoll Reactor Wakes Up & Resumes Coro, at: [0, 3], span: [3, 0.7], kind: accent}
+edges:
+  - {from: reactor, to: spi, label: ["`etl::queue_spsc_isr`", "+ `spi_eventfd.notify()`"]}
+  - {from: reactor, to: i2c, label: ["`etl::queue_spsc_isr`", "+ `i2c_eventfd.notify()`"]}
+  - {from: spi, to: done, route: vh}
+  - {from: i2c, to: done, route: vh}
+  - {from: done, to: wake}

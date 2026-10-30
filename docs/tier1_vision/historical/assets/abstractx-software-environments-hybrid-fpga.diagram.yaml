@@ -1,0 +1,44 @@
+title: Hybrid Linux host + FPGA co-processing
+desc: A Linux host flight/robotics core awaits an FPGA telemetry stream, a Linux I2C barometer read and a Linux UART GPS read with when_all. Results arrive over a lock-free SPSC channel array from three workers. Worker 0 bridges to the AbstractX FPGA coprocessor over Dual-SPI at 50 MHz.
+grid: {col: 300, row: 140, gap_x: 70, gap_y: 80}
+nodes:
+  - id: core
+    label: Hybrid Linux host real-time flight / robotics core
+    text: ["`auto [fpga_imu, linux_baro, linux_gps] = co_await when_all(`",
+           "`fpga_bridge.async_await_stream(Channel::Telemetry),`",
+           "`linux_i2c.async_read(REG_BARO_PRESSURE),`",
+           "`linux_uart.async_read(REG_GPS_UBX)`",
+           "`);`"]
+    at: [0, 0]
+    span: [3, 1]
+    kind: accent
+  - id: w0
+    label: "Worker 0: FPGA SPI bridge"
+    text: ["`/dev/spidev0.0` (50 MHz)", "8 kHz IMU Auto-DMA stream", "DShot motor timers", "Sub-20ns latched TS"]
+    at: [0, 1]
+    kind: accent
+  - id: w1
+    label: "Worker 1: Linux native I2C"
+    text: ["`/dev/i2c-1` (400 kHz)", "Barometer / mag sensor", "Power monitoring IC", "EEPROM calibration"]
+    at: [1, 1]
+    kind: accent
+  - id: w2
+    label: "Worker 2: Linux native UART"
+    text: ["`/dev/ttyUSB0` (2 Mbaud)", "GPS / companion telemetry", "MAVLink / serial telemetry", "Blackbox flash tunnel"]
+    at: [2, 1]
+    kind: accent
+  - id: fpga
+    label: AbstractX FPGA hardware coprocessor
+    text: ["(Gowin Tang Nano 9K / Tang Primer 20K / Xilinx Zynq-7020 PL)",
+           "Autonomous SPI master engine (`asp_imu_auto_dma.sv`)",
+           "512-bit vector switch fabric & skid buffers (`asp_router.sv`)",
+           "Hardware DShot600 / DShot300 motor engine & WS2812B RGB driver",
+           "Cycle-accurate 64-bit hardware timestamp latching counter"]
+    at: [0, 2]
+    span: [3, 1]
+    kind: hw
+edges:
+  - {from: core, to: w0}
+  - {from: core, to: w1, label: "Lock-free SPSC channel array (`SpscChannelArray<T, 4>`)"}
+  - {from: core, to: w2}
+  - {from: w0, to: fpga, label: Dual-SPI 50MHz}

@@ -9,25 +9,7 @@ AbstractX unifies real-time embedded I/O across **three foundational software ex
 Crucially, **the top-level application software (written in C++20 Stackless Coroutines with `co_await`, `when_all`, and `when_any`) is portable across all three environments with the same API**. The underlying hardware/driver dispatch mechanism, frame pool allocator, and transport layer are platform-specific — but the application code above them does not change.
 
 
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│              UNIFIED TOP LEVEL: SINGLE PROCESS, SINGLE COROUTINE THREAD           │
-│                                                                                   │
-│   auto [sensor_a, sensor_b] = co_await when_all(read_a(), read_b());             │
-│   // Identical C++20 application code across all 3 environments!                  │
-└───────────────────────────────────────────────────────────────────────────────────┘
-                                          │
-                        Lock-Free SPSC TLP Message Rings
-                                          │
-         ┌────────────────────────────────┼────────────────────────────────┐
-         ▼                                ▼                                ▼
-┌─────────────────┐              ┌─────────────────┐              ┌─────────────────┐
-│  ENVIRONMENT 1  │              │  ENVIRONMENT 2  │              │  ENVIRONMENT 3  │
-│  Linux / Host   │              │  Multi-Core MCU │              │  FPGA Hardware  │
-│  Threaded I/O   │              │  Remote Proc /  │              │  Offloader &    │
-│  Workers (SITL) │              │  Interrupt/DMA  │              │  On-Board Fabric│
-└─────────────────┘              └─────────────────┘              └─────────────────┘
-```
+![Unified single-coroutine-thread application reaching the Linux host, multi-core MCU and FPGA environments through lock-free SPSC TLP message rings](assets/abstractx-software-environments-overview.svg)
 
 ---
 
@@ -177,24 +159,7 @@ struct Task {
 
 ## 7. The 4-Thread Background I/O Worker Pool vs. Bare-Metal ISR/DMA
 
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                       MAIN CONTROL THREAD (REACTOR EVENT LOOP)                    │
-│   - Drains completed events from StaticRingQueue (Wait-free, zero-allocation)     │
-│   - Resumes coroutine handles: event.handle.resume()                              │
-└────────────────────────────────────────┬──────────────────────────────────────────┘
-                                         │
-                 ┌───────────────────────┴───────────────────────┐
-                 │                                               │
-                 ▼ (On Linux / SITL)                             ▼ (On Bare-Metal MCU / FPGA)
-┌─────────────────────────────────────────────────┐ ┌─────────────────────────────────────────────────┐
-│  4-THREAD BACKGROUND I/O WORKER POOL            │ │  HARDWARE ISR & DMA ENGINES                     │
-│  - Worker Thread 0: SPI Master (/dev/spidev)    │ │  - Direct Hardware DMA Bus Burst Controller     │
-│  - Worker Thread 1: I2C Master (/dev/i2c-dev)   │ │  - Raw Hardware Interrupt Service Routine (ISR) │
-│  - Worker Thread 2: UART Serial (/dev/ttyUSB)   │ │  - FPGA Autonomous Auto-DMA Engine              │
-│  - Worker Thread 3: PCIe TLP Transaction Engine │ │  - Zero OS threads: ISR pushes handle to queue  │
-└─────────────────────────────────────────────────┘ └─────────────────────────────────────────────────┘
-```
+![Main control thread (reactor event loop) above a 4-thread background I/O worker pool on Linux / SITL and hardware ISR and DMA engines on bare-metal MCU / FPGA](assets/abstractx-software-environments-worker-pool.svg)
 
 1. **On Linux (Environment 1)**: The 4-thread I/O worker pool absorbs the blocking `ioctl()` calls for `/dev/spidev0.0`, `/dev/i2c-1`, and serial ports.
 2. **On Bare-Metal Microcontrollers (Environment 2)**: The thread pool is removed. `await_suspend()` triggers a hardware DMA transaction, and a raw hardware ISR pushes the handle to the event queue upon DMA completion.
@@ -240,14 +205,7 @@ if (baro_res.status == IOStatus::Success) {
 
 To completely eliminate mutex lock contention on bare-metal targets (Pico 2W, ESP32-P4) and ultra-low-latency Linux nodes, AbstractX deploys an **array of dedicated lock-free SPSC ring buffers** (`SpscChannelArray<T, NumChannels>`):
 
-```
-BACKGROUND I/O WORKER THREADS       DEDICATED SPSC RING ARRAY          MAIN FLIGHT LOOP THREAD
-─────────────────────────────       ─────────────────────────          ───────────────────────
-[ Worker 0: PCIe TLP Thread ] ────► [ Queue [0] : PCIe SPSC ] ──pop()──┐
-[ Worker 1: SPI IMU Thread  ] ────► [ Queue [1] : IMU SPSC  ] ──pop()──┼─► [ Main Core Loop ]
-[ Worker 2: I2C Baro Thread ] ────► [ Queue [2] : Baro SPSC ] ──pop()──┤   (Non-blocking round-robin)
-[ Worker 3: ADC / Mag Thread] ────► [ Queue [3] : ADC SPSC  ] ──pop()──┘   (Safely calls .resume())
-```
+![Four background I/O worker threads each pushing into a dedicated SPSC queue, all popped round-robin by the main flight loop thread](assets/abstractx-software-environments-spsc-array.svg)
 
 ### Why SPSC Arrays Eliminate All Synchronization Bottlenecks:
 1. **1-to-1 Producer-Consumer Pair**: Each channel has exactly **one dedicated producer** (Worker thread index $N$, or raw hardware DMA channel $N$) and **one single consumer** (the Main Flight Loop).
@@ -261,27 +219,7 @@ BACKGROUND I/O WORKER THREADS       DEDICATED SPSC RING ARRAY          MAIN FLIG
 
 Microcontrollers do **not** have `<mutex>`, `<thread>`, `<condition_variable>`, or an operating system. The AbstractX core headers ([`include/`](../include/)) are **100% Freestanding C++20**, requiring only standard atomic and coroutine compiler support.
 
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                    MICROCONTROLLER HARDWARE TOPOLOGY MATRIX                       │
-└───────────────────────────────────────────────────────────────────────────────────┘
-                                          │
-                  ┌───────────────────────┴───────────────────────┐
-                  ▼                                               ▼
-┌───────────────────────────────────────────────┐ ┌───────────────────────────────────────────────┐
-│ CONFIGURATION A: SINGLE-CORE MCU (STM32G4/S3) │ │ CONFIGURATION B: DUAL-CORE AMP (RP2350/P4)    │
-│                                               │ │                                               │
-│ [ Hardware DMA / Peripheral ISR (Producer) ]  │ │ [ Core 0: Dedicated I/O Coprocessor Engine ]  │
-│                       │                       │ │                       │                       │
-│             g_spsc_channel.push()             │ │         g_spsc_channel_sram.push()            │
-│                       ▼                       │ │                       ▼                       │
-│ [ Single Lock-Free SPSC Ring Buffer (RAM) ]   │ │ [ Shared SRAM Lock-Free SPSC Array ]          │
-│                       │                       │ │                       │                       │
-│             g_spsc_channel.pop()              │ │         g_spsc_channel_sram.pop()             │
-│                       ▼                       │ │                       ▼                       │
-│ [ Main Loop C++20 Coroutine Task (Consumer) ] │ │ [ Core 1: Main C++20 Flight Loop Task ]       │
-└───────────────────────────────────────────────┘ └───────────────────────────────────────────────┘
-```
+![Configuration A single-core MCU with an ISR producer, one SPSC ring and a main-loop consumer; configuration B dual-core AMP with a Core 0 I/O engine, a shared SRAM SPSC array and a Core 1 flight loop](assets/abstractx-software-environments-mcu-topology.svg)
 
 ### 10.1 Is SPSC Safe on a Single-Core Microcontroller with ISRs?
 **YES, 100% SAFE and Re-Entrant.**
@@ -303,40 +241,7 @@ Microcontrollers do **not** have `<mutex>`, `<thread>`, `<condition_variable>`, 
 
 On advanced robotic systems, companion computers (Raspberry Pi 5, NVIDIA Jetson), or hybrid SoCs (Zynq-7020 / Allwinner A55+FPGA), AbstractX seamlessly integrates **Linux native I/O thread pools** and **high-speed SPI-to-FPGA offloading** simultaneously:
 
-```
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│               HYBRID LINUX HOST REAL-TIME FLIGHT / ROBOTICS CORE                  │
-│                                                                                   │
-│  auto [fpga_imu, linux_baro, linux_gps] = co_await when_all(                      │
-│      fpga_bridge.async_await_stream(Channel::Telemetry),                          │
-│      linux_i2c.async_read(REG_BARO_PRESSURE),                                     │
-│      linux_uart.async_read(REG_GPS_UBX)                                           │
-│  );                                                                               │
-└────────────────────────────────────────┬──────────────────────────────────────────┘
-                                         │
-             Lock-Free SPSC Channel Array (`SpscChannelArray<T, 4>`)
-                                         │
-       ┌─────────────────────────────────┼─────────────────────────────────┐
-       ▼                                 ▼                                 ▼
-┌───────────────────────────────┐ ┌───────────────────────────────┐ ┌───────────────────────────────┐
-│  Worker 0: FPGA SPI Bridge    │ │  Worker 1: Linux Native I2C   │ │  Worker 2: Linux Native UART  │
-│  /dev/spidev0.0 (50 MHz)      │ │  /dev/i2c-1 (400 kHz)         │ │  /dev/ttyUSB0 (2 Mbaud)       │
-│  - 8 kHz IMU Auto-DMA Stream  │ │  - Barometer / Mag Sensor     │ │  - GPS / Companion Telemetry  │
-│  - DShot Motor Timers         │ │  - Power Monitoring IC        │ │  - MAVLink / Serial Telemetry │
-│  - Sub-20ns Latched TS        │ │  - EEPROM Calibration         │ │  - Blackbox Flash Tunnel      │
-└──────────────┬────────────────┘ └───────────────────────────────┘ └───────────────────────────────┘
-               │ Dual-SPI 50MHz
-               ▼
-┌───────────────────────────────────────────────────────────────────────────────────┐
-│                     ABSTRACTX FPGA HARDWARE COPROCESSOR                           │
-│        (Gowin Tang Nano 9K / Tang Primer 20K / Xilinx Zynq-7020 PL)               │
-│                                                                                   │
-│  - Autonomous SPI Master Engine (asp_imu_auto_dma.sv)                             │
-│  - 512-bit Vector Switch Fabric & Skid Buffers (asp_router.sv)                    │
-│  - Hardware DShot600 / DShot300 Motor Engine & WS2812B RGB Driver                 │
-│  - Cycle-Accurate 64-bit Hardware Timestamp Latching Counter                      │
-└───────────────────────────────────────────────────────────────────────────────────┘
-```
+![Hybrid Linux host core awaiting an FPGA stream, a Linux I2C read and a Linux UART read over a lock-free SPSC channel array from three workers, with worker 0 bridging to the AbstractX FPGA coprocessor over Dual-SPI at 50 MHz](assets/abstractx-software-environments-hybrid-fpga.svg)
 
 ### Key Architectural Advantages of the Hybrid Topology:
 1. **Zero Compromise Hardware Allocation**:
@@ -356,6 +261,7 @@ The universal C++20 sensor driver architecture is verified across all hardware e
 
 The **exact same coroutine driver function** (`universal_ms5611_baro_driver`) runs with **100% bit-exact mathematical parity** across all 4 platforms:
 
+<!-- ascii-ok: terminal output (benchmark result table) -->
 ```
 ===================================================================================================
  MULTI-TARGET HARDWARE EXECUTION MATRIX (1.0 Second of Flight / 8,000 IMU 8 kHz Samples)           

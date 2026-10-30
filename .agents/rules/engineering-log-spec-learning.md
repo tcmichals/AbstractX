@@ -14,26 +14,15 @@ In AbstractX, **Markdown Drives the Code (SSOT)**:
 
 ## 2. The 4-Step Learning Cycle
 
-```text
-  [1. Mistake / Bug / Hardware Errata Observed]
-                         │
-                         ▼
-  [2. Chronicle in engineering_log.md]
-      • What broke? (Symptoms & Error)
-      • Root Cause & Lesson Learned (Why did it happen?)
-      • Spec Contract to Add/Update ([SPEC-*])
-                         │
-                         ▼
-  [3. Update Markdown Specification (SSOT First)]
-      • Add or update [SPEC-*] in targets/ or apps/ SPECIFICATION.md
-      • Add Mermaid diagrams, timing constraints, or memory boundaries
-                         │
-                         ▼
-  [4. Implement Code Fix & Regression Test]
-      • Tag implementing code: // @impl [SPEC-*] <file_path>
-      • Add CTest or Cocotb unit test to permanently prevent regression
-      • Verify: python3 tools/audit_specs.py (100% Traceability)
-```
+1. **Mistake, bug or hardware erratum observed.**
+2. **Chronicle it in `engineering_log.md`**: what broke (symptoms and error), root cause and
+   lesson (why it happened), and the spec contract to add or update (`[SPEC-*]`).
+3. **Update the Markdown specification first (SSOT)**: add or update `[SPEC-*]` in the
+   `targets/` or `apps/` `SPECIFICATION.md`; add diagrams (`[SPEC-AUDIT-16]`), timing
+   constraints or memory boundaries.
+4. **Implement the code fix and a regression test**: tag the code `// @impl [SPEC-*] <file_path>`,
+   add a CTest or cocotb test that would have caught it, and run the requirement's
+   `Verified by` skills.
 
 ---
 

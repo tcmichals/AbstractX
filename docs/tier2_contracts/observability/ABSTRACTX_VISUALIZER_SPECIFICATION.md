@@ -6,6 +6,7 @@ The **AbstractX Visualizer** is a modern, real-time observability and timeline s
 
 ## 1. Why AbstractX Visualizer Surpasses Existing Tools
 
+<!-- ascii-ok: feature comparison table -->
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                                 KEY ARCHITECTURAL ADVANTAGES                            │
@@ -28,6 +29,7 @@ The **AbstractX Visualizer** is a modern, real-time observability and timeline s
 
 The AbstractX Visualizer Studio provides three synchronized, multi-pane windows:
 
+<!-- ascii-ok: mock text screenshot of the Studio windows with sample values -->
 ```
 +===================================================================================================+
 | ABSTRACTX STUDIO | Platform: Linux + XuanTie E906 + FPGA | Target: Radxa Cubie A5E | Stream: 8.2 kHz |
@@ -130,27 +132,7 @@ python3 apps/gps_imu_app/tools/flight_display.py --sim
 
 ## 5. Two-Level GUI Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        ABSTRACTX STUDIO (imgui-bundle)                 │
-├────────────────────────────────────────────────────────────────────────┤
-│ Level 1: Core AbstractX Framework Layer (Standard across all apps)     │
-│   • 64-byte TLP Ingestion (UDP, Serial, Shared SRAM)                   │
-│   • Platform Topology & Interconnect (Cores, SPU/CPU%, SPSC Rings)     │
-│   • Dual-Plane Timeline (Hardware ISR/DMA vs C++20 Tasks)              │
-│   • Source Inspector: Jump to __FILE__ : __LINE__ on co_await          │
-│   • Memory Observability & Static Section Budgets (MemBrowse)          │
-├────────────────────────────────────────────────────────────────────────┤
-│ Level 2: User & Domain Extensible Layer (Pluggable App Modules)        │
-│   • Pluggable tab interface (e.g. tools/visualizer/flight_plugin.py)   │
-│   • For gps_imu_app:                                                   │
-│       - Primary Flight Display (PFD) Artificial Horizon & Pitch Ladder │
-│       - 3D Quadcopter Perspective Wireframe (Tait-Bryan rotation)      │
-│       - Quad-X Motor Mixer Demand Bars (100..1000 µs)                  │
-│       - Aviation Navigation Gauges & Stream Rates (IMU/Mag/GPS/AHRS)   │
-│       - 8 kHz IMU Oscilloscope (ImPlot real-time waveforms)            │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![AbstractX Studio (imgui-bundle) holding Level 1, the core framework layer standard across all apps, and Level 2, the pluggable user and domain layer with the gps_imu_app flight plugin](assets/abstractx-visualizer-specification-two-level-gui.svg)
 
 ---
 
