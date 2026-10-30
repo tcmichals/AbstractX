@@ -74,3 +74,29 @@ sequenceDiagram
   496-byte slots; a full slot ring drops and counts (`rx_dropped`).
 * **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_e906_bench_local.py`)
 * **Implementation Target**: `apps/e906_bench/bench.cpp`, `tests/board/bench_e906_runtime.py`
+
+### `[SPEC-E906-BENCH-05]` IMU DRDY Auto-DMA Run (`A`)
+* **Why**: the sensor comparison (bare metal, FreeRTOS, MicroPython, Linux) is paced by the IMU's
+  own data-ready edge, so every runtime does the same work at the same rate and the time from
+  the edge to the data can be measured.
+* **Requirement**: `A` [+ `uint32` little-endian sample count, default 2000, at most 100000]
+  initialises the ICM-42688-P through `Icm42688p::init_async()` at 1 kHz on SPI1 CS0 at 10 MHz
+  ([SPEC-IMU-01]), configures one `IoEngine` auto channel (GPIO edge on PI8 = 264, rising;
+  command `0x9D`, 14 data bytes; [SPEC-E906-HAL-05]), and collects the samples from the ingress
+  ring in a coroutine woken by `on_rx_pushed` through `IsrDispatcher`. The engine is stopped
+  (pin disarmed) before the report.
+* **Requirement**: no hang. If the first sample does not arrive within 500 ms, or the run takes
+  longer than `count` ms + 1000 ms, a timer coroutine wakes the collector and the report says
+  `imu_timeout=1`. A failed IMU init reports `imu_init=failed` and runs nothing.
+* **Report** (`key=value`, ends with `end`):
+  * `imu_init`, `samples`, `imu_timeout`;
+  * `edges` (`hal::gpio_irq::edges`, this run), `overruns` (`IoEngine::auto_overruns`, this run),
+    `busy_drops`, `dma_ok`, `dma_failed`, `ingress_dropped`, `seq_gaps` (samples whose edge came more
+    than 1.5 periods after the previous one);
+  * `period_ns_{min,avg,max}`: between consecutive sample timestamps (the measured ODR);
+  * `edge_to_dma_cycles_{min,avg,max}`, `dma_cycles_{min,avg,max}` ([SPEC-E906-HAL-05]);
+  * `edge_to_wake_ns_{min,avg,max}`: sample timestamp -> collector resumed (`hal::Timer::get_time_ns()`);
+  * `last_raw`: the 14 data bytes of the last sample as hex (temperature, accel XYZ, gyro XYZ);
+  * `dropped_resumes`, `coro_pool_high_water`.
+* **Verified by**: `e906-board-selftest`, `e906-build-layout`
+* **Implementation Target**: `apps/e906_bench/bench.cpp`, `tests/board/bench_e906_runtime.py`

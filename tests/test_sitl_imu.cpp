@@ -42,10 +42,21 @@ public:
 
         if (!req.rx_data.empty() && !req.tx_data.empty()) {
             uint8_t reg = req.tx_data[0];
-            if ((reg & 0x7F) == IcmRegs::WHO_AM_I) {
-                if (req.rx_data.size() > 1) req.rx_data[1] = IcmRegs::WHO_AM_I_VAL;
-                else req.rx_data[0] = IcmRegs::WHO_AM_I_VAL;
-            } else if ((reg & 0x7F) == IcmRegs::TEMP_DATA1) {
+            const uint8_t addr = static_cast<uint8_t>(reg & 0x7F);
+            const bool read = (reg & 0x80) != 0;
+            // Two-byte register access against a small register file.
+            if (req.tx_data.size() == 2 && addr != IcmRegs::WHO_AM_I) {
+                if (!read) {
+                    regs[addr] = (addr == stuck_reg) ? 0 : req.tx_data[1];
+                    ++writes[addr];
+                } else if (req.rx_data.size() > 1) {
+                    req.rx_data[1] = regs[addr];
+                }
+            }
+            if (addr == IcmRegs::WHO_AM_I) {
+                if (req.rx_data.size() > 1) req.rx_data[1] = who_am_i;
+                else req.rx_data[0] = who_am_i;
+            } else if (addr == IcmRegs::TEMP_DATA1) {
                 // Synthesize 15-byte IMU sample
                 // [0: Dummy] [1..2: Temp] [3..8: Accel] [9..14: Gyro]
                 if (req.rx_data.size() >= 15) {
@@ -66,6 +77,11 @@ public:
         push_completion_from_isr(req, res);
         set_hardware_idle_from_isr();
     }
+
+    uint8_t regs[128]{};
+    uint32_t writes[128]{};
+    uint8_t who_am_i{IcmRegs::WHO_AM_I_VAL};
+    int stuck_reg{-1};   // a register that never takes the written value
 };
 
 // Start a task and pump the dispatcher, as abstractx::step() does. Resuming the
@@ -148,19 +164,50 @@ TEST(SitlImuTestGroup, VerifyAsyncInitSequenceWithMocks) {
           .withParameter("frequency_hz", 24000000)
           .withParameter("mode", static_cast<int>(hal::SpiMode::Mode0));
 
-    // Async register read for WHO_AM_I
-    mock().expectOneCall("start_hardware_transfer_from_isr");
-    // Async register write for PWR_MGMT0
-    mock().expectOneCall("start_hardware_transfer_from_isr");
-    // Async register write for GYRO_CONFIG0
-    mock().expectOneCall("start_hardware_transfer_from_isr");
-    // Async register write for ACCEL_CONFIG0
-    mock().expectOneCall("start_hardware_transfer_from_isr");
+    // WHO_AM_I, then write + read-back of 7 registers
+    mock().expectNCalls(15, "start_hardware_transfer_from_isr");
 
     auto task = imu->init_async();
     CHECK_TRUE(run_to_completion(task));
     CHECK_TRUE(task.get_result());
     LONGS_EQUAL(0, Dispatcher::dropped_resumes());
+}
+
+// @verifies [SPEC-IMU-01] applib/include/applib/drivers/imu/icm42688p.hpp
+TEST(SitlImuTestGroup, InitConfiguresDrdyInterruptAndOdr) {
+    mock().ignoreOtherCalls();
+    Icm42688p imu1k(*spi, Icm42688pConfig{10'000'000, IcmRegs::ODR_1KHZ});
+    auto task = imu1k.init_async();
+    CHECK_TRUE(run_to_completion(task));
+    CHECK_TRUE(task.get_result());
+    LONGS_EQUAL(0x03, spi->regs[IcmRegs::INT_CONFIG]);
+    LONGS_EQUAL(0x20, spi->regs[IcmRegs::INT_CONFIG0]);
+    LONGS_EQUAL(0x00, spi->regs[IcmRegs::INT_CONFIG1]);
+    LONGS_EQUAL(1, spi->writes[IcmRegs::INT_CONFIG1]);
+    LONGS_EQUAL(0x08, spi->regs[IcmRegs::INT_SOURCE0]);
+    LONGS_EQUAL(IcmRegs::ODR_1KHZ, spi->regs[IcmRegs::GYRO_CONFIG0]);
+    LONGS_EQUAL(IcmRegs::ODR_1KHZ, spi->regs[IcmRegs::ACCEL_CONFIG0]);
+    LONGS_EQUAL(0x0F, spi->regs[IcmRegs::PWR_MGMT0]);
+}
+
+// @verifies [SPEC-IMU-01] applib/include/applib/drivers/imu/icm42688p.hpp
+TEST(SitlImuTestGroup, InitFailsOnWrongWhoAmI) {
+    mock().ignoreOtherCalls();
+    spi->who_am_i = 0x00;
+    auto task = imu->init_async();
+    CHECK_TRUE(run_to_completion(task));
+    CHECK_FALSE(task.get_result());
+    LONGS_EQUAL(0, spi->writes[IcmRegs::PWR_MGMT0]);
+}
+
+// @verifies [SPEC-IMU-01] applib/include/applib/drivers/imu/icm42688p.hpp
+TEST(SitlImuTestGroup, InitFailsWhenARegisterDoesNotReadBack) {
+    mock().ignoreOtherCalls();
+    spi->stuck_reg = IcmRegs::INT_SOURCE0;
+    auto task = imu->init_async();
+    CHECK_TRUE(run_to_completion(task));
+    CHECK_FALSE(task.get_result());
+    LONGS_EQUAL(0, spi->writes[IcmRegs::PWR_MGMT0]);   // stopped before powering the sensors
 }
 
 // Repeated register traffic must recycle coroutine frames rather than

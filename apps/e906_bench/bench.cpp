@@ -3,13 +3,21 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * bench.cpp - E906 runtime benchmark shared by bare metal and FreeRTOS builds.
- * @impl [SPEC-E906-BENCH-01] [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-03] [SPEC-E906-BENCH-04] apps/e906_bench/SPECIFICATION.md
+ * @impl [SPEC-E906-BENCH-01] [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-03] [SPEC-E906-BENCH-04] [SPEC-E906-BENCH-05] apps/e906_bench/SPECIFICATION.md
  */
 #include "bench.hpp"
 
 #include <atomic>
 #include <cstddef>
+#include "abstractx/abstractx.hpp"
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/hal/io_engine.hpp"
+#include "abstractx/hal/platform.hpp"
+#include "applib/drivers/imu/icm42688p.hpp"
+#include "hal/auto_dma.hpp"
+#include "hal/gpio_irq.hpp"
+#include "hal/timer.hpp"
+#include "tlp_ring.hpp"
 
 extern "C" {
 
@@ -183,6 +191,160 @@ private:
     size_t len_ = 0;
 };
 
+// ---------------------------------------------------------------------------
+// [SPEC-E906-BENCH-05] IMU DRDY auto-DMA run
+// ---------------------------------------------------------------------------
+constexpr uint32_t kImuDefaultSamples = 2000;
+constexpr uint32_t kImuMaxSamples = 100000;
+constexpr uint32_t kImuFirstSampleMs = 500;
+constexpr uint64_t kImuPeriodNs = 1'000'000;   // 1 kHz ODR
+
+abstractx::MpscTlpRing<> s_imu_ring;                // shared: DMA ISR pushes (MPSC, InterruptLock), collector pops
+std::coroutine_handle<> s_imu_waiter{};              // shared: collector sets, DMA ISR / timeout take it under InterruptGuard
+volatile bool s_imu_timeout = false;                 // shared: timeout coroutine sets, collector reads; same hart
+uint32_t s_imu_run = 0;                              // coroutine domain only: run id for the timeout coroutine
+
+void imu_wake() noexcept {   // ISR or coroutine context; never resumes inline
+    std::coroutine_handle<> h{};
+    {
+        abstractx::InterruptGuard guard;
+        h = s_imu_waiter;
+        s_imu_waiter = {};
+    }
+    if (h) abstractx::IsrDispatcher::post(h);
+}
+
+void on_imu_pushed() noexcept { imu_wake(); }
+
+struct ImuSampleAwaiter {
+    bool await_ready() const noexcept { return !s_imu_ring.empty() || s_imu_timeout; }
+    bool await_suspend(std::coroutine_handle<> h) noexcept {
+        abstractx::InterruptGuard guard;
+        if (!s_imu_ring.empty() || s_imu_timeout) return false;   // arrived after await_ready
+        s_imu_waiter = h;
+        return true;
+    }
+    void await_resume() const noexcept {}
+};
+
+// Sleeps in short steps and returns soon after its run ends, so a finished run leaves no
+// frame behind for the next one ([SPEC-E906-BENCH-05], steady state).
+abstractx::coro::Task<void> imu_timeout_task(uint32_t run, uint32_t first_ms, uint32_t total_ms) noexcept {
+    constexpr uint32_t kStepMs = 50;
+    for (uint32_t t = 0; t < total_ms; t += kStepMs) {
+        co_await ::hal::Timer::sleep_ms_async(kStepMs);
+        if (run != s_imu_run) co_return;
+        if (t + kStepMs >= first_ms && t < first_ms && ::hal::auto_dma::stats().completed == 0) break;
+    }
+    if (run == s_imu_run) {
+        s_imu_timeout = true;
+        imu_wake();
+    }
+}
+
+// Static so the driver and its config stay out of the coroutine frame pool.
+applib::drivers::imu::Icm42688p s_imu{abstractx::hal::get_spi_driver(),
+                                      {10'000'000, applib::drivers::imu::IcmRegs::ODR_1KHZ}};
+abstractx::hal::AutoChannelConfig s_imu_channel{};
+
+void hex_line(Report &r, const char *key, std::span<const uint8_t> bytes) noexcept;
+
+abstractx::coro::Task<void> run_imu(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count) noexcept {
+    namespace ax = abstractx::hal;
+    Report r(rpmsg, host);
+    r.kv("platform", abx_bench_platform_name());
+    if (count == 0) count = kImuDefaultSamples;
+    if (count > kImuMaxSamples) count = kImuMaxSamples;
+
+    if (!co_await s_imu.init_async()) {
+        r.kv("imu_init", "failed");
+        r.kv("end", static_cast<uint64_t>(1));
+        r.flush();
+        co_return;
+    }
+    r.kv("imu_init", "ok");
+
+    s_imu_channel = {};
+    s_imu_channel.channel_id = 0;
+    s_imu_channel.auto_mode = true;
+    s_imu_channel.trigger_mode = ax::TriggerMode::GpioEdge;
+    s_imu_channel.trigger_pin = ::hal::gpio_irq::kImuDrdy;
+    s_imu_channel.trigger_rising = true;
+    s_imu_channel.bus_type = ax::BusType::Spi;
+    s_imu_channel.bus_index = 1;
+    s_imu_channel.bus_speed_hz = 10'000'000;
+    s_imu_channel.cs_pin = 0;
+    s_imu_channel.tx_cmd[0] = static_cast<uint8_t>(applib::drivers::imu::IcmRegs::TEMP_DATA1 | 0x80);
+    s_imu_channel.tx_len = 1;
+    s_imu_channel.rx_len = 14;
+    s_imu_channel.tlp_channel = static_cast<uint8_t>(abstractx::Channel::Telemetry);
+    s_imu_channel.tlp_tag = applib::drivers::imu::TLP_TAG_IMU;
+
+    auto &io = static_cast<ax::IoEngine &>(ax::get_target_io_processor());
+    s_imu_ring.clear();
+    s_imu_timeout = false;
+    ++s_imu_run;
+    ax::IoProcessorSetup setup{};
+    setup.channels = std::span<const ax::AutoChannelConfig>(&s_imu_channel, 1);
+    setup.ingress_rx_ring = &s_imu_ring;
+    setup.on_rx_pushed = etl::delegate<void()>::create<on_imu_pushed>();
+
+    const uint32_t overruns0 = io.auto_overruns();
+    const uint32_t ingress0 = io.ingress_dropped();
+    const uint32_t edges0 = ::hal::gpio_irq::edges(::hal::gpio_irq::kImuDrdy);
+    ::hal::auto_dma::reset();
+    io.configure(setup);
+    io.start();
+    if (!abstractx::spawn(imu_timeout_task(s_imu_run, kImuFirstSampleMs, count + 1000U))) s_imu_timeout = true;
+
+    Stat period, wake;
+    uint32_t samples = 0, gaps = 0;
+    uint64_t prev_ts = 0;
+    abstractx::Tlp64 tlp{};
+    abstractx::Tlp64 last{};
+    while (samples < count && !s_imu_timeout) {
+        co_await ImuSampleAwaiter{};
+        const uint64_t now = ::hal::Timer::get_time_ns();
+        while (samples < count && s_imu_ring.pop(tlp)) {
+            const uint64_t ts = tlp.wire.timestamp_ns;
+            wake.add(static_cast<uint32_t>(now > ts ? now - ts : 0));
+            if (prev_ts) {
+                const uint64_t d = ts - prev_ts;
+                period.add(static_cast<uint32_t>(d));
+                if (d > kImuPeriodNs + kImuPeriodNs / 2) ++gaps;
+            }
+            prev_ts = ts;
+            last = tlp;
+            ++samples;
+        }
+    }
+    io.stop();
+    ++s_imu_run;   // a pending timeout coroutine now does nothing
+    const auto st = ::hal::auto_dma::stats();
+
+    r.kv("samples", samples);
+    r.kv("imu_timeout", s_imu_timeout ? 1U : 0U);
+    r.kv("edges", ::hal::gpio_irq::edges(::hal::gpio_irq::kImuDrdy) - edges0);
+    r.kv("overruns", io.auto_overruns() - overruns0);
+    r.kv("busy_drops", st.busy_drops);
+    r.kv("dma_ok", st.completed);
+    r.kv("dma_failed", st.failed);
+    r.kv("ingress_dropped", io.ingress_dropped() - ingress0);
+    r.kv("seq_gaps", gaps);
+    r.stat("period_ns", period);
+    Stat e2s{st.edge_to_start.min, st.edge_to_start.max, st.edge_to_start.sum, st.edge_to_start.n};
+    Stat dma{st.dma.min, st.dma.max, st.dma.sum, st.dma.n};
+    r.stat("edge_to_dma_cycles", e2s);
+    r.stat("dma_cycles", dma);
+    r.stat("edge_to_wake_ns", wake);
+    const auto raw = last.payload();
+    hex_line(r, "last_raw", samples && raw.size() >= 14 ? raw.first(14) : std::span<const uint8_t>{});
+    r.kv("dropped_resumes", Dispatcher::dropped_resumes());
+    r.kv("coro_pool_high_water", abstractx::coro::coro_pool_high_water());
+    r.kv("end", static_cast<uint64_t>(1));
+    r.flush();
+}
+
 abstractx::coro::Task<void> run_suite(::hal::IRpmsg &rpmsg, uint32_t host) noexcept {
     Report r(rpmsg, host);
     r.kv("platform", abx_bench_platform_name());
@@ -242,6 +404,19 @@ abstractx::coro::Task<void> run_suite(::hal::IRpmsg &rpmsg, uint32_t host) noexc
     r.flush();
 }
 
+void hex_line(Report &r, const char *key, std::span<const uint8_t> bytes) noexcept {
+    static const char kHex[] = "0123456789abcdef";
+    char buf[2 * 40 + 1];
+    size_t n = 0;
+    for (uint8_t b : bytes) {
+        if (n + 2 >= sizeof(buf)) break;
+        buf[n++] = kHex[b >> 4];
+        buf[n++] = kHex[b & 0xF];
+    }
+    buf[n] = '\0';
+    r.kv(key, buf);
+}
+
 } // namespace
 
 void init(::hal::IRpmsg &rpmsg) noexcept {
@@ -272,9 +447,15 @@ abstractx::coro::Task<void> worker_task(::hal::IRpmsg &rpmsg) noexcept {
             ++s_tail;
         } else {
             const uint32_t host = s.src;
+            uint32_t count = 0;   // 'A' sample count, read before the slot is freed
+            for (uint16_t i = 0; i < 4 && 1U + i < s.len; ++i) {
+                count |= static_cast<uint32_t>(s.data[1 + i]) << (8U * i);
+            }
             ++s_tail;  // free the slot before a long run
             if (cmd == 'R') {
                 co_await run_suite(rpmsg, host);
+            } else if (cmd == 'A') {
+                co_await run_imu(rpmsg, host, count);
             } else if (cmd == 'I') {
                 Report r(rpmsg, host);
                 r.kv("platform", abx_bench_platform_name());

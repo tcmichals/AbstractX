@@ -27,7 +27,11 @@ This document is the authoritative roadmap and active engineering task tracker f
 - [x] **One engine in core (`[SPEC-ARCH-13]`, 2026-10-28)**: `abstractx::hal::IoEngine` (`include/abstractx/hal/io_engine.hpp`) owns the TLP decode, auto channels, bus lockout, bridge slot pool and completion framing; Linux, E906 and Pico 2 W `io_processor.cpp` are now `IIoBackend`s only (`sim/test_io_engine.cpp`). Zynq stays a pass-through (engine in RTL).
 - [ ] Port the ESP32-P4 stub to an `IIoBackend` once its SPI/GDMA driver exists.
 - [ ] Async I2C on E906 (`E906I2c`) and Pico (`PicoI2c`): the engine's I2C bridge blocks in `start_transfer()` on both.
-- [ ] Attach `fc_gpio_drdy_isr()` (E906) to the IMU DRDY CLIC line: nothing routes it, so E906 auto mode never triggers.
+- [x] E906 IMU DRDY: PI8 -> GIC 115 -> CLIC line 100 (`hal::gpio_irq`), SPI1 CS0 auto-DMA per edge ([SPEC-E906-IRQ-07], [SPEC-E906-HAL-05]); 3 x 10000 samples on the board, 0 drops (2026-10-29).
+- [ ] FreeRTOS: dispatch CLIC lines 88 (DMA) and 100 (GPIO) through `hal::irq` in `freertos_risc_v_application_interrupt_handler` so the `A` bench runs there.
+- [ ] Board: compass not found on TWI1 (`SCAN []`) on 2026-10-29 with both this tree and `14e8a0f`; check the GPS puck power and SDA/SCL wiring.
+- [ ] Linux: bank-I GPIO edges latch `EINT_STA` but never reach Linux's GIC (kernel 7.1); needed for the Linux DRDY column.
+- [ ] E906 DRDY period jitter: sample period 971..1012 us at 1 kHz with a steady handler (edge->DMA 1165..1362 cycles); find whether it is the IMU clock or interrupt-entry delay (logic analyzer).
 
 ### 3. Binary CTF 1.8 Tracing & Configurable Sinks `[SPEC-TRACE-04]` `[SPEC-TRACE-06]`
 - [x] **Startup Trace Configuration (`TraceConfig`)**:

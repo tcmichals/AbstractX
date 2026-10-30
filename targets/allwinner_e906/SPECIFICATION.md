@@ -734,8 +734,13 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Requirement**: TX and RX buffers are members of the auto-channel object in SRAM (DMA-reachable,
   never the stack). If SPI1 is still busy when an edge arrives, the edge is counted as an overrun
   and dropped; it is never queued or retried, so a late read cannot be mistaken for a new sample.
-* **Requirement**: each sample carries the edge `mcycle`, the DMA start and DMA done `mcycle`, and a
-  sequence number; the DMA completion posts the waiting coroutine through `IsrDispatcher`.
+* **Requirement**: each sample is one `IoEngine` stream TLP whose `timestamp_ns` is the edge time
+  (`hal::Timer::get_time_ns()`, 24 MHz `mtime`, taken in the edge handler). `hal::auto_dma::stats()`
+  keeps, in `mcycle`: edges, busy drops, completed and failed transfers, handler entry -> DMA
+  started, and DMA started -> DMA done (min/max/sum). The consumer is woken from `on_rx_pushed`
+  through `IsrDispatcher`, never resumed inline.
+* **Requirement**: the pin number is `bank * 32 + n` (Linux numbering, PI8 = 264); the transfer
+  uses the channel's `cs_pin` as the SPI1 chip select (the IMU is CS0).
 * **Requirement**: the IMU is configured as in [SPEC-IMU-01]: INT1 pulsed push-pull active high,
   DRDY cleared by the data read, and a known ODR. The DMA burst itself clears DRDY, so no status
   read is needed.

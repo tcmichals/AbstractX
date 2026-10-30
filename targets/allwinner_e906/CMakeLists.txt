@@ -18,6 +18,7 @@ add_library(abstractx_target_e906 STATIC
     src/i2c.cpp
     src/driver_wait.cpp
     src/platform.cpp
+    src/gpio_irq.cpp
     src/io_processor.cpp
     src/rpmsg.cpp
     src/rpmsg_endpoints.cpp

@@ -10,6 +10,7 @@ namespace fc::hal {
 
 #define PB_DATA_REG (*(volatile uint32_t *)(PIO_BASE + 0x0040))
 #define PC_DATA_REG (*(volatile uint32_t *)(PIO_BASE + 0x0070))
+#define PI_DATA_REG (*(volatile uint32_t *)(PIO_BASE + 0x0190))
 
 class Pio {
 public:
@@ -35,8 +36,9 @@ public:
         return (PC_DATA_REG & (1 << 6)) != 0; // Pin 22 (PC6)
     }
 
+    // @impl [SPEC-E906-IRQ-07] targets/allwinner_e906/SPECIFICATION.md
     static inline bool get_imu_drdy() {
-        return (PC_DATA_REG & (1 << 8)) != 0; // Pin 29 (PC8)
+        return (PI_DATA_REG & (1U << 8)) != 0; // Pin 29 (PI8, IMU INT1), measured 2026-10-29
     }
 };
 

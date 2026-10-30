@@ -3232,3 +3232,19 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Spec**: new `[SPEC-E906-IRQ-07]` (PI8 edge interrupt, measured registers, ownership), new `[SPEC-E906-HAL-05]` (DRDY-triggered SPI1 auto-DMA, overrun = drop), IRQ table row; `[SPEC-IMU-01]` gains the ODR parameter and the INT1 settings.
 * **Tool facts**: board busybox has no `timeout`; the E906 MicroPython has no `enumerate` and no `time` module (`abstractx.ticks_ms()` instead).
 * **Not verified**: the IMU pulse rate at 1 kHz (Linux could not timestamp it); any C++ code for this (not written yet).
+
+## 2026-10-29: E906 DRDY-triggered IMU auto-DMA works on the board
+
+* **Category**: `product-bug` (DRDY never attached, wrong chip select, IMU interrupt never enabled), `hardware-fact` (timings)
+* **What**: `hal::gpio_irq` arms PI8 (rising) and handles CLIC line 100 ([SPEC-E906-IRQ-07]); the `IoEngine` GPIO-edge channel starts one 15-byte SPI1 DMA on CS0 from the handler ([SPEC-E906-HAL-05]); `Icm42688p::init_async()` checks WHO_AM_I, sets the INT1 registers and ODR, and reads every write back ([SPEC-IMU-01]); bench command `A` ([SPEC-E906-BENCH-05]); `get_imu_drdy()` reads PI8.
+* **Board** (Cubie A5E, kernel 7.1, `e906_bench_app` from this tree, `bench_e906_runtime.py --imu 10000`, 1 kHz, SPI 10 MHz), `docs/verification/evidence/e906_imu_drdy_baremetal.json`:
+  * samples 10000 / edges 10000, overruns 0, busy_drops 0, dma_failed 0, ingress_dropped 0, seq_gaps 0, dropped_resumes 0;
+  * period 971.5 / 991.3 / 1012.0 µs (min/avg/max), i.e. ~1008.8 Hz;
+  * edge handler -> DMA started 1165 / 1172 / 1362 cycles (5.8 / 5.9 / 6.8 µs); DMA 2591 / 2844 / 3708 cycles (13.0 / 14.2 / 18.5 µs; 15 bytes at 10 MHz is 12 µs);
+  * edge -> collector coroutine resumed 30.5 / 31.0 / 45.0 µs;
+  * last sample `ff4c 003b ffcd 0825 ffe7 fff1 0005` (az = 0x0825 = 2085 LSB = 1.02 g).
+* **Steady state**: three back-to-back 10000-sample runs, `coro_pool_high_water` 1152 each time. The first version did grow (1344 -> 1536): its timeout coroutine slept the whole run length and was still alive when the next run started; it now sleeps in 50 ms steps and returns once its run ends.
+* **Which check should have caught the old bugs**: nothing ran the DRDY path; the host IMU mock answered every read with 0 and the test only counted transfers. The mock is now a register file and three tests fail on the old `init_async()` (shown before commit).
+* **Not verified**: the timeout paths on the board (no IMU / DRDY stops); FreeRTOS build of `A` (it builds; its trap handler does not dispatch lines 88/100 yet, TODO); MicroPython binding; Linux column; the cause of the ±20 µs period spread.
+* **Board self-test** (`run_board_tests.py`): this tree's `e906_repl_app` 25 passed, 8 failed, 2 skipped; the same firmware built from `HEAD` (`14e8a0f`, without this change) fails the same 8: firmware file name (both loaded under test names), compass absent on TWI1 (`SCAN []`, 3 tests; the compass answered on 2026-10-21, so the puck or its wiring needs a look), NMEA checksum (known), profiler idle spans 1070 vs 1043 (known), and two profiler/busy-share checks (busy 23.4 %, `repl_rx` share) that also fail on `HEAD`. Not caused by this change; the compass is open in TODO.
+* **Host gates**: plain, ASan/UBSan (`-fno-sanitize-recover=all`) and TSan: 81/81 each.

@@ -113,7 +113,7 @@ and returns the engine from `get_target_io_processor()`:
 | Target Silicon | Back end (`src/io_processor.cpp`) | Transfers | Trigger | Hardware Doorbell | Idle Power State | Known gaps |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Linux Target** | `LinuxIoBackend` | spidev / i2c-dev worker threads | gpiod events in an `epoll` reactor | `eventfd` | `epoll_wait` | none |
-| **Allwinner E906** | `E906IoBackend` | SPI1 DMA (async); TWI blocking | `fc_gpio_drdy_isr()` hook | `MSGBOX` channel 0 | `wfi` | I2C bridge blocks; the DRDY hook is not attached to a CLIC line, so auto mode never triggers |
+| **Allwinner E906** | `E906IoBackend` | SPI1 DMA (async, also below `DMA_THRESHOLD`); TWI blocking | `hal::gpio_irq` edge on the channel's pin (PI8 = 264, CLIC line 100, [SPEC-E906-IRQ-07]) | `MSGBOX` channel 0 | `wfi` | I2C bridge blocks; only GPIO bank I is routed |
 | **Pico 2 W (RP2350)** | `PicoIoBackend` | `PicoSpi` DMA request queue (async); I2C blocking | GPIO edge IRQ | SIO FIFO (skipped when full) | `wfe` | I2C bridge blocks |
 | **Zynq-7000 / FPGA** | `Zynq7000IoProcessor` (no engine) | FPGA X-fabric | FPGA | UIO interrupt | `poll` | the engine runs in RTL; this target is a ring-to-BRAM pass-through |
 
@@ -424,7 +424,7 @@ Bytes 16..43: Reserved / padding
 
 #### 3.1.3 Asynchronous Ingress Pin Interrupt Event TLP (`DMA_Stream` / `CH_EVENT`):
 When a configured GPIO edge ISR (Positive, Negative, or Both) fires on hardware:
-1. **Top-Half ISR Latches Timestamp**: The physical ISR (`fc_gpio_drdy_isr()` on E906, `gpio_set_irq_enabled_with_callback()` on RP2350) reads the hardware monotonic timer (`time_us_64() * 1000ULL` on RP2350, `rdcycle()` on E906) at the microsecond/nanosecond edge transition.
+1. **Top-Half ISR Latches Timestamp**: The physical ISR (the `hal::gpio_irq` CLIC line-100 handler on E906, `gpio_set_irq_enabled_with_callback()` on RP2350) reads the hardware monotonic timer (`time_us_64() * 1000ULL` on RP2350; `mtime` via `hal::Timer::get_time_ns()` on E906, plus `mcycle` for the stage counters of [SPEC-E906-HAL-05]) at the microsecond/nanosecond edge transition.
 2. **Generates Event TLP**: Constructs a 64-byte event TLP:
    - `Type`: `0x02` (`MemWrite` / `StreamTx`) or `0x10` (`DMA_Stream`)
    - `Channel`: `0x08` (`ASP_CHANNEL_GPIO_BRIDGE`)

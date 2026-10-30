@@ -43,12 +43,26 @@ namespace IcmRegs {
     constexpr uint8_t INT_CONFIG     = 0x14;
     constexpr uint8_t TEMP_DATA1     = 0x1D;
     constexpr uint8_t ACCEL_DATA_X1  = 0x1F;
+    constexpr uint8_t INT_STATUS     = 0x2D;
     constexpr uint8_t PWR_MGMT0      = 0x4E;
     constexpr uint8_t GYRO_CONFIG0   = 0x4F;
     constexpr uint8_t ACCEL_CONFIG0  = 0x50;
+    constexpr uint8_t INT_CONFIG0    = 0x63;
+    constexpr uint8_t INT_CONFIG1    = 0x64;
+    constexpr uint8_t INT_SOURCE0    = 0x65;
     constexpr uint8_t WHO_AM_I       = 0x75;
     constexpr uint8_t WHO_AM_I_VAL   = 0x47;
+
+    // GYRO_CONFIG0 / ACCEL_CONFIG0 bits [3:0]
+    constexpr uint8_t ODR_8KHZ       = 0x03;
+    constexpr uint8_t ODR_1KHZ       = 0x06;
 }
+
+// @impl [SPEC-IMU-01] docs/DESIGN_SPECIFICATION.md#spec-imu-01
+struct Icm42688pConfig {
+    uint32_t spi_hz{24'000'000};
+    uint8_t  odr{IcmRegs::ODR_8KHZ};   // same rate for gyro and accel
+};
 
 constexpr uint8_t TLP_TAG_IMU = 0x01;
 
@@ -56,7 +70,7 @@ constexpr uint8_t TLP_TAG_IMU = 0x01;
 // @status Complete
 class Icm42688p : public IImuDriver {
 public:
-    explicit Icm42688p(hal::ISpi& spi_driver) : spi_(spi_driver) {}
+    explicit Icm42688p(hal::ISpi& spi_driver, Icm42688pConfig cfg = {}) : spi_(spi_driver), cfg_(cfg) {}
 
     /*
      * C++20 Coroutine Async Register Read (Zero Heap, Non-Blocking)
@@ -76,9 +90,10 @@ public:
     /*
      * C++20 Coroutine Async Lifecycle Initialization [SPEC-IMU-01]
      */
+    // Fails on a wrong WHO_AM_I or on any register that does not read back as written.
     coro::Task<bool> init_async() override {
         hal::SpiConfig config;
-        config.frequency_hz = 24'000'000; // 24 MHz Max SPI clock
+        config.frequency_hz = cfg_.spi_hz;
         config.mode = hal::SpiMode::Mode0;
         config.use_dma = true;
 
@@ -86,19 +101,27 @@ public:
             co_return false;
         }
 
-        // Verify WHO_AM_I asynchronously
-        uint8_t who_am_i = co_await read_reg_async(IcmRegs::WHO_AM_I);
-        (void)who_am_i;
+        if (co_await read_reg_async(IcmRegs::WHO_AM_I) != IcmRegs::WHO_AM_I_VAL) {
+            co_return false;
+        }
 
-        // Configure Power: Low-Noise Accelerometer + Low-Noise Gyroscope (0x0F)
-        co_await write_reg_async(IcmRegs::PWR_MGMT0, 0x0F);
-
-        // Gyro: ±2000 dps, 8 kHz ODR (0x03)
-        co_await write_reg_async(IcmRegs::GYRO_CONFIG0, 0x03);
-
-        // Accel: ±16g, 8 kHz ODR (0x03)
-        co_await write_reg_async(IcmRegs::ACCEL_CONFIG0, 0x03);
-
+        // DRDY on INT1, cleared by the data read ([SPEC-IMU-01]); power last (200 us rule).
+        const uint8_t odr = static_cast<uint8_t>(cfg_.odr & 0x0F);
+        const std::array<std::array<uint8_t, 2>, 7> writes{{
+            {IcmRegs::INT_CONFIG,    0x03},   // INT1 pulsed, push-pull, active high
+            {IcmRegs::INT_CONFIG0,   0x20},   // UI_DRDY cleared on sensor register read
+            {IcmRegs::INT_CONFIG1,   0x00},   // 100 us pulse, INT_ASYNC_RESET = 0
+            {IcmRegs::INT_SOURCE0,   0x08},   // UI_DRDY -> INT1
+            {IcmRegs::GYRO_CONFIG0,  odr},    // +-2000 dps
+            {IcmRegs::ACCEL_CONFIG0, odr},    // +-16 g
+            {IcmRegs::PWR_MGMT0,     0x0F},   // gyro + accel low noise
+        }};
+        for (const auto& w : writes) {
+            co_await write_reg_async(w[0], w[1]);
+            if (co_await read_reg_async(w[0]) != w[1]) {
+                co_return false;
+            }
+        }
         co_return true;
     }
 
@@ -217,6 +240,7 @@ public:
 
 private:
     hal::ISpi& spi_;
+    Icm42688pConfig cfg_;
 };
 
 } // namespace applib::drivers::imu
@@ -224,6 +248,7 @@ private:
 namespace abstractx::drivers::imu {
     using applib::drivers::imu::Icm42688p;
     using applib::drivers::imu::TLP_TAG_IMU;
+    using applib::drivers::imu::Icm42688pConfig;
     namespace IcmRegs = applib::drivers::imu::IcmRegs;
 } // namespace abstractx::drivers::imu
 

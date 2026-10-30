@@ -33,7 +33,7 @@ add_executable(e906_freertos_app
     ${CMAKE_CURRENT_SOURCE_DIR}/../e906_bench/bench.cpp
 )
 target_include_directories(e906_freertos_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../e906_bench)
-target_link_libraries(e906_freertos_app PRIVATE freertos_e906 abstractx_core abstractx_target_e906 etl)
+target_link_libraries(e906_freertos_app PRIVATE freertos_e906 abstractx_core abstractx_applib abstractx_target_e906 etl)
 target_link_options(e906_freertos_app PRIVATE
     "-T${E906_LDSCRIPT}"
     -Wl,-Map=e906_freertos_app.map

@@ -1,0 +1,43 @@
+{
+ "check": "board:e906:imu-drdy",
+ "time": "1970-01-04T02:34:25",
+ "uname": "7.1.0",
+ "count": 10000,
+ "imu": {
+  "platform": "baremetal",
+  "imu_init": "ok",
+  "samples": 10000,
+  "imu_timeout": 0,
+  "edges": 10000,
+  "overruns": 0,
+  "busy_drops": 0,
+  "dma_ok": 10000,
+  "dma_failed": 0,
+  "ingress_dropped": 0,
+  "seq_gaps": 0,
+  "period_ns_min": 971500,
+  "period_ns_avg": 991330,
+  "period_ns_max": 1011958,
+  "edge_to_dma_cycles_min": 1165,
+  "edge_to_dma_cycles_avg": 1172,
+  "edge_to_dma_cycles_max": 1362,
+  "dma_cycles_min": 2591,
+  "dma_cycles_avg": 2844,
+  "dma_cycles_max": 3708,
+  "edge_to_wake_ns_min": 30541,
+  "edge_to_wake_ns_avg": 31000,
+  "edge_to_wake_ns_max": 45042,
+  "last_raw": "ff4c003bffcd0825ffe7fff10005",
+  "dropped_resumes": 0,
+  "coro_pool_high_water": 1152,
+  "end": 1
+ },
+ "imu_ns": {
+  "edge_to_dma_ns_min": 5825.0,
+  "edge_to_dma_ns_avg": 5860.0,
+  "edge_to_dma_ns_max": 6810.0,
+  "dma_ns_min": 12955.0,
+  "dma_ns_avg": 14220.0,
+  "dma_ns_max": 18540.0
+ }
+}

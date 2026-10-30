@@ -5,12 +5,13 @@
 bench_e906_runtime.py - Collect the E906 runtime benchmark (stdlib only, runs on the board).
 
   python3 bench_e906_runtime.py [--n 1000] [--json out.json]
+  python3 bench_e906_runtime.py --imu 2000 [--json out.json]   # IMU DRDY auto-DMA run only
 
 Talks to endpoint 1030 'abstractx-bench' served by e906_bench_app (bare metal) or
 e906_freertos_app (FreeRTOS); both run the same benchmark code ([SPEC-E906-BENCH-*]).
 Exit 0 ok, 1 a check failed, 2 could not run (endpoint not announced).
 """
-# @impl [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-04] apps/e906_bench/SPECIFICATION.md
+# @impl [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-04] [SPEC-E906-BENCH-05] apps/e906_bench/SPECIFICATION.md
 
 import json
 import os
@@ -112,8 +113,8 @@ def run_echo(link: BenchLink, size: int, n: int) -> dict:
     return out
 
 
-def run_suite(link: BenchLink, timeout_s: float = 30.0) -> dict:
-    link.send(b"R")
+def run_suite(link: BenchLink, timeout_s: float = 30.0, request: bytes = b"R") -> dict:
+    link.send(request)
     msgs, deadline = [], time.monotonic() + timeout_s
     while time.monotonic() < deadline and not report_complete(msgs):
         m = link.recv(0.5)
@@ -125,13 +126,23 @@ def run_suite(link: BenchLink, timeout_s: float = 30.0) -> dict:
     return rep
 
 
+def run_imu(link: BenchLink, count: int) -> dict:
+    """[SPEC-E906-BENCH-05] DRDY auto-DMA run; the firmware stops itself on a timeout."""
+    rep = run_suite(link, timeout_s=count / 1000.0 + 10.0, request=b"A" + count.to_bytes(4, "little"))
+    if rep.get("imu_init") != "ok" or rep.get("imu_timeout") or rep.get("samples") != count:
+        rep.setdefault("error", "imu run incomplete")
+    return rep
+
+
 def main(argv) -> int:
-    n, json_out = 1000, None
+    n, json_out, imu = 1000, None, 0
     args = list(argv)
     while args:
         a = args.pop(0)
         if a == "--n" and args:
             n = int(args.pop(0))
+        elif a == "--imu" and args:
+            imu = int(args.pop(0))
         elif a == "--json" and args:
             json_out = args.pop(0)
         else:
@@ -146,6 +157,19 @@ def main(argv) -> int:
     except (OSError, RuntimeError) as e:
         print(f"could not run: {e} (is e906_bench_app or e906_freertos_app loaded?)")
         return 2
+    if imu:
+        try:
+            link.drain()
+            rep = run_imu(link, imu)
+        finally:
+            link.close()
+        result = {"check": "board:e906:imu-drdy", "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                  "uname": os.uname().release, "count": imu, "imu": rep, "imu_ns": cycles_to_ns(rep)}
+        print(json.dumps(result, indent=1))
+        if json_out:
+            with open(json_out, "w") as f:
+                json.dump(result, f, indent=1)
+        return 1 if "error" in rep or rep.get("dropped_resumes", 0) != 0 else 0
     try:
         link.drain()
         echo = [run_echo(link, s, n) for s in SIZES]
