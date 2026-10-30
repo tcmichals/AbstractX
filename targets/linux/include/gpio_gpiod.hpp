@@ -18,6 +18,7 @@ struct gpiod_edge_event_buffer;
 #endif
 
 #include <cstdint>
+#include <ctime>
 #include <functional>
 #include <atomic>
 #include "eventfd.hpp"
@@ -32,8 +33,12 @@ public:
         close();
     }
 
+    // @impl [SPEC-LINUX-GPIO-01] targets/linux/SPECIFICATION.md
+    // false: the chip exists but the line could not be requested. Simulation only without
+    // libgpiod or without the chip.
     bool open_pin_interrupt(const char* chip_path, unsigned int line_offset, bool rising = true, bool falling = false) noexcept {
         close();
+        line_offset_ = line_offset;
 
 #ifdef ABSTRACTX_HAVE_LIBGPIOD
         if (!chip_path || chip_path[0] == '\0') {
@@ -83,8 +88,9 @@ public:
         ::gpiod_line_config_free(line_cfg);
 
         if (!request_) {
-            sim_eventfd_ = EventFd(true);
-            return true;
+            ::gpiod_chip_close(chip_);
+            chip_ = nullptr;
+            return false;
         }
 
         event_buf_ = ::gpiod_edge_event_buffer_new(16);
@@ -145,11 +151,10 @@ public:
         }
 #endif
         if (sim_eventfd_.is_valid()) {
-            uint64_t val = sim_eventfd_.drain();
-            if (val > 0) {
-                cb(3, 0);
-                return 1;
-            }
+            // One trigger per simulated edge, stamped on the same clock as gpiod events.
+            const uint64_t val = sim_eventfd_.drain();
+            for (uint64_t i = 0; i < val; ++i) cb(line_offset_, monotonic_ns());
+            return static_cast<int>(val);
         }
         return 0;
     }
@@ -161,6 +166,13 @@ public:
     }
 
 private:
+    static uint64_t monotonic_ns() noexcept {
+        struct timespec ts{};
+        ::clock_gettime(CLOCK_MONOTONIC, &ts);
+        return static_cast<uint64_t>(ts.tv_sec) * 1'000'000'000ULL + static_cast<uint64_t>(ts.tv_nsec);
+    }
+
+    unsigned int                    line_offset_{0};
     struct gpiod_chip*              chip_{nullptr};
     struct gpiod_line_request*      request_{nullptr};
     struct gpiod_edge_event_buffer* event_buf_{nullptr};

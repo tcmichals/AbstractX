@@ -234,17 +234,20 @@ private:
         if (setup_.on_rx_pushed.is_valid()) setup_.on_rx_pushed();
     }
 
+    // Copy, release, then publish ([SPEC-ARCH-13] 4): the consumer may react on another thread.
     void auto_done(AutoState& a, const IoResult& r) noexcept {
-        if (r.ok) {
-            const size_t got = r.transferred < kAutoXferMax ? r.transferred : kAutoXferMax;
-            const size_t payload = got > a.cmd_len ? got - a.cmd_len : 0;
-            Tlp64 tlp = Tlp64::make_stream_tx(static_cast<Channel>(a.snap.tlp_channel), 0,
-                                              std::span<const uint8_t>(a.rx + a.cmd_len, payload),
-                                              a.snap.tlp_tag);
-            tlp.wire.timestamp_ns = a.ts_ns;
-            emit(tlp);
+        if (!r.ok) {
+            a.busy.store(false, std::memory_order_release);
+            return;
         }
-        a.busy.store(false, std::memory_order_release);
+        const size_t got = r.transferred < kAutoXferMax ? r.transferred : kAutoXferMax;
+        const size_t payload = got > a.cmd_len ? got - a.cmd_len : 0;
+        Tlp64 tlp = Tlp64::make_stream_tx(static_cast<Channel>(a.snap.tlp_channel), 0,
+                                          std::span<const uint8_t>(a.rx + a.cmd_len, payload),
+                                          a.snap.tlp_tag);
+        tlp.wire.timestamp_ns = a.ts_ns;
+        a.busy.store(false, std::memory_order_release);   // a.rx may be reused from here on
+        emit(tlp);
     }
 
     BridgeSlot* alloc_slot() noexcept {

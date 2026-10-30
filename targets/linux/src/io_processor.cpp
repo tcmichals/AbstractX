@@ -14,9 +14,11 @@
 #include "spi_worker.hpp"
 #include "i2c_worker.hpp"
 #include "gpio_gpiod.hpp"
+#include "linux_io.hpp"
 
 #include <array>
 #include <atomic>
+#include <cstdio>
 
 namespace abstractx::target {
 
@@ -31,25 +33,48 @@ public:
 
     void attach(hal::IoEngine& engine) noexcept { engine_ = &engine; }
 
+    void set_gpiochip(const char* path) noexcept { gpiochip_ = (path && path[0]) ? path : "/dev/gpiochip0"; }
+
+    // @impl [SPEC-LINUX-GPIO-01] targets/linux/SPECIFICATION.md
     bool init_channel(const hal::AutoChannelConfig& ch) noexcept override {
         if (!rx_registered_ && reactor_.is_valid()) {
             reactor_.add_fd_u64(rx_doorbell_.fd(), EPOLLIN, FD_TAG_RX_DOORBELL);
             rx_registered_ = true;
         }
-        if (num_triggers_ < hal::IoEngine::kMaxChannels && ch.trigger_mode == hal::TriggerMode::GpioEdge) {
+        if (ch.trigger_mode == hal::TriggerMode::GpioEdge) {
+            if (num_triggers_ >= hal::IoEngine::kMaxChannels) return false;
             auto& t = triggers_[num_triggers_];
             t.pin = ch.trigger_pin;
-            t.monitor.open_pin_interrupt("/dev/gpiochip0", ch.trigger_pin, ch.trigger_rising, !ch.trigger_rising);
+            if (!t.monitor.open_pin_interrupt(gpiochip_, ch.trigger_pin, ch.trigger_rising, !ch.trigger_rising)) {
+                return false;   // a real chip refused the line: never fall back to simulation
+            }
             const int fd = t.monitor.get_fd();
             if (fd >= 0) reactor_.add_fd_u64(fd, EPOLLIN | EPOLLET, FD_TAG_TRIGGER_BASE + num_triggers_);
             ++num_triggers_;
         }
         if (ch.bus_type == hal::BusType::Spi) {
-            spi_.start("/dev/spidev0.0", ch.bus_speed_hz, 3);
+            if (!spi_.is_running()) start_spi(ch.bus_index, static_cast<uint8_t>(ch.cs_pin), ch.bus_speed_hz);
         } else if (ch.bus_type == hal::BusType::I2c) {
-            i2c_.start("/dev/i2c-1");
+            if (!i2c_.is_running()) i2c_.start("/dev/i2c-1");
         }
         return true;
+    }
+
+    bool trigger_simulated(uint32_t pin) const noexcept {
+        for (size_t i = 0; i < num_triggers_; ++i) {
+            if (triggers_[i].pin == pin) return triggers_[i].monitor.is_simulated();
+        }
+        return false;
+    }
+
+    bool simulate_edge(uint32_t pin) noexcept {
+        for (size_t i = 0; i < num_triggers_; ++i) {
+            if (triggers_[i].pin == pin && triggers_[i].monitor.is_simulated()) {
+                triggers_[i].monitor.trigger_simulated_edge();
+                return true;
+            }
+        }
+        return false;
     }
 
     // Bridge transfers may arrive before any channel uses the bus: start workers on demand.
@@ -60,7 +85,7 @@ public:
         j->done = x.done;
         bool ok = false;
         if (x.bus == hal::BusType::Spi) {
-            if (!spi_.is_running()) spi_.start("/dev/spidev0.0", 10'000'000, 3);
+            if (!spi_.is_running()) start_spi(x.bus_index, x.device, 10'000'000);
             hal::SpiRequest req{};
             req.tx_data = x.tx;
             req.rx_data = x.rx;
@@ -112,6 +137,13 @@ public:
     EventFd& rx_doorbell() noexcept { return rx_doorbell_; }
 
 private:
+    // /dev/spidev<bus>.<cs> ([SPEC-LINUX-GPIO-01]); spidev_path_ outlives the worker's open().
+    void start_spi(uint8_t bus, uint8_t cs, uint32_t hz) noexcept {
+        std::snprintf(spidev_path_, sizeof(spidev_path_), "/dev/spidev%u.%u",
+                      static_cast<unsigned>(bus), static_cast<unsigned>(cs));
+        spi_.start(spidev_path_, hz ? hz : 10'000'000, 3);
+    }
+
     struct Job {
         LinuxIoBackend* owner{nullptr};
         std::atomic<bool> in_use{false};
@@ -155,6 +187,8 @@ private:
     static constexpr uint64_t FD_TAG_TRIGGER_BASE = 10;
 
     hal::IoEngine* engine_{nullptr};
+    const char* gpiochip_{"/dev/gpiochip0"};
+    char spidev_path_[32]{};
     EpollReactor reactor_{};
     EventFd rx_doorbell_;
     bool rx_registered_{false};
@@ -172,6 +206,10 @@ struct LinuxIoProcessor {
 };
 
 static LinuxIoProcessor g_linux_io;
+
+void set_linux_gpiochip(const char* path) noexcept { g_linux_io.backend.set_gpiochip(path); }
+bool linux_trigger_simulated(uint32_t pin) noexcept { return g_linux_io.backend.trigger_simulated(pin); }
+bool linux_simulate_edge(uint32_t pin) noexcept { return g_linux_io.backend.simulate_edge(pin); }
 
 } // namespace abstractx::target
 

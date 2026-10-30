@@ -184,6 +184,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
      transfer or reuses its buffers. Config writes (`DMA_CFG`, `set_auto_mode`) and the trigger's
      snapshot are taken under `InterruptGuard`. Bridge transfers use a fixed slot pool; a full pool
      answers `ASP_STATUS_QUEUE_FULL`. Each completion is matched to the slot or channel that started it.
+     A completed auto read is copied into its TLP, then the channel is released (busy cleared), and only
+     then is the TLP published (`emit`, which wakes the consumer): a consumer on another thread or core
+     that reacts to the sample must find the channel free for the next edge (2026-10-30: publishing
+     first made `sim/test_linux_drdy_auto` count the next edge as an overrun under ASan timing).
   5. **No blocking**: the engine never waits for a transfer. A back end whose bus only has a
      synchronous primitive may complete inside `start_transfer()`; that gap is listed in the target
      spec, not hidden.

@@ -18,6 +18,8 @@ add_abstractx_sim(test_tlp_msg              test_tlp_msg.cpp)
 target_link_libraries(test_tlp_msg PRIVATE abstractx_drivers)
 add_abstractx_sim(test_io_processor        test_io_processor.cpp)
 add_abstractx_sim(test_io_engine           test_io_engine.cpp)
+# [SPEC-LINUX-GPIO-01] GPIO-edge auto channel on SITL
+add_abstractx_sim(test_linux_drdy_auto     test_linux_drdy_auto.cpp)
 # [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results
 add_abstractx_sim(test_linux_hal_completion test_linux_hal_completion.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)

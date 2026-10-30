@@ -148,6 +148,35 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
 * **Epoll Integration**: Line request file descriptor (`gpiod_line_request_get_fd()`) is added to `epoll`.
 * **Nanosecond Timestamps**: On trigger, extracts `gpiod_edge_event_get_timestamp_ns()` for hardware-level nanosecond correlation into `Tlp64::timestamp_ns`.
 
+### `[SPEC-LINUX-GPIO-01]` GPIO-Edge Auto Channel: Which Line, Which spidev, No Silent Simulation
+* **Why**: the Linux A55 column of the sensor latency comparison (`TODO.md` 2a) runs the same
+  channel as the E906 bench `A` ([SPEC-E906-BENCH-05]): DRDY edge -> SPI read -> TLP in the
+  ingress ring. Until 2026-10-30 the backend opened `/dev/gpiochip0` and `/dev/spidev0.0` whatever
+  the channel said, fell back to simulation silently when the line could not be requested, and
+  stamped simulated edges with time 0.
+* **Requirement**: a `GpioEdge` channel requests line `trigger_pin` on the GPIO chip set with
+  `abstractx::target::set_linux_gpiochip(path)` (default `/dev/gpiochip0`). On the Cubie A5E the
+  pin is the chip's line offset (PI8 = 264 on the main PIO chip, the same `bank * 32 + n` numbering
+  the E906 uses, [SPEC-E906-IRQ-07]).
+* **Requirement**: the SPI device is `/dev/spidev<bus_index>.<cs_pin>` of the first SPI channel
+  (a bridge transfer that arrives first uses `/dev/spidev<bus_index>.<device>`). One `SpiWorker`
+  serves the backend.
+* **Requirement**: when the chip opens but the line request fails (pin owned by another consumer,
+  bad offset), `init_channel` returns false and `configure()` fails. Simulation is used only when
+  libgpiod is not built in or the chip does not exist (host / SITL), and `linux_trigger_simulated()`
+  says so.
+* **Requirement**: edge timestamps are `CLOCK_MONOTONIC` ns: the kernel's
+  `gpiod_edge_event_get_timestamp_ns()` on hardware (monotonic by default), `clock_gettime` for a
+  simulated edge. Each simulated edge (`linux_simulate_edge(pin)`, SITL only) is delivered as one
+  trigger, never merged with the next.
+* **Requirement**: the trigger runs `IoEngine::on_trigger` on the thread that calls `step()` /
+  `run()`; the SPI completion runs on the `SpiWorker` thread and only pushes the TLP and calls
+  `on_rx_pushed` ([SPEC-LINUX-HAL-01]).
+* **Not known yet**: on the Cubie A5E with kernel 7.1, bank-I edges latch `EINT_STA` but never
+  reach Linux's GIC ([SPEC-E906-IRQ-07] "Not yet known"), so the hardware column is blocked.
+* **Verified by**: `host-tests` (`sim/test_linux_drdy_auto.cpp`), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `targets/linux/src/io_processor.cpp`, `targets/linux/include/gpio_gpiod.hpp`, `targets/linux/include/linux_io.hpp`
+
 ### 2.5 Timer Subsystem (`CLOCK_MONOTONIC` & `timerfd`)
 * **Resolution**: Monotonic nanosecond hardware clock (`CLOCK_MONOTONIC`).
 * **Asynchronous Delays**: Non-blocking coroutine yields backed by `timerfd` integrated into `epoll`.
