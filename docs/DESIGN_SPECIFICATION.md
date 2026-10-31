@@ -743,6 +743,9 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 
 ### `[SPEC-TRACE-01]` barectf Common Trace Format (CTF) Event Specification & TLP Carrier
 * **Requirement**: System must emit binary CTF event packets conforming to `trace/barectf_config.yaml` (`magic = 0xC1FC1FC1`) capturing Coroutine lifecycles (`coro_state`), IMU bursts (`imu_sample`), GPS fixes (`gps_fix`), HAL driver I/O (`hal_io`), and TLP routing (`tlp_msg`), with individual CTF events directly transportable inside 64-byte `Tlp64` messages.
+* **Requirement (packet header, 2026-10-31)**: `CtfPacketHeader` is 40 bytes with natural (8-byte)
+  alignment on every target; decoders use `<IB3xIIQQII>`. The header MUST NOT carry an `alignas`
+  smaller than its natural alignment (ill-formed C++: GCC ignored `alignas(4)`, clang rejects it).
 * **Verified by**: `host-tests` (`sim/test_abstractx_runtime.cpp`), `sanitizer-gate`
 * **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `trace/barectf_config.yaml`
 

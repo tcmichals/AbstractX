@@ -254,7 +254,9 @@ void platform_launch_processing_domain(void (*entry)()) noexcept {
 // trap entry (startup.S) returns past it. noinline: the label must be unique.
 __attribute__((noinline)) void platform_idle_wait() noexcept {
     const interrupt_flags_t flags = disable_interrupts_save_flags();
-    if (!Dispatcher::has_pending_resumes() && !::hal::rpmsg_doorbell_pending()) {
+    // @impl [SPEC-E906-IRQ-04] targets/allwinner_e906/SPECIFICATION.md (kicks on + ring re-check before wfi)
+    if (!Dispatcher::has_pending_resumes() && !::hal::rpmsg_doorbell_pending() &&
+        !::hal::rpmsg_pending_before_sleep()) {
         g_e906_diag[0] = g_e906_diag[0] + 1u;
         g_e906_diag[4] = *reinterpret_cast<volatile uint32_t*>(::hal::clic::kIntBase + 4U * ::hal::clic::kLineMsgbox);
         g_e906_diag[5] = *reinterpret_cast<volatile uint32_t*>(::hal::clic::kIntBase + 4U * ::hal::clic::kLineTimer);

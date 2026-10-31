@@ -166,6 +166,9 @@ public:
 bool rpmsg_take_doorbell() noexcept;
 void rpmsg_arm_doorbell() noexcept;
 bool rpmsg_doorbell_pending() noexcept;
+// Before the core sleeps: kicks on, then true (and the doorbell flag set) if Linux posted a
+// descriptor while kicks were suppressed ([SPEC-E906-IRQ-04] rule 2). Interrupts masked.
+bool rpmsg_pending_before_sleep() noexcept;
 uint32_t rpmsg_doorbell_irqs() noexcept;
 
 #if !defined(__riscv)

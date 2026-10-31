@@ -501,7 +501,23 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   the vrings, `hal::rpmsg_arm_doorbell()` to unmask.
 * **Requirement**: no application or platform loop calls `poll()` unconditionally; RX vrings are
   read only after a doorbell (or when an awaiter's `await_ready` sees pending descriptors).
-* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
+* **Requirement (no lost wakeup, 2026-10-31)**: Linux kicks only while the RX vring's
+  `used->flags` has `VRING_USED_F_NO_NOTIFY` clear. Therefore:
+  1. `NO_NOTIFY` is set only inside `poll()` while it drains, and every return from `poll()`
+     leaves it clear. The RX awaiter never sets it.
+  2. Before a coroutine sleeps on the doorbell (`AsyncRxAwaiter::await_suspend`) and before the
+     core sleeps (`platform_idle_wait`, interrupts masked), the code clears `NO_NOTIFY` **and then**
+     re-checks the RX avail ring. A descriptor found there is handled as a doorbell (the awaiter
+     does not suspend; idle sets the doorbell flag and does not `wfi`), because Linux may have
+     posted it while kicks were suppressed.
+  3. An awaiter that withdraws after the re-check releases its wake slot only if the ISR has not
+     taken it; if the ISR already posted it, it stays suspended (one resume, never two).
+* **Rationale (2026-10-31)**: board probe: one echo per second waited for the 1 s status timer
+  (16 B: 7-11 stalls per 2000; 256 B: 35 per 2000, each ending on a status tick). The awaiter set
+  `NO_NOTIFY` in `await_resume`, `poll()` left it set when nothing was pending, and it was
+  cleared only in `await_suspend` *after* `await_ready` had checked the ring: a message posted
+  in that window got no kick and no check.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`, `sim/test_e906_rpmsg_flow_control.cpp`: post in the window, awaiter does not sleep), board bench (`bench_e906_runtime.py` echo max < 5 ms)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/src/platform.cpp`
 
 ### `[SPEC-E906-IRQ-05]` Runtime Status: Cycle Clock, Idle Time and Per-Line ISR Time
