@@ -3381,3 +3381,9 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Fix** ([SPEC-E906-HAL-01] "completion status", spec first): `handle_irq()` acts on `PEND1 & EN1`; it still clears every bit it read.
 * **Check that would have caught it** (`process-gap`): none existed; `dma.cpp` had no host test, and the board test only shows the symptom. Added `sim/test_e906_dma_irq.cpp` (real `dma.cpp` against a fake DMAC, board register values, 1000 rounds + 1000 cyclic packages): aborts on the old code (`g_done[11].calls == 0`, exit 134), passes on the new.
 * **Board after** (`hardware-fact`): `-k spi1` 20/20 PASS (unfixed HEAD 14/20 on the same board the same hour). Full self-test 26 passed, 7 failed, 2 skipped; vs `e906_selftest_stallfix_20261031.json` the only change is spi1 FAIL -> PASS (evidence `docs/verification/evidence/e906_selftest_dmamask_20261031.json`).
+
+## [2026-10-31] - Linux (PREEMPT_RT A55) vs E906 wake latency under load
+
+* **Measured** (`hardware-fact`): `cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2` on kernel 7.1.0 PREEMPT_RT: idle min/avg/max 13/18/29 µs; under `stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2` 14/29/122 µs. E906 `e906_bench_app` under the same load: soft IRQ → coroutine 2,886 avg / 3,709 max cycles (14.4 / 18.5 µs; idle-Linux run 14.2 / 18.1 µs); soft ISR max 907 cycles (229 avg); RPMsg echo max 3.9 / 7.4 / 8.6 ms at 16 / 256 / 496 B (Linux side). Evidence `linux_cyclictest_20261031.json`, `e906_bench_abstractx_linuxload_20261031.json`.
+* **Caveat**: different events (timer wake vs software interrupt); compare scale. cyclictest and stress-ng were added to Buildroot (cubie-a5e `024f02e`) and copied to the board (plus `libnuma.so.1`), not yet in a flashed image.
+* **Not explained**: the one 907-cycle soft-ISR outlier under load (SRAM-only code; possibly bus contention from the A55 DRAM traffic). Not investigated.

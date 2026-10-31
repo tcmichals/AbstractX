@@ -1,0 +1,11 @@
+{
+  "check": "board:a55:cyclictest",
+  "time": "2026-10-31",
+  "kernel": "7.1.0 #11 SMP PREEMPT_RT Wed Oct 28 20:09:33 CDT 2026",
+  "tool": "cyclictest V 2.80 (rt-tests, Buildroot bld.a5e, cubie-a5e 024f02e)",
+  "command": "cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q",
+  "load_command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2",
+  "units": "us",
+  "idle": {"loops": 60000, "min": 13, "avg": 18, "max": 29},
+  "load": {"loops": 60000, "min": 14, "avg": 29, "max": 122}
+}

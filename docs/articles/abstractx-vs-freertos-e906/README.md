@@ -167,6 +167,16 @@ Run on the Cubie A5E over VirtIO RPMsg endpoint 1030, 2026-10-31, both firmwares
    * **AbstractX**: the bench firmware does not count idle time (`"idle": "not-instrumented"`), so there is no measured idle load or wake count. By design it has no periodic tick: it sleeps in `wfi` until an interrupt or a deadline it armed. The 1 kHz profiler sample returns straight to `wfi`.
    * **FreeRTOS**: the idle hook woke **6,366 times** in 768.7 M cycles (3.84 s), and the core was outside the idle hook for **3.25 %** of that window. That is the busy share of the whole benchmark run (yield loop, soft-IRQ test, RPMsg traffic) plus the 1 kHz tick, **not** the cost of the tick alone, and the wake count includes every interrupt. An idle-only window is still to be measured.
 
+6. **Why offload at all: Linux vs the E906 under load.** On the same board, `cyclictest` on a PREEMPT_RT A55 core (SCHED_FIFO 95, 1 kHz, pinned to CPU 2, 60,000 wakes) against the E906 bench, both with and without `stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2` on the A55 cores:
+
+   | Event → handler code runs | Linux idle | Linux loaded |
+   | :--- | ---: | ---: |
+   | Linux, timer → SCHED_FIFO thread (avg / max) | 18 / 29 µs | 29 / **122 µs** |
+   | E906 AbstractX, interrupt → coroutine (avg / max) | 14.2 / 18.1 µs | 14.4 / **18.5 µs** |
+   | E906 RPMsg echo 496 B through Linux (median / max) | 328 / 370 µs | 362 µs / 8.6 ms |
+
+   The A55 cores are far faster per instruction, but under load their worst case grew 4x; the E906's did not move, because Linux load does not reach it. Anything that crosses into Linux (the echo) slows down with Linux. So time-critical I/O belongs on the E906, and only results should cross to Linux. The two rows measure different events (a timer wake on Linux, a software interrupt on the E906), so compare their scale, not single cycles. Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_cyclictest_20261031.json), [`e906_bench_abstractx_linuxload_20261031.json`](../../verification/evidence/e906_bench_abstractx_linuxload_20261031.json).
+
 ---
 
 ## 8. When to Use Each

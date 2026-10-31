@@ -213,6 +213,12 @@ write-ups in [Part 4](docs/articles/abstractx-vs-freertos-e906/README.md) and
 | IMU DRDY edge -> consumer coroutine (avg) | ~31 µs | not measured |
 | Dynamic heap | zero-heap rule; `e906_repl_app` still links `_malloc_r` (open, `TODO.md`) | same |
 
+**Linux vs the E906, same board, Linux under `stress-ng` load** (2026-10-31): a PREEMPT_RT A55
+timer → SCHED_FIFO thread wake went from 29 to **122 µs** worst case (`cyclictest`); the E906
+interrupt → coroutine wake stayed at **18.5 µs** worst case. Evidence:
+[`linux_cyclictest_20261031.json`](docs/verification/evidence/linux_cyclictest_20261031.json),
+[`e906_bench_abstractx_linuxload_20261031.json`](docs/verification/evidence/e906_bench_abstractx_linuxload_20261031.json).
+
 AbstractX also runs inside a FreeRTOS task with the same coroutines and drivers. On its own it
 takes the interrupt-to-coroutine path in ~150 fewer cycles and needs 11.7 KB less static RAM,
 which is why it is the setup for offload processors like the E906. The RPMsg echo, mostly Linux time,
