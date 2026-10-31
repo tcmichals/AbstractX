@@ -209,14 +209,14 @@ cmake -S . -B build_e906 -DABSTRACTX_TARGET=e906 \
 cmake --build build_e906 --target e906_bench_app e906_freertos_app -j
 
 # 2. Copy the bench tools to the board
-ssh root@192.168.3.3 mkdir -p /root/abstractx_board_bench
+ssh root@$ABSTRACTX_BOARD_IP mkdir -p /root/abstractx_board_bench
 scp -O apps/e906_repl_app/tests/board/bench_e906_runtime.py tools/e906_rpmsg_bridge.py tools/abstractx_wire.py \
-    root@192.168.3.3:/root/abstractx_board_bench/
+    root@$ABSTRACTX_BOARD_IP:/root/abstractx_board_bench/
 
 # 3. For each firmware: load it, then run the bench from Linux
 for app in e906_bench_app e906_freertos_app; do
-  scp -O build_e906/apps/$app/$app root@192.168.3.3:/lib/firmware/$app.elf
-  ssh root@192.168.3.3 "R=/sys/class/remoteproc/remoteproc0; echo stop > \$R/state; \
+  scp -O build_e906/apps/$app/$app root@$ABSTRACTX_BOARD_IP:/lib/firmware/$app.elf
+  ssh root@$ABSTRACTX_BOARD_IP "R=/sys/class/remoteproc/remoteproc0; echo stop > \$R/state; \
       echo $app.elf > \$R/firmware; echo start > \$R/state; sleep 2; \
       python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/$app.json"
 done

@@ -5,7 +5,7 @@
   "platform_arch": "Linux_Host_E906_PureSilicon",
   "has_fpga": false,
   "primary_transport": "Shared SRAM (0x40000000) + sun6i-msgbox (/dev/rpmsg0)",
-  "board_ip": "192.168.3.3",
+  "board_ip": "192.168.1.13",
   "host_ip": "192.168.3.1",
   "udp_port": 9870,
   "active_cores": [

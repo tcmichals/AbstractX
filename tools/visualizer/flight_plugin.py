@@ -20,7 +20,7 @@ Implemented in Python using Dear ImGui Bundle (imgui-bundle):
    - Solution update rate: 10.0 Hz (100 ms)
    - Hardware: u-blox NEO-M8N on UART3 (PI11/PI12) @ 115,200 Baud
 3. 1-Click Hardware Connection Engine:
-   - Connect Board (192.168.3.3) over SSH RPMsg bridge to UDP port 9870
+   - Connect Board ($ABSTRACTX_BOARD_IP) over SSH RPMsg bridge to UDP port 9870
    - Real-time connection status pill with live packet rate
 4. High-Rate Sensor Oscilloscope (ImPlot)
 """
@@ -53,7 +53,7 @@ import numpy as np
 from imgui_bundle import imgui, implot
 
 # ==============================================================================
-# Live Hardware Board Bridge Control (192.168.3.3)
+# Live Hardware Board Bridge Control
 # ==============================================================================
 
 g_bridge_proc = None
@@ -65,6 +65,10 @@ g_bridge_log = collections.deque(maxlen=200)
 # Studio's handler for '!CLI:...' lines from the sensor bridge ([SPEC-STUDIO-13]).
 g_cli_handler = None
 
+
+import sys as _sys, pathlib as _pl  # noqa: E401
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2] / "tools"))
+from board_target import board_ip as _board_ip, host_ip as _host_ip  # noqa: E402  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
 
 def _drain_bridge_output(proc) -> None:
     for line in proc.stdout:
@@ -96,7 +100,7 @@ def get_bridge_status() -> bool:
     global g_bridge_proc
     return g_bridge_proc is not None and g_bridge_proc.poll() is None
 
-def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.1", port: int = 9870):
+def start_board_bridge(board_ip: str = _board_ip(), host_ip: str | None = None, port: int = 9870):
     """
     # @impl [SPEC-USER-PLUGIN-01] tools/visualizer/flight_plugin.py
     Spawns background board_studio_bridge on Radxa Cubie A5E via SSH,
@@ -118,7 +122,7 @@ def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.
                         f"{'ok' if copy.returncode == 0 else copy.stderr.strip()}")
     cmd = [
         "ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-        f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
+        f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={host_ip or _host_ip(board_ip)} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
     ]
     try:
         g_bridge_proc = subprocess.Popen(
@@ -138,7 +142,7 @@ def start_board_bridge(board_ip: str = "192.168.3.3", host_ip: str = "192.168.3.
     try:
         g_trace_bridge_proc = subprocess.Popen(
             ["ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-             f"python3 -u /root/e906_rpmsg_bridge.py trace --udp-host {host_ip} --udp-port {port} --exit-on-stdin-eof"],
+             f"python3 -u /root/e906_rpmsg_bridge.py trace --udp-host {host_ip or _host_ip(board_ip)} --udp-port {port} --exit-on-stdin-eof"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         threading.Thread(target=_drain_bridge_output, args=(g_trace_bridge_proc,), daemon=True).start()
     except Exception as e:
@@ -470,8 +474,8 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         # ----------------------------------------------------------------------
         imgui.begin_group()
         is_streaming = get_bridge_status()
-        b_ip = getattr(state, "board_ip", "192.168.3.3")
-        h_ip = getattr(state, "host_ip", "192.168.3.1")
+        b_ip = getattr(state, "board_ip", _board_ip())
+        h_ip = getattr(state, "host_ip", None) or _host_ip(b_ip)
         u_port = getattr(state, "udp_port", 9870)
         if not is_streaming:
             imgui.push_style_color(imgui.Col_.button, imgui.ImVec4(0.1, 0.65, 0.25, 1.0))
@@ -500,7 +504,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.same_line(0, 15)
         # Connection status badge
         if is_streaming or state.packet_count > 0:
-            imgui.text_colored(imgui.ImVec4(0.1, 0.95, 0.3, 1.0), "● CONNECTED (192.168.3.3)")
+            imgui.text_colored(imgui.ImVec4(0.1, 0.95, 0.3, 1.0), f"● CONNECTED ({b_ip})")
         else:
             imgui.text_colored(imgui.ImVec4(0.95, 0.75, 0.1, 1.0), "○ DISCONNECTED / IDLE (:9870)")
 

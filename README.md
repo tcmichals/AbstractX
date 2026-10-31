@@ -228,7 +228,7 @@ measured 2026-10-31; the idle-only CPU load of either setup is not measured yet.
 > 🔬 **Reproduce on Hardware**:
 > ```bash
 > # Run automated benchmark suite directly on Radxa Cubie A5E:
-> ssh root@192.168.3.3 "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json abstractx.json"
+> ssh root@$ABSTRACTX_BOARD_IP "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json abstractx.json"
 > ```
 
 ---

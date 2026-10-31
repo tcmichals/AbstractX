@@ -11,7 +11,7 @@ source, timeline and CLI tabs and saves, into OUT_DIR:
   studio-live.mp4                       (the same frames as a video, if ffmpeg is installed)
 
 Stop any running Studio first (UDP port 9870 and the board's REPL are single-user).
-Usage: python3 tools/visualizer/capture_studio.py OUT_DIR [--board-ip 192.168.3.3]
+Usage: python3 tools/visualizer/capture_studio.py OUT_DIR [--board-ip IP]
 Frames are read from the OpenGL back buffer (glReadPixels via ctypes) just before each swap.
 """
 import argparse
@@ -38,11 +38,15 @@ GL_RGB, GL_UNSIGNED_BYTE, GL_PACK_ALIGNMENT, GL_BACK = 0x1907, 0x1401, 0x0D05, 0
 WARMUP_S = 25.0
 
 
+import sys as _sys, pathlib as _pl  # noqa: E401
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2] / "tools"))
+from board_target import board_ip as _board_ip, host_ip as _host_ip  # noqa: E402  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("out_dir")
-    ap.add_argument("--board-ip", default="192.168.3.3")
-    ap.add_argument("--host-ip", default="192.168.3.1")
+    ap.add_argument("--board-ip", default=_board_ip())
+    ap.add_argument("--host-ip", default=None)
     ap.add_argument("--port", type=int, default=9870)
     ap.add_argument("--size", default="1600x900")
     args = ap.parse_args()
@@ -52,7 +56,8 @@ def main() -> int:
 
     gl = ctypes.CDLL("libGL.so.1")
     st = studio.g_state
-    st.board_ip, st.host_ip, st.udp_port = args.board_ip, args.host_ip, args.port
+    st.board_ip, st.udp_port = args.board_ip, args.port
+    st.host_ip = args.host_ip or _host_ip(args.board_ip)
     st.cli_sender = fp.send_cli
     fp.g_cli_handler = st.on_cli_line
     fp.start_board_bridge(args.board_ip, args.host_ip, args.port)

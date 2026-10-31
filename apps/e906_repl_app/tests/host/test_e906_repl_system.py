@@ -28,6 +28,7 @@ from pathlib import Path
 ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists())
 sys.path.insert(0, str(ROOT / "tools"))
 from trac_lib import ledger  # noqa: E402
+from board_target import board_ip, require_a5e  # noqa: E402
 
 EMIT = """import abstractx
 b = bytearray(64)
@@ -59,10 +60,15 @@ def no_recipient(board):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--board-ip", default=os.environ.get("BOARD_IP", "192.168.3.3"))
+    ap.add_argument("--board-ip", default=board_ip(default=None))  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
     ap.add_argument("--packets", type=int, default=10)
     ap.add_argument("--restart-firmware", action="store_true", help="stop/start remoteproc first")
     a = ap.parse_args()
+    if not a.board_ip:
+        print("SKIP: set ABSTRACTX_BOARD_IP (or --board-ip); board tests are opt-in")
+        return 0
+    if a.restart_firmware:
+        require_a5e(a.board_ip)
 
     t0 = time.time()
     host = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

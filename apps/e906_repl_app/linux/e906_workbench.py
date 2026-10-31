@@ -39,7 +39,11 @@ EPT_INFO = struct.Struct("<32sII")
 RPMSG_CREATE_EPT_IOCTL = (1 << 30) | (EPT_INFO.size << 16) | (0xB5 << 8) | 0x1
 
 
-def exec_remote_cmd(cmd: str, target_ssh: Optional[str] = "root@192.168.3.3") -> str:
+import sys as _sys, pathlib as _pl  # noqa: E401
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[3] / "tools"))
+from board_target import board_ip as _board_ip  # noqa: E402  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+
+def exec_remote_cmd(cmd: str, target_ssh: Optional[str] = f"root@{_board_ip()}") -> str:
     if target_ssh:
         try:
             res = subprocess.run(
@@ -62,7 +66,7 @@ def exec_remote_cmd(cmd: str, target_ssh: Optional[str] = "root@192.168.3.3") ->
             return ""
 
 
-def send_code_to_e906(code: str, target_ssh: Optional[str] = "root@192.168.3.3") -> str:
+def send_code_to_e906(code: str, target_ssh: Optional[str] = f"root@{_board_ip()}") -> str:
     escaped = code.replace("'", "'\"'\"'")
     script = f"""python3 -c '
 import os, glob, select, time
@@ -330,7 +334,7 @@ def main():
     parser.add_argument("-c", "--command", help="Execute inline MicroPython command on E906 and exit")
     parser.add_argument("script", nargs="?", help="Execute Python script file on E906 and exit")
     parser.add_argument("--peek", help="Peek 32-bit MMIO/SRAM register on E906 (hex) and exit")
-    parser.add_argument("--target", default="root@192.168.3.3", help="Target SSH host (or 'local' if on Cubie A5E)")
+    parser.add_argument("--target", default=f"root@{_board_ip()}", help="Target SSH host (or 'local' if on Cubie A5E)")
     args = parser.parse_args()
 
     target_ssh = None if args.target.lower() == "local" else args.target

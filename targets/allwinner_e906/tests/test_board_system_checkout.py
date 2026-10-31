@@ -31,8 +31,9 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists()
 sys.path.insert(0, str(ROOT / "tools"))
 from trac_lib import ledger
 
-BOARD_IP_DEFAULT = os.environ.get("BOARD_IP", "192.168.3.3")
-HOST_IP_DEFAULT = os.environ.get("STUDIO_HOST_IP", "192.168.3.1")
+from board_target import board_ip  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+BOARD_IP_DEFAULT = board_ip(default=None)  # opt-in: no board unless ABSTRACTX_BOARD_IP is set
+HOST_IP_DEFAULT = os.environ.get("STUDIO_HOST_IP")  # else auto-detected from the board route
 UDP_PORT_DEFAULT = int(os.environ.get("STUDIO_PORT", 9870))
 
 GREEN = "\033[0;32m"
@@ -77,6 +78,9 @@ def main():
     parser.add_argument("--min-packets", type=int, default=15, help="Minimum valid 64B TLPs required to pass")
     parser.add_argument("--skip-telemetry", action="store_true", help="Skip UDP telemetry reception phase")
     args = parser.parse_args()
+    if not args.board_ip:
+        print("SKIP: set ABSTRACTX_BOARD_IP (or --board-ip); board tests are opt-in")
+        return 0
 
     host_ip = args.host_ip or auto_detect_host_ip(args.board_ip)
     start_total_time = time.time()
@@ -216,7 +220,12 @@ def main():
                         break
 
             udp_sock.close()
-            bridge_stdout, _ = bridge_proc.communicate(timeout=4.0)
+            # ssh + python start-up on the board add seconds over Wi-Fi: wait the stream time plus margin
+            try:
+                bridge_stdout, _ = bridge_proc.communicate(timeout=args.duration + 10.0)
+            except subprocess.TimeoutExpired:
+                bridge_proc.kill()
+                bridge_stdout, _ = bridge_proc.communicate()
 
             total_received = len(packets)
             valid_64b = sum(1 for _, p in packets if len(p) == 64 and p[0] == 0x10)

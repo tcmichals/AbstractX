@@ -506,7 +506,7 @@ dtc -@ -I dts -O dtb -o cubie-a5e-flight-stack-e906.dtbo cubie-a5e-flight-stack-
 Transfer the compiled `.dtbo` files to the board's `/boot/` directory using legacy SCP mode (`-O`):
 
 ```bash
-scp -O cubie-a5e-flight-stack-linux.dtbo cubie-a5e-flight-stack-e906.dtbo root@192.168.3.3:/boot/
+scp -O cubie-a5e-flight-stack-linux.dtbo cubie-a5e-flight-stack-e906.dtbo root@$ABSTRACTX_BOARD_IP:/boot/
 ```
 
 ---
@@ -520,8 +520,8 @@ Use this profile when writing Python test scripts, scanning I2C with `i2cdetect 
 
 To activate from the host via SSH:
 ```bash
-ssh root@192.168.3.3 "echo 'dtoverlay=cubie-a5e-flight-stack-linux' > /boot/config.txt"
-ssh root@192.168.3.3 "sync && reboot"
+ssh root@$ABSTRACTX_BOARD_IP "echo 'dtoverlay=cubie-a5e-flight-stack-linux' > /boot/config.txt"
+ssh root@$ABSTRACTX_BOARD_IP "sync && reboot"
 ```
 
 Or edit `/boot/config.txt` directly:
@@ -535,8 +535,8 @@ Use this profile when running the XuanTie E906 bare-metal C++20 flight loop or i
 
 To activate from the host via SSH:
 ```bash
-ssh root@192.168.3.3 "echo 'dtoverlay=cubie-a5e-flight-stack-e906' > /boot/config.txt"
-ssh root@192.168.3.3 "sync && reboot"
+ssh root@$ABSTRACTX_BOARD_IP "echo 'dtoverlay=cubie-a5e-flight-stack-e906' > /boot/config.txt"
+ssh root@$ABSTRACTX_BOARD_IP "sync && reboot"
 ```
 
 Or edit `/boot/config.txt` directly:
@@ -670,7 +670,7 @@ flowchart LR
     subgraph PC["PC (192.168.3.1)"]
         STUDIO["abstractx_studio.py<br/>UDP listener :9870"]
     end
-    subgraph A5E["Cubie A5E Linux (192.168.3.3) - /root"]
+    subgraph A5E["Cubie A5E Linux ($ABSTRACTX_BOARD_IP) - /root"]
         BRIDGE["board_studio_bridge.py"]
         RUNNER["run_e906_script.py"]
     end
@@ -687,13 +687,13 @@ flowchart LR
 
 1. **Board profile**: `/boot/config.txt` must load `cubie-a5e-flight-stack-e906` (§6.3),
    and `cat /sys/class/remoteproc/remoteproc0/state` must print `running`.
-2. **Network**: PC on `192.168.3.1`, board on `192.168.3.3` (the defaults). Other
+2. **Network**: the board address comes from `ABSTRACTX_BOARD_IP` (default in `tools/board_target.py`: the A5E on Wi-Fi, `192.168.1.13`, since 2026-10-31; Ethernet `192.168.3.3` is now the Cubie A7A). Other
    addresses work through `--board-ip` / `--host-ip`.
 3. **Passwordless SSH** (Studio uses `ssh root@<board>` with no prompt;
    auto-detect uses `BatchMode=yes`):
    ```bash
-   ssh-copy-id root@192.168.3.3
-   ssh -o BatchMode=yes root@192.168.3.3 true && echo ssh-ok
+   ssh-copy-id root@$ABSTRACTX_BOARD_IP
+   ssh -o BatchMode=yes root@$ABSTRACTX_BOARD_IP true && echo ssh-ok
    ```
 4. **Copy the Linux-side scripts to `/root` on the board** (Studio and the board tests
    expect exactly these paths). From the repository root:
@@ -704,7 +704,7 @@ flowchart LR
           tools/board_studio_bridge.py \
           tools/e906_rpmsg_bridge.py \
           apps/e906_repl_app/sensor_contract.py \
-          root@192.168.3.3:/root/
+          root@$ABSTRACTX_BOARD_IP:/root/
    ```
    Re-copy after changing any of them; the board does not run them from the repo.
 5. **PC Python dependencies** for Studio:
@@ -720,7 +720,7 @@ From the repository root on the PC:
 # Start Studio and the board bridge in one step
 python3 tools/visualizer/abstractx_studio.py --auto-connect
 
-# Or start Studio, then use the menu bar: "▶ Connect (192.168.3.3)"
+# Or start Studio, then use the menu bar: "▶ Connect"
 python3 tools/visualizer/abstractx_studio.py
 
 # Different addresses or port
@@ -744,7 +744,7 @@ board, or through SSH from the PC:
 
 ```bash
 # What Studio's Connect runs (STREAM_DURATION=0 streams until Ctrl-C)
-ssh root@192.168.3.3 \
+ssh root@$ABSTRACTX_BOARD_IP \
   "STUDIO_HOST_IP=192.168.3.1 STUDIO_PORT=9870 STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
 ```
 
@@ -760,7 +760,7 @@ Other Linux-side tools:
 | `python3 e906_rpmsg_bridge.py tlp --udp-host 192.168.3.1` | TLP endpoint (1024) to UDP :9871; UDP :9872 back to the E906 |
 
 `apps/e906_repl_app/linux/e906_workbench.py` runs on the **PC** and reaches the board over
-SSH (`--target root@192.168.3.3` is the default; `--target local` if run on the board):
+SSH (`--target root@$ABSTRACTX_BOARD_IP` is the default; `--target local` if run on the board):
 
 ```bash
 python3 apps/e906_repl_app/linux/e906_workbench.py                    # terminal workbench: REPL, trace, HW monitor
@@ -780,10 +780,10 @@ CTF trace decoding, the `abstractx` API, compass, GPS, watchdog, and the RPMsg m
 rules from the engineering log ([SPEC-E906-REPL-15], skill `e906-board-selftest`):
 
 ```bash
-ssh root@192.168.3.3 mkdir -p /root/abstractx_board_tests
+ssh root@$ABSTRACTX_BOARD_IP mkdir -p /root/abstractx_board_tests
 scp -O tests/board/*.py tools/abstractx_wire.py tools/e906_rpmsg_bridge.py \
-       apps/e906_repl_app/raw_sensor_streamer.py root@192.168.3.3:/root/abstractx_board_tests/
-ssh root@192.168.3.3 "cd /root/abstractx_board_tests && python3 run_board_tests.py --json /tmp/e906_selftest.json"
+       apps/e906_repl_app/raw_sensor_streamer.py root@$ABSTRACTX_BOARD_IP:/root/abstractx_board_tests/
+ssh root@$ABSTRACTX_BOARD_IP "cd /root/abstractx_board_tests && python3 run_board_tests.py --json /tmp/e906_selftest.json"
 ```
 
 Exit 0 = all pass, 1 = a failure, 2 = not an E906 board. `-k <name>` runs one test.
@@ -800,7 +800,7 @@ python3 tools/test_e906_sensors_board.py        # flight_sensors.py on the E906
 
 | Symptom | Check |
 |---|---|
-| Connect does nothing, no `◌ Bridge Up` | `ssh -o BatchMode=yes root@192.168.3.3 true` fails: set up SSH keys (§8.1 step 3) |
+| Connect does nothing, no `◌ Bridge Up` | `ssh -o BatchMode=yes root@$ABSTRACTX_BOARD_IP true` fails: set up SSH keys (§8.1 step 3) |
 | `python3: can't open file '/root/board_studio_bridge.py'` | Scripts not copied (§8.1 step 4) |
 | `Error: /dev/rpmsg_ctrl0 not found. Is remoteproc running?` | Wrong overlay or firmware not started (§6.4 step 3) |
 | Bridge prints `[BRIDGE] Forwarded …` but Studio shows nothing | `STUDIO_HOST_IP` is not the PC's address on the board network, or a PC firewall blocks UDP 9870 |
@@ -816,14 +816,14 @@ which exit on their own and print plain text:
 
 ```bash
 # Is the E906 up?
-ssh root@192.168.3.3 cat /sys/class/remoteproc/remoteproc0/state            # expect: running
+ssh root@$ABSTRACTX_BOARD_IP cat /sys/class/remoteproc/remoteproc0/state            # expect: running
 
 # Run MicroPython on the E906 (script must be on the board)
 python3 apps/e906_repl_app/linux/e906_workbench.py -c "import abstractx; print(abstractx.alive())"
-ssh root@192.168.3.3 "python3 /root/run_e906_script.py /root/flight_sensors.py 10"
+ssh root@$ABSTRACTX_BOARD_IP "python3 /root/run_e906_script.py /root/flight_sensors.py 10"
 
 # Bounded bridge run (10 s) instead of the endless Studio stream
-ssh root@192.168.3.3 "STUDIO_HOST_IP=192.168.3.1 STREAM_DURATION=10 python3 -u /root/board_studio_bridge.py"
+ssh root@$ABSTRACTX_BOARD_IP "STUDIO_HOST_IP=192.168.3.1 STREAM_DURATION=10 python3 -u /root/board_studio_bridge.py"
 ```
 
 Rules for agents working on this app:

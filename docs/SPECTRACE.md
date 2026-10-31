@@ -277,6 +277,14 @@ where its evidence goes. SpecTrace connects them: requirement → code
   change review prints the same warning for every touched requirement.
 * **Requirement**: a host test never touches hardware unless asked: tests that reach a board
   run only when `ABSTRACTX_BOARD_IP` is set, and skip otherwise.
+* **Requirement (one board address, right board, 2026-10-31)**: host tools and tests take the
+  board address only from `ABSTRACTX_BOARD_IP` (no hard-coded IP default in tests; GUI tools
+  may fall back to `tools/board_target.py` `DEFAULT_BOARD_IP`). Anything that changes board state
+  (loads firmware, writes `/lib/firmware`, drives remoteproc) first checks that
+  `/proc/device-tree/model` contains `Cubie A5E` and stops otherwise.
+* **Rationale (2026-10-31)**: the A5E moved from Ethernet `192.168.3.3` to Wi-Fi and the Ethernet
+  cable moved to the Cubie A7A; three tests and the Studio tools still defaulted to
+  `192.168.3.3`, so they would have loaded E906 firmware onto the A7A.
 * **Requirement**: evidence records carry `source` (`host`, `sim`, `board`); a `board` skill's
   evidence without `source: board` does not count.
 * **Rationale**: 84 requirements named `host-tests`, including E906 silicon behaviour; a board

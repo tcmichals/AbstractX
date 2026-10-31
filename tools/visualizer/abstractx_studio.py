@@ -83,6 +83,10 @@ CTF_MAGIC = 0xC1FC1FC1
 DEFAULT_UDP_PORT = 9870
 HISTORY_SIZE = 1000
 
+import sys as _sys, pathlib as _pl  # noqa: E401
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2] / "tools"))
+from board_target import board_ip as _board_ip, host_ip as _host_ip  # noqa: E402  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+
 class TelemetryState:
     def __init__(self):
         self.lock = threading.Lock()
@@ -97,8 +101,8 @@ class TelemetryState:
         self.discarded_events = 0
 
         # Source & Pipeline status
-        self.board_ip = "192.168.3.3"
-        self.host_ip = "192.168.3.1"
+        self.board_ip = _board_ip()
+        self.host_ip = _host_ip(self.board_ip)
         self.udp_port = 9870
         self.source_mode = "STANDBY (Waiting on UDP :9870)"
         self.fpga_trace = "Pipeline: idle (no packets yet)"
@@ -696,7 +700,7 @@ class TelemetryState:
             try:
                 local = hashlib.md5(open(self.elf_path, "rb").read()).hexdigest()
                 out = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
-                                      f"root@{getattr(self, 'board_ip', '192.168.3.3')}", "md5sum", BOARD_FIRMWARE],
+                                      f"root@{getattr(self, 'board_ip', _board_ip())}", "md5sum", BOARD_FIRMWARE],
                                      capture_output=True, text=True, timeout=10).stdout.split()
                 remote = out[0] if out else ""
                 self.elf_status = ("matches the board" if remote == local else
@@ -3975,8 +3979,8 @@ def main():
         sys.exit(1)
     parser = argparse.ArgumentParser(description="AbstractX Visualizer Studio Workbench")
     parser.add_argument("--port", type=int, default=DEFAULT_UDP_PORT, help="UDP listening port (default: 9870)")
-    parser.add_argument("--board-ip", type=str, default="192.168.3.3", help="Target board IP address (default: 192.168.3.3)")
-    parser.add_argument("--host-ip", type=str, default="192.168.3.1", help="Studio host IP address for UDP telemetry (default: 192.168.3.1)")
+    parser.add_argument("--board-ip", type=str, default=_board_ip(), help="Target board IP address (default: $ABSTRACTX_BOARD_IP, else the A5E Wi-Fi address)")
+    parser.add_argument("--host-ip", type=str, default=None, help="Studio host IP for UDP telemetry (default: $STUDIO_HOST_IP, else the address this PC uses to reach the board)")
     parser.add_argument("--sim", "--demo", dest="sim", action="store_true",
                         help="Run with synthetic flight & telemetry generator (--demo is an alias)")
     parser.add_argument("--tab", type=str, default="flight", choices=["flight", "platform", "memory"],

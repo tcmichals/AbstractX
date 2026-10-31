@@ -2,6 +2,10 @@
 Copyright (C) 2026 Tim Michals
 SPDX-License-Identifier: GPL-3.0-or-later
 
+import sys as _sys, pathlib as _pl  # noqa: E401
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2] / "tools"))
+from board_target import board_ip as _board_ip, host_ip as _host_ip  # noqa: E402  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+
 @impl [SPEC-STUDIO-08] [SPEC-STUDIO-04] tools/visualizer/SPECIFICATION.md
 
 AbstractX Visualizer Studio: AsyncIO High-Throughput Bridge & Telemetry Ingress Engine
@@ -139,8 +143,8 @@ class AsyncBridgeController:
 
     async def start(
         self,
-        board_ip: str = "192.168.3.3",
-        host_ip: str = "192.168.3.1",
+        board_ip: str = _board_ip(),
+        host_ip: str | None = None,
         port: int = 9870,
     ) -> bool:
         await self.stop()
@@ -149,11 +153,11 @@ class AsyncBridgeController:
 
         bridge_cmd = [
             "ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-            f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={host_ip} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
+            f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={host_ip or _host_ip(board_ip)} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
         ]
         trace_cmd = [
             "ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-            f"python3 -u /root/e906_rpmsg_bridge.py trace --udp-host {host_ip} --udp-port {port} --exit-on-stdin-eof"
+            f"python3 -u /root/e906_rpmsg_bridge.py trace --udp-host {host_ip or _host_ip(board_ip)} --udp-port {port} --exit-on-stdin-eof"
         ]
 
         try:
@@ -292,8 +296,8 @@ class StudioAsyncEngine:
 
     def start_board_bridge(
         self,
-        board_ip: str = "192.168.3.3",
-        host_ip: str = "192.168.3.1",
+        board_ip: str = _board_ip(),
+        host_ip: str | None = None,
         port: int = 9870,
     ) -> bool:
         fut = asyncio.run_coroutine_threadsafe(

@@ -109,8 +109,8 @@ Changing the hardware split is therefore an edit, a compile and a reboot:
 # PC: compile the overlay (dtc from a kernel build tree)
 dtc -@ -I dts -O dtb -o cubie-a5e-flight-stack-e906.dtbo cubie-a5e-flight-stack-e906.dtso
 # Board: install it and reboot
-scp -O cubie-a5e-flight-stack-e906.dtbo root@192.168.3.3:/boot/
-ssh root@192.168.3.3 reboot
+scp -O cubie-a5e-flight-stack-e906.dtbo root@$ABSTRACTX_BOARD_IP:/boot/
+ssh root@$ABSTRACTX_BOARD_IP reboot
 ```
 
 This week's DMA change was exactly that: one line, `dma-channels = <8>`, and
@@ -443,8 +443,8 @@ When the experiment grows past a few lines, write it into a file on the PC,
 copy it over and run it:
 
 ```bash
-scp -O my_probe.py root@192.168.3.3:/root/
-ssh root@192.168.3.3 python3 run_e906_script.py my_probe.py 30   # stop after 30 s
+scp -O my_probe.py root@$ABSTRACTX_BOARD_IP:/root/
+ssh root@$ABSTRACTX_BOARD_IP python3 run_e906_script.py my_probe.py 30   # stop after 30 s
 ```
 
 [`run_e906_script.py`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/run_e906_script.py)
@@ -676,7 +676,7 @@ Hardware profiles describe the physical target board and its interconnect topolo
 {
   "profile_id": "cubie_a5e_pure",
   "platform_name": "Allwinner Cubie A5E (Pure Silicon)",
-  "board_ip": "192.168.3.3",
+  "board_ip": "192.168.1.13",
   "udp_port": 9870,
   "active_cores": [
     {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},

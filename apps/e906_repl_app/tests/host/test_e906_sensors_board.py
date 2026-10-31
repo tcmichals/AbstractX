@@ -6,7 +6,7 @@ test_e906_sensors_board.py - Live Hardware Sensor Verification on XuanTie E906
 
 @impl [SPEC-E906-REPL-06] [SPEC-GPS-01] [SPEC-E906-REPL-12] apps/e906_repl_app/SPECIFICATION.md
 
-Connects to the Radxa Cubie A5E board (192.168.3.3 or local) over SSH/RPMsg,
+Connects to the Radxa Cubie A5E board ($ABSTRACTX_BOARD_IP or local) over SSH/RPMsg,
 executes flight_sensors.py on the XuanTie E906 RISC-V co-processor, asserts
 sensor ingestion criteria, and records the test results into the SpecTrace evidence ledger.
 """
@@ -22,9 +22,13 @@ ROOT = next(p for p in Path(__file__).resolve().parents if (p / ".git").exists()
 sys.path.insert(0, str(ROOT / "tools"))
 from trac_lib import ledger
 
-BOARD_IP = os.environ.get("BOARD_IP", "192.168.3.3")
+from board_target import board_ip  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
+BOARD_IP = board_ip(default=None)  # opt-in: no board unless ABSTRACTX_BOARD_IP is set
 
 def run_remote_sensors_test():
+    if not BOARD_IP:
+        print("SKIP: set ABSTRACTX_BOARD_IP; board tests are opt-in")
+        return 0
     start_time = time.time()
     # 1. Run flight_sensors.py on the board
     cmd_sensors = [

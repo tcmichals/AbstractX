@@ -19,13 +19,15 @@ RPMsg endpoints, never from host-synthesised data ([SPEC-E906-REPL-15]).
 
 From the repository root on the PC:
 
+Set the board first: `export ABSTRACTX_BOARD_IP=192.168.1.13` (the A5E on Wi-Fi since 2026-10-31; `192.168.3.3` is now the Cubie A7A). Host tools that change board state check `/proc/device-tree/model` for `Cubie A5E` ([SPEC-AUDIT-13], `tools/board_target.py`).
+
 ```bash
-ssh root@192.168.3.3 mkdir -p /root/abstractx_board_tests
+ssh root@$ABSTRACTX_BOARD_IP mkdir -p /root/abstractx_board_tests
 scp -O tests/board/*.py tools/abstractx_wire.py tools/e906_rpmsg_bridge.py tools/visualizer/runtime_stats.py tools/visualizer/event_streams.py \
        apps/e906_repl_app/raw_sensor_streamer.py apps/e906_repl_app/run_e906_script.py \
-       apps/e906_repl_app/sensor_contract.py tools/board_studio_bridge.py root@192.168.3.3:/root/abstractx_board_tests/
-ssh root@192.168.3.3 "cd /root/abstractx_board_tests && python3 run_board_tests.py --json /tmp/e906_selftest.json"
-scp -O root@192.168.3.3:/tmp/e906_selftest.json docs/verification/evidence/
+       apps/e906_repl_app/sensor_contract.py tools/board_studio_bridge.py root@$ABSTRACTX_BOARD_IP:/root/abstractx_board_tests/
+ssh root@$ABSTRACTX_BOARD_IP "cd /root/abstractx_board_tests && python3 run_board_tests.py --json /tmp/e906_selftest.json"
+scp -O root@$ABSTRACTX_BOARD_IP:/tmp/e906_selftest.json docs/verification/evidence/
 ```
 
 Run one test with `-k <substring>`. Set `E906_FIRMWARE` if a different firmware name is expected.

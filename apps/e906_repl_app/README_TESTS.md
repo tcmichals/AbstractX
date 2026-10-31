@@ -39,7 +39,7 @@ python3 tools/test_e906_sensors_board.py
 ### B. Live Ingestion on XuanTie E906 Coprocessor
 Execute on the board:
 ```bash
-ssh root@192.168.3.3
+ssh root@$ABSTRACTX_BOARD_IP
 python3 /root/run_e906_script.py /root/flight_sensors.py
 ```
 
