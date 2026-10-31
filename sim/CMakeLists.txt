@@ -25,6 +25,14 @@ target_include_directories(test_e906_spi1_ownership BEFORE PRIVATE
                ${CMAKE_CURRENT_SOURCE_DIR}/e906_shim ${CMAKE_SOURCE_DIR}/targets/allwinner_e906/include)
 target_link_libraries(test_e906_spi1_ownership PRIVATE abstractx_core)
 add_test(NAME sim_test_e906_spi1_ownership COMMAND test_e906_spi1_ownership)
+# [SPEC-E906-HAL-01] real E906 dma.cpp against a fake DMAC: completion acts on PEND & EN only
+add_executable(test_e906_dma_irq test_e906_dma_irq.cpp
+               ${CMAKE_SOURCE_DIR}/targets/allwinner_e906/src/dma.cpp)
+target_include_directories(test_e906_dma_irq BEFORE PRIVATE ${CMAKE_SOURCE_DIR}/targets/allwinner_e906/include)
+target_compile_options(test_e906_dma_irq PRIVATE
+               -include ${CMAKE_CURRENT_SOURCE_DIR}/e906_shim/fake_dmac.h)
+target_link_libraries(test_e906_dma_irq PRIVATE abstractx_core)
+add_test(NAME sim_test_e906_dma_irq COMMAND test_e906_dma_irq)
 # [SPEC-LINUX-GPIO-01] GPIO-edge auto channel on SITL
 add_abstractx_sim(test_linux_drdy_auto     test_linux_drdy_auto.cpp)
 # [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results

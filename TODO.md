@@ -77,7 +77,7 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 
 ### 2c. Agent Tooling (skills review 2026-10-30, background agent, read-only)
 - [ ] **pio2 pin**: `e856f24` pushed 2026-10-31 to pio2 branch `zynq-ring-dma` (by the pio2 session), so clean clones work (`git submodule update --init --recursive rtl/pio` checked). It is not on pio2 `main`: merging it is the owner's call; re-pin AbstractX to the merge commit afterwards.
-- [ ] E906 `test_spi1_dma_and_dual_mode` flaky since `c43d37f` (4/8 FAIL, `-3`: SPI DMA done without package/queue end); pre-`c43d37f` firmware 8/8 PASS. Bisect the fast trap entry vs the DMA ISR (engineering_log 2026-10-31 echo stall entry).
+- [x] E906 `test_spi1_dma_and_dual_mode` flaky since `c43d37f`: fixed 2026-10-31. `DmaController::handle_irq()` completed SPI1 RX on its half-package bit (latched though not enabled) when the TX queue-end interrupt came in; now acts on `PEND1 & EN1` ([SPEC-E906-HAL-01], `sim/test_e906_dma_irq`). Board `-k spi1` 20/20 PASS (unfixed 14/20).
 - [ ] `spectrace_matrix.py --changes` does not scan `.cmake` / `CMakeLists.txt` (`CODE_EXTS`), so `[SPEC-BUILD-01]` shows "no code yet" there (the `--review` auditor counts build-file `@impl` tags since 2026-10-31, [SPEC-AUDIT-12]). Decide whether build-file hunks must be governed.
 - [ ] `tools/analyze_elf_size.sh` lists `__global_pointer$` as a 4,294,965,676-byte symbol (size of an absolute symbol); filter it.
 - [ ] `core.hooksPath` is `/home/tcmichals/projects/AbstractX/tools/git-hooks` (absent on the `/media` PC): use the relative `tools/git-hooks` so the pre-commit gate runs on every PC.

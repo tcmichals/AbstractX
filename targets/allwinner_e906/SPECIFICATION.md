@@ -678,6 +678,17 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   the active channel registers. Peripheral registers have the same address on both sides.
   `E906SpiDriver` retains `active_req_` while DMA is in flight and completes `active_req_` before
   calling `set_hardware_idle_from_isr()`.
+* **Requirement (completion status, 2026-10-31)**: the DMAC sets a channel's half-package,
+  package-end and queue-end bits in `DMAC_IRQ_PEND_REG1` whether or not that type is enabled in
+  `DMAC_IRQ_EN_REG1` (measured on the board: `PEND1 = 0x1007` with `EN1 = 0x4004`, i.e. SPI1 RX
+  on channel 11 showed half-package only while its queue-end interrupt was the only one enabled).
+  `DmaController::handle_irq()` therefore acts on `PEND1 & EN1` only (as Linux `sun6i-dma` masks
+  with `irq_type`): a channel whose enabled bits are all clear is not completed, not stopped and
+  its callback is not called, even when another channel's interrupt brought the handler in. It
+  clears every pending bit it read. Bug this prevents: SPI1 TX (channel 8) reaches queue end
+  while RX is half done; the unmasked handler called the RX callback with `success = false` and
+  stopped RX, so `spi_xfer` returned -3 (`test_spi1_dma_and_dual_mode`, 2/8 to 5/12 FAIL after
+  `c43d37f` shortened interrupt entry and moved the TX interrupt across RX's half point).
 * **Requirement (bring-up measurement)**: `abstractx.dma_bench(n, port=1)` copies `n` bytes
   (<= 1024) from SRAM Space 0 to Space 1 on an E906 channel, waits for the line-88 completion
   interrupt and returns `(ok, dma_cycles, cpu_cycles)` (mcycle at 200 MHz; dma = start to
@@ -687,7 +698,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Rationale**: the previous thresholds (SPI/I2C 4 B, UART 32 B) were never measured; the DMA
   driver passed E906 addresses to the DMAC and never routed its interrupt; Linux owns all 16
   channels of the same controller.
-* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`)
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`sim/test_e906_dma_irq.cpp`: the completion-status mask)
 * **Implementation Target**: `targets/allwinner_e906/src/dma.cpp`, `apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso`
 
 ---

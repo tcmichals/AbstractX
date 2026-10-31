@@ -153,9 +153,12 @@ void DmaController::handle_irq() noexcept {
     // Linux's completions ([SPEC-E906-HAL-01]).
     const uint32_t stat1 = DMA_IRQ_STAT_REG1;
     DMA_IRQ_STAT_REG1 = stat1;
+    // The DMAC latches half/package bits of types that are not enabled; act on enabled ones only.
+    // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+    const uint32_t pend1 = stat1 & DMA_IRQ_EN_REG1;
 
     for (uint8_t ch = DMA_START_CHANNEL; ch < NUM_CHANNELS; ++ch) {
-        const uint32_t ch_stat = (stat1 >> ((ch - 8) * 4)) & 0x0F;
+        const uint32_t ch_stat = (pend1 >> ((ch - 8) * 4)) & 0x0F;
         if (ch_stat != 0) {
             const bool success = (ch_stat & 0x02) != 0 || (ch_stat & 0x04) != 0;  // package / queue end
             auto cb = g_channels[ch].callback;
