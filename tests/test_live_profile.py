@@ -43,7 +43,9 @@ def test_inline_chain_resolves_to_outermost_function():
 def test_real_elf_idle_sample_is_platform_idle_wait():
     """Against the built E906 firmware, when it and the toolchain exist (skipped otherwise)."""
     repo = os.path.normpath(os.path.join(HERE, ".."))
-    elf = os.path.join(repo, "build_e906_irq", "apps", "e906_repl_app", "e906_repl_app")
+    # ABSTRACTX_E906_ELF picks the ELF (any build dir); default is the usual IRQ build.
+    elf = os.environ.get("ABSTRACTX_E906_ELF") or os.path.join(
+        repo, "build_e906_irq", "apps", "e906_repl_app", "e906_repl_app")
     tool = lp.find_addr2line()
     if not tool or not os.path.exists(elf):
         print("skip: E906 ELF or riscv-none-elf-addr2line not present")
@@ -64,6 +66,10 @@ def test_real_elf_idle_sample_is_platform_idle_wait():
     for pc in (idle_wfi, idle_wfi + 4):          # the sample records wfi + 4
         sym.lookup(pc)
     assert sym.wait_idle()
+    if os.path.isabs(sym.lookup(idle_wfi)[1]):
+        # Built in another checkout (e.g. the other PC): its DWARF paths are not under this repo.
+        print("skip: E906 ELF debug paths are not under this checkout")
+        return
     for pc in (idle_wfi, idle_wfi + 4):
         func, path, line = sym.lookup(pc)
         assert func == "abstractx::hal::platform_idle_wait()", (hex(pc), func)

@@ -23,7 +23,7 @@
 // @impl [SPEC-ZYNQ-03] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-03
 // @impl [SPEC-ZYNQ-04] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-04
 // @impl [SPEC-ZYNQ-05] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-05
-// @impl [SPEC-ZYNQ-06] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-06
+// @impl [SPEC-ZYNQ-08] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-08
 module top_qmtech_zynq7020 #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
     parameter integer C_S_AXI_ADDR_WIDTH = 16,
@@ -124,7 +124,7 @@ module top_qmtech_zynq7020 #(
     output logic [3:0]                          o_debug_pins
 );
 
-    // Monotonic 64-bit nanosecond system timestamp timer [SPEC-ZYNQ-06]
+    // Monotonic 64-bit nanosecond system timestamp timer [SPEC-ZYNQ-08]
     localparam logic [63:0] TIMER_CLK_FREQ_HZ = {32'd0, CLK_FREQ_HZ};
     localparam logic [63:0] NS_PER_CYCLE       = 64'd1_000_000_000 / TIMER_CLK_FREQ_HZ;
     localparam logic [63:0] NS_REMAINDER       = 64'd1_000_000_000 % TIMER_CLK_FREQ_HZ;

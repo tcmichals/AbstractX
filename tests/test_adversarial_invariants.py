@@ -309,6 +309,40 @@ def test_full_adversarial_audit_suite(repo_root):
     assert auditor.stale_baseline() == [], auditor.stale_baseline()
 
 
+
+def test_clic_enable_rule_sees_files_outside_the_diff(tmp_path):
+    """[SPEC-AUDIT-14] E906-NO-CLIC-ENABLE is target-wide: an enable in an unreviewed E906 file counts
+    (2026-10-22: a diff of only platform.cpp was flagged although timer.cpp enables its line)."""
+    # @verifies [SPEC-AUDIT-14] docs/SPECTRACE.md
+    other = tmp_path / "targets/allwinner_e906/src/timer.cpp"
+    other.parent.mkdir(parents=True, exist_ok=True)
+    other.write_text("void Timer::init() noexcept { clic::enable(clic::kLineTimer); }\n", encoding="utf-8")
+    reviewed = "targets/allwinner_e906/src/bad.cpp"
+    _, found = _audit_snippets(tmp_path, {reviewed: BAD_E906})
+    assert "E906-NO-CLIC-ENABLE" not in [r for f, r, n in found]
+    assert "E906-PLIC" in [r for f, r, n in found]  # the per-line rules still fire
+
+
+def test_build_file_impl_tag_counts(tmp_path):
+    """[SPEC-AUDIT-12] an @impl tag in a .cmake / CMakeLists.txt file implements a requirement."""
+    # @verifies [SPEC-AUDIT-12] docs/SPECTRACE.md
+    spec = tmp_path / "apps" / "x" / "SPECIFICATION.md"
+    spec.parent.mkdir(parents=True)
+    spec.write_text("# X\n```mermaid\ngraph LR; a-->b\n```\n"
+                    "### `[SPEC-X-03]` Build\n* **Requirement**: toolchain.\n", encoding="utf-8")
+    tc = tmp_path / "cmake" / "toolchains" / "t.cmake"
+    tc.parent.mkdir(parents=True)
+    tc.write_text("# @impl [SPEC-X-03] apps/x/SPECIFICATION.md\n", encoding="utf-8")
+    stale = tmp_path / "build_host" / "CMakeLists.txt"   # generated build trees never count
+    stale.parent.mkdir(parents=True)
+    stale.write_text("# @impl [SPEC-X-04] apps/x/SPECIFICATION.md\n", encoding="utf-8")
+    auditor = InvariantAuditor(tmp_path)
+    auditor.run_audit([spec])
+    rules = [i["rule"] for i in auditor.violations["Stage 0 (Specification Markdown & SSOT)"]]
+    assert not any("SPEC-X-03" in r for r in rules), rules
+    assert "SPEC-X-04" not in auditor.get_code_impl_tags()
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         test_module_scope_excludes_linux_and_generated_trees(Path(td))
@@ -336,17 +370,9 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as td:
         test_open_requirement_is_not_a_traceability_miss(Path(td))
     test_full_adversarial_audit_suite(REPO_ROOT)
+    with tempfile.TemporaryDirectory() as td:
+        test_clic_enable_rule_sees_files_outside_the_diff(Path(td))
+    with tempfile.TemporaryDirectory() as td:
+        test_build_file_impl_tag_counts(Path(td))
     print("All adversarial invariant tests passed.")
 
-
-def test_clic_enable_rule_sees_files_outside_the_diff(tmp_path):
-    """[SPEC-AUDIT-14] E906-NO-CLIC-ENABLE is target-wide: an enable in an unreviewed E906 file counts
-    (2026-10-22: a diff of only platform.cpp was flagged although timer.cpp enables its line)."""
-    # @verifies [SPEC-AUDIT-14] docs/SPECTRACE.md
-    other = tmp_path / "targets/allwinner_e906/src/timer.cpp"
-    other.parent.mkdir(parents=True, exist_ok=True)
-    other.write_text("void Timer::init() noexcept { clic::enable(clic::kLineTimer); }\n", encoding="utf-8")
-    reviewed = "targets/allwinner_e906/src/bad.cpp"
-    _, found = _audit_snippets(tmp_path, {reviewed: BAD_E906})
-    assert "E906-NO-CLIC-ENABLE" not in [r for f, r, n in found]
-    assert "E906-PLIC" in [r for f, r, n in found]  # the per-line rules still fire

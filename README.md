@@ -243,23 +243,60 @@ Write your application once against `abstractx::` and deploy it across microcont
 ## ⚡ Quickstart in 30 Seconds
 
 ### 1. Clone & Set Up Environment
+
+AbstractX uses four git submodules. Do **not** use `git clone --recursive`: it also pulls
+MicroPython's ~40 nested submodules (CMSIS, lwIP, vendor SDKs), none of which AbstractX builds.
+
+| Submodule | Needed for |
+| :--- | :--- |
+| `third_party/etl` | every build (host and firmware); configure stops without it |
+| `third_party/micropython` | `e906_repl_app` (E906 MicroPython firmware) |
+| `third_party/FreeRTOS-Kernel` | `e906_freertos_app` (skipped with a warning when missing) |
+| `rtl/pio` ([pio2](https://github.com/tcmichals/pio2)) | RTL, cocotb and FPGA builds; has its own submodules |
+
 ```bash
-git clone --recursive https://github.com/tcmichals/AbstractX.git
+git clone https://github.com/tcmichals/AbstractX.git
 cd AbstractX
+git submodule update --init                    # the four submodules above, not their children
+git submodule update --init --recursive rtl/pio  # pio2 and its verilog-axi / verilog-axis
 
 # Set up Python virtual environment for tooling & visualizer
 ./tools/setup_venv.sh
 source .venv/bin/activate
 ```
 
+**Pulling updates** (the submodule pins move with `main`; work happens on more than one PC):
+```bash
+git pull
+git submodule update --init
+git submodule update --init --recursive rtl/pio
+git submodule status   # a leading '-' = not initialised, '+' = not at the pinned commit
+```
+
+If `git submodule update` reports `not our ref`, the pinned submodule commit was never pushed:
+push it from the PC that made it (`git -C <submodule> push`) before anyone else pulls.
+
+Cross-compilers are found in `~/.tools/` (newest `xpack-*-gcc-*`), or set
+`RISCV_TOOLCHAIN_PREFIX` / `ARM_TOOLCHAIN_PREFIX` ([SPEC-BUILD-01]).
+
 ### 2. Build & Run Tests
 ```bash
-# Configure & compile host SITL build
-cmake -B build_host -DCMAKE_BUILD_TYPE=Release
+# Host SITL build and tests
+cmake -S . -B build_host -DABSTRACTX_TARGET=host
 cmake --build build_host -j
-
-# Run verification suite (100% pass rate across 69 tests)
 ctest --test-dir build_host --output-on-failure
+
+# Same suite under ASan/UBSan and TSan (required before committing core changes, AGENTS.md §10)
+cmake -S . -B build_asan -DABSTRACTX_TARGET=host \
+      -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
+      -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+cmake --build build_asan -j && ctest --test-dir build_asan
+cmake -S . -B build_tsan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=thread -O1 -g" \
+      -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+cmake --build build_tsan -j && setarch -R ctest --test-dir build_tsan   # setarch -R: TSan on kernel 7.x
+
+# E906 firmware (RISC-V cross build)
+cmake --preset e906 && cmake --build build_e906 -j --target e906_repl_app
 ```
 
 ### 3. Verify SpecTrace & Architectural Boundaries

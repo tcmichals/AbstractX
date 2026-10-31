@@ -18,9 +18,12 @@ All cross-compiler toolchains and hardware SDKs are standardized under `~/.tools
 
 ### CMake Detection Precedence
 Toolchain files (`cmake/toolchains/arm-none-eabi.cmake`, `cmake/toolchains/riscv-none-elf.cmake`, and `cmake/toolchains/xtensa-esp-elf.cmake`) MUST follow this search order:
-1. Exact match in `~/.tools/` (`xpack-*`, `xtensa-*`)
+1. `-D<ARCH>_TOOLCHAIN_PREFIX=` on the cmake command line
 2. Environment variables (`ARM_TOOLCHAIN_PREFIX`, `RISCV_TOOLCHAIN_PREFIX`, `XTENSA_TOOLCHAIN_PREFIX`, `PICO_SDK_PATH`)
-3. System `PATH` fallback
+3. Newest match under `$ENV{HOME}/.tools/` (`xpack-*-gcc-*` globbed; never a hardcoded `/home/<user>` path)
+4. System `PATH` fallback
+
+([SPEC-BUILD-01], `docs/DESIGN_SPECIFICATION.md`; checked by `tests/test_toolchain_files.py`.)
 
 ---
 

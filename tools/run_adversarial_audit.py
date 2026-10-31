@@ -254,6 +254,19 @@ class InvariantAuditor:
                             self._code_impl_tags.update(re.findall(r"\[(SPEC-[A-Z0-9\-]+)\]", line))
             except Exception:
                 pass
+        # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md (build-file @impl tags count; build files are not audited)
+        for source in self.root_dir.rglob("*"):
+            if not (source.name == "CMakeLists.txt" or source.suffix == ".cmake") or not source.is_file():
+                continue
+            if set(source.relative_to(self.root_dir).parts) & GENERATED_DIRS or \
+                    any(p.startswith("build") for p in source.relative_to(self.root_dir).parts):
+                continue
+            try:
+                for line in source.read_text(encoding="utf-8", errors="ignore").splitlines():
+                    if "@impl" in line:
+                        self._code_impl_tags.update(re.findall(r"\[(SPEC-[A-Z0-9\-]+)\]", line))
+            except OSError:
+                pass
         return self._code_impl_tags
     # endregion
 

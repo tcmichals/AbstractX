@@ -253,6 +253,7 @@ configuration:
   they are to be removed or replaced by PIO programs (not done).
 * **Verified by**: `cocotb-regression`, `board-bringup`
 * **Implementation Target**: `rtl/pio/`, `rtl/asp_pio_wrap.sv`, `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`, `targets/zynq7000/`
+* **Not implemented yet**: decided 2026-10-30; UART PIO program, DMA path choice and endpoint mapping are open (`TODO.md` section 2a).
 
 ### `[SPEC-ZYNQ-04]` Autonomous IMU Auto-DMA & Direct SPI Engine
 * The PL MUST integrate a hardware SPI Master and Auto-DMA state machine mapped to Wishbone base `0x4000_0100`:
@@ -295,9 +296,10 @@ configuration:
   published as measured until captured on the synthesized QMTECH bitstream.
 * The default burst address MUST be `0x1D`; a 14-byte read beginning at `0x1F` omits temperature and does not match the shared ICM-42688-P sample parser.
 
-### `[SPEC-ZYNQ-06]` Nanosecond Monotonic Hardware Timer
+### `[SPEC-ZYNQ-08]` Nanosecond Monotonic Hardware Timer
 * The top-level 64-bit uptime counter MUST represent elapsed nanoseconds, not PL clock cycles. Its update rate MUST derive from `CLK_FREQ_HZ`, preserving fractional nanoseconds when the clock period is not an integer number of nanoseconds.
 * At the default 100 MHz PL clock, the counter MUST advance by 10 ns per clock cycle. All IMU start/end timestamps sourced from this counter MUST use the same nanosecond timebase.
+* Renumbered from a duplicate `[SPEC-ZYNQ-06]` on 2026-10-31; `[SPEC-ZYNQ-06]` is the target HAL driver below.
 * Implementation target: `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`.
 
 ### `[SPEC-ZYNQ-05]` Physical Pinout & Constraints (`constraints/qmtech_zynq7020.xdc`)

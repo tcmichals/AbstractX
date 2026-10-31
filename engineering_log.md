@@ -3309,3 +3309,26 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Root cause, per-pass cost (not fixed yet)**: every `abstractx::step()` pass runs every subsystem whether it has work or not (I/O engine, TLP and trace services, TLP flush, kick retry, I2C timeout scan, a timer read for the trace flush, the status check, a task-list scan), with the D-cache off by design. Plan in `TODO.md` 2b: per-phase `mcycle` totals in bench `R`, then pending bits so `step()` skips idle subsystems.
 * **Evidence**: host plain suite 84/84 except the known `py_test_live_profile` (foreign ELF); `ctest -R "py_test_spec_traceability|sim_test_e906"` 6/6; E906 cross-build OK, `e906_bench_app` text 78,228 B, `e906_repl_app` text 183,484 B; `audit_ipc_invariants.py` PASS; `boundary_review.py --check` 0 without notes; change review 0 untraced hunks. `[SPEC-ARCH-14]` is tagged on the E906 auto-channel back end, the only place it is implemented today.
 * **Not verified**: no hardware available on 2026-10-30. To do on the board: before/after echo maximums and throughput, `mbox_full_waits` rising at the stalls, and AbstractX vs FreeRTOS wake times. ASan and TSan were not re-run for this change.
+
+## [2026-10-31] - Fresh clone: sanitizer gate ran nothing; toolchain paths; board bench after the owed-kick fix
+
+* **What was missed** (`process-gap`): on this PC `third_party/etl` (and micropython, FreeRTOS, pio2) were not initialised. The host, ASan/UBSan and TSan builds all stopped on `etl/memory_model.h`, ctest still ran and printed 30+ tests "Not Run" plus Python tests, so a sanitizer run "finished" while testing no C++ at all. **Which check should have caught it**: configure; it fell back to a missing include directory. Fix: [SPEC-BUILD-01] configure stops with the `git submodule update --init <path>` command (ETL in `third_party/CMakeLists.txt`, MicroPython in `apps/e906_repl_app/CMakeLists.txt`). Shown failing before `submodule update` (CMake Error at third_party/CMakeLists.txt:14) and passing after.
+* **What was missed** (`tool-bug`): the three toolchain files hardcoded `/home/tcmichals/.tools/<exact version>` and never read the `<ARCH>_TOOLCHAIN_PREFIX` environment variable the toolchain rule promised. Fix: [SPEC-BUILD-01] order -D, env, newest `$ENV{HOME}/.tools/xpack-*`, PATH; the rule file now states the same order. `tests/test_toolchain_files.py` runs each file under a fake `HOME`: it fails on the old files (`riscv-none-elf.cmake hardcodes a home directory`) and passes on the new.
+* **What was missed** (`tool-bug`): `test_clic_enable_rule_sees_files_outside_the_diff` was defined after the `__main__` block of `tests/test_adversarial_invariants.py`; ctest runs the file as a script, so the test had never run. Moved above `__main__` and called; passes.
+* **What was missed** (`process-gap`): AbstractX `9c902a4` pins `rtl/pio` to pio2 `e856f24`, which is not on GitHub ("not our ref") and not in `~/projects/pio2` on this PC. A clean clone cannot check out `rtl/pio`. It has to be pushed from the PC that made it; the pin was left unchanged. README now explains the error.
+* **Spec fix** (`process-gap`): the Zynq spec had two `[SPEC-ZYNQ-06]`; the timer is now `[SPEC-ZYNQ-08]` (RTL tags moved), the HAL driver keeps `-06`. `[SPEC-ZYNQ-08]` has no `Verified by` line (never had one).
+* **Board, 2026-10-31, firmware built from this tree** (`hardware-fact`), `bench_e906_runtime.py` (n=1000), evidence `docs/verification/evidence/e906_bench_{freertos,abstractx}_20261031.json`, board clock set first:
+
+  | | AbstractX (no RTOS) | FreeRTOS + AbstractX |
+  | :--- | ---: | ---: |
+  | yield round trip, cycles avg | 2,029 | 2,061 |
+  | soft IRQ ISR, cycles avg | 361 | 175 |
+  | ISR -> coroutine wake, cycles avg (max) | 3,170 (4,366) | 2,433 (2,913) |
+  | echo 16 B: median / max | 112 us / 997,194 us | 101 us / 236 us |
+  | echo 256 B: median / max | 240 us / 768,283 us | 238 us / 322 us |
+  | echo 496 B: MB/s, max | 2.95, 381 us | 2.93, 388 us |
+
+  The owed-kick fix (`0d5415e`) brought 496 B from 0.20 to 2.95 MB/s, but one ~1 s stall per run remains at 16 B and 256 B (`rx_dropped` 0, `tx_fail` 0): **not fixed, cause unknown**. Ruled out by reading: RX notify suppression (always cleared before suspend), an interrupt between `csrs mstatus` and `wfi` (trap return skips the `wfi` when `mepc == e906_idle_wfi`).
+* **Why AbstractX is slower although FreeRTOS does strictly more** (`product-bug`, not fixed): in this benchmark FreeRTOS runs the same AbstractX loop in one task, adding its own trap wrapper, notify and context switch. AbstractX's `default_trap_entry` builds the 416 B crash frame on every interrupt (32 GPR + all 32 FPR, 64 `fsw`/`flw`); the FreeRTOS port saves 31 integer words. ~130 extra memory operations with the D-cache off fit the 186-cycle ISR difference. Plan in `TODO.md` 2b.
+* **Board self-test** (`e906_repl_app` from this tree): 27 pass, 6 fail, 2 skip (bench endpoint), `docs/verification/evidence/e906_selftest_20261031.json`. Failures: TWI1 compass `SCAN []` (2 tests, known), NMEA checksum after ~25 s (known), idle woken by profiler samples (770 spans, known), busy 23.2 % while a script spins, 477/4180 profiler samples owned by `repl_rx` during a script.
+* **Evidence (host)**: plain, ASan/UBSan and TSan (`setarch -R`) suites, numbers in the commit message.

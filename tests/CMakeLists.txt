@@ -158,6 +158,9 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-AUDIT-01..05] Adversarial invariant auditor checks
     add_test(NAME py_test_adversarial_invariants
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_adversarial_invariants.py)
+    # [SPEC-BUILD-01] Toolchain discovery order and no hardcoded home paths
+    add_test(NAME py_test_toolchain_files
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_toolchain_files.py)
     # [SPEC-ZYNQ-PLATFORM-07..11] Zynq Buildroot configuration verification
     add_test(NAME py_test_zynq_buildroot_config
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_buildroot_config.py)

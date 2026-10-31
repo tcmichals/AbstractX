@@ -1,0 +1,72 @@
+{
+ "check": "board:e906:bench",
+ "time": "2026-10-31T10:57:06",
+ "uname": "7.1.0",
+ "n": 1000,
+ "echo": [
+  {
+   "size": 16,
+   "mismatches": 0,
+   "throughput_Bps": 287861,
+   "n": 1000,
+   "min_us": 97.7,
+   "median_us": 101.0,
+   "p99_us": 167.6,
+   "max_us": 236.3
+  },
+  {
+   "size": 256,
+   "mismatches": 0,
+   "throughput_Bps": 2069385,
+   "n": 1000,
+   "min_us": 208.5,
+   "median_us": 238.1,
+   "p99_us": 277.2,
+   "max_us": 321.9
+  },
+  {
+   "size": 496,
+   "mismatches": 0,
+   "throughput_Bps": 2933637,
+   "n": 1000,
+   "min_us": 305.3,
+   "median_us": 329.4,
+   "p99_us": 371.0,
+   "max_us": 387.8
+  }
+ ],
+ "suite": {
+  "platform": "freertos",
+  "yield_runs": 10000,
+  "yield_cycles_min": 2029,
+  "yield_cycles_avg": 2061,
+  "yield_cycles_max": 2575,
+  "softirq_runs": 1000,
+  "softirq_isr_cycles_min": 175,
+  "softirq_isr_cycles_avg": 175,
+  "softirq_isr_cycles_max": 636,
+  "softirq_wake_cycles_min": 2423,
+  "softirq_wake_cycles_avg": 2433,
+  "softirq_wake_cycles_max": 2913,
+  "idle_wakes": 6217,
+  "idle_cycles": 742779733,
+  "window_cycles": 767422174,
+  "dropped_resumes": 0,
+  "coro_pool_high_water": 448,
+  "rx_msgs": 3001,
+  "rx_dropped": 0,
+  "tx_fail": 0,
+  "end": 1
+ },
+ "suite_ns": {
+  "yield_ns_min": 10145.0,
+  "yield_ns_avg": 10305.0,
+  "yield_ns_max": 12875.0,
+  "softirq_isr_ns_min": 875.0,
+  "softirq_isr_ns_avg": 875.0,
+  "softirq_isr_ns_max": 3180.0,
+  "softirq_wake_ns_min": 12115.0,
+  "softirq_wake_ns_avg": 12165.0,
+  "softirq_wake_ns_max": 14565.0
+ }
+}

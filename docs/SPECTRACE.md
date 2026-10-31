@@ -241,6 +241,10 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Implementation Target**: `tools/spectrace_matrix.py`, `.agents/skills/`, `.claude/skills`, `CLAUDE.md`
 
 ### `[SPEC-AUDIT-12]` Honest Completion: Tag Presence, Spec Drift and Orphan Tests
+* **Requirement**: an `@impl` tag in a build file (`*.cmake`, `CMakeLists.txt`; generated and
+  `third_party` trees excluded) counts as implementation for the Stage 0 "unimplemented
+  requirement" check, so a build-system requirement such as `[SPEC-BUILD-01]` is not reported
+  as missing (2026-10-31). Build files are not otherwise audited.
 * **Requirement**: `tools/audit_specs.py` reports tag coverage as *traceability only*. It never
   prints "verified" or "100% implemented"; completion is the `--matrix` verdict.
 * **Requirement**: `python3 tools/spectrace_matrix.py --check-drift` exits 1 when an implemented

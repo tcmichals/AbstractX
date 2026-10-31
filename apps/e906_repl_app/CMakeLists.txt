@@ -11,6 +11,11 @@ endif()
 
 set(MICROPY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/micropython")
 set(MICROPY_PY_DIR "${MICROPY_DIR}/py")
+# @impl [SPEC-BUILD-01] docs/DESIGN_SPECIFICATION.md (clear configure error for a missing submodule)
+if(NOT EXISTS "${MICROPY_DIR}/py/py.cmake")
+    message(FATAL_ERROR "third_party/micropython is not initialised. Run:\n"
+        "  git submodule update --init third_party/micropython")
+endif()
 set(MICROPY_PORT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(MICROPY_TARGET e906_repl_app)
 

@@ -106,6 +106,23 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`sim/test_trace_zero_copy.cpp`, `sim/test_e906_rpmsg_endpoints.cpp`: pointer identity)
 * **Implementation Target**: per-target transports (`targets/*/`), `include/abstractx/trace/`
 
+### `[SPEC-BUILD-01]` Cross-Toolchain Discovery Works on Every PC
+* **Requirement**: the toolchain files in `cmake/toolchains/` MUST pick the compiler in this order:
+  (1) a `-D<ARCH>_TOOLCHAIN_PREFIX=` cache value, (2) the `<ARCH>_TOOLCHAIN_PREFIX` environment
+  variable, (3) the newest matching directory under `$ENV{HOME}/.tools/` (`xpack-*-gcc-*` globbed,
+  not one pinned version), (4) the compiler on `PATH`. They MUST NOT contain an absolute home
+  directory (`/home/<user>`), because work happens on more than one PC (AGENTS.md §12).
+* **Submodules**: configure MUST stop with a message naming the fix
+  (`git submodule update --init <path>`) when a submodule it needs (`third_party/etl`;
+  `third_party/micropython` for `e906_repl_app`) is not initialised,
+  instead of a missing-header error deep in the build.
+* **Rationale (2026-10-31)**: on a fresh PC the host, ASan and TSan builds all failed on
+  `etl/memory_model.h`, so 30+ tests were "Not Run" and the sanitizer gate tested nothing.
+  All three toolchain files hardcoded `/home/tcmichals/.tools/<exact version>`
+  and never read the environment variable the toolchain rule promises.
+* **Verified by**: `host-tests` (`tests/test_toolchain_files.py`)
+* **Implementation Target**: `third_party/CMakeLists.txt`, `apps/e906_repl_app/CMakeLists.txt`, `cmake/toolchains/arm-none-eabi.cmake`, `cmake/toolchains/riscv-none-elf.cmake`, `cmake/toolchains/xtensa-esp-elf.cmake`
+
 ### `[SPEC-ARCH-09]` Coroutine Failures Without C++ Exceptions
 * **Goal**: small, deterministic firmware. Storing and rethrowing exceptions (`std::exception_ptr`, `std::current_exception`, `std::rethrow_exception`) and type-erased callbacks (`std::function`) pull the C++ unwinder and RTTI support into every image (measured ~15.6 KB of libgcc unwinder on the E906, out of 192 KB SRAM).
 * **Requirement**: `Task<T>` MUST NOT store or propagate exceptions. An exception that escapes a coroutine body is a firmware bug: `unhandled_exception()` MUST report it through `abstractx::coro::set_unhandled_exception_hook()` (if set) and then stop with `__builtin_trap()`, so the target's trap handler records it (E906: `[SPEC-E906-CRASH-01]`, trace0). Errors that are expected at run time are returned as values (`Result`, status codes), not thrown.
