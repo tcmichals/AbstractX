@@ -14,6 +14,7 @@
  * (E906_SRAM_SPACE{0,1}_DA in drivers/remoteproc/sunxi_rproc.h); a segment
  * outside them, or outside a DRAM carveout, makes remoteproc refuse the ELF.
  * @impl [SPEC-E906-MEM-01] targets/allwinner_e906/SPECIFICATION.md
+ * @impl [SPEC-E906-MEM-02] targets/allwinner_e906/SPECIFICATION.md (no DRAM region is used: control and data plane in SRAM)
  *
  * HARDWARE TRUTHS:
  * - 0x00020000 (128 KB) is HiFi4 DSP Memory! DO NOT USE for E906!

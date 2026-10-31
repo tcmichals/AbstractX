@@ -123,7 +123,8 @@ sequenceDiagram
 * **Data Plane in SRAM**: trace and telemetry payloads are RPMsg buffers in
   the upper half of Space 1 (`[SPEC-E906-IPC-04]`). DRAM is not used while the
   D-cache is off; introducing DRAM payloads requires revisiting `[SPEC-E906-CACHE-02]`.
-* **Target**: `targets/allwinner_e906/include/dram_spsc_protocol.h`
+* **Verified by**: `e906-build-layout` (`tools/analyze_elf_size.sh`: DRAM 0.00 MB used)
+* **Implementation Target**: `targets/allwinner_e906/bsp/e906_ddr.ld` (was `include/dram_spsc_protocol.h`, removed in `4273f95`)
 
 ---
 
@@ -573,15 +574,31 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 
 ### [SPEC-E906-CRASH-01] Trap Classification, FPU State Preservation & Crash Dump
 * **Requirement**:
-  1. The trap entry (`bsp/startup.S`) MUST allocate a 416-byte stack frame (`CrashFrame`) and save all 31 integer GPRs (`x1`..`x31`), 4 CSRs (`mepc`, `mcause`, `mtval`, `mstatus`), all 32 hardware floating-point registers (`f0`..`f31`, single precision `fsw` into 8-byte slots: the E906 has no D, `ilp32f`), and `fcsr` BEFORE branching to or calling any C/C++ code.
-  2. The trap entry MUST classify the trap by bit 31 of **`mcause`** (1 = interrupt, 0 = synchronous exception).
-  3. Interrupts branch to `.Lhandle_irq`, dispatch to `riscv_trap_dispatcher(mcause, mepc)`, completely restore all FP registers (`f0`..`f31`), `fcsr`, CSRs, and integer GPRs, deallocate the 416-byte stack frame, and return with `mret`.
-  4. Synchronous exceptions MUST pass the `CrashFrame*` (`sp`) in `a0` to `hal_crash_dispatcher`, which records the full GPR, CSR, and FPR crash dump to `Trace` and SRAM and halts.
+  1. The trap entry (`bsp/startup.S`) MUST allocate a 416-byte stack frame (`CrashFrame`), save `t0` and `t1`, read
+     **`mcause`** into the frame and classify the trap by its bit 31 (1 = interrupt, 0 = synchronous exception)
+     before saving anything else.
+  2. **Interrupts** (fast path, revised 2026-10-31) save only the registers a C handler may clobber: `ra`,
+     `t0`..`t6`, `a0`..`a7` (callee-saved `s0`..`s11`, `gp`, `tp` are preserved by the ABI), plus `mepc` and
+     `mstatus`. No FP register and no `fcsr` is saved. Before calling `riscv_trap_dispatcher(mcause, mepc)` the
+     entry MUST clear `mstatus.FS` (FS = Off), so a floating-point instruction anywhere in interrupt context is an
+     illegal-instruction exception (crash dump), never silent corruption of the interrupted code's FP state.
+     The return restores `mstatus` (and with it the interrupted FS), `mepc` (with the idle-`wfi` rules of
+     [SPEC-E906-IRQ-01] / [SPEC-E906-IRQ-06]) and the saved integer registers, frees the frame and `mret`s.
+  3. **Interrupt handlers are integer-only.** Every function reachable from `riscv_trap_dispatcher` (CLIC line
+     handlers attached with `hal::irq::attach`) MUST NOT execute an FP instruction. This is the same contract the
+     FreeRTOS port relies on ([SPEC-E906-RTOS-04]: its trap entry saves no FP registers either).
+  4. **Synchronous exceptions** save the full frame: all 31 integer GPRs, `mepc`, `mcause`, `mtval`, `mstatus`
+     (as it was at the trap), then set `mstatus.FS` on (a fault in interrupt context has FS = Off) and save all
+     32 FP registers (`fsw` into 8-byte slots: the E906 has no D, `ilp32f`) and `fcsr`, and pass the
+     `CrashFrame*` (`sp`) in `a0` to `hal_crash_dispatcher`, which records the dump to `Trace` and SRAM and halts.
 * **Rationale**:
-  - In `ilp32f` ABI, C/C++ compilers generate single-precision floating-point instructions in any subroutine and can clobber caller-saved FP registers (`ft0`..`ft11`, `fa0`..`fa7`). Without saving FP registers in the trap prologue, an asynchronous interrupt clobbers live floating-point computations in interrupted coroutines (e.g. sensor fusion math), causing silent corruption upon `mret`.
-  - In synchronous exceptions, saving FP registers ensures the crash autopsy dump captures the full FPU state at the moment of the fault, and prevents formatting routines in `hal_crash_dispatcher` from destroying the fault context.
+  - 2026-10-31 board bench: the soft-IRQ ISR cost 361 cycles with the full frame (64 `fsw`/`flw` + all GPRs per
+    interrupt, D-cache off) against 175 cycles for the FreeRTOS port's integer-only entry running the same
+    handler. Saving FP on every interrupt protected only against handlers that use FP, which FS = Off now turns
+    into a loud crash instead.
+  - Exceptions keep the full FPU state so the crash dump shows it and the formatting code cannot destroy it.
   - Branching on `mcause` bit 31 is mandatory because `mstatus` bit 31 is the SD summary bit, which is always 1 when `mstatus.FS = Dirty`.
-* **Verified by**: `e906-disassembly-check` (`fsw f0, 144(sp)`, `lw t0, 128(sp); bltz t0`, `flw f0, 144(sp)`, no double-precision instruction anywhere in the ELF), `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_irq.py`: an interrupt is taken and returns)
+* **Verified by**: `e906-disassembly-check` (`csrr t0, mcause; sw t0, 128(sp); bltz t0` before the first FP store; no FP load or store on the interrupt path; `csrc mstatus` FS before `call riscv_trap_dispatcher`; `fsw f0, 144(sp)` only on the exception path; no double-precision instruction anywhere in the ELF), `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_irq.py`: every interrupt line is taken and returns with FS = Off in the handler; soft ISR cycles from `bench_e906_runtime.py`)
 * **Implementation Target**: `targets/allwinner_e906/bsp/startup.S`, `targets/allwinner_e906/include/hal/crash.hpp`, `targets/allwinner_e906/src/crash.cpp`
 
 ## 6. Threshold-Balanced Peripheral HAL (`SPEC-E906-HAL`)

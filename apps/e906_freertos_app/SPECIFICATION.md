@@ -68,11 +68,13 @@ flowchart LR
 ### `[SPEC-E906-RTOS-04]` Message Box Interrupt Feeds the AbstractX Dispatcher
 * **Requirement**: the message box line is level triggered and stays asserted while the
   channel 1 FIFO holds words. The handler masks the channel 1 RX interrupt
-  (`MsgBox::enable_rx_irq(Channel1, false)`), calls `fc_msgbox_doorbell_isr()` (which posts
-  the waiting RPMsg coroutine to `IsrDispatcher`), and wakes the AbstractX task with
+  (`MsgBox::enable_rx_irq(Channel1, false)`), runs `fc_msgbox_doorbell_isr()` through
+  `hal::irq::dispatch(line)` (which posts the waiting RPMsg coroutine to `IsrDispatcher`;
+  same accounting as bare metal, [SPEC-E906-BENCH-03]), and wakes the AbstractX task with
   `vTaskNotifyGiveFromISR` + `portYIELD_FROM_ISR`. The RPMsg awaiter re-enables the RX
   interrupt when it next suspends. The handler never calls `.resume()`.
-* **Requirement**: every other line goes to the target's CLIC dispatcher,
+* **Requirement**: the bench soft line (3) is attached with `hal::irq::attach` like on bare metal and, like
+  every other line, goes to the target's CLIC dispatcher,
   `hal::irq::dispatch(line)` (the same table and per-line accounting the bare-metal trap
   handler uses, `[SPEC-E906-IRQ-01]`, `[SPEC-E906-IRQ-05]`): line 88 runs `fc_dma_isr()` and
   lines with handlers attached by `hal::irq::attach` (the PI8 edge, `[SPEC-E906-HAL-05]`) run

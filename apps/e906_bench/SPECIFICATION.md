@@ -59,6 +59,12 @@ sequenceDiagram
   `abx_bench_soft_isr()` clears `msip`, records `mcycle` and posts the handle to
   `IsrDispatcher`; it never resumes. The runtime glue must route line 3 to it and enable the
   line (`abx_bench_soft_irq_enable()` returns true).
+* **Requirement (same path on every runtime, 2026-10-31)**: every runtime reaches
+  `abx_bench_soft_isr()` and `fc_msgbox_doorbell_isr()` through the target's CLIC dispatcher
+  (`hal::irq::dispatch(line)` / `riscv_trap_dispatcher`), with the same per-line accounting and
+  timeline span ([SPEC-E906-IRQ-05], [SPEC-TRACE-10]). A runtime that calls the ISR directly
+  skips that work and the comparison measures the instrumentation, not the runtime (until
+  2026-10-31 FreeRTOS did: soft ISR 175 vs 223 cycles).
 * **Requirement**: before the timed loop the bench probes once: trigger, then yield up to
   1000 times waiting for the ISR flag. If it never arrives it clears `msip`, reports
   `softirq=no-interrupt` and does not run the timed loop (no hang, no register spin).

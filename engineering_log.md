@@ -3332,3 +3332,20 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Why AbstractX is slower although FreeRTOS does strictly more** (`product-bug`, not fixed): in this benchmark FreeRTOS runs the same AbstractX loop in one task, adding its own trap wrapper, notify and context switch. AbstractX's `default_trap_entry` builds the 416 B crash frame on every interrupt (32 GPR + all 32 FPR, 64 `fsw`/`flw`); the FreeRTOS port saves 31 integer words. ~130 extra memory operations with the D-cache off fit the 186-cycle ISR difference. Plan in `TODO.md` 2b.
 * **Board self-test** (`e906_repl_app` from this tree): 27 pass, 6 fail, 2 skip (bench endpoint), `docs/verification/evidence/e906_selftest_20261031.json`. Failures: TWI1 compass `SCAN []` (2 tests, known), NMEA checksum after ~25 s (known), idle woken by profiler samples (770 spans, known), busy 23.2 % while a script spins, 477/4180 profiler samples owned by `repl_rx` during a script.
 * **Evidence (host)**: plain, ASan/UBSan and TSan (`setarch -R`) suites, numbers in the commit message.
+
+## [2026-10-31] - E906 interrupt entry: integer-only fast path; bench compared different ISR paths
+
+* **What was slow** (`product-bug`): `default_trap_entry` saved the full 416 B crash frame (31 GPR + 32 FPR + `fcsr` + 4 CSRs) on every interrupt and restored it all, ~140 memory operations with the D-cache off. Fix, spec first ([SPEC-E906-CRASH-01] rewritten): classify on `mcause` right after saving `t0`/`t1`; interrupts save `ra`, `t0`..`t6`, `a0`..`a7`, `mepc`, `mstatus` (47 memory ops on the path), clear `mstatus.FS` for the handler so an FP instruction in interrupt context is an illegal-instruction crash, and restore `mstatus`; exceptions keep the full frame and turn FS on before dumping the FP registers. Frame offsets unchanged (`CrashFrame` static_asserts hold).
+* **What the comparison got wrong** (`process-gap`): the FreeRTOS app called `abx_bench_soft_isr()` and `fc_msgbox_doorbell_isr()` directly, skipping the per-line cycle accounting and timeline span that bare metal does in `dispatch_clic_line`, so the bench compared instrumentation, not runtimes. **Which check should have caught it**: [SPEC-E906-BENCH-03] said "same benchmark code" but not "same dispatch path"; now it does, and [SPEC-E906-RTOS-04] routes both lines through `hal::irq::dispatch`.
+* **Board, 2026-10-31** (`hardware-fact`), `bench_e906_runtime.py` n=1000, cycles at 200 MHz, evidence `docs/verification/evidence/e906_bench_*_20261031.json`:
+
+  | run | yield | soft ISR | wake avg (max) | echo 16 B med / max | 496 B MB/s |
+  | :--- | ---: | ---: | ---: | ---: | ---: |
+  | AbstractX, full-frame trap | 2,029 | 361 | 3,170 (4,366) | 112 us / 997 ms | 2.95 |
+  | AbstractX, fast trap | 2,025 | 223 | 2,779 (3,591) | 101 us / 997 ms | 2.97 |
+  | FreeRTOS, direct ISR call | 2,061 | 175 | 2,433 (2,913) | 101 us / 0.24 ms | 2.93 |
+  | FreeRTOS, same dispatch path | 2,061 | 242 | 2,943 (3,427) | 111 us / 0.21 ms | 2.91 |
+
+  On the same path AbstractX is now faster on ISR (223 vs 242), wake (2,779 vs 2,943) and 16 B echo median (101 vs 111 us). It still loses on small-message worst case and throughput because of the ~1 s echo stall (not fixed, unchanged by this change).
+* **Verification**: disassembly of `e906_bench_app` `default_trap_entry`: `bltz` at instruction 5, first `fsw` at 52, all 32 `fsw` before `call hal_crash_dispatcher`, 0 FP load/store on the interrupt path, `csrc mstatus,t1` before `call riscv_trap_dispatcher`, 0 double-precision instructions in the ELF. Board self-test on the fast-trap `e906_repl_app`: 25 pass, 8 fail, 2 skip; the 2 extra failures against the morning run were `test_streamer_stops_without_heartbeat` (then 3/3 PASS on rerun: flaky) and `test_compass_answers_and_changes` (`SCAN []`; the same build with the old `startup.S` also fails it: hardware, TODO). No illegal-instruction crash: every interrupt line in `test_e906_irq.py` ran with FS = Off.
+* **Spec fix** (`process-gap`): `[SPEC-E906-MEM-02]` named `include/dram_spsc_protocol.h`, removed in `4273f95`; target is now the linker script (DRAM 0.00 MB, `e906-build-layout`).

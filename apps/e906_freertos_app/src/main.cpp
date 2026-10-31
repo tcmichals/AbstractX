@@ -44,7 +44,6 @@ TaskHandle_t s_ax_task = nullptr;
 volatile uint32_t s_unexpected_irqs = 0;  // shared: interrupt handler only writes (statistics); single hart
 volatile uint32_t s_idle_wakes = 0;       // shared: idle hook writes, abx_bench_idle_stats reads; both inside taskENTER_CRITICAL
 volatile uint64_t s_idle_cycles = 0;      // shared: as s_idle_wakes (64-bit, so only inside taskENTER_CRITICAL)
-volatile bool s_soft_irq_on = false;      // shared: set before the soft line is enabled, interrupt handler reads; single hart
 
 void notify_from_isr() noexcept {
     if (s_ax_task) {
@@ -93,10 +92,9 @@ void abx_trace_task_switched_out(void) {
     }
 }
 
+// @impl [SPEC-E906-BENCH-03] apps/e906_bench/SPECIFICATION.md (same dispatch path as bare metal)
 bool abx_bench_soft_irq_enable(void) {
-    s_soft_irq_on = true;            // before the line: a pending soft IRQ must not count as unexpected
-    clic_enable(kLineSoft, true);
-    return true;
+    return hal::irq::attach(kLineSoft, [](void*) { abx_bench_soft_isr(); }, nullptr);
 }
 
 bool abx_bench_idle_stats(uint32_t *wakes, uint64_t *idle_cycles) {
@@ -113,15 +111,12 @@ void freertos_risc_v_application_interrupt_handler(uint32_t mcause) {
     if (line == kLineMsgbox) {
         // Level triggered: mask until the RPMsg awaiter has drained and re-enables it.
         hal::MsgBox::enable_rx_irq(hal::MsgBox::Channel::Channel1, false);
-        fc_msgbox_doorbell_isr();
+        (void)hal::irq::dispatch(line);  // fc_msgbox_doorbell_isr() with the bare-metal accounting
         notify_from_isr();
         return;
     }
-    if (line == kLineSoft && s_soft_irq_on) {
-        abx_bench_soft_isr();
-        notify_from_isr();
-        return;
-    }
+    // The soft line (3) is attached (abx_bench_soft_irq_enable) and taken below like any other.
+    // @impl [SPEC-E906-BENCH-03] apps/e906_bench/SPECIFICATION.md
     // DMA (88) and attached lines (PI8 DRDY on 100): the target's table, which disables a line
     // it does not own. A DMA completion may have posted the consumer, so wake the task.
     if (line != kLineTimer && hal::irq::dispatch(line)) {
