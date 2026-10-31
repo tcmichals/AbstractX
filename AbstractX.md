@@ -377,7 +377,7 @@ AbstractX applications are written against the universal `abstractx::` API and c
 >   - [Part 1: Unlocking the XuanTie RISC-V Core on Allwinner T527](https://www.hackster.io/MichalsTC/unlocking-the-xuantie-risc-v-core-on-allwinner-t527-part-1-976063) (Architecture, memory layout, and clock trees)
 >   - [Part 2: Bringing Up Heterogeneous RISC-V on Allwinner SoCs](https://www.hackster.io/MichalsTC/bringing-up-heterogeneous-risc-v-on-allwinner-socs-part-2-53deb8) (Remoteproc and resource tables)
 >   - [Part 3: Bare-Metal Firmware, IPC & Coroutines Intro](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part3_baremetal_firmware_ipc_and_coroutines_intro.md) (Hardware message box and VirtIO RPMsg)
->   - [Part 4: Bare-Metal C++ Coroutines vs FreeRTOS](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md) ([Local Benchmark](docs/articles/baremetal-vs-freertos-e906/README.md))
+>   - [Part 4: Bare-Metal C++ Coroutines vs FreeRTOS](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md) ([Local Benchmark](docs/articles/abstractx-vs-freertos-e906/README.md))
 >   - [Part 5: Python on Both Processors](docs/articles/micropython-on-e906/README.md) (MicroPython on E906 & Studio timeline)
 >   - [U-Boot Device Tree Overlays & `config.txt`](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md) (Peripheral pinmuxing and DMAC reservation)
 

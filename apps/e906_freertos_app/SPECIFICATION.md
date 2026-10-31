@@ -5,7 +5,7 @@ This document is the single source of truth for `apps/e906_freertos_app/`: Abstr
 Allwinner T527/A527 XuanTie E906. It exists to answer one question with measurements:
 when is bare metal + AbstractX the better choice, and when is FreeRTOS + AbstractX?
 The shared benchmark is specified in [`apps/e906_bench/SPECIFICATION.md`](../e906_bench/SPECIFICATION.md);
-the write-up is [`docs/articles/baremetal-vs-freertos-e906/README.md`](../../docs/articles/baremetal-vs-freertos-e906/README.md).
+the write-up is [`docs/articles/abstractx-vs-freertos-e906/README.md`](../../docs/articles/abstractx-vs-freertos-e906/README.md).
 
 Each requirement has a tag `[SPEC-E906-RTOS-*]`; code carries `// @impl [SPEC-E906-RTOS-*]`.
 
