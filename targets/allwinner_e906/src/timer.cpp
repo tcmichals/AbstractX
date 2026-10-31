@@ -27,7 +27,11 @@ static volatile uint64_t g_wake_target{kNever};  // shared: arm_wake under Inter
 static volatile uint64_t g_sample_target{kNever};  // shared: set_sample_period under InterruptGuard, timer ISR advances; single hart
 static volatile uint64_t g_sample_period{0};       // shared: set_sample_period under InterruptGuard, timer ISR reads; single hart
 
+// shared: set once in main() before interrupts are enabled, read by all paths; single hart
+static volatile bool g_external_tick{false};  // [SPEC-E906-RTOS-03] an RTOS owns mtimecmp
+
 static void program_compare(uint64_t target) noexcept {
+    if (g_external_tick) return;  // @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
     auto *cmp_lo = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE);
     auto *cmp_hi = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE + 4);
     // High word first to all-ones so the split write never matches early
@@ -142,19 +146,12 @@ void Timer::arm_wake(uint64_t target_ticks) noexcept {
     reprogram();
 }
 
-// Line 7 is level while mtime >= mtimecmp: always leave the comparator in the future or parked.
-void Timer::handle_irq() noexcept {
-    const uint64_t now = get_ticks();
-    bool other = false;
-    // @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
-    if (now >= g_sample_target) {
-        abstractx::events::sample(irq::trap_pc());
-        const uint64_t next = g_sample_target + g_sample_period;
-        g_sample_target = next > now ? next : now + g_sample_period;  // fell behind: skip
-    }
+// Post every waiter whose deadline has passed; true if any was due.
+static bool post_due_waiters(uint64_t now) noexcept {
+    bool any = false;
     while (!g_waiters.empty() && now >= g_waiters.front().target_ticks) {
-        other = true;
-        SleepAwaiter& w = g_waiters.front();
+        any = true;
+        Timer::SleepAwaiter& w = g_waiters.front();
         g_waiters.pop_front();
         const auto h = w.handle;
         const auto cb = w.callback;
@@ -167,6 +164,27 @@ void Timer::handle_irq() noexcept {
         }
     }
     g_coro_target = !g_waiters.empty() ? g_waiters.front().target_ticks : kNever;
+    return any;
+}
+
+// @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
+void Timer::use_external_tick() noexcept { g_external_tick = true; }
+
+bool Timer::tick_from_isr() noexcept { return post_due_waiters(get_ticks()); }
+
+// Line 7 is level while mtime >= mtimecmp: always leave the comparator in the future or parked.
+void Timer::handle_irq() noexcept {
+    const uint64_t now = get_ticks();
+    bool other = false;
+    // @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md
+    if (now >= g_sample_target) {
+        abstractx::events::sample(irq::trap_pc());
+        const uint64_t next = g_sample_target + g_sample_period;
+        g_sample_target = next > now ? next : now + g_sample_period;  // fell behind: skip
+    }
+    if (post_due_waiters(now)) {
+        other = true;
+    }
     if (now >= g_wake_target) {
         other = true;
         g_wake_target = kNever;  // the woken wfi loop re-checks its own deadline

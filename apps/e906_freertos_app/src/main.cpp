@@ -10,6 +10,7 @@
 #include "bench.hpp"
 #include "hal/clic.hpp"
 #include "hal/msgbox.hpp"
+#include "hal/timer.hpp"
 #include "hal/trace.hpp"
 
 extern "C" {
@@ -136,6 +137,13 @@ void freertos_risc_v_application_exception_handler(uint32_t mcause) {
     }
 }
 
+// @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
+void vApplicationTickHook(void) {
+    if (hal::Timer::tick_from_isr() && s_ax_task) {
+        vTaskNotifyGiveFromISR(s_ax_task, nullptr);  // nullptr: the kernel switches at tick end
+    }
+}
+
 void vApplicationIdleHook(void) {
     const uint64_t t0 = abx_bench_mcycle();
     __asm__ volatile("wfi");
@@ -159,6 +167,7 @@ void vApplicationStackOverflowHook(TaskHandle_t, char *) {
 int main() {
     hal::Trace::init(false);
     hal::Trace::puts("[E906] Online (freertos)\n");
+    hal::Timer::use_external_tick();  // [SPEC-E906-RTOS-03] the kernel owns mtimecmp
     abstractx::init();
     e906_bench::init(abstractx::hal::g_rpmsg);
 

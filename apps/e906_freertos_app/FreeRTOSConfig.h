@@ -40,7 +40,7 @@
 #define configUSE_MALLOC_FAILED_HOOK            0
 /* [SPEC-E906-RTOS-05] idle task sleeps in wfi and counts idle time */
 #define configUSE_IDLE_HOOK                     1
-#define configUSE_TICK_HOOK                     0
+#define configUSE_TICK_HOOK                     1  /* [SPEC-E906-RTOS-03] serves hal::Timer sleeps */
 #define configUSE_TIMERS                        0
 #define configTIMER_TASK_STACK_DEPTH            configMINIMAL_STACK_SIZE /* V11.1.0 references it even with timers off */
 

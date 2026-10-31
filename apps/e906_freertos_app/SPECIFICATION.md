@@ -62,8 +62,19 @@ flowchart LR
   `[SPEC-E906-BENCH-03]`), 88 DMA and the GPIO group lines armed through `hal::gpio_irq`
   (100 for the IMU DRDY on PI8, `[SPEC-E906-IRQ-07]`). Interrupts are masked from the end of `abstractx::init()` until
   the scheduler starts.
-* **Verified by**: `e906-disassembly-check`, `e906-board-selftest`
-* **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`, `apps/e906_freertos_app/FreeRTOSConfig.h`
+* **Requirement (one owner of `mtimecmp`, 2026-10-31)**: the kernel owns the comparator.
+  `main()` calls `hal::Timer::use_external_tick()` before `abstractx::init()`; from then on
+  `hal::Timer` never writes `mtimecmp`. AbstractX sleeps (`sleep_*_async`) are served from the
+  tick: `vApplicationTickHook` (`configUSE_TICK_HOOK = 1`) calls `hal::Timer::tick_from_isr()`,
+  which posts due waiters to `IsrDispatcher` and returns true if it posted; the hook then calls
+  `vTaskNotifyGiveFromISR(s_ax_task, nullptr)` (the kernel switches at the end of the tick).
+  Sleep resolution is therefore one tick (1 ms). The profiler sample timer and `Timer::arm_wake`
+  are not available under FreeRTOS.
+* **Rationale (2026-10-31)**: `hal::Timer::reprogram()` wrote the same `mtimecmp` as the kernel
+  tick, so AbstractX overwrote the tick deadline, and no AbstractX timer interrupt ever ran:
+  coroutine sleeps never woke (`C` cyclic bench returned no report).
+* **Verified by**: `e906-disassembly-check`, `e906-board-selftest`, board bench (`bench_e906_runtime.py --cyclic` on `e906_freertos_app` completes)
+* **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`, `apps/e906_freertos_app/FreeRTOSConfig.h`, `targets/allwinner_e906/src/timer.cpp`
 
 ### `[SPEC-E906-RTOS-04]` Message Box Interrupt Feeds the AbstractX Dispatcher
 * **Requirement**: the message box line is level triggered and stays asserted while the

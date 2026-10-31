@@ -82,6 +82,9 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     add_test(NAME py_test_spectrace_matrix
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_spectrace_matrix.py)
+    # [SPEC-AUDIT-13] one board address (ABSTRACTX_BOARD_IP) and the A5E identity check
+    add_test(NAME py_test_board_target
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_board_target.py)
     # [SPEC-AUDIT-16] block diagram renderer and ASCII box-art scan
     add_test(NAME py_test_render_diagrams
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_render_diagrams.py)

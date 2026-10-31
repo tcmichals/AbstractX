@@ -2,9 +2,6 @@
 Copyright (C) 2026 Tim Michals
 SPDX-License-Identifier: GPL-3.0-or-later
 
-import sys as _sys, pathlib as _pl  # noqa: E401
-_sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2] / "tools"))
-from board_target import board_ip as _board_ip, host_ip as _host_ip  # noqa: E402  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
 
 @impl [SPEC-STUDIO-08] [SPEC-STUDIO-04] tools/visualizer/SPECIFICATION.md
 
@@ -30,6 +27,9 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
+import sys as _sys, pathlib as _pl  # noqa: E401
+_sys.path.insert(0, str(_pl.Path(__file__).resolve().parents[2] / "tools"))
+from board_target import board_ip as _board_ip, host_ip as _host_ip  # noqa: E402  # @impl [SPEC-AUDIT-13] docs/SPECTRACE.md
 
 
 class TelemetryDatagramProtocol(asyncio.DatagramProtocol):

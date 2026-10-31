@@ -33,6 +33,10 @@ public:
 
     // Top-half ISR called from riscv_trap_dispatcher on MTIP (mcause 7)
     static void handle_irq() noexcept;
+    // An RTOS owns mtimecmp ([SPEC-E906-RTOS-03]): never write it; serve waiters from its tick.
+    static void use_external_tick() noexcept;
+    // From the RTOS tick hook (ISR): post due waiters; true if any was posted.
+    static bool tick_from_isr() noexcept;
 
     // ------------------------------------------------------------------------
     // Non-Blocking Coroutine Sleep Awaiters (ZERO POLLING / ZERO HARD LOOPS)
