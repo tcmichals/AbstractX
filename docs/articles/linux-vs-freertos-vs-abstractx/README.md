@@ -14,7 +14,7 @@ The Allwinner T527 on the Cubie A5E gives you two very different places to run c
 
 * **Linux (PREEMPT_RT) on the A55 cores**: the full operating system, with real-time scheduling.
 * **AbstractX alone on the E906**: the whole system is the AbstractX event loop. No kernel, no per-task stacks, no tick.
-* **AbstractX on FreeRTOS on the E906**: FreeRTOS owns the core, and the same AbstractX coroutines and drivers run inside one of its tasks.
+* **AbstractX on FreeRTOS on the E906**: FreeRTOS owns the core, and the same AbstractX coroutines and drivers run inside one of its tasks. One gap found while measuring: AbstractX coroutine sleeps do not wake under FreeRTOS yet (FreeRTOS owns the timer), so timer-driven coroutines need a fix first.
 
 The goal is not a winner. It is to show how the three differ and when to use each. AbstractX runs on its own or on top of FreeRTOS with the same code, and the E906 sits beside Linux, so a real system usually uses Linux *and* one of the E906 setups.
 
@@ -176,9 +176,19 @@ Run on the Cubie A5E over VirtIO RPMsg endpoint 1030, 2026-10-31, both firmwares
    | Linux, timer → SCHED_FIFO thread (avg / max) | 18 / 29 µs | 29 / **122 µs** |
    | E906 AbstractX, interrupt → coroutine (avg / max) | 14.2 / 18.1 µs | 14.4 / **18.5 µs** |
    | E906 AbstractX on FreeRTOS, interrupt → coroutine (avg / max) | 15.0 / 17.3 µs | 15.4 / **17.8 µs** |
+
+   **Same event as `cyclictest`** ([SPEC-E906-BENCH-06], `C`): a coroutine sleeps to an absolute 1 ms deadline 60,000 times and records how late it woke, exactly what `cyclictest` does for a Linux thread:
+
+   | Timer deadline → code runs (avg / max) | Linux idle | Linux loaded |
+   | :--- | ---: | ---: |
+   | Linux PREEMPT_RT, `cyclictest` | 18 / 29 µs | 29 / **122 µs** |
+   | E906 AbstractX alone | 9.8 / 10.8 µs | 9.8 / **10.1 µs** |
+   | E906 AbstractX on FreeRTOS | not measured: AbstractX timers do not run under FreeRTOS yet (FreeRTOS owns the timer comparator; `TODO.md`) | |
+
+   On the same event, AbstractX's wake on the E906 never varied by more than ~1.2 µs in 120,000 deadlines (none missed), whether Linux was idle or loaded. Its ~9.6 µs floor is the timer interrupt plus dispatch plus resume at 200 MHz.
    | E906 RPMsg echo 496 B through Linux (median / max) | 328 / 370 µs | 362 µs / 8.6 ms |
 
-   The A55 cores are far faster per instruction, but under load their worst case grew 4x; the E906's did not move under either runtime, because Linux load does not reach it. Between the two E906 runtimes the gap is the one from items 2 and 6 above (~150-190 cycles average in AbstractX's favour; worst cases within 1 µs of each other). Anything that crosses into Linux (the echo) slows down with Linux. So time-critical I/O belongs on the E906, and only results should cross to Linux. The two rows measure different events (a timer wake on Linux, a software interrupt on the E906), so compare their scale, not single cycles. Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_cyclictest_20261031.json), [`e906_bench_abstractx_linuxload_20261031.json`](../../verification/evidence/e906_bench_abstractx_linuxload_20261031.json), [`e906_bench_freertos_linuxload_20261031.json`](../../verification/evidence/e906_bench_freertos_linuxload_20261031.json).
+   The A55 cores are far faster per instruction, but under load their worst case grew 4x; the E906's did not move under either runtime, because Linux load does not reach it. Between the two E906 runtimes the gap is the one from items 2 and 6 above (~150-190 cycles average in AbstractX's favour; worst cases within 1 µs of each other). Anything that crosses into Linux (the echo) slows down with Linux. So time-critical I/O belongs on the E906, and only results should cross to Linux. The two rows measure different events (a timer wake on Linux, a software interrupt on the E906), so compare their scale, not single cycles. Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_cyclictest_20261031.json), [`e906_bench_abstractx_linuxload_20261031.json`](../../verification/evidence/e906_bench_abstractx_linuxload_20261031.json), [`e906_bench_freertos_linuxload_20261031.json`](../../verification/evidence/e906_bench_freertos_linuxload_20261031.json), [`e906_cyclic_e906_bench_app_idle_20261031.json`](../../verification/evidence/e906_cyclic_e906_bench_app_idle_20261031.json), [`e906_cyclic_e906_bench_app_load_20261031.json`](../../verification/evidence/e906_cyclic_e906_bench_app_load_20261031.json).
 
 ---
 

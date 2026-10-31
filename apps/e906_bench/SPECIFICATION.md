@@ -81,6 +81,24 @@ sequenceDiagram
 * **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_e906_bench_local.py`)
 * **Implementation Target**: `apps/e906_bench/bench.cpp`, `tests/board/bench_e906_runtime.py`
 
+### `[SPEC-E906-BENCH-06]` Cyclic Timer Wake (`C`), the E906 Equivalent of `cyclictest`
+* **Why**: to compare the E906 with Linux on the same event and metric. Linux is measured with
+  `cyclictest` (a SCHED_FIFO thread wakes at an absolute 1 ms deadline; the number is how late it
+  woke). The soft-IRQ wake ([SPEC-E906-BENCH-03]) is a different event, so it cannot be compared
+  with `cyclictest` directly.
+* **Requirement**: `C` [+ `uint32` little-endian count, default 60000, at most 600000] runs one
+  coroutine that, `count` times, advances an absolute deadline by 1 ms (24,000 ticks of the 24 MHz
+  `hal::Timer`), sleeps with `Timer::sleep_ticks_async(deadline - now)` and, when resumed, records
+  `late = get_ticks() - deadline` (0 if early). Same loop in both firmwares (shared `bench.cpp`).
+* **Requirement**: no per-sample storage: min / sum / max on the fly plus a 1 µs-bucket histogram
+  of 0-499 µs (500 x `uint32`) and an over-range count, for percentiles. A deadline already in the
+  past when the loop gets there counts in `missed` and is not slept on.
+* **Report** (`key=value`, ends with `end`): `cyc_count`, `cyc_period_us` (1000), `cyc_late_ns_min`,
+  `cyc_late_ns_avg`, `cyc_late_ns_max`, `cyc_late_us_p99`, `cyc_late_us_p999` (bucket upper edge),
+  `cyc_over_500us`, `cyc_missed`.
+* **Verified by**: board bench (`bench_e906_runtime.py --cyclic`), `e906-build-layout`
+* **Implementation Target**: `apps/e906_bench/bench.cpp`, `apps/e906_repl_app/tests/board/bench_e906_runtime.py`
+
 ### `[SPEC-E906-BENCH-05]` IMU DRDY Auto-DMA Run (`A`)
 * **Why**: the sensor comparison (bare metal, FreeRTOS, MicroPython, Linux) is paced by the IMU's
   own data-ready edge, so every runtime does the same work at the same rate and the time from

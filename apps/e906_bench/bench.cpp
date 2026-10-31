@@ -249,6 +249,60 @@ abstractx::hal::AutoChannelConfig s_imu_channel{};
 
 void hex_line(Report &r, const char *key, std::span<const uint8_t> bytes) noexcept;
 
+// E906 equivalent of cyclictest: 1 ms absolute deadlines, lateness on wake.
+// @impl [SPEC-E906-BENCH-06] apps/e906_bench/SPECIFICATION.md
+constexpr uint32_t kCycDefault = 60000;
+constexpr uint32_t kCycMax = 600000;
+constexpr uint32_t kCycBuckets = 500;          // 1 us buckets, 0..499 us
+uint32_t s_cyc_hist[kCycBuckets];              // shared: none (bench coroutine only)
+
+abstractx::coro::Task<void> run_cyclic(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count) noexcept {
+    if (count == 0) count = kCycDefault;
+    if (count > kCycMax) count = kCycMax;
+    for (auto &b : s_cyc_hist) b = 0;
+    constexpr uint64_t kPeriod = ::hal::Timer::TICKS_PER_MS;
+    uint64_t min_t = UINT64_MAX, max_t = 0, sum_t = 0;
+    uint32_t over = 0, missed = 0, done = 0;
+    uint64_t deadline = ::hal::Timer::get_ticks();
+    for (uint32_t i = 0; i < count; ++i) {
+        deadline += kPeriod;
+        const uint64_t now = ::hal::Timer::get_ticks();
+        if (now >= deadline) { ++missed; continue; }
+        co_await ::hal::Timer::sleep_ticks_async(deadline - now);
+        const uint64_t woke = ::hal::Timer::get_ticks();
+        const uint64_t late = woke > deadline ? woke - deadline : 0;
+        if (late < min_t) min_t = late;
+        if (late > max_t) max_t = late;
+        sum_t += late;
+        ++done;
+        const uint64_t us = late / ::hal::Timer::TICKS_PER_US;
+        if (us < kCycBuckets) ++s_cyc_hist[us]; else ++over;
+    }
+    auto pct = [&](uint32_t per_mille) -> uint64_t {
+        const uint64_t need = (static_cast<uint64_t>(done) * per_mille + 999) / 1000;
+        uint64_t acc = 0;
+        for (uint32_t b = 0; b < kCycBuckets; ++b) {
+            acc += s_cyc_hist[b];
+            if (acc >= need) return b + 1;
+        }
+        return kCycBuckets;
+    };
+    auto ns = [](uint64_t ticks) -> uint64_t { return ticks * 1000u / ::hal::Timer::TICKS_PER_US; };
+    Report r(rpmsg, host);
+    r.kv("platform", abx_bench_platform_name());
+    r.kv("cyc_count", done);
+    r.kv("cyc_period_us", static_cast<uint64_t>(1000));
+    r.kv("cyc_late_ns_min", done ? ns(min_t) : 0);
+    r.kv("cyc_late_ns_avg", done ? ns(sum_t / done) : 0);
+    r.kv("cyc_late_ns_max", ns(max_t));
+    r.kv("cyc_late_us_p99", pct(990));
+    r.kv("cyc_late_us_p999", pct(999));
+    r.kv("cyc_over_500us", over);
+    r.kv("cyc_missed", missed);
+    r.kv("end", static_cast<uint64_t>(1));
+    r.flush();
+}
+
 abstractx::coro::Task<void> run_imu(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count) noexcept {
     namespace ax = abstractx::hal;
     Report r(rpmsg, host);
@@ -454,6 +508,8 @@ abstractx::coro::Task<void> worker_task(::hal::IRpmsg &rpmsg) noexcept {
             ++s_tail;  // free the slot before a long run
             if (cmd == 'R') {
                 co_await run_suite(rpmsg, host);
+            } else if (cmd == 'C') {
+                co_await run_cyclic(rpmsg, host, count);  // [SPEC-E906-BENCH-06]
             } else if (cmd == 'A') {
                 co_await run_imu(rpmsg, host, count);
             } else if (cmd == 'I') {

@@ -6,6 +6,7 @@ bench_e906_runtime.py - Collect the E906 runtime benchmark (stdlib only, runs on
 
   python3 bench_e906_runtime.py [--n 1000] [--json out.json]
   python3 bench_e906_runtime.py --imu 2000 [--json out.json]   # IMU DRDY auto-DMA run only
+  python3 bench_e906_runtime.py --cyclic 60000 [--json out.json] # cyclictest equivalent (1 ms)
 
 Talks to endpoint 1030 'abstractx-bench' served by e906_bench_app (bare metal) or
 e906_freertos_app (FreeRTOS); both run the same benchmark code ([SPEC-E906-BENCH-*]).
@@ -134,8 +135,16 @@ def run_imu(link: BenchLink, count: int) -> dict:
     return rep
 
 
+def run_cyclic(link: BenchLink, count: int) -> dict:
+    """[SPEC-E906-BENCH-06] cyclictest equivalent: 1 ms deadlines, wake lateness."""
+    rep = run_suite(link, timeout_s=count / 1000.0 + 15.0, request=b"C" + count.to_bytes(4, "little"))
+    if rep.get("cyc_count", 0) + rep.get("cyc_missed", 0) != count:
+        rep.setdefault("error", "cyclic run incomplete")
+    return rep
+
+
 def main(argv) -> int:
-    n, json_out, imu = 1000, None, 0
+    n, json_out, imu, cyc = 1000, None, 0, 0
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -143,6 +152,8 @@ def main(argv) -> int:
             n = int(args.pop(0))
         elif a == "--imu" and args:
             imu = int(args.pop(0))
+        elif a == "--cyclic" and args:
+            cyc = int(args.pop(0))
         elif a == "--json" and args:
             json_out = args.pop(0)
         else:
@@ -157,6 +168,19 @@ def main(argv) -> int:
     except (OSError, RuntimeError) as e:
         print(f"could not run: {e} (is e906_bench_app or e906_freertos_app loaded?)")
         return 2
+    if cyc:
+        try:
+            link.drain()
+            rep = run_cyclic(link, cyc)
+        finally:
+            link.close()
+        result = {"check": "board:e906:cyclic", "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                  "uname": os.uname().release, "count": cyc, "cyclic": rep}
+        print(json.dumps(result, indent=1))
+        if json_out:
+            with open(json_out, "w") as f:
+                json.dump(result, f, indent=1)
+        return 1 if "error" in rep else 0
     if imu:
         try:
             link.drain()

@@ -3394,3 +3394,9 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Also found**: `linux-cubie` is on `feature/a733-e902-remoteproc`, not `cubie-linux-7.1`, and an out-of-tree build there fails at `outputmakefile` (in-tree build output present). Not touched: another session's work.
 * **Rule**: before installing a kernel, compare `strings Image | grep 'Linux version'` (build number and date) with `/proc/version` on the board; take the kernel from `kobj-a5e`, and only from `cubie-linux-7.1`. `/boot` (64 MB) holds two kernels, not three.
 * **Result**: rt-tests and stress-ng are in the rebuilt `bld.a5e/images/rootfs.ext4` / `sdcard.img` (debugfs `stat`: cyclictest 56,536 B, stress-ng 3,171,264 B) and installed live on the board; no kernel change was needed.
+
+## [2026-10-31] - cyclictest on the E906 ([SPEC-E906-BENCH-06]); AbstractX timers dead under FreeRTOS
+
+* **Why** (`process-gap`): the Linux vs E906 comparison set `cyclictest` (timer wake) against the soft-IRQ wake, different events. New bench command `C`: 1 ms absolute deadlines via `Timer::sleep_ticks_async`, lateness from the 24 MHz `hal::Timer`, histogram percentiles, shared by both firmwares.
+* **Board, 2026-10-31** (`hardware-fact`, 60,000 deadlines each, over Wi-Fi): AbstractX alone, Linux idle: late min/avg/max 9,583 / 9,791 / 10,750 ns, p99 10 µs, p99.9 11 µs, 0 missed; Linux under `stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2`: 9,625 / 9,791 / 10,083 ns, 0 missed. Linux `cyclictest` same day: 18/29 µs idle, 29/122 µs loaded (avg/max).
+* **Found** (`product-bug`): the same `C` run on `e906_freertos_app` returned no report (2,000 and 60,000 cycles). FreeRTOS programs the machine-timer comparator for its tick, so `hal::Timer` waiters never fire and coroutine sleeps never resume under FreeRTOS. The article's "same coroutines inside FreeRTOS" held only for interrupt-driven coroutines. Recorded in TODO.md; not fixed.
