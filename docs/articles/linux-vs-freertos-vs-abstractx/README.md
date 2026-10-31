@@ -1,33 +1,33 @@
-# AbstractX vs FreeRTOS on the XuanTie E906
+# Linux vs FreeRTOS vs AbstractX on the Allwinner T527
 
 ## Part 4 of *Bringing Up Heterogeneous RISC-V on Allwinner SoCs* (Radxa Cubie A5E)
 
 **Status: measured on hardware, 2026-10-31.** Every number below comes from benchmark runs on the Radxa Cubie A5E (Allwinner T527, XuanTie E906 @ 200 MHz), firmware built from `e159de6`.
-Evidence: [`e906_bench_abstractx_stallfix_20261031.json`](../../verification/evidence/e906_bench_abstractx_stallfix_20261031.json) and [`e906_bench_freertos_stallfix_20261031.json`](../../verification/evidence/e906_bench_freertos_stallfix_20261031.json).
+Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_cyclictest_20261031.json), [`e906_bench_abstractx_stallfix_20261031.json`](../../verification/evidence/e906_bench_abstractx_stallfix_20261031.json) and [`e906_bench_freertos_stallfix_20261031.json`](../../verification/evidence/e906_bench_freertos_stallfix_20261031.json).
 Requirements: [`apps/e906_bench/SPECIFICATION.md`](../../../apps/e906_bench/SPECIFICATION.md), [`apps/e906_freertos_app/SPECIFICATION.md`](../../../apps/e906_freertos_app/SPECIFICATION.md).
 
 ---
 
 ## 1. What This Article Shows
 
-AbstractX is a runtime: freestanding C++20 coroutines, a lock-free ISR-to-coroutine dispatcher, zero-copy VirtIO RPMsg transports and cycle-accurate binary telemetry. It needs no operating system, **and it also runs on top of FreeRTOS**: the same coroutines, awaiters and drivers work inside a FreeRTOS task.
+The Allwinner T527 on the Cubie A5E gives you two very different places to run code: eight Cortex-A55 cores running Linux, and a 200 MHz XuanTie E906 RISC-V core beside them. This article compares three ways to use them, measured on the same board:
 
-So this is not "pick one framework". It shows how the two setups differ and when to use each:
+* **Linux (PREEMPT_RT) on the A55 cores**: the full operating system, with real-time scheduling.
+* **AbstractX alone on the E906**: the whole system is the AbstractX event loop. No kernel, no per-task stacks, no tick.
+* **AbstractX on FreeRTOS on the E906**: FreeRTOS owns the core, and the same AbstractX coroutines and drivers run inside one of its tasks.
 
-* **AbstractX on its own**: the whole system is the AbstractX event loop. This is the setup for an **offload processor** like the E906, which sits beside Linux and handles sensors, buses and IPC. You get the smallest footprint (no kernel, no per-task stacks, no tick) and the shortest path from an interrupt to the code that handles it.
-* **AbstractX on FreeRTOS**: FreeRTOS owns the core, and AbstractX coroutines run in one of its tasks. Use this when you also need preemption (long compute jobs, blocking third-party code) or already have FreeRTOS tasks. You keep the coroutine model and pay for the kernel.
+The goal is not a winner. It is to show how the three differ and when to use each. AbstractX runs on its own or on top of FreeRTOS with the same code, and the E906 sits beside Linux, so a real system usually uses Linux *and* one of the E906 setups.
 
-What the E906 measurements say about the cost of adding FreeRTOS underneath:
+| | Linux (A55) | AbstractX alone (E906) | AbstractX on FreeRTOS (E906) |
+| :--- | ---: | ---: | ---: |
+| RAM in use | ~64 MB at idle (65,680 KB of 4 GB) | 25,984 B static | 37,672 B static |
+| Code / image | 29 MB kernel + 353 MB root fs | 77,516 B | 82,432 B |
+| Event → handler code, avg / max, Linux idle | 18 / 29 µs (timer → RT thread) | 14.2 / 18.1 µs (IRQ → coroutine) | 15.0 / 17.3 µs (IRQ → coroutine) |
+| Same, Linux under `stress-ng` load | 29 / **122 µs** | 14.4 / **18.5 µs** | 15.4 / **17.8 µs** |
+| Periodic tick | yes (kernel) | none | 1 kHz |
+| Preemption | yes | no (cooperative) | yes |
 
-| | AbstractX alone | AbstractX on FreeRTOS |
-| :--- | ---: | ---: |
-| Code (`.text` + `.fastcode`) | 77,516 B | 82,432 B (+4,916) |
-| Static RAM (`.data` + `.bss`) | 25,984 B | 37,672 B (+11,688) |
-| Interrupt → coroutine resumed (avg) | 2,847 cycles | 2,998 cycles |
-| RPMsg echo 496 B, throughput | 2.97 MB/s | 2.92 MB/s |
-| Periodic tick | none | 1 kHz |
-
-On the E906's 192 KB of SRAM, 11.7 KB is about 6% of the memory left for buffers, profiler rings and MicroPython. The end-to-end RPMsg echo, which is mostly Linux time, is the same within run-to-run noise.
+What this says: Linux has orders of magnitude more compute and memory, but its worst-case response grows with load (4x here). The E906 is unaffected by Linux load under either runtime. Between the two E906 setups, AbstractX alone is ~150 cycles faster per wake and 11.7 KB smaller; FreeRTOS adds preemption. The Linux row measures a timer wake and the E906 rows a software interrupt, so compare their scale, not single microseconds (§7).
 
 We compiled **the same benchmark application** (`apps/e906_bench/bench.cpp`) both ways on the Allwinner T527's XuanTie E906 (a 32-bit RV32IMAFC core at 200 MHz with 192 KB of on-chip SRAM):
 
@@ -35,7 +35,7 @@ We compiled **the same benchmark application** (`apps/e906_bench/bench.cpp`) bot
 
 ---
 
-## 2. One Benchmark, Two Runtimes
+## 2. What Was Measured
 
 [`apps/e906_bench/bench.cpp`](../../../apps/e906_bench/bench.cpp) is compiled unchanged into both firmwares:
 * **AbstractX alone (`apps/e906_bench_app`)**: no RTOS. `abstractx::run(bench_main())` is the whole system; when no coroutine has a pending resume it sleeps in `wfi` inside `platform_idle_wait()`.
@@ -43,7 +43,9 @@ We compiled **the same benchmark application** (`apps/e906_bench/bench.cpp`) bot
 
 The application code, the drivers and the interrupt dispatch path (`hal::irq::dispatch`, [SPEC-E906-RTOS-04]) are the same in both. The only difference is what runs underneath: AbstractX's event loop, or the FreeRTOS scheduler. That is what makes the comparison fair.
 
-Both serve VirtIO RPMsg endpoint 1030 (`abstractx-bench`). The Linux host on the Cortex-A55 cores runs:
+* **Linux (`cyclictest`, rt-tests 2.80)**: kernel 7.1.0 PREEMPT_RT on the A55 cores. One SCHED_FIFO 95 thread pinned to CPU 2 wakes every 1 ms for 60,000 cycles (`cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2`), idle and with `stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2`.
+
+Both E906 firmwares serve VirtIO RPMsg endpoint 1030 (`abstractx-bench`). The Linux host on the Cortex-A55 cores runs:
 1. **Echo round trip and throughput**: 1,000 messages each of 16, 256 and 496 bytes; min, median, p99 and max (µs).
 2. **On-target suite (`R` command)**, timed with RISC-V `mcycle` at 200 MHz:
    * *Yield round trip*: one `co_await yield_to_dispatcher()` (10,000 runs).
@@ -184,7 +186,12 @@ Run on the Cubie A5E over VirtIO RPMsg endpoint 1030, 2026-10-31, both firmwares
 
 ![When to Choose AbstractX or FreeRTOS](assets/table4-decision-matrix.svg)
 
-The application code is the same either way, so this choice can change later without rewriting drivers or coroutines.
+### Linux on the A55 cores: compute, networking, storage, UI
+* Anything that needs megabytes: vision, planners, logging to storage, Wi-Fi and Ethernet stacks, web and GUI, Python and the full package ecosystem.
+* Soft real time: PREEMPT_RT kept a 1 kHz thread under 30 µs at idle and under 125 µs under heavy load here. That is fine for control loops in the 100 Hz - 1 kHz range that can tolerate an occasional 0.1 ms delay.
+* Not for hard deadlines under load: its worst case depends on what else Linux is doing.
+
+The E906 setups below are for the I/O and timing work Linux should not own. The application code is the same in both, so this choice can change later without rewriting drivers or coroutines.
 
 ### AbstractX alone: offload processors and event-driven I/O
 * **Offloading from Linux** (the E906 next to the A55 cores, an FPGA soft core, a small MCU on a sensor board): the processor's job is to move data between buses and the host. Every byte of SRAM not spent on a kernel and task stacks goes to DMA buffers and rings.
@@ -221,4 +228,9 @@ for app in e906_bench_app e906_freertos_app; do
       echo $app.elf > \$R/firmware; echo start > \$R/state; sleep 2; \
       python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/$app.json"
 done
+
+# 4. Linux on the A55 cores (cyclictest and stress-ng are in the Buildroot image since cubie-a5e 024f02e)
+ssh root@$ABSTRACTX_BOARD_IP 'cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q'
+ssh root@$ABSTRACTX_BOARD_IP 'stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & sleep 5; cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q; wait'
+# For the E906 rows under load, run step 3 while the same stress-ng command runs.
 ```

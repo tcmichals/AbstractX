@@ -2,14 +2,14 @@
 """
 generate_bench_svg_assets.py - Generates clean, dark-themed SVG tables and architecture
 diagrams for the AbstractX vs FreeRTOS on XuanTie E906 article.
-Outputs to docs/articles/abstractx-vs-freertos-e906/assets/
+Outputs to docs/articles/linux-vs-freertos-vs-abstractx/assets/
 # @impl [SPEC-E906-BENCH-02] [SPEC-E906-RTOS-07] [SPEC-E906-RTOS-08]
 """
 
 import os
 import xml.etree.ElementTree as ET
 
-ASSETS_DIR = os.path.abspath("docs/articles/abstractx-vs-freertos-e906/assets")
+ASSETS_DIR = os.path.abspath("docs/articles/linux-vs-freertos-vs-abstractx/assets")
 
 def escape_xml(s: str) -> str:
     return (s.replace("&", "&amp;")

@@ -81,7 +81,7 @@ flowchart LR
 ### 1. ⚡ Fast C++20 with Zero Heap Memory
 * **Cooperative resume**: tasks suspend and resume through compiler-generated state machines; a resume is an indirect call from the dispatcher, with no OS tick and no per-task stack. A full yield round trip through the event loop is **10.20 µs** (2,040 cycles) on the E906 with AbstractX alone (2026-10-31; the `resume()` call itself is not measured).
 * **Zero Dynamic Heap (`0 B`)**: Enforces 100% freestanding C++20. Statically pools coroutine frames in `.bss` (under 120 bytes per task).
-* **One Shared Stack**: all coroutines run on the one startup stack (8 KB on the E906), with no per-task stacks. The same benchmark on FreeRTOS needed 11,688 B more static RAM (task, ISR and idle stacks plus TCBs; [Part 4](docs/articles/abstractx-vs-freertos-e906/README.md), 2026-10-31). Zephyr is not measured.
+* **One Shared Stack**: all coroutines run on the one startup stack (8 KB on the E906), with no per-task stacks. The same benchmark on FreeRTOS needed 11,688 B more static RAM (task, ISR and idle stacks plus TCBs; [Part 4](docs/articles/linux-vs-freertos-vs-abstractx/README.md), 2026-10-31). Zephyr is not measured.
 
 ```cpp
 // 100% Linear, Zero-Allocation C++20 Coroutine Task
@@ -198,7 +198,7 @@ and Zynq numbers will appear here when they are measured. Evidence:
 [`e906_bench_abstractx_stallfix_20261031.json`](docs/verification/evidence/e906_bench_abstractx_stallfix_20261031.json),
 [`e906_bench_freertos_stallfix_20261031.json`](docs/verification/evidence/e906_bench_freertos_stallfix_20261031.json),
 [`e906_imu_drdy_baremetal.json`](docs/verification/evidence/e906_imu_drdy_baremetal.json);
-write-ups in [Part 4](docs/articles/abstractx-vs-freertos-e906/README.md) and
+write-ups in [Part 4](docs/articles/linux-vs-freertos-vs-abstractx/README.md) and
 [Part 6](docs/articles/sensor-placement-t527/README.md).
 
 | Metric (E906, 200 MHz) | AbstractX alone | AbstractX on FreeRTOS |
@@ -357,7 +357,7 @@ Explore the comprehensive engineering series detailing silicon bring-up, corouti
   * [**Part 1: Unlocking the XuanTie RISC-V Core on Allwinner T527**](https://www.hackster.io/MichalsTC/unlocking-the-xuantie-risc-v-core-on-allwinner-t527-part-1-976063) (Hackster.io) — Heterogeneous architecture, memory layout, clock trees, and XuanTie E906 boot.
   * [**Part 2: Bringing Up Heterogeneous RISC-V on Allwinner SoCs**](https://www.hackster.io/MichalsTC/bringing-up-heterogeneous-risc-v-on-allwinner-socs-part-2-53deb8) (Hackster.io) — Linux `remoteproc`, firmware ELF loading, resource tables, and lifecycle management.
   * [**Part 3: Bare-Metal Firmware, IPC & Coroutines Intro**](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part3_baremetal_firmware_ipc_and_coroutines_intro.md) — Hardware message box (`sun6i-msgbox`), VirtIO RPMsg zero-copy endpoints, and mailbox doorbells.
-  * [**Part 4: AbstractX vs FreeRTOS on the XuanTie E906**](docs/articles/abstractx-vs-freertos-e906/README.md) ([GitHub Deep-Dive](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md)) — Like-for-like empirical comparison of context switch overhead, idle ticks, and VirtIO RPMsg throughput on real hardware.
+  * [**Part 4: Linux vs FreeRTOS vs AbstractX on the Allwinner T527**](docs/articles/linux-vs-freertos-vs-abstractx/README.md) ([GitHub Deep-Dive](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md)) — Like-for-like empirical comparison of context switch overhead, idle ticks, and VirtIO RPMsg throughput on real hardware.
   * [**Part 5: Experiment First, Compile Later: Python on Both Processors**](docs/articles/micropython-on-e906/README.md) — Bare-metal MicroPython on XuanTie E906, shared SRAM memory map, VirtIO RPMsg streams, and Studio timing timeline.
   * [**Device Tree Overlays: U-Boot & `config.txt` Integration**](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md) — Dynamic pinmuxing, peripheral arbitration between Linux and E906, and Sunxi DMAC channel reservations.
   * [**Companion Repository: `tcmichals/cubie-a5e`**](https://github.com/tcmichals/cubie-a5e) — Reference repository for Radxa Cubie A5E Linux driver development, kernel buildroot setups, device tree overlays, and E906 coprocessor demo firmware.
