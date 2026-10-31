@@ -43,6 +43,20 @@ bool rpmsg_doorbell_pending() noexcept {
     return s_doorbell.load(std::memory_order_acquire);
 }
 
+// @impl [SPEC-E906-IRQ-04] targets/allwinner_e906/SPECIFICATION.md (rule 2, idle side)
+bool rpmsg_pending_before_sleep() noexcept {
+    IRpmsg *d = Rpmsg::get_active_driver();
+    if (d == nullptr || !d->is_driver_ready()) {
+        return false;
+    }
+    d->enable_rx_kick(true);
+    if (!d->is_rx_pending()) {
+        return false;
+    }
+    s_doorbell.store(true, std::memory_order_release);  // platform_poll_network() polls it
+    return true;
+}
+
 uint32_t rpmsg_doorbell_irqs() noexcept {
     return s_doorbell_irqs.load(std::memory_order_relaxed);
 }
@@ -438,6 +452,7 @@ bool poll(Transport &t) {
         return false;
     }
     if (pending == 0) {
+        set_flags(t.rx, 0);  // every return leaves host kicks enabled ([SPEC-E906-IRQ-04] rule 1)
         return false;
     }
 
@@ -694,11 +709,20 @@ bool IRpmsg::AsyncRxAwaiter::await_suspend(std::coroutine_handle<> handle) noexc
         return false;  // one slot: never overwrite another waiter
     }
     registered = handle.address();
+    // Kicks on, doorbell armed, THEN look again: Linux may have posted while kicks were
+    // suppressed, after await_ready() looked ([SPEC-E906-IRQ-04] rule 2).
     if (driver) {
         driver->enable_rx_kick(true);
     }
-    // Unmask the message box read interrupt (CLIC line 17) so a Linux kick resumes us
-    rpmsg_arm_doorbell();
+    rpmsg_arm_doorbell();  // unmask CLIC line 17 so a Linux kick resumes us
+    if (driver && driver->is_rx_pending()) {
+        void *mine = registered;
+        if (s_rpmsg_waiter.compare_exchange_strong(mine, nullptr, std::memory_order_acq_rel)) {
+            registered = nullptr;
+            return false;  // withdrawn: handle the descriptor now
+        }
+        // The ISR already took the slot and posted us: stay suspended (rule 3, one resume).
+    }
     return true;
 }
 
@@ -708,10 +732,8 @@ bool IRpmsg::AsyncRxAwaiter::await_resume() noexcept {
         (void)s_rpmsg_waiter.compare_exchange_strong(mine, nullptr, std::memory_order_acq_rel);
         registered = nullptr;
     }
-    // The doorbell flag belongs to platform_poll_network(); poll() reads the vrings.
-    if (driver) {
-        driver->enable_rx_kick(false);
-    }
+    // The doorbell flag belongs to platform_poll_network(); poll() reads the vrings and owns
+    // NO_NOTIFY ([SPEC-E906-IRQ-04] rule 1): the awaiter never suppresses host kicks.
     return driver ? driver->poll() : false;  // irq-gated: resumed by the doorbell ISR or pending vring
 }
 

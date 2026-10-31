@@ -26,10 +26,10 @@ constexpr uint32_t kIerRx  = 0x01;  // ERBFI: RX data / timeout
 constexpr uint32_t kIerTx  = 0x02;  // ETBEI: THR empty
 constexpr uint32_t kIerLsi = 0x04;  // ELSI: line status
 
-__attribute__((section(".sram_c"))) alignas(4) uint8_t s_u3_dma_rx[UartBuffers::kDmaRingBytes];
-__attribute__((section(".sram_c"))) alignas(4) ::hal::DmaLli s_u3_rx_lli[UartBuffers::kDmaNumBufs];
-__attribute__((section(".sram_c"))) alignas(4) uint8_t s_u3_tx_dma[UartBuffers::kTxDmaBytes];
-__attribute__((section(".sram_c"))) alignas(4) ::hal::DmaLli s_u3_tx_lli;
+alignas(4) __attribute__((section(".sram_c"))) uint8_t s_u3_dma_rx[UartBuffers::kDmaRingBytes];
+alignas(4) __attribute__((section(".sram_c"))) ::hal::DmaLli s_u3_rx_lli[UartBuffers::kDmaNumBufs];
+alignas(4) __attribute__((section(".sram_c"))) uint8_t s_u3_tx_dma[UartBuffers::kTxDmaBytes];
+alignas(4) __attribute__((section(".sram_c"))) ::hal::DmaLli s_u3_tx_lli;
 __attribute__((section(".sram_c"))) uint8_t s_u3_rx[UartBuffers::kRxBytes];
 __attribute__((section(".sram_c"))) uint8_t s_u3_tx[UartBuffers::kTxBytes];
 

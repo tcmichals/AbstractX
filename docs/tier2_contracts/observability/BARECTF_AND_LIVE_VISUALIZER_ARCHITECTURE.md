@@ -64,7 +64,7 @@ graph TD
 
 Trace packets are formatted in accordance with the Common Trace Format (CTF 1.8) specification defined in [`trace/barectf_config.yaml`](file:///home/tcmichals/projects/AbstractX/trace/barectf_config.yaml):
 
-### A. Packet Header (32 bytes)
+### A. Packet Header (40 bytes: the diagram below shows the first 32; then `events_discarded` and 4 B padding, `include/abstractx/trace/tracer.hpp`)
 Every trace packet begins with the standard CTF header:
 ```
  0                   1                   2                   3

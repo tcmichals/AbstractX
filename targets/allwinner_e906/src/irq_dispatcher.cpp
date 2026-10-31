@@ -50,6 +50,10 @@ extern "C" {
 // [4] CLIC word line 17, [5] CLIC word line 7, [6] mie, [7] mstatus (both at the last idle),
 // [8] main loop passes, [11] trap entries, [12] raw mcause, [13] mepc of the last trap (startup.S).
 extern "C" { volatile uint32_t g_e906_diag[16] = {}; }
+// [SPEC-E906-IRQ-06] still asleep: set by platform_idle_wait() before the wfi, cleared by every
+// trap return that is not sample-only (startup.S) and after the wfi.
+// shared: idle sets with interrupts masked, trap return clears; single hart, volatile word
+extern "C" { volatile uint32_t g_idle_sleeping = 0; }
 extern "C" volatile uint32_t g_irq_sample_only;  // timer.cpp, [SPEC-E906-IRQ-06]
 
 namespace {

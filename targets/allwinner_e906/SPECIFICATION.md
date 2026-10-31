@@ -501,7 +501,23 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   the vrings, `hal::rpmsg_arm_doorbell()` to unmask.
 * **Requirement**: no application or platform loop calls `poll()` unconditionally; RX vrings are
   read only after a doorbell (or when an awaiter's `await_ready` sees pending descriptors).
-* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`)
+* **Requirement (no lost wakeup, 2026-10-31)**: Linux kicks only while the RX vring's
+  `used->flags` has `VRING_USED_F_NO_NOTIFY` clear. Therefore:
+  1. `NO_NOTIFY` is set only inside `poll()` while it drains, and every return from `poll()`
+     leaves it clear. The RX awaiter never sets it.
+  2. Before a coroutine sleeps on the doorbell (`AsyncRxAwaiter::await_suspend`) and before the
+     core sleeps (`platform_idle_wait`, interrupts masked), the code clears `NO_NOTIFY` **and then**
+     re-checks the RX avail ring. A descriptor found there is handled as a doorbell (the awaiter
+     does not suspend; idle sets the doorbell flag and does not `wfi`), because Linux may have
+     posted it while kicks were suppressed.
+  3. An awaiter that withdraws after the re-check releases its wake slot only if the ISR has not
+     taken it; if the ISR already posted it, it stays suspended (one resume, never two).
+* **Rationale (2026-10-31)**: board probe: one echo per second waited for the 1 s status timer
+  (16 B: 7-11 stalls per 2000; 256 B: 35 per 2000, each ending on a status tick). The awaiter set
+  `NO_NOTIFY` in `await_resume`, `poll()` left it set when nothing was pending, and it was
+  cleared only in `await_suspend` *after* `await_ready` had checked the ring: a message posted
+  in that window got no kick and no check.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`, `sim/test_e906_rpmsg_flow_control.cpp`: post in the window, awaiter does not sleep), board bench (`bench_e906_runtime.py` echo max < 5 ms)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/src/platform.cpp`
 
 ### `[SPEC-E906-IRQ-05]` Runtime Status: Cycle Clock, Idle Time and Per-Line ISR Time
@@ -536,12 +552,23 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   woke ~1050 times a second), so the idle loop does not wake 1000 times a second, idle stays one span and busy %
   does not include the profiler's loop wakes. It is not recorded as a timeline span (the profiler
   shows it). Any other interrupt still ends the `wfi` as before ([SPEC-E906-IRQ-01]).
+* **Requirement (still asleep, 2026-10-31)**: `mepc == e906_idle_wfi + 4` does not prove the core
+  is still asleep: it is also where the core stands after a real interrupt has already woken it.
+  So `platform_idle_wait` sets `g_idle_sleeping = 1` with interrupts masked just before the `wfi`,
+  **every trap return that is not sample-only clears it**, and a sample-only return goes back to
+  the `wfi` only while `g_idle_sleeping` is still set. `platform_idle_wait` clears it after the
+  `wfi`.
+* **Rationale (2026-10-31)**: board probe (`stall_snap.py`, 2000 x 16 B echoes): 14 echoes took
+  ~1 s. In each, the doorbell ISR had run (`doorbell_irqs` advanced, `s_doorbell = 1`, the RX
+  waiter posted) and the core then slept until the 1 s status tick. The 1 kHz profiler sample
+  became due while the doorbell ISR ran; it was taken on the `mret` with `mepc = wfi + 4`, judged
+  "idle `wfi`", and sent the core back to sleep with the posted work unrun.
 * **Requirement**: `dispatch_clic_line` records an interrupt span (line, start cycle, cycles) for
   [SPEC-TRACE-10] from the same measurement it charges to [SPEC-E906-IRQ-05].
 * **Requirement**: the sample ring (256 x 8 B) and timeline ring (512 x 16 B) live in `.sram_c`
   (SRAM Space 1, [SPEC-E906-MEM-01]).
-* **Verified by**: `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_trace.py`)
-* **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `targets/allwinner_e906/src/platform.cpp`
+* **Verified by**: `e906-build-layout`, `e906-board-selftest` (`tests/board/test_e906_trace.py`), `e906-disassembly-check` (trap return reads `g_idle_sleeping`), board bench (`bench_e906_runtime.py` echo max < 5 ms)
+* **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`, `targets/allwinner_e906/src/irq_dispatcher.cpp`, `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/bsp/startup.S`
 
 ### `[SPEC-E906-IRQ-07]` GPIO Edge Interrupt: IMU DRDY on PI8
 * **Why**: the IMU's own sample clock must start each read (auto-DMA, [SPEC-E906-HAL-05]), so that

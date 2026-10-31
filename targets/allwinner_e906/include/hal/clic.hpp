@@ -66,6 +66,7 @@ inline void route_gic(uint32_t gic, bool on) noexcept {
 } // namespace hal::clic
 
 extern "C" volatile uint32_t g_e906_diag[16];
+extern "C" volatile uint32_t g_idle_sleeping;  // [SPEC-E906-IRQ-06], irq_dispatcher.cpp
 
 namespace hal::irq {
 

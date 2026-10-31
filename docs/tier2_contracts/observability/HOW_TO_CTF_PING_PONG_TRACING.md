@@ -16,7 +16,7 @@ AbstractX provides a zero-allocation, high-throughput binary trace engine based 
 
 1. **Network Frame MTU Match (No IP Fragmentation)**:
    * Standard Ethernet and Wi-Fi MTU is **1,500 bytes**.
-   * A 1,024-byte packet + 32-byte CTF packet header + 28-byte IP/UDP headers = **1,084 bytes**.
+   * A 1,024-byte packet + 40-byte CTF packet header + 28-byte IP/UDP headers = **1,092 bytes**.
    * The packet fits entirely within a single unfragmented datagram, avoiding packet drops and IP reassembly on Linux and microcontroller network stacks (e.g. CYW43439 on Pico 2 W).
 2. **Batches ~35 to 45 Events per Packet**:
    * IMU samples are 27 bytes, GPS fixes are 35 bytes, Coroutine events are 19 bytes.

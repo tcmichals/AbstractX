@@ -156,14 +156,20 @@ default_trap_entry:
     lw t3, 0(t2)
     sw zero, 0(t2)
     la t1, e906_idle_wfi
+    la t2, g_idle_sleeping
     beqz t3, 2f
-    /* Sample only: back to the wfi whether mepc is the wfi or (as on this E906) the one after. */
+    /* Sample only: back to the wfi (mepc is the wfi or, on this E906, the one after) but only
+     * while still asleep: wfi + 4 is also where a real interrupt already woke the core.
+     * @impl [SPEC-E906-IRQ-06] targets/allwinner_e906/SPECIFICATION.md (still asleep) */
+    lw t3, 0(t2)
+    beqz t3, 1f
     beq t0, t1, 1f
     addi t2, t1, 4
     bne t0, t2, 1f
     mv t0, t1
     j 1f
 2:
+    sw zero, 0(t2)                /* a real interrupt: the core is awake for good */
     bne t0, t1, 1f
     addi t0, t0, 4
 1:

@@ -49,8 +49,9 @@ enum class BufferProfile : uint8_t {
     Large_2K_x4     = 3  // 4 x 2048 B ring (8 KB total - for Linux SITL / logging)
 };
 
-// Packed CTF Packet Header (32 bytes)
-struct alignas(4) CtfPacketHeader {
+// CTF packet header: 40 bytes, natural 8-byte alignment (uint64 members) on every target.
+// @impl [SPEC-TRACE-01] docs/DESIGN_SPECIFICATION.md
+struct CtfPacketHeader {
     uint32_t magic{CTF_MAGIC};
     uint8_t  stream_id{0};
     uint8_t  reserved[3]{0};
@@ -167,6 +168,7 @@ struct CtfPacketHeaderWire {
 };
 #pragma pack(pop)
 
+static_assert(sizeof(CtfPacketHeader) == 40 && alignof(CtfPacketHeader) == 8, "CTF header is 40 B, 8-aligned ([SPEC-TRACE-01])");
 static_assert(sizeof(CtfPacketHeaderWire) == sizeof(CtfPacketHeader), "CTF header wire size");
 static_assert(offsetof(CtfPacketHeaderWire, packet_size_bits) == offsetof(CtfPacketHeader, packet_size_bits), "CTF header layout");
 static_assert(offsetof(CtfPacketHeaderWire, content_size_bits) == offsetof(CtfPacketHeader, content_size_bits), "CTF header layout");

@@ -394,10 +394,42 @@ int main() {
         rpmsg.enable_rx_kick(true);
         assert(host.tx().used->flags == 0);
 
-        // AsyncRxAwaiter re-suppresses on resume
+        // enable_rx_kick(false) still suppresses (the awaiter no longer calls it, [SPEC-E906-IRQ-04])
         rpmsg.enable_rx_kick(false);
         assert(host.tx().used->flags == 1);
         std::cout << "  -> KickSuppressionLifecycle: PASS\n";
+    }
+
+    // 9b. No lost wakeup ([SPEC-E906-IRQ-04], board stall 2026-10-31): Linux posts after
+    // await_ready() looked and before await_suspend() re-enabled kicks. The awaiter must see it
+    // and not sleep; and nothing it does may leave NO_NOTIFY set.
+    // @verifies [SPEC-E906-IRQ-04] targets/allwinner_e906/SPECIFICATION.md
+    {
+        reset_fake_env();
+        FakeHost host;
+        hal::Rpmsg rpmsg;
+        hal::Rpmsg::set_active_driver(&rpmsg);
+        rpmsg.init(host.rsc());
+        rpmsg.register_endpoint(1024, on_test_message);
+        assert(rpmsg.is_driver_ready());
+        const char ping[] = "PING";
+        for (int round = 0; round < 1000; ++round) {
+            auto aw = rpmsg.async_receive();
+            assert(!aw.await_ready());
+            host.post(static_cast<uint16_t>(round % 4), ping, sizeof(ping));  // in the window
+            assert(!aw.await_suspend(std::noop_coroutine()));  // pending: do not sleep
+            aw.await_resume();                                 // consumes the message
+            assert(host.tx().used->flags == 0);                // kicks stay enabled
+            // Nothing pending: suspend, then the resume path must not leave kicks suppressed.
+            auto idle = rpmsg.async_receive();
+            assert(!idle.await_ready());
+            assert(idle.await_suspend(std::noop_coroutine()));
+            assert(host.tx().used->flags == 0);
+            idle.await_resume();
+            assert(host.tx().used->flags == 0);
+        }
+        assert(g_received.size() == 1000);
+        std::cout << "  -> NoLostWakeupWhilePostingInTheWindow: PASS\n";
     }
 
     // 10. RpmsgLiteMetal Driver Parity
