@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1004 561" width="1004" height="561" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1004 579" width="1004" height="579" role="img">
   <defs>
     <style>
       text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -11,15 +11,15 @@
       .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
     </style>
   </defs>
-  <rect width="1004" height="561" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <rect width="1004" height="579" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
   <text x="32" y="32" class="tag">RUNTIME ARCHITECTURE • XUANTIE E906 (RV32IMAFC @ 200 MHZ)</text>
-  <text x="32" y="56" class="title">Bare Metal + AbstractX vs FreeRTOS + AbstractX</text>
-  <rect x="32" y="75" width="940" height="450" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <text x="32" y="56" class="title">AbstractX Alone vs AbstractX on FreeRTOS</text>
+  <rect x="32" y="75" width="940" height="468" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
   <path d="M 32 85 Q 32 75 42 75 H 962 Q 972 75 972 85 V 113 H 32 Z" fill="#1c2b46"/>
   <line x1="32" y1="113" x2="972" y2="113" stroke="#2d4263" stroke-width="1.5"/>
   <text x="46" y="99" class="th">Architectural Dimension</text>
-  <text x="266" y="99" class="th">Bare Metal + AbstractX</text>
-  <text x="626" y="99" class="th">FreeRTOS + AbstractX</text>
+  <text x="266" y="99" class="th">AbstractX alone</text>
+  <text x="626" y="99" class="th">AbstractX on FreeRTOS</text>
   <rect x="32" y="113" width="940" height="38" fill="#141f36"/>
   <line x1="32" y1="151" x2="972" y2="151" stroke="#233554" stroke-width="1"/>
   <text x="46" y="136" class="cell-bold">Firmware Target</text>
@@ -51,25 +51,26 @@
   <text x="266" y="342" class="cell-mono">(cooperative frame yield)</text>
   <text x="626" y="324" class="cell-mono">Full 32-register context switch on task</text>
   <text x="626" y="342" class="cell-mono">preemption</text>
-  <rect x="32" y="357" width="940" height="56" fill="#182540"/>
-  <line x1="32" y1="413" x2="972" y2="413" stroke="#233554" stroke-width="1"/>
+  <rect x="32" y="357" width="940" height="74" fill="#182540"/>
+  <line x1="32" y1="431" x2="972" y2="431" stroke="#233554" stroke-width="1"/>
   <text x="46" y="380" class="cell-bold">Timer Overhead</text>
-  <text x="266" y="380" class="cell-mono">Zero tick timer; woke strictly on event</text>
-  <text x="266" y="398" class="cell-mono">interrupts or deadlines</text>
+  <text x="266" y="380" class="cell-mono">No periodic tick; wakes on interrupts and the</text>
+  <text x="266" y="398" class="cell-mono">deadlines it armed (plus the 1 kHz profiler</text>
+  <text x="266" y="416" class="cell-mono">sample, which returns to wfi)</text>
   <text x="626" y="380" class="cell-mono">1000 Hz kernel tick timer (CLINT mtime, CLIC</text>
   <text x="626" y="398" class="cell-mono">line 7)</text>
-  <rect x="32" y="413" width="940" height="56" fill="#141f36"/>
-  <line x1="32" y1="469" x2="972" y2="469" stroke="#233554" stroke-width="1"/>
-  <text x="46" y="436" class="cell-bold">Observability (barectf)</text>
-  <text x="266" y="436" class="cell-mono">Direct CTF Stream 4 (Profile) and Stream 5</text>
-  <text x="266" y="454" class="cell-mono">(Timeline)</text>
-  <text x="626" y="436" class="cell-mono">Native CTF Stream 5 spans for task switches &amp;</text>
-  <text x="626" y="454" class="cell-mono">tick interrupts</text>
-  <rect x="32" y="469" width="940" height="56" fill="#182540"/>
-  <line x1="32" y1="525" x2="972" y2="525" stroke="#233554" stroke-width="1"/>
-  <text x="46" y="492" class="cell-bold">Peripheral Driver Reuse</text>
-  <text x="266" y="492" class="cell-mono">Direct freestanding C++20 HAL drivers (SPI,</text>
-  <text x="266" y="510" class="cell-mono">UART, I2C, DMA)</text>
-  <text x="626" y="492" class="cell-mono">Identical HAL drivers via FreeRtosDriverWrapper</text>
-  <text x="626" y="510" class="cell-mono">notification</text>
+  <rect x="32" y="431" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="487" x2="972" y2="487" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="454" class="cell-bold">Observability (barectf)</text>
+  <text x="266" y="454" class="cell-mono">Direct CTF Stream 4 (Profile) and Stream 5</text>
+  <text x="266" y="472" class="cell-mono">(Timeline)</text>
+  <text x="626" y="454" class="cell-mono">Native CTF Stream 5 spans for task switches &amp;</text>
+  <text x="626" y="472" class="cell-mono">tick interrupts</text>
+  <rect x="32" y="487" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="543" x2="972" y2="543" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="510" class="cell-bold">Peripheral Driver Reuse</text>
+  <text x="266" y="510" class="cell-mono">Direct freestanding C++20 HAL drivers (SPI,</text>
+  <text x="266" y="528" class="cell-mono">UART, I2C, DMA)</text>
+  <text x="626" y="510" class="cell-mono">Identical HAL drivers via FreeRtosDriverWrapper</text>
+  <text x="626" y="528" class="cell-mono">notification</text>
 </svg>

@@ -195,32 +195,34 @@ python3 tools/visualizer/abstractx_studio.py --sim
 
 Only the **Radxa Cubie A5E** (XuanTie E906 @ 200 MHz) has board evidence so far. Pico 2 W, ESP32-P4
 and Zynq numbers will appear here when they are measured. Evidence:
-[`e906_bench_baremetal.json`](docs/verification/evidence/e906_bench_baremetal.json),
-[`e906_bench_freertos.json`](docs/verification/evidence/e906_bench_freertos.json),
+[`e906_bench_abstractx_stallfix_20261031.json`](docs/verification/evidence/e906_bench_abstractx_stallfix_20261031.json),
+[`e906_bench_freertos_stallfix_20261031.json`](docs/verification/evidence/e906_bench_freertos_stallfix_20261031.json),
 [`e906_imu_drdy_baremetal.json`](docs/verification/evidence/e906_imu_drdy_baremetal.json);
-write-ups in [Part 4](docs/articles/baremetal-vs-freertos-e906/README.md) and
+write-ups in [Part 4](docs/articles/abstractx-vs-freertos-e906/README.md) and
 [Part 6](docs/articles/sensor-placement-t527/README.md).
 
-| Metric (E906, 200 MHz) | AbstractX (no RTOS) | FreeRTOS + AbstractX |
+| Metric (E906, 200 MHz) | AbstractX alone | AbstractX on FreeRTOS |
 | :--- | :--- | :--- |
-| Yield round trip through the event loop (avg) | 1,961 cycles (9.80 µs) | 1,997 cycles (9.98 µs) |
-| Soft-IRQ handler (avg) | 416 cycles (2.08 µs) | 222 cycles (1.11 µs) |
-| Interrupt -> waiting coroutine runs (avg) | 3,255 cycles (16.3 µs) | 2,537 cycles (12.7 µs) |
-| RPMsg echo, 496-byte messages | 0.20 MB/s, max ~1 s (open bug, `TODO.md` 2b) | 2.98 MB/s, max 388 µs |
+| Yield round trip through the event loop (avg) | 2,040 cycles (10.20 µs) | 2,044 cycles (10.22 µs) |
+| Soft-IRQ handler (avg) | 235 cycles (1.18 µs) | 253 cycles (1.27 µs) |
+| Interrupt -> waiting coroutine runs (avg) | 2,847 cycles (14.2 µs) | 2,998 cycles (15.0 µs) |
+| RPMsg echo, 496-byte messages | 2.97 MB/s, max 370 µs | 2.92 MB/s, max 382 µs |
+| Static RAM (`.data` + `.bss`) | 25,984 B | 37,672 B |
 | Coroutine frame pool high water | 448 B | 448 B |
 | IMU DRDY edge -> DMA started (avg, 10,000 samples) | ~5.9 µs | not measured |
 | IMU DRDY edge -> consumer coroutine (avg) | ~31 µs | not measured |
 | Dynamic heap | zero-heap rule; `e906_repl_app` still links `_malloc_r` (open, `TODO.md`) | same |
 
-**AbstractX on its own is meant to beat FreeRTOS, and on these runs it does not yet**: FreeRTOS's
-interrupt-to-coroutine wake is shorter, and AbstractX's RPMsg echo has ~1 s stalls. Both are open
-work items (`TODO.md` 2b), not accepted results. The idle-only CPU load of
-either runtime is not measured yet.
+AbstractX also runs inside a FreeRTOS task with the same coroutines and drivers. On its own it
+takes the interrupt-to-coroutine path in ~150 fewer cycles and needs 11.7 KB less static RAM,
+which is why it is the setup for offload processors like the E906. The RPMsg echo, mostly Linux time,
+is the same within noise. The ~1 s echo stall was fixed on 2026-10-31 (`engineering_log.md`). Runs
+measured 2026-10-31; the idle-only CPU load of either setup is not measured yet.
 
 > 🔬 **Reproduce on Hardware**:
 > ```bash
 > # Run automated benchmark suite directly on Radxa Cubie A5E:
-> ssh root@192.168.3.3 "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json baremetal.json"
+> ssh root@192.168.3.3 "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json abstractx.json"
 > ```
 
 ---
@@ -349,7 +351,7 @@ Explore the comprehensive engineering series detailing silicon bring-up, corouti
   * [**Part 1: Unlocking the XuanTie RISC-V Core on Allwinner T527**](https://www.hackster.io/MichalsTC/unlocking-the-xuantie-risc-v-core-on-allwinner-t527-part-1-976063) (Hackster.io) — Heterogeneous architecture, memory layout, clock trees, and XuanTie E906 boot.
   * [**Part 2: Bringing Up Heterogeneous RISC-V on Allwinner SoCs**](https://www.hackster.io/MichalsTC/bringing-up-heterogeneous-risc-v-on-allwinner-socs-part-2-53deb8) (Hackster.io) — Linux `remoteproc`, firmware ELF loading, resource tables, and lifecycle management.
   * [**Part 3: Bare-Metal Firmware, IPC & Coroutines Intro**](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part3_baremetal_firmware_ipc_and_coroutines_intro.md) — Hardware message box (`sun6i-msgbox`), VirtIO RPMsg zero-copy endpoints, and mailbox doorbells.
-  * [**Part 4: Bare Metal + AbstractX vs FreeRTOS on the XuanTie E906**](docs/articles/baremetal-vs-freertos-e906/README.md) ([GitHub Deep-Dive](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md)) — Like-for-like empirical comparison of context switch overhead, idle ticks, and VirtIO RPMsg throughput on real hardware.
+  * [**Part 4: AbstractX vs FreeRTOS on the XuanTie E906**](docs/articles/abstractx-vs-freertos-e906/README.md) ([GitHub Deep-Dive](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/part4_deep_dive_baremetal_cpp_coroutines.md)) — Like-for-like empirical comparison of context switch overhead, idle ticks, and VirtIO RPMsg throughput on real hardware.
   * [**Part 5: Experiment First, Compile Later: Python on Both Processors**](docs/articles/micropython-on-e906/README.md) — Bare-metal MicroPython on XuanTie E906, shared SRAM memory map, VirtIO RPMsg streams, and Studio timing timeline.
   * [**Device Tree Overlays: U-Boot & `config.txt` Integration**](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md) — Dynamic pinmuxing, peripheral arbitration between Linux and E906, and Sunxi DMAC channel reservations.
   * [**Companion Repository: `tcmichals/cubie-a5e`**](https://github.com/tcmichals/cubie-a5e) — Reference repository for Radxa Cubie A5E Linux driver development, kernel buildroot setups, device tree overlays, and E906 coprocessor demo firmware.

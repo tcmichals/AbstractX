@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 generate_bench_svg_assets.py - Generates clean, dark-themed SVG tables and architecture
-diagrams for the Bare Metal vs FreeRTOS on XuanTie E906 article.
-Outputs to docs/articles/baremetal-vs-freertos-e906/assets/
+diagrams for the AbstractX vs FreeRTOS on XuanTie E906 article.
+Outputs to docs/articles/abstractx-vs-freertos-e906/assets/
 # @impl [SPEC-E906-BENCH-02] [SPEC-E906-RTOS-07] [SPEC-E906-RTOS-08]
 """
 
 import os
 import xml.etree.ElementTree as ET
 
-ASSETS_DIR = os.path.abspath("docs/articles/baremetal-vs-freertos-e906/assets")
+ASSETS_DIR = os.path.abspath("docs/articles/abstractx-vs-freertos-e906/assets")
 
 def escape_xml(s: str) -> str:
     return (s.replace("&", "&amp;")
@@ -198,11 +198,11 @@ def render_wake_path_svg():
     lines.append('  </defs>')
     lines.append(f'  <rect width="{svg_w}" height="{svg_h}" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>')
     lines.append('  <text x="32" y="32" class="tag">EXECUTION PATH COMPARISON • HARDWARE IRQ TO COROUTINE RESUME</text>')
-    lines.append('  <text x="32" y="56" class="title">Bare Metal Event Loop vs FreeRTOS Task Notification</text>')
+    lines.append('  <text x="32" y="56" class="title">AbstractX Event Loop vs FreeRTOS Task Notification</text>')
 
-    # Left Column: Bare Metal
+    # Left Column: AbstractX
     lines.append('  <rect x="32" y="75" width="440" height="415" rx="12" fill="#131e33" stroke="#253b5c" stroke-width="1.5"/>')
-    lines.append('  <text x="52" y="104" fill="#6fe3ff" class="box-title">Bare Metal + AbstractX (Zero Context Switch)</text>')
+    lines.append('  <text x="52" y="104" fill="#6fe3ff" class="box-title">AbstractX Alone (Zero Context Switch)</text>')
 
     bm_steps = [
         ("1. Hardware Interrupt (CLIC)", "Level line triggers CPU trap vector in startup.S (15 cycles)"),
@@ -326,11 +326,11 @@ def main():
     render_table_svg(
         filename="table1-architecture-comparison.svg",
         tag="RUNTIME ARCHITECTURE • XUANTIE E906 (RV32IMAFC @ 200 MHZ)",
-        title="Bare Metal + AbstractX vs FreeRTOS + AbstractX",
+        title="AbstractX Alone vs AbstractX on FreeRTOS",
         columns=[
             {"name": "Architectural Dimension", "width": 220, "align": "left"},
-            {"name": "Bare Metal + AbstractX", "width": 360, "align": "left"},
-            {"name": "FreeRTOS + AbstractX", "width": 360, "align": "left"}
+            {"name": "AbstractX alone", "width": 360, "align": "left"},
+            {"name": "AbstractX on FreeRTOS", "width": 360, "align": "left"}
         ],
         rows=[
             ["Firmware Target", "apps/e906_bench_app", "apps/e906_freertos_app"],
@@ -338,7 +338,7 @@ def main():
             ["Who Runs Coroutines", "abstractx::run() main loop; sleeps in wfi when idle", "Dedicated 'abstractx' task; blocks on task notification"],
             ["ISR -> Coroutine Dispatch", "ISR posts to lock-free SPSC ring; wfi wakes immediately", "ISR posts to SPSC ring and calls vTaskNotifyGiveFromISR()"],
             ["Context Switching", "Zero register save/restore overhead (cooperative frame yield)", "Full 32-register context switch on task preemption"],
-            ["Timer Overhead", "Zero tick timer; woke strictly on event interrupts or deadlines", "1000 Hz kernel tick timer (CLINT mtime, CLIC line 7)"],
+            ["Timer Overhead", "No periodic tick; wakes on interrupts and the deadlines it armed (plus the 1 kHz profiler sample, which returns to wfi)", "1000 Hz kernel tick timer (CLINT mtime, CLIC line 7)"],
             ["Observability (barectf)", "Direct CTF Stream 4 (Profile) and Stream 5 (Timeline)", "Native CTF Stream 5 spans for task switches & tick interrupts"],
             ["Peripheral Driver Reuse", "Direct freestanding C++20 HAL drivers (SPI, UART, I2C, DMA)", "Identical HAL drivers via FreeRtosDriverWrapper notification"]
         ],
@@ -352,17 +352,18 @@ def main():
         title="Static Memory & Stack Allocation Breakdown",
         columns=[
             {"name": "Memory Segment", "width": 220, "align": "left"},
-            {"name": "Bare Metal + AbstractX", "width": 240, "align": "left"},
-            {"name": "FreeRTOS + AbstractX", "width": 240, "align": "left"},
+            {"name": "AbstractX alone", "width": 240, "align": "left"},
+            {"name": "AbstractX on FreeRTOS", "width": 240, "align": "left"},
             {"name": "Delta & Architectural Analysis", "width": 240, "align": "left"}
         ],
         rows=[
-            ["Code (.text)", "78,242 Bytes", "83,228 Bytes", "+4,986 Bytes (FreeRTOS kernel + port asm)"],
-            ["Static RAM (.data + .bss)", "43,972 Bytes", "55,668 Bytes", "+11,696 Bytes (Task/ISR stacks & TCBs)"],
-            ["Application Task Stack", "Unified startup stack (~2 KB)", "8,192 Bytes (s_ax_stack static pool)", "Dedicated task stack allocation"],
+            ["Code (.text + .fastcode)", "77,516 Bytes", "82,432 Bytes", "+4,916 Bytes (FreeRTOS kernel + port asm)"],
+            ["Static RAM (.data + .bss)", "25,984 Bytes", "37,672 Bytes", "+11,688 Bytes (task/ISR/idle stacks & TCBs)"],
+            ["Startup stack (.stack)", "8,192 Bytes", "8,192 Bytes", "Same in both"],
+            ["AbstractX task stack", "None (runs on the startup stack)", "8,192 Bytes (s_ax_stack)", "Dedicated task stack"],
             ["ISR Interrupt Stack", "Reuses current stack", "2,048 Bytes (configISR_STACK_SIZE)", "Dedicated hardware trap stack"],
             ["Idle Task Stack", "None (main loop sleeps in wfi)", "1,024 Bytes (minimal stack)", "Static memory for idle loop"],
-            ["Heap Allocation", "0 Bytes (zero heap freestanding)", "0 Bytes (configSUPPORT_STATIC_ALLOCATION)", "Identical: 0 dynamic allocations"]
+            ["Heap Allocation", "No heap_*.c; no malloc() calls in our code", "Same (configSUPPORT_STATIC_ALLOCATION)", "newlib _malloc_r/_free_r/_sbrk still linked in both"]
         ],
         col_mono=[False, True, True, False]
     )
@@ -371,22 +372,22 @@ def main():
     render_table_svg(
         filename="table3-measured-benchmarks.svg",
         tag="EMPIRICAL VALIDATION • RADXA CUBIE A5E HARDWARE RUNS (200 MHZ)",
-        title="Silicon Benchmark Measurements: Bare Metal vs FreeRTOS",
+        title="Measured on the Cubie A5E: AbstractX vs FreeRTOS (2026-10-31)",
         columns=[
             {"name": "Benchmark Metric", "width": 260, "align": "left"},
-            {"name": "Bare Metal + AbstractX", "width": 340, "align": "left"},
-            {"name": "FreeRTOS + AbstractX", "width": 340, "align": "left"}
+            {"name": "AbstractX alone", "width": 340, "align": "left"},
+            {"name": "AbstractX on FreeRTOS", "width": 340, "align": "left"}
         ],
         rows=[
-            ["Yield round trip (cycles / ns)", "1,930–1,961 cycles (9.65–9.81 µs)", "1,979–1,997 cycles (9.90–9.99 µs)"],
-            ["Soft IRQ -> ISR entry", "370–416 cycles (1.85–2.08 µs)", "175–222 cycles (0.88–1.11 µs)"],
-            ["Soft IRQ -> coroutine resumed", "3,179–3,255 cycles (15.89–16.28 µs)", "2,481–2,537 cycles (12.41–12.69 µs)"],
-            ["RPMsg echo 16 B (med / p99)", "100.8 µs / 173.1 µs", "111.2 µs / 168.9 µs"],
-            ["RPMsg echo 256 B (med / p99)", "232.9 µs / 293.6 µs", "228.6 µs / 255.7 µs"],
-            ["RPMsg echo 496 B (med / p99)", "328.7 µs / 377.9 µs", "320.0 µs / 359.8 µs"],
-            ["RPMsg throughput (496 B)", "198,570 Bytes/sec (~198.6 KB/s)", "2,976,453 Bytes/sec (~2.98 MB/s)"],
-            ["Idle wake-ups / second", "0 (event-driven wfi)", "4,514 wakes over run (1000 Hz CLINT tick)"],
-            ["Idle CPU load", "0.01% busy (wfi sleep)", "5.5% kernel tick / 94.5% idle wfi"]
+            ["Yield round trip (avg cycles / us)", "2,040 cycles (10.20 us)", "2,044 cycles (10.22 us)"],
+            ["Soft IRQ -> ISR entry (avg)", "235 cycles (1.18 us)", "253 cycles (1.27 us)"],
+            ["Soft IRQ -> coroutine resumed (avg / max)", "2,847 / 3,613 cycles (14.2 / 18.1 us)", "2,998 / 3,454 cycles (15.0 / 17.3 us)"],
+            ["RPMsg echo 16 B (med / p99 / max)", "113.5 / 166.9 / 231.1 us", "101.9 / 159.2 / 218.8 us"],
+            ["RPMsg echo 256 B (med / p99 / max)", "238.8 / 270.7 / 301.7 us", "241.6 / 279.1 / 296.9 us"],
+            ["RPMsg echo 496 B (med / p99 / max)", "327.9 / 341.5 / 370.4 us", "331.9 / 367.1 / 381.6 us"],
+            ["RPMsg throughput (496 B)", "2.97 MB/s", "2.92 MB/s"],
+            ["Idle wake-ups", "Not instrumented", "6,366 in 3.84 s (tick + all interrupts)"],
+            ["Busy share of the bench run", "Not instrumented", "3.25% (whole run, not the tick alone)"],
         ],
         col_mono=[False, True, True]
     )
@@ -395,19 +396,20 @@ def main():
     render_table_svg(
         filename="table4-decision-matrix.svg",
         tag="DESIGN GUIDE • RUNTIME SELECTION HEURISTICS",
-        title="When to Choose Bare Metal vs FreeRTOS + AbstractX",
+        title="When to Choose AbstractX or FreeRTOS",
         columns=[
             {"name": "System Characteristic / Use Case", "width": 300, "align": "left"},
             {"name": "Recommended Runtime", "width": 240, "align": "left"},
             {"name": "Architectural Rationale & Tradeoffs", "width": 400, "align": "left"}
         ],
         rows=[
-            ["High-rate streaming (8 kHz IMU, sensors)", "Bare Metal + AbstractX", "Lowest possible latency, zero context-switch jitter, lowest SRAM"],
-            ["MicroPython REPL & scripts on E906", "Bare Metal + AbstractX", "MicroPython VM runs cooperatively without preemptive task contention"],
-            ["Long-running compute / FFT / Kalman filters", "FreeRTOS + AbstractX", "Background task can be preempted by real-time sensor I/O task"],
-            ["Legacy / 3rd-party blocking vendor stacks", "FreeRTOS + AbstractX", "Vendor code can block in traditional APIs without freezing coroutines"],
-            ["Ultra low power / battery operation", "Bare Metal + AbstractX", "Zero 1 kHz tick wake-ups; CPU sleeps in wfi until real physical event"],
-            ["Unified Studio Telemetry & Profiling", "Either (Equal)", "Both stream cycle-accurate CTF 1.8 spans & stats to Studio"]
+            ["Offload processor beside Linux (E906, FPGA soft core)", "AbstractX alone", "Smallest footprint: no kernel, no task stacks, no tick; SRAM goes to buffers"],
+            ["High-rate streaming (8 kHz IMU, sensors)", "AbstractX alone", "Faster ISR and wake path, no context switch, 11.7 KB less static RAM"],
+            ["MicroPython REPL & scripts on E906", "AbstractX alone", "MicroPython VM runs cooperatively without preemptive task contention"],
+            ["Long-running compute / FFT / Kalman filters", "AbstractX on FreeRTOS", "Background task can be preempted by real-time sensor I/O task"],
+            ["Legacy / 3rd-party blocking vendor stacks", "AbstractX on FreeRTOS", "Vendor code can block in traditional APIs without freezing coroutines"],
+            ["Ultra low power / battery operation", "AbstractX alone", "No 1 kHz tick; CPU sleeps in wfi until an interrupt or armed deadline"],
+            ["Unified Studio Telemetry & Profiling", "Either (same code)", "Both stream cycle-accurate CTF 1.8 spans & stats to Studio"]
         ],
         col_mono=[False, True, False]
     )

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1004 563" width="1004" height="563" role="img">
+  <defs>
+    <style>
+      text { font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+      .tag { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; fill: #49d9f4; }
+      .title { font-size: 18px; font-weight: 700; fill: #f4f7ff; }
+      .th { font-size: 11px; font-weight: 800; letter-spacing: 0.8px; fill: #73e5fb; text-transform: uppercase; }
+      .cell { font-size: 13px; fill: #c0cbe0; }
+      .cell-bold { font-size: 13px; font-weight: 700; fill: #f4f7ff; }
+      .cell-mono { font-size: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; fill: #8ee3fb; }
+      .cell-accent { font-size: 13px; font-weight: 700; fill: #8ff0c0; }
+    </style>
+  </defs>
+  <rect width="1004" height="563" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
+  <text x="32" y="32" class="tag">EMPIRICAL VALIDATION • RADXA CUBIE A5E HARDWARE RUNS (200 MHZ)</text>
+  <text x="32" y="56" class="title">Measured on the Cubie A5E: AbstractX vs FreeRTOS (2026-10-31)</text>
+  <rect x="32" y="75" width="940" height="452" rx="10" fill="#131d31" stroke="#253754" stroke-width="1.5"/>
+  <path d="M 32 85 Q 32 75 42 75 H 962 Q 972 75 972 85 V 113 H 32 Z" fill="#1c2b46"/>
+  <line x1="32" y1="113" x2="972" y2="113" stroke="#2d4263" stroke-width="1.5"/>
+  <text x="46" y="99" class="th">Benchmark Metric</text>
+  <text x="306" y="99" class="th">AbstractX alone</text>
+  <text x="646" y="99" class="th">AbstractX on FreeRTOS</text>
+  <rect x="32" y="113" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="169" x2="972" y2="169" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="136" class="cell-bold">Yield round trip (avg cycles /</text>
+  <text x="46" y="154" class="cell-bold">us)</text>
+  <text x="306" y="136" class="cell-mono">2,040 cycles (10.20 us)</text>
+  <text x="646" y="136" class="cell-mono">2,044 cycles (10.22 us)</text>
+  <rect x="32" y="169" width="940" height="38" fill="#182540"/>
+  <line x1="32" y1="207" x2="972" y2="207" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="192" class="cell-bold">Soft IRQ -&gt; ISR entry (avg)</text>
+  <text x="306" y="192" class="cell-mono">235 cycles (1.18 us)</text>
+  <text x="646" y="192" class="cell-mono">253 cycles (1.27 us)</text>
+  <rect x="32" y="207" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="263" x2="972" y2="263" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="230" class="cell-bold">Soft IRQ -&gt; coroutine resumed</text>
+  <text x="46" y="248" class="cell-bold">(avg / max)</text>
+  <text x="306" y="230" class="cell-mono">2,847 / 3,613 cycles (14.2 / 18.1 us)</text>
+  <text x="646" y="230" class="cell-mono">2,998 / 3,454 cycles (15.0 / 17.3 us)</text>
+  <rect x="32" y="263" width="940" height="38" fill="#182540"/>
+  <line x1="32" y1="301" x2="972" y2="301" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="286" class="cell-bold">RPMsg echo 16 B (med / p99 / max)</text>
+  <text x="306" y="286" class="cell-mono">113.5 / 166.9 / 231.1 us</text>
+  <text x="646" y="286" class="cell-mono">101.9 / 159.2 / 218.8 us</text>
+  <rect x="32" y="301" width="940" height="56" fill="#141f36"/>
+  <line x1="32" y1="357" x2="972" y2="357" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="324" class="cell-bold">RPMsg echo 256 B (med / p99 /</text>
+  <text x="46" y="342" class="cell-bold">max)</text>
+  <text x="306" y="324" class="cell-mono">238.8 / 270.7 / 301.7 us</text>
+  <text x="646" y="324" class="cell-mono">241.6 / 279.1 / 296.9 us</text>
+  <rect x="32" y="357" width="940" height="56" fill="#182540"/>
+  <line x1="32" y1="413" x2="972" y2="413" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="380" class="cell-bold">RPMsg echo 496 B (med / p99 /</text>
+  <text x="46" y="398" class="cell-bold">max)</text>
+  <text x="306" y="380" class="cell-mono">327.9 / 341.5 / 370.4 us</text>
+  <text x="646" y="380" class="cell-mono">331.9 / 367.1 / 381.6 us</text>
+  <rect x="32" y="413" width="940" height="38" fill="#141f36"/>
+  <line x1="32" y1="451" x2="972" y2="451" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="436" class="cell-bold">RPMsg throughput (496 B)</text>
+  <text x="306" y="436" class="cell-mono">2.97 MB/s</text>
+  <text x="646" y="436" class="cell-mono">2.92 MB/s</text>
+  <rect x="32" y="451" width="940" height="38" fill="#182540"/>
+  <line x1="32" y1="489" x2="972" y2="489" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="474" class="cell-bold">Idle wake-ups</text>
+  <text x="306" y="474" class="cell-mono">Not instrumented</text>
+  <text x="646" y="474" class="cell-mono">6,366 in 3.84 s (tick + all interrupts)</text>
+  <rect x="32" y="489" width="940" height="38" fill="#141f36"/>
+  <line x1="32" y1="527" x2="972" y2="527" stroke="#233554" stroke-width="1"/>
+  <text x="46" y="512" class="cell-bold">Busy share of the bench run</text>
+  <text x="306" y="512" class="cell-mono">Not instrumented</text>
+  <text x="646" y="512" class="cell-mono">3.25% (whole run, not the tick alone)</text>
+</svg>

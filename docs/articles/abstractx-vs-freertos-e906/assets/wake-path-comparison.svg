@@ -11,9 +11,9 @@
   </defs>
   <rect width="980" height="520" rx="18" fill="#10192c" stroke="#1f2d47" stroke-width="1.5"/>
   <text x="32" y="32" class="tag">EXECUTION PATH COMPARISON • HARDWARE IRQ TO COROUTINE RESUME</text>
-  <text x="32" y="56" class="title">Bare Metal Event Loop vs FreeRTOS Task Notification</text>
+  <text x="32" y="56" class="title">AbstractX Event Loop vs FreeRTOS Task Notification</text>
   <rect x="32" y="75" width="440" height="415" rx="12" fill="#131e33" stroke="#253b5c" stroke-width="1.5"/>
-  <text x="52" y="104" fill="#6fe3ff" class="box-title">Bare Metal + AbstractX (Zero Context Switch)</text>
+  <text x="52" y="104" fill="#6fe3ff" class="box-title">AbstractX Alone (Zero Context Switch)</text>
   <rect x="52" y="125" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
   <text x="64" y="145" fill="#f4f7ff" class="box-title">1. Hardware Interrupt (CLIC)</text>
   <text x="64" y="163" class="box-sub">Level line triggers CPU trap vector in startup.S (15 cycles)</text>
