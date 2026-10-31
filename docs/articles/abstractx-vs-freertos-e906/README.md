@@ -173,9 +173,10 @@ Run on the Cubie A5E over VirtIO RPMsg endpoint 1030, 2026-10-31, both firmwares
    | :--- | ---: | ---: |
    | Linux, timer → SCHED_FIFO thread (avg / max) | 18 / 29 µs | 29 / **122 µs** |
    | E906 AbstractX, interrupt → coroutine (avg / max) | 14.2 / 18.1 µs | 14.4 / **18.5 µs** |
+   | E906 AbstractX on FreeRTOS, interrupt → coroutine (avg / max) | 15.0 / 17.3 µs | 15.4 / **17.8 µs** |
    | E906 RPMsg echo 496 B through Linux (median / max) | 328 / 370 µs | 362 µs / 8.6 ms |
 
-   The A55 cores are far faster per instruction, but under load their worst case grew 4x; the E906's did not move, because Linux load does not reach it. Anything that crosses into Linux (the echo) slows down with Linux. So time-critical I/O belongs on the E906, and only results should cross to Linux. The two rows measure different events (a timer wake on Linux, a software interrupt on the E906), so compare their scale, not single cycles. Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_cyclictest_20261031.json), [`e906_bench_abstractx_linuxload_20261031.json`](../../verification/evidence/e906_bench_abstractx_linuxload_20261031.json).
+   The A55 cores are far faster per instruction, but under load their worst case grew 4x; the E906's did not move under either runtime, because Linux load does not reach it. Between the two E906 runtimes the gap is the one from items 2 and 6 above (~150-190 cycles average in AbstractX's favour; worst cases within 1 µs of each other). Anything that crosses into Linux (the echo) slows down with Linux. So time-critical I/O belongs on the E906, and only results should cross to Linux. The two rows measure different events (a timer wake on Linux, a software interrupt on the E906), so compare their scale, not single cycles. Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_cyclictest_20261031.json), [`e906_bench_abstractx_linuxload_20261031.json`](../../verification/evidence/e906_bench_abstractx_linuxload_20261031.json), [`e906_bench_freertos_linuxload_20261031.json`](../../verification/evidence/e906_bench_freertos_linuxload_20261031.json).
 
 ---
 
