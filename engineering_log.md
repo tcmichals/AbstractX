@@ -3366,3 +3366,9 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   The 16 B median moved by ~10 us between runs on both runtimes today (101 / 111 us earlier), so the end-to-end echo does not separate them; ISR and wake cycles do.
 * **Also fixed** (`tool-bug` / `product-bug`): clang rejected `__attribute__((section)) alignas(4)` order in `targets/allwinner_e906/src/uart.cpp`, and `CtfPacketHeader` was `alignas(4)` with `uint64_t` members (40 B, 8-aligned); two docs said the header was 32 B ([SPEC-TRACE-01] now pins 40 B / 8-aligned with a `static_assert`). Host suite under clang ASan/UBSan: 85/85.
 * **Not caused by this change** (`hardware-fact`, TODO): `test_spi1_dma_and_dual_mode` is flaky (`SPI transfer failed: -3`, DMA completion without package/queue end): 4/8 FAIL on `c43d37f` built clean, 4/8 without the trap fix, 2/8 with it; 8/8 PASS on the board's pre-`c43d37f` backup firmware. Self-test otherwise matches the morning baseline (compass `SCAN []`, UART3, streamer, profiler/status failures pre-existing).
+
+## [2026-10-31] - Unmeasured stack and jitter claims in README and SYSTEM_INVARIANTS
+
+* **What was wrong** (`process-gap`): `README.md` claimed a "single shared 2 KB stack… saving over 20 KB of SRAM compared to FreeRTOS or Zephyr" and a 9.80 µs yield; `docs/tier1_vision/SYSTEM_INVARIANTS.md` gave "typical jitter" for all four environments (`< 20 µs` PREEMPT_RT, `< 0.2 / 0.5 / 0.01 µs`). None had a measurement behind it (AGENTS.md §10.1). Measured on 2026-10-31: the E906 startup stack is 8,192 B; FreeRTOS needed 11,688 B more static RAM for the same app; yield 2,040 cycles (10.20 µs). Zephyr and Linux jitter are not measured.
+* **Fix**: replaced with the measured numbers (Part 4 article evidence) or "not measured".
+* **Which check should have caught it**: none scans prose for numbers; `audit_specs.py` checks tags only. Catching it needs a claim-to-evidence check on README/docs numbers (not built).

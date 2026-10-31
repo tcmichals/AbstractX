@@ -79,9 +79,9 @@ flowchart LR
 ---
 
 ### 1. ⚡ Fast C++20 with Zero Heap Memory
-* **Cooperative resume**: tasks suspend and resume through compiler-generated state machines; a resume is an indirect call from the dispatcher, with no OS tick and no per-task stack. A full yield round trip through the event loop is **9.80 µs** on the E906 with AbstractX alone (the `resume()` call itself is not measured).
+* **Cooperative resume**: tasks suspend and resume through compiler-generated state machines; a resume is an indirect call from the dispatcher, with no OS tick and no per-task stack. A full yield round trip through the event loop is **10.20 µs** (2,040 cycles) on the E906 with AbstractX alone (2026-10-31; the `resume()` call itself is not measured).
 * **Zero Dynamic Heap (`0 B`)**: Enforces 100% freestanding C++20. Statically pools coroutine frames in `.bss` (under 120 bytes per task).
-* **Single Shared 2 KB Stack**: Runs the entire multi-task flight application on one shared CPU stack—saving over 20 KB of SRAM compared to FreeRTOS or Zephyr.
+* **One Shared Stack**: all coroutines run on the one startup stack (8 KB on the E906), with no per-task stacks. The same benchmark on FreeRTOS needed 11,688 B more static RAM (task, ISR and idle stacks plus TCBs; [Part 4](docs/articles/abstractx-vs-freertos-e906/README.md), 2026-10-31). Zephyr is not measured.
 
 ```cpp
 // 100% Linear, Zero-Allocation C++20 Coroutine Task

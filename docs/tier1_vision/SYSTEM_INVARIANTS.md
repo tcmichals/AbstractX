@@ -63,7 +63,7 @@ All code under `include/`, `apps/`, and `targets/` must compile freestanding wit
 | **Doorbell Bridge** | `eventfd` / Linux pipe | Hardware FIFO / IPC Mailbox Interrupt | Shared SRAM A3/C + `sun6i-msgbox` | Physical DIO Pin / Interrupt Line |
 | **Memory Isolation** | Host RAM | Internal L2 SRAM (Zero PSRAM dependence) | Banked Internal SRAM (No PSRAM) | On-Chip Block RAM / FIFO Buffer |
 | **FPGA Requirement** | None (0 LUTs) | None (0 LUTs) | **None (Pure Silicon, 0 LUTs)** | Gowin / AMD FPGA (~9k–85k LUTs) |
-| **Typical Jitter** | `< 20 µs` (PREEMPT_RT) | `< 0.2 µs` (Dedicated Hardware Core) | `< 0.5 µs` (Dedicated RISC-V Core) | `< 0.01 µs` (Hardware Clock Cycle Deterministic) |
+| **Typical Jitter** | not measured | not measured | not measured (E906 interrupt → coroutine: 2,847 cycles avg, 3,613 max, 2026-10-31) | not measured |
 
 ---
 
