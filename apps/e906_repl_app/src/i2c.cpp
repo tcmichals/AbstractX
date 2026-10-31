@@ -57,5 +57,6 @@ int e906_twi1_xfer(uint8_t addr, int reg, const uint8_t* wdata, size_t wlen, uin
 }
 
 uint32_t e906_twi1_timeouts(void) { return twi().timeouts(); }
+uint32_t e906_twi1_recoveries(void) { return twi().recoveries(); }
 
 } // extern "C"

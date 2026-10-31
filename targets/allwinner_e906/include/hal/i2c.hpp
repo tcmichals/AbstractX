@@ -38,6 +38,7 @@ public:
     bool is_busy() const noexcept { return state_ == State::Busy; }
     size_t bytes_read() const noexcept { return rx_idx_; }
     uint32_t timeouts() const noexcept { return timeouts_; }
+    uint32_t recoveries() const noexcept { return recoveries_; }
 
     void on_irq() noexcept;
 
@@ -74,6 +75,12 @@ private:
     size_t tx_idx_{0};
     size_t rx_idx_{0};
     volatile uint32_t timeouts_{0};
+    // shared: poll_timeout (main) / transfer_sync (main) set it, transfer_sync clears it; single context
+    volatile bool needs_recovery_{false};
+    volatile uint32_t recoveries_{0};  // statistics; main only
+    uint32_t ccr_{0};                  // clock setting, restored after a recovery reset
+    void recover_bus() noexcept;
+    void reset_controller() noexcept;
 };
 
 E906I2c& get_e906_i2c() noexcept;   // TWI0

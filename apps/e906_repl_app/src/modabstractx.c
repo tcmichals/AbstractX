@@ -92,6 +92,7 @@ extern uint32_t e906_irq_spurious(void);
 extern uint32_t e906_rpmsg_doorbells(void);
 extern uint32_t e906_uart3_rx_dropped(void);
 extern uint32_t e906_twi1_timeouts(void);
+extern uint32_t e906_twi1_recoveries(void);
 extern uint32_t e906_mtvec(void);
 extern int e906_dma_bench(uint32_t n, uint32_t port, uint32_t *dma_cycles, uint32_t *cpu_cycles);
 extern void e906_sleep_ms(uint32_t ms);
@@ -264,6 +265,7 @@ static mp_obj_t mod_abstractx_irq_stats(void) {
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_doorbells), mp_obj_new_int_from_uint(e906_rpmsg_doorbells()));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_uart_dropped), mp_obj_new_int_from_uint(e906_uart3_rx_dropped()));
     mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_i2c_timeouts), mp_obj_new_int_from_uint(e906_twi1_timeouts()));
+    mp_obj_dict_store(d, MP_OBJ_NEW_QSTR(MP_QSTR_i2c_recoveries), mp_obj_new_int_from_uint(e906_twi1_recoveries()));
     return d;
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_irq_stats_obj, mod_abstractx_irq_stats);

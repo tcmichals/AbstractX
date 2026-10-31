@@ -59,10 +59,12 @@ II2c& get_i2c() noexcept { return g_twi0; }
 bool E906I2c::init(const I2cConfig& config) {
     reg(kCntr) = 0;  // interrupt off; the CLIC line is shared with the other TWI, leave it enabled
     ::hal::Ccu::enable_module(port_.clock);
+    recover_bus();  // [SPEC-E906-HAL-04] a device may still hold SDA low; leaves the TWI function set
     if (port_.pins.cfg != 0) {
         auto& cfg = *reinterpret_cast<volatile uint32_t*>(port_.pins.cfg);
         cfg = (cfg & ~port_.pins.mask) | port_.pins.func;
     }
+    needs_recovery_ = false;
     reg(kSrst) = 1;  // soft reset, self-clearing
     ::hal::Timer::delay_us(20);
     set_frequency(config.frequency_hz ? config.frequency_hz : 400'000U);
@@ -80,8 +82,64 @@ bool E906I2c::init(const I2cConfig& config) {
 }
 
 bool E906I2c::set_frequency(uint32_t frequency_hz) {
-    reg(kCcr) = frequency_hz >= 400'000U ? kCcr400k : kCcr100k;
+    ccr_ = frequency_hz >= 400'000U ? kCcr400k : kCcr100k;
+    reg(kCcr) = ccr_;
     return true;
+}
+
+// Release a bus a device holds: SDA low after a transfer was cut mid-byte. Pins as GPIO,
+// open-drain SCL clocks (~100 kHz) until SDA reads high (at most 9), then a STOP, then the
+// TWI function back. Bounded: < 120 us.
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (I2C bus recovery)
+void E906I2c::recover_bus() noexcept {
+    if (port_.pins.cfg == 0 || port_.pins.mask == 0) return;  // pins not routed by this target
+    auto& cfg = *reinterpret_cast<volatile uint32_t*>(port_.pins.cfg);
+    const uintptr_t bank = PIO_BASE + ((port_.pins.cfg - PIO_BASE) / 0x30U) * 0x30U;
+    auto& dat = *reinterpret_cast<volatile uint32_t*>(bank + 0x10U);
+    const uint32_t field = static_cast<uint32_t>(__builtin_ctz(port_.pins.mask));  // SCL field, SDA next
+    const uint32_t reg_index = static_cast<uint32_t>((port_.pins.cfg - bank) / 4U);
+    const uint32_t scl = reg_index * 8U + field / 4U;
+    const uint32_t sda = scl + 1U;
+    const uint32_t scl_shift = field, sda_shift = field + 4U;
+    const uint32_t inputs = cfg & ~port_.pins.mask;  // both pins function 0 (input)
+    cfg = inputs;
+    ::hal::Timer::delay_us(5);
+    auto sda_high = [&]() noexcept { return (dat >> sda) & 1U; };
+    auto scl_low = [&](bool low) noexcept {
+        if (low) {
+            dat = dat & ~(1U << scl);
+            cfg = inputs | (1U << scl_shift);  // output, driving 0
+        } else {
+            cfg = inputs;                      // input: the pull-up raises it
+        }
+        ::hal::Timer::delay_us(5);
+    };
+    if (!sda_high()) {
+        for (int i = 0; i < 9 && !sda_high(); ++i) {
+            scl_low(true);
+            scl_low(false);
+        }
+        // STOP: SDA low -> high while SCL is high
+        scl_low(true);
+        dat = dat & ~(1U << sda);
+        cfg = inputs | (1U << scl_shift) | (1U << sda_shift);
+        ::hal::Timer::delay_us(5);
+        cfg = inputs | (1U << sda_shift);  // SCL released, SDA still low
+        ::hal::Timer::delay_us(5);
+        cfg = inputs;                      // SDA released: STOP
+        ::hal::Timer::delay_us(5);
+        recoveries_ = recoveries_ + 1;
+    }
+    cfg = inputs | port_.pins.func;  // back to the TWI function
+}
+
+void E906I2c::reset_controller() noexcept {
+    reg(kCntr) = 0;
+    reg(kSrst) = 1;  // soft reset, self-clearing
+    ::hal::Timer::delay_us(20);
+    if (ccr_ != 0) reg(kCcr) = ccr_;
+    reg(kCntr) = kBusEn;
+    state_ = State::Idle;
 }
 
 I2cCapabilities E906I2c::capabilities() const noexcept {
@@ -192,6 +250,11 @@ I2cStatus E906I2c::transfer_sync(uint8_t addr, std::span<const uint8_t> tx,
         if (async_) return I2cStatus::QueueFull;
         finish(I2cStatus::Cancelled);  // a previous call was interrupted (Ctrl-C): abort it
     }
+    if (needs_recovery_) {  // [SPEC-E906-HAL-04] after a timeout: free the bus, reset the controller
+        needs_recovery_ = false;
+        recover_bus();
+        reset_controller();
+    }
     if (reg(kCntr) & kMStp) {
         // previous STOP still on the bus: one short sleep; START queues behind it anyway
         ::hal::driver_wait(::hal::Timer::get_ticks() + 50ULL * ::hal::Timer::TICKS_PER_US);
@@ -203,6 +266,7 @@ I2cStatus E906I2c::transfer_sync(uint8_t addr, std::span<const uint8_t> tx,
         if (::hal::Timer::get_ticks() >= deadline) {
             finish(I2cStatus::Timeout);
             timeouts_ = timeouts_ + 1;
+            needs_recovery_ = true;
             return I2cStatus::Timeout;
         }
         ::hal::driver_wait(deadline);
@@ -262,6 +326,7 @@ __attribute__((noinline)) void E906I2c::poll_timeout() noexcept {
     abstractx::InterruptGuard guard;  // the completion interrupt cannot finish it at the same time
     if (async_ && state_ == State::Busy && ::hal::Timer::get_ticks() >= deadline_) {
         timeouts_ = timeouts_ + 1;
+        needs_recovery_ = true;  // recovered by the next sync transfer or init(), not here (~100 us)
         finish(I2cStatus::Timeout);
     }
 }

@@ -900,6 +900,16 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   transfer inside the ISR hook, switched UART2's PB0/PB1 to TWI1, and grew every E906 app by
   about 14 KB, so `e906_repl_app` no longer linked (`SRAM_FAST` overflowed by 6192 B).
   The classes were removed.
+* **Requirement (I2C bus recovery, 2026-10-31)**: `E906I2c::init()` recovers the bus before the
+  controller soft reset: with the SCL/SDA pins switched to GPIO inputs, if SDA reads low it clocks
+  SCL (open drain, ~100 kHz) up to 9 times until SDA is released, then sends a STOP, then gives the
+  pins back to the TWI function. A transfer timeout marks the bus for recovery: the sync path
+  (`transfer_sync`) recovers and soft-resets the controller before its next transfer; the async
+  deadline (`poll_timeout`, event loop) only sets the mark, because recovery waits ~100 µs.
+  `irq_stats()` counts recoveries (`i2c_recoveries`).
+* **Rationale (2026-10-31)**: after a day of remoteproc restarts the compass held SDA low (a
+  transfer cut mid-byte) and every scan returned `[]` since Oct 28; one SCL pulse released it
+  (measured from Linux). A later scan timeout left the controller holding SCL low.
 * **Verified by**: `e906-build-layout` (every E906 app links and fits), `hal-concurrency-audit`,
   `host-tests` (`sim/test_e906_twi.cpp`, `sim/test_e906_uart.cpp`: each driver against a register
   model), `e906-board-selftest` (compass on TWI1, GPS on UART3)
