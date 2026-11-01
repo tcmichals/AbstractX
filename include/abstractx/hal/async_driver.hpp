@@ -76,9 +76,18 @@ public:
 
     /*
      * Main / Coroutine Domain: Submit a request to the input queue.
-     * If the hardware engine is idle, immediately starts hardware transfer.
+     * If the hardware engine is idle and the queue is empty, starts the transfer directly
+     * without copying the request into and out of input_queue_ ([SPEC-HAL-01]).
      */
     bool submit_request(const TRequest& request) noexcept {
+        {
+            InterruptGuard guard;
+            if (!hardware_busy_ && input_queue_.empty()) {
+                hardware_busy_ = true;
+                start_hardware_transfer_from_isr(request);
+                return true;
+            }
+        }
         bool pushed = input_queue_.push(request);
         if (pushed) {
             check_and_start_hardware_if_idle();

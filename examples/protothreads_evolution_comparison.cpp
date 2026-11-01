@@ -32,7 +32,7 @@ struct pt {
 
 #define PT_INIT(pt)               ((pt)->lc = 0)
 #define PT_BEGIN(pt)              switch((pt)->lc) { case 0:
-#define PT_WAIT_UNTIL(pt, cond)   do { (pt)->lc = __LINE__; case __LINE__: \
+#define PT_WAIT_UNTIL(pt, cond)   do { (pt)->lc = __LINE__; [[fallthrough]]; case __LINE__: \
                                        if (!(cond)) return 0; } while (0)
 #define PT_END(pt)                } (pt)->lc = 0; return 1;
 
@@ -112,6 +112,7 @@ Task<void> modern_coroutine_worker(
     uint64_t& timer_reg,
     uint32_t& completed_count)
 {
+    (void)instance_id;
     // Local variable 'step' is NATURALLY preserved by compiler across yields!
     for (uint32_t step = 0; step < 3; ++step) {
         // Suspend for 100 us asynchronously

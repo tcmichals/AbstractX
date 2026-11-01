@@ -71,9 +71,11 @@ TEST(RingWraparoundTest, SpscRingSteadyStatePumps) {
         CHECK_TRUE(ring.push(++seq));
         CHECK_TRUE(ring.push(++seq));
         CHECK_TRUE(ring.pop(val));
-        CHECK_EQUAL(++pop_seq, val);
+        ++pop_seq;
+        CHECK_EQUAL(pop_seq, val);
         CHECK_TRUE(ring.pop(val));
-        CHECK_EQUAL(++pop_seq, val);
+        ++pop_seq;
+        CHECK_EQUAL(pop_seq, val);
         CHECK_EQUAL(0, ring.size());
         CHECK_TRUE(ring.empty());
     }

@@ -84,7 +84,13 @@ void platform_profile_start(uint32_t hz) noexcept;
 bool platform_trace_listening() noexcept;
 
 // Universal HAL Driver Accessors
+// @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
 ISpi&         get_spi_driver() noexcept;
+ISpi*         get_spi_port(uint8_t bus) noexcept;
+inline ISpi&  get_spi_driver(uint8_t bus) noexcept {
+    ISpi* p = get_spi_port(bus);
+    return p ? *p : get_spi_driver();
+}
 II2c&         get_i2c_driver() noexcept;
 II2c*         get_i2c_port(uint8_t bus) noexcept;
 inline II2c&  get_i2c_driver(uint8_t bus) noexcept {
@@ -92,9 +98,12 @@ inline II2c&  get_i2c_driver(uint8_t bus) noexcept {
     return p ? *p : get_i2c_driver();
 }
 IUart&        get_uart_driver() noexcept;
-// @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
 // Port `index`, or null when the target has none; port 0 = get_uart_driver(). Weak default: port 0 only.
 IUart*        get_uart_port(uint8_t index) noexcept;
+inline IUart& get_uart_driver(uint8_t index) noexcept {
+    IUart* p = get_uart_port(index);
+    return p ? *p : get_uart_driver();
+}
 ITimer&       get_timer_driver() noexcept;
 IGpio&        get_gpio_driver() noexcept;
 IIoProcessor& get_target_io_processor() noexcept;

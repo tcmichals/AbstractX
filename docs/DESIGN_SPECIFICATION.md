@@ -72,7 +72,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   (DRDY edge, timer) run on the I/O side and complete into a ring; the consumer on the other side
   awaits the ring, never a bus. Per-sample work (8 kHz IMU) stays on the I/O side or the core that
   owns the ring; Linux receives fused state, telemetry and trace in blocks at a rate it can
-  afford, never per sample.
+  afford, never per sample. `CoroutineIoEngine` (`include/asp_coro.hpp`) accepts both `SpscTlpRing<>`
+  and `MpscTlpRing<>` (the rings used by `IoProcessorSetup` / `IoEngine`) and provides
+  `async_await_stream_batch(std::span<Tlp64> out, size_t min_count, Channel)` so a consumer coroutine
+  suspends until a block of `min_count` stream TLPs has accumulated rather than waking per sample.
 * **Sizing (2026-10-30, estimate, not measured)**: 8 kHz IMU (one sample per frame) + 8 kHz DShot
   + 1 Mbaud serial + trace over the pio2 Dual-SPI link at 10 MHz SCK is about 30 % of the link and
   about 16,000 windows/s, each a DMA started from `INT_n` on the E906 or Pico (E906 measured 2026-10-29:
@@ -85,6 +88,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 ### `[SPEC-ARCH-06]` Unified AbstractX Runtime API & Autonomous Domain Placement
 * **Requirement**: Applications must interface with the framework exclusively through the unified `abstractx::` API (`init()`, `spawn()`, `step()`, `step_async()`, `run()`). The runtime must automatically determine target topology and assign `io_processor`, `trace_dispatcher`, and user coroutines to their optimal hardware execution domains (Core 0 vs Core 1 on dual-core MCU, E906 vs Linux on heterogeneous SoCs, or cooperative coroutine loop on SITL), guaranteeing 0 application `#ifdef`s.
 * **Idle Policy**: `run()` MAY call `platform_idle_wait()` only when `Dispatcher::has_pending_resumes()` is false. On bare-metal targets `platform_idle_wait()` MUST re-check the Dispatcher with interrupts masked and then sleep (`wfi`) so that an ISR posting between the check and the sleep is never slept through: either `wfi` with interrupts still masked (the core wakes on a pending interrupt), or, where that is not guaranteed (E906, `[SPEC-E906-IRQ-01]`), unmask immediately before `wfi` and have the trap entry return past that `wfi` when it interrupted it.
+* **Event-Driven Step**: `step()` tracks pending runtime work via an atomic `WorkFlags` bitmask (`notify_work()`), skipping spawned-task pool scans unless a task reached `final_suspend` (`kWorkTaskDone`) and reading the hardware timer only when trace/event buffers have pending items or a status report check is due.
 * **Spawn Capacity**: `spawn()` returns `false` when every task slot holds a live task; it never drops a task silently.
 * **Verified by**: `host-tests` (`sim/test_abstractx_runtime.cpp`: idle policy, spawn capacity)
 * **Implementation Target**: `include/abstractx/abstractx.hpp`, `src/runtime.cpp`
@@ -145,6 +149,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   nothing and nobody will ever resume it, so `Task::detach()` MUST destroy it at once instead of
   detaching it. This covers the `when_any` loser when the first task finishes inside
   `await_suspend` before the second one was started.
+* **Requirement (with_timeout)**: `with_timeout(Task<T>&& task, Task<U>&& timeout_task)` (and
+  `hal::with_timeout(Task<T>&& task, uint32_t timeout_us)` in `include/abstractx/hal/timer.hpp`)
+  races `task` against `timeout_task` using `when_any`, returning the `std::variant<T, U>` (or
+  `std::variant<T, TimerResult>`) outcome and detaching the loser under the same lifetime rules.
 * **Rationale (2026-10-28)**: `when_any(ready(), waits())` detached the unstarted `waits()` frame on
   every call; it was never freed and the pool ran out after ~470 calls. The 1000-round test only
   raced two tasks that had both started.
@@ -309,7 +317,11 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   the awaiter then reads a default `Ok` with 0 bytes. A request the hardware or worker refuses is
   completed at once with an error status (`QueueFull`), never dropped. A completion handler
   completes the request that just finished and starts the next one exactly once
-  (`set_hardware_idle_from_isr` already pops and starts the next request).
+  (`set_hardware_idle_from_isr` already pops and starts the next request). When `!hardware_busy_`
+  and `input_queue_` is empty, `submit_request()` starts the hardware transfer directly under
+  `InterruptGuard` without copying the request into and out of `input_queue_`. `SpiRequest` and
+  `I2cRequest` carry only the single inherited `AsyncTransactionMeta::callback` delegate (no
+  separate `on_rx_complete` / `on_tx_complete` members) so each queued request copies one delegate.
   Target detail: `[SPEC-LINUX-HAL-01]` (Linux, Zynq), `[SPEC-PICO-HAL-01]` (Pico 2 W).
 * **Verified by**: `host-tests` (`sim/test_baremetal_isr_spsc.cpp`, `sim/test_linux_hal_completion.cpp`), `thread-sanitizer`
 * **Implementation Target**: `include/abstractx/hal/async_driver.hpp`
@@ -548,9 +560,11 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   before the reader is woken. It is for protocols that must react per byte or per frame inside the
   interrupt (RC receivers: CRSF, SBUS, IBUS). It is bounded, never resumes a coroutine, never
   blocks; the bytes stay in the ring for the reader ("beside, not instead of").
-* **Requirement (several ports, 2026-10-23)**: `get_uart_port(index)` returns the driver for port
-  `index`, or null when the target has no such port; port 0 is `get_uart_driver()`. A target lists
-  its ports in its own specification.
+* **Requirement (several ports, 2026-10-23)**: `get_uart_port(index)` / `get_i2c_port(bus)` /
+  `get_spi_port(bus)` return the driver for that port/bus, or null when the target has no such
+  port; port 0 is `get_uart_driver()` / `get_i2c_driver()` / `get_spi_driver()`, and
+  `get_uart_driver(index)` / `get_i2c_driver(bus)` / `get_spi_driver(bus)` fall back to port 0 when
+  the requested port is absent. A target lists its ports in its own specification.
 * **Not covered (2026-10-23)**: receive-until-delimiter (the reader scans the spans), timestamp of
   the first byte of a frame, 9-bit / multidrop addressing, XON/XOFF, an async drain before a baud
   change.

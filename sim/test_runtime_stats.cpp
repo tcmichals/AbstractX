@@ -44,8 +44,6 @@ void capture(const uint8_t* data, size_t len, void*) {
     }
 }
 
-Event g_go;
-
 // Busy 100 cycles per resume, of which 10 are spent in an "interrupt".
 Task<void> worker(int rounds) {
     for (int i = 0; i < rounds; ++i) {

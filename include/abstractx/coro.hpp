@@ -34,6 +34,7 @@ namespace abstractx {
     using coro::AsyncQueue;
     using coro::when_all;
     using coro::when_any;
+    using coro::with_timeout;
 
     // Export ISR Dispatcher
     using abstractx::IsrDispatcher;

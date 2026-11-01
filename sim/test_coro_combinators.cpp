@@ -210,6 +210,23 @@ int main() {
         assert(never.h == nullptr);   // the unstarted loser never reached the gate
     }
 
-    std::printf("[PASS] when_all / when_any: out-of-order completion, single caller resume, loser detached and freed, unstarted loser freed, 1000 rounds each flat\n");
+    // 7. with_timeout(task, timeout_task) ([SPEC-ARCH-11]):
+    {
+        Gate slow, timer_gate;
+        int winner = -1;
+        auto run_timeout = [&]() -> Task<void> {
+            auto r = co_await abstractx::coro::with_timeout(after(slow, 42), after(timer_gate, 99));
+            winner = static_cast<int>(r.index());
+        };
+        auto t = run_timeout();
+        t.resume();
+        timer_gate.open();
+        pump();
+        assert(t.done() && winner == 1);
+        slow.open();
+        pump();
+    }
+
+    std::printf("[PASS] when_all / when_any / with_timeout: out-of-order completion, single caller resume, loser detached and freed, unstarted loser freed, 1000 rounds each flat\n");
     return 0;
 }

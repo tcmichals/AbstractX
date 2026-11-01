@@ -217,20 +217,21 @@ Task<void> robotic_kinematics_trajectory_task(
 {
     for (uint32_t step = 0; step < target_steps; ++step) {
         // 1. Calculate synchronized 6-axis S-curve velocity profile
-        final_state.j1_base_pos     = 1000 + (step * 2);
-        final_state.j2_shoulder_pos = 1200 + (step * 3);
-        final_state.j3_elbow_pos    = 1500 - (step * 1);
-        final_state.j4_wrist1_pos   = 1800 + (step * 1);
-        final_state.j5_wrist2_pos   = 1400 + (step * 2);
-        final_state.j6_gripper_pos  =  500 + (step % 50);
+        const int32_t s = static_cast<int32_t>(step);
+        final_state.j1_base_pos     = 1000 + (s * 2);
+        final_state.j2_shoulder_pos = 1200 + (s * 3);
+        final_state.j3_elbow_pos    = 1500 - (s * 1);
+        final_state.j4_wrist1_pos   = 1800 + (s * 1);
+        final_state.j5_wrist2_pos   = 1400 + (s * 2);
+        final_state.j6_gripper_pos  =  500 + (s % 50);
 
         // 2. Dispatch 64B TLPs to all 6 joint hardware servo controllers
-        co_await io.async_set_joint(JointAddr::AXIS_1_BASE,     final_state.j1_base_pos,     1);
-        co_await io.async_set_joint(JointAddr::AXIS_2_SHOULDER, final_state.j2_shoulder_pos, 2);
-        co_await io.async_set_joint(JointAddr::AXIS_3_ELBOW,    final_state.j3_elbow_pos,    3);
-        co_await io.async_set_joint(JointAddr::AXIS_4_WRIST_1,  final_state.j4_wrist1_pos,   4);
-        co_await io.async_set_joint(JointAddr::AXIS_5_WRIST_2,  final_state.j5_wrist2_pos,   5);
-        co_await io.async_set_joint(JointAddr::AXIS_6_GRIPPER,  final_state.j6_gripper_pos,  6);
+        co_await io.async_set_joint(JointAddr::AXIS_1_BASE,     static_cast<uint32_t>(final_state.j1_base_pos),     1);
+        co_await io.async_set_joint(JointAddr::AXIS_2_SHOULDER, static_cast<uint32_t>(final_state.j2_shoulder_pos), 2);
+        co_await io.async_set_joint(JointAddr::AXIS_3_ELBOW,    static_cast<uint32_t>(final_state.j3_elbow_pos),    3);
+        co_await io.async_set_joint(JointAddr::AXIS_4_WRIST_1,  static_cast<uint32_t>(final_state.j4_wrist1_pos),   4);
+        co_await io.async_set_joint(JointAddr::AXIS_5_WRIST_2,  static_cast<uint32_t>(final_state.j5_wrist2_pos),   5);
+        co_await io.async_set_joint(JointAddr::AXIS_6_GRIPPER,  static_cast<uint32_t>(final_state.j6_gripper_pos),  6);
 
         // 3. Read optical encoder feedback asynchronously across threads
         uint32_t encoder_pos = co_await io.async_read_encoders(10);

@@ -114,6 +114,10 @@ struct State {
 
 inline State g_events{};
 
+inline bool has_pending() noexcept {
+    return g_events.samples.size() != 0 || (g_events.timeline_on && g_events.spans.size() != 0);
+}
+
 // Interrupt context, one producer (the platform's sample timer).
 inline void sample(uint32_t pc) noexcept {
     const auto& st = stats::g_state;

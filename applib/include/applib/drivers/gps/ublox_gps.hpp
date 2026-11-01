@@ -105,7 +105,7 @@ public:
                 break;
 
             case State::LENGTH_H:
-                payload_len_ |= (static_cast<uint16_t>(ch) << 8);
+                payload_len_ = static_cast<uint16_t>(payload_len_ | (static_cast<uint16_t>(ch) << 8));
                 update_checksum(ch);
                 payload_idx_ = 0;
                 if (payload_len_ <= MAX_PAYLOAD) {

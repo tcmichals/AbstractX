@@ -35,7 +35,7 @@ using namespace abstractx::coro;
 // -----------------------------------------------------------------------------
 constexpr uint32_t REG_BARO_PRESSURE = 0x40000400; // Simulated I2C Barometer (MS5611 / BMP388)
 constexpr uint32_t REG_MAG_HEADING   = 0x40000410; // Simulated I2C Magnetometer (QMC5883L)
-constexpr uint32_t REG_IMU_CONFIG    = 0x40000100; // Simulated SPI IMU (ICM-42688-P)
+[[maybe_unused]] constexpr uint32_t REG_IMU_CONFIG = 0x40000100; // Simulated SPI IMU (ICM-42688-P)
 
 // -----------------------------------------------------------------------------
 // Simulated Coprocessor / Hardware I/O Engine (Background Worker Thread)
@@ -105,7 +105,7 @@ private:
                 if (req.target_address() == REG_BARO_PRESSURE) {
                     // I2C 400kHz Barometer conversion & read delay = 1500 us (1.5 ms)
                     bus_delay = std::chrono::microseconds(1500);
-                    uint32_t pressure_pa = 101325 + (rand() % 50); // 1013.25 hPa
+                    uint32_t pressure_pa = 101325u + static_cast<uint32_t>(rand() % 50); // 1013.25 hPa
                     resp.wire.payload[0] = static_cast<uint8_t>(pressure_pa >> 24);
                     resp.wire.payload[1] = static_cast<uint8_t>(pressure_pa >> 16);
                     resp.wire.payload[2] = static_cast<uint8_t>(pressure_pa >> 8);
@@ -191,8 +191,10 @@ Task<void> baro_altitude_task(CoroutineIoEngine& io, FlightStatistics& stats, st
     stats.baro_reads_completed++;
     in_baro_read = false;
 
-    uint32_t raw_pressure = (resp.wire.payload[0] << 24) | (resp.wire.payload[1] << 16) |
-                            (resp.wire.payload[2] << 8)  | resp.wire.payload[3];
+    uint32_t raw_pressure = (static_cast<uint32_t>(resp.wire.payload[0]) << 24) |
+                            (static_cast<uint32_t>(resp.wire.payload[1]) << 16) |
+                            (static_cast<uint32_t>(resp.wire.payload[2]) << 8)  |
+                            static_cast<uint32_t>(resp.wire.payload[3]);
     (void)raw_pressure;
     co_return;
 }
@@ -214,8 +216,8 @@ Task<uint32_t> read_baro_and_mag_concurrent(CoroutineIoEngine& io, FlightStatist
     Tlp64 mag_resp  = co_await io.async_read(REG_MAG_HEADING);
 
     stats.ekf_fusions_completed++;
-    uint32_t pressure = (baro_resp.wire.payload[0] << 24) | baro_resp.wire.payload[1];
-    uint32_t heading  = (mag_resp.wire.payload[0] << 24)  | mag_resp.wire.payload[1];
+    uint32_t pressure = (static_cast<uint32_t>(baro_resp.wire.payload[0]) << 24) | baro_resp.wire.payload[1];
+    uint32_t heading  = (static_cast<uint32_t>(mag_resp.wire.payload[0]) << 24)  | mag_resp.wire.payload[1];
     co_return pressure + heading;
 }
 
@@ -325,7 +327,7 @@ int main() {
               << stats.imu_cycles_during_baro_read.load() << " cycles\n";
 
     double avg_interleaved_imu = (stats.baro_reads_completed.load() > 0)
-        ? static_cast<double>(stats.imu_cycles_during_baro_read.load()) / stats.baro_reads_completed.load()
+        ? static_cast<double>(stats.imu_cycles_during_baro_read.load()) / static_cast<double>(stats.baro_reads_completed.load())
         : 0.0;
 
     std::cout << " [✓] Average 8 kHz IMU iterations per 1.5 ms I2C Baro read: " 

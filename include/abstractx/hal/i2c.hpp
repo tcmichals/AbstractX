@@ -223,21 +223,10 @@ struct I2cRequest : public AsyncTransactionMeta<I2cResult> {
     std::span<const uint8_t> tx_data{};
     std::span<uint8_t>       rx_data{};
 
-    // Dedicated RX/TX callbacks when hardware operation finishes
-    etl::delegate<void(const I2cResult&)> on_tx_complete{};
-    etl::delegate<void(const I2cResult&)> on_rx_complete{};
-
-    void notify_tx_completion(const I2cResult& result) const noexcept {
-        if (on_tx_complete.is_valid()) {
-            on_tx_complete(result);
-        }
-    }
-
-    void notify_rx_completion(const I2cResult& result) const noexcept {
-        if (on_rx_complete.is_valid()) {
-            on_rx_complete(result);
-        }
-    }
+    // @impl [SPEC-HAL-01] docs/DESIGN_SPECIFICATION.md#spec-hal-01
+    // Single inherited `callback` delegate in AsyncTransactionMeta; legacy helpers forward to it.
+    void notify_tx_completion(const I2cResult& result) const noexcept { notify_completion(result); }
+    void notify_rx_completion(const I2cResult& result) const noexcept { notify_completion(result); }
 };
 
 template <size_t QueueDepth = 16>

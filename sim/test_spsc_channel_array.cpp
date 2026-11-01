@@ -59,8 +59,8 @@ static SpscChannelArray<SpscRequest, 4, 16> g_request_channels;
 // ============================================================================
 // 2. ZERO-ALLOCATION COROUTINE STRUCTURES (HALO & STATIC FRAME POOL)
 // ============================================================================
-alignas(64) static uint8_t g_coro_frame_pool[4096];
-static std::atomic<size_t> g_frame_pool_offset{0};
+[[maybe_unused]] alignas(64) static uint8_t g_coro_frame_pool[4096];
+[[maybe_unused]] static std::atomic<size_t> g_frame_pool_offset{0};
 
 // ============================================================================
 // 3. ZERO-ALLOCATION LOCK-FREE SENSOR AWAITER

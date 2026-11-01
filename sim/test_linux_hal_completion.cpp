@@ -179,7 +179,7 @@ void test_spi_worker_rejects_unequal_buffers() {
     SpiRequest req{};
     req.tx_data = tx;
     req.rx_data = rx;
-    req.on_rx_complete = etl::delegate<void(const SpiResult&)>::create<on_worker_done>();
+    req.callback = etl::delegate<void(const SpiResult&)>::create<on_worker_done>();
     g_worker_done = 0;
     CHECK(w.submit(req), "submit refused");
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -204,7 +204,7 @@ void test_spi_worker_stop_completes_queued() {
             SpiRequest req{};
             req.tx_data = tx;
             req.rx_data = rx;
-            req.on_rx_complete = etl::delegate<void(const SpiResult&)>::create<on_worker_done>();
+            req.callback = etl::delegate<void(const SpiResult&)>::create<on_worker_done>();
             accepted += w.submit(req) ? 1 : 0;
         }
         w.stop();

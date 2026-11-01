@@ -202,28 +202,24 @@ int main() {
 
     CallbackTracker tracker{};
     hal::SpiRequest spi_hal_req{};
-    spi_hal_req.on_tx_complete = etl::delegate<void(const hal::SpiResult&)>::create<CallbackTracker, &CallbackTracker::on_spi_tx>(tracker);
-    spi_hal_req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<CallbackTracker, &CallbackTracker::on_spi_rx>(tracker);
+    spi_hal_req.callback = etl::delegate<void(const hal::SpiResult&)>::create<CallbackTracker, &CallbackTracker::on_spi_rx>(tracker);
 
     hal::SpiResult dummy_spi_res{};
     dummy_spi_res.status = hal::SpiStatus::Ok;
     dummy_spi_res.transferred_bytes = 4;
-    spi_hal_req.notify_tx_completion(dummy_spi_res);
-    spi_hal_req.notify_rx_completion(dummy_spi_res);
-    assert(tracker.spi_tx_called && tracker.spi_rx_called);
-    std::cout << "    [v] SPI HAL dedicated on_tx_complete and on_rx_complete delegates verified\n";
+    spi_hal_req.notify_completion(dummy_spi_res);
+    assert(tracker.spi_rx_called);
+    std::cout << "    [v] SPI HAL unified callback delegate verified\n";
 
     hal::I2cRequest i2c_hal_req{};
-    i2c_hal_req.on_tx_complete = etl::delegate<void(const hal::I2cResult&)>::create<CallbackTracker, &CallbackTracker::on_i2c_tx>(tracker);
-    i2c_hal_req.on_rx_complete = etl::delegate<void(const hal::I2cResult&)>::create<CallbackTracker, &CallbackTracker::on_i2c_rx>(tracker);
+    i2c_hal_req.callback = etl::delegate<void(const hal::I2cResult&)>::create<CallbackTracker, &CallbackTracker::on_i2c_rx>(tracker);
 
     hal::I2cResult dummy_i2c_res{};
     dummy_i2c_res.status = hal::I2cStatus::Ok;
     dummy_i2c_res.transferred_bytes = 6;
-    i2c_hal_req.notify_tx_completion(dummy_i2c_res);
-    i2c_hal_req.notify_rx_completion(dummy_i2c_res);
-    assert(tracker.i2c_tx_called && tracker.i2c_rx_called);
-    std::cout << "    [v] I2C HAL dedicated on_tx_complete and on_rx_complete delegates verified\n";
+    i2c_hal_req.notify_completion(dummy_i2c_res);
+    assert(tracker.i2c_rx_called);
+    std::cout << "    [v] I2C HAL unified callback delegate verified\n";
 
     // 10. Verify Linux Target EventFd, EpollReactor, SpiWorker & I2cWorker
     std::cout << "[+] Testing Linux Target EventFd, EpollReactor, SpiWorker & I2cWorker...\n";
@@ -276,7 +272,7 @@ int main() {
         return flag.load(std::memory_order_acquire);
     };
 
-    sw_req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<WorkerTracker, &WorkerTracker::on_spi>(wt);
+    sw_req.callback = etl::delegate<void(const hal::SpiResult&)>::create<WorkerTracker, &WorkerTracker::on_spi>(wt);
     assert(spi_w.submit(sw_req));
     assert(wait_for(wt.sw_done) && wt.sw_ok);
     assert(sw_rx[1] == 0x47); // Simulated ICM-42688 WHO_AM_I
@@ -292,7 +288,7 @@ int main() {
     iw_req.use_register = true;
     iw_req.register_offset = 0xD0; // BMP280 chip id register
     iw_req.rx_data = iw_rx;
-    iw_req.on_rx_complete = etl::delegate<void(const hal::I2cResult&)>::create<WorkerTracker, &WorkerTracker::on_i2c>(wt);
+    iw_req.callback = etl::delegate<void(const hal::I2cResult&)>::create<WorkerTracker, &WorkerTracker::on_i2c>(wt);
     assert(i2c_w.submit(iw_req));
     assert(wait_for(wt.iw_done) && wt.iw_ok);
     assert(iw_rx[0] == 0x58); // Simulated BMP280 chip ID

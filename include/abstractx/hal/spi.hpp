@@ -254,21 +254,10 @@ struct SpiRequest : public AsyncTransactionMeta<SpiResult> {
     const SpiDevice*            device{nullptr};
     std::span<const SpiSegment> segments{};
 
-    // Dedicated RX/TX callbacks when hardware operation finishes
-    etl::delegate<void(const SpiResult&)> on_tx_complete{};
-    etl::delegate<void(const SpiResult&)> on_rx_complete{};
-
-    void notify_tx_completion(const SpiResult& result) const noexcept {
-        if (on_tx_complete.is_valid()) {
-            on_tx_complete(result);
-        }
-    }
-
-    void notify_rx_completion(const SpiResult& result) const noexcept {
-        if (on_rx_complete.is_valid()) {
-            on_rx_complete(result);
-        }
-    }
+    // @impl [SPEC-HAL-01] docs/DESIGN_SPECIFICATION.md#spec-hal-01
+    // Single inherited `callback` delegate in AsyncTransactionMeta; legacy helpers forward to it.
+    void notify_tx_completion(const SpiResult& result) const noexcept { notify_completion(result); }
+    void notify_rx_completion(const SpiResult& result) const noexcept { notify_completion(result); }
 };
 
 // @impl [SPEC-HAL-02] docs/DESIGN_SPECIFICATION.md#spec-hal-02

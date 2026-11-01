@@ -333,6 +333,12 @@ public:
         return done();
     }
 
+    void set_completion_hook(void (*fn)(void*) noexcept, void* ctx) noexcept {
+        if (handle_) {
+            handle_.promise().on_complete_ = {fn, ctx};
+        }
+    }
+
     auto operator co_await() const noexcept {
         struct Awaiter {
             handle_type handle_;
@@ -483,6 +489,12 @@ public:
 
     bool is_ready() const noexcept {
         return done();
+    }
+
+    void set_completion_hook(void (*fn)(void*) noexcept, void* ctx) noexcept {
+        if (handle_) {
+            handle_.promise().on_complete_ = {fn, ctx};
+        }
     }
 
     auto operator co_await() const noexcept {
@@ -743,7 +755,7 @@ private:
 // 3. Coroutine I/O Engine & TLP Split-Transaction Dispatcher
 // ============================================================================
 
-// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (completions are posted, never resumed inline)
+// @impl [SPEC-ARCH-10] [SPEC-ARCH-14] docs/DESIGN_SPECIFICATION.md (completions are posted, never resumed inline; supports SPSC/MPSC rings and batch streams)
 class CoroutineIoEngine {
 public:
     static constexpr size_t MAX_PENDING_TAGS = 256;
@@ -755,11 +767,14 @@ public:
         Tlp64 response_tlp{};
     };
 
-    CoroutineIoEngine(SpscTlpRing<>& host_tx_ring, SpscTlpRing<>& host_rx_ring)
-        : tx_ring_(host_tx_ring), rx_ring_(host_rx_ring) {}
+    CoroutineIoEngine(SpscTlpRing<>& host_tx_ring, SpscTlpRing<>& host_rx_ring) noexcept
+        : spsc_tx_(&host_tx_ring), spsc_rx_(&host_rx_ring) {}
+
+    CoroutineIoEngine(MpscTlpRing<>& egress_tx_ring, MpscTlpRing<>& ingress_rx_ring) noexcept
+        : mpsc_tx_(&egress_tx_ring), mpsc_rx_(&ingress_rx_ring) {}
 
     // Allocate a unique Tag for split-transaction matching
-    uint8_t allocate_tag() {
+    uint8_t allocate_tag() noexcept {
         for (size_t i = 1; i < MAX_PENDING_TAGS; ++i) {
             uint8_t tag = static_cast<uint8_t>((next_tag_ + i) % 254 + 1);
             if (!pending_requests_[tag].active) {
@@ -771,34 +786,48 @@ public:
         return 0; // Out of tags
     }
 
-    void register_awaiter(uint8_t tag, uint32_t addr, std::coroutine_handle<> coro) {
+    void register_awaiter(uint8_t tag, uint32_t addr, std::coroutine_handle<> coro) noexcept {
         pending_requests_[tag].target_addr = addr;
         pending_requests_[tag].awaiting_coro = coro;
     }
 
     // Register an awaiter for autonomous telemetry stream (Channel 2 IMU stream)
-    void register_stream_awaiter(uint8_t channel, std::coroutine_handle<> coro) {
+    void register_stream_awaiter(uint8_t channel, std::coroutine_handle<> coro) noexcept {
         if (channel < 8) {
             stream_awaiters_[channel] = coro;
         }
     }
 
-    // Poll the incoming SPSC RX Ring for completed TLPs and wake pending coroutines
-    size_t poll_completions() {
+    // Poll the incoming RX Ring (SPSC or MPSC) for completed TLPs and wake pending coroutines
+    size_t poll_completions() noexcept {
         size_t completions_processed = 0;
 
-        while (auto opt_tlp = rx_ring_.pop()) {
-            Tlp64 tlp = *opt_tlp;
+        Tlp64 tlp{};
+        while (pop_rx(tlp)) {
             completions_processed++;
 
             // Check if this is an autonomous DMA Stream TLP (e.g. IMU Telemetry)
             if (tlp.type() == TlpType::DmaStream) {
                 uint8_t ch = static_cast<uint8_t>(tlp.channel());
                 if (ch < 8 && stream_awaiters_[ch]) {
-                    latest_stream_tlp_[ch] = tlp;
-                    auto coro = stream_awaiters_[ch];
-                    stream_awaiters_[ch] = nullptr;
-                    (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
+                    if (!stream_batch_out_[ch].empty()) {
+                        const size_t idx = stream_batch_count_[ch];
+                        if (idx < stream_batch_out_[ch].size()) {
+                            stream_batch_out_[ch][idx] = tlp;
+                            stream_batch_count_[ch] = idx + 1;
+                        }
+                        if (stream_batch_count_[ch] >= stream_batch_min_[ch]) {
+                            stream_batch_out_[ch] = {};
+                            auto coro = stream_awaiters_[ch];
+                            stream_awaiters_[ch] = nullptr;
+                            (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
+                        }
+                    } else {
+                        latest_stream_tlp_[ch] = tlp;
+                        auto coro = stream_awaiters_[ch];
+                        stream_awaiters_[ch] = nullptr;
+                        (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
+                    }
                 }
                 continue;
             }
@@ -836,7 +865,7 @@ public:
 
             // Construct and enqueue MemRd 64-byte TLP into TX ring
             Tlp64 req = Tlp64::make_mem_read(address, tag);
-            if (!engine.tx_ring_.push(req)) {
+            if (!engine.push_tx(req)) {
                 engine.pending_requests_[tag].active = false;
                 return false;
             }
@@ -866,7 +895,7 @@ public:
 
             engine.register_awaiter(tag, address, coro);
             Tlp64 req = Tlp64::make_mem_write(address, value, tag);
-            if (!engine.tx_ring_.push(req)) {
+            if (!engine.push_tx(req)) {
                 engine.pending_requests_[tag].active = false;
                 return false;
             }
@@ -896,6 +925,7 @@ public:
                 refused = true;
                 return false;
             }
+            engine.stream_batch_out_[ch] = {};
             engine.register_stream_awaiter(ch, coro);
             return true;
         }
@@ -903,6 +933,44 @@ public:
         Tlp64 await_resume() noexcept {
             if (refused) return Tlp64{};
             return engine.latest_stream_tlp_[static_cast<uint8_t>(channel)];
+        }
+    };
+
+    // @impl [SPEC-ARCH-14] docs/DESIGN_SPECIFICATION.md (block stream consumption: wake after min_count packets)
+    struct StreamBatchAwaiter {
+        CoroutineIoEngine& engine;
+        std::span<Tlp64> out;
+        size_t min_count{1};
+        Channel channel{Channel::Telemetry};
+        bool refused{false};
+
+        bool await_ready() const noexcept { return out.empty(); }
+
+        bool await_suspend(std::coroutine_handle<> coro) noexcept {
+            const auto ch = static_cast<uint8_t>(channel);
+            if (ch >= 8 || engine.stream_awaiters_[ch] || out.empty()) {
+                refused = true;
+                return false;
+            }
+            const size_t target = (min_count == 0) ? 1 : (min_count > out.size() ? out.size() : min_count);
+            engine.stream_batch_out_[ch] = out;
+            engine.stream_batch_min_[ch] = target;
+            engine.stream_batch_count_[ch] = 0;
+            engine.register_stream_awaiter(ch, coro);
+            return true;
+        }
+
+        size_t await_resume() noexcept {
+            if (refused || out.empty()) return 0;
+            return engine.stream_batch_count_[static_cast<uint8_t>(channel)];
+        }
+
+        ~StreamBatchAwaiter() {
+            const auto ch = static_cast<uint8_t>(channel);
+            if (ch < 8 && engine.stream_batch_out_[ch].data() == out.data()) {
+                engine.stream_batch_out_[ch] = {};
+                engine.stream_awaiters_[ch] = nullptr;
+            }
         }
     };
 
@@ -919,13 +987,40 @@ public:
         return StreamAwaiter{*this, channel};
     }
 
+    StreamBatchAwaiter async_await_stream_batch(std::span<Tlp64> out, size_t min_count = 1,
+                                                Channel channel = Channel::Telemetry) noexcept {
+        return StreamBatchAwaiter{*this, out, min_count, channel, false};
+    }
+
 private:
-    SpscTlpRing<>& tx_ring_;
-    SpscTlpRing<>& rx_ring_;
+    bool push_tx(const Tlp64& req) noexcept {
+        if (mpsc_tx_) return mpsc_tx_->push(req);
+        if (spsc_tx_) return spsc_tx_->push(req);
+        return false;
+    }
+
+    bool pop_rx(Tlp64& out) noexcept {
+        if (mpsc_rx_) return mpsc_rx_->pop(out);
+        if (spsc_rx_) {
+            if (auto opt = spsc_rx_->pop()) {
+                out = *opt;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    SpscTlpRing<>* spsc_tx_{nullptr};
+    SpscTlpRing<>* spsc_rx_{nullptr};
+    MpscTlpRing<>* mpsc_tx_{nullptr};
+    MpscTlpRing<>* mpsc_rx_{nullptr};
     uint8_t next_tag_{1};
     std::array<PendingRequest, MAX_PENDING_TAGS> pending_requests_{};
     std::array<std::coroutine_handle<>, 8> stream_awaiters_{};
     std::array<Tlp64, 8> latest_stream_tlp_{};
+    std::array<std::span<Tlp64>, 8> stream_batch_out_{};
+    std::array<size_t, 8> stream_batch_min_{};
+    std::array<size_t, 8> stream_batch_count_{};
 };
 
 /// ============================================================================
@@ -1097,6 +1192,25 @@ private:
 template <typename T1, typename T2>
 auto when_any(Task<T1>&& t1, Task<T2>&& t2) {
     return WhenAnyAwaiter<T1, T2>(std::move(t1), std::move(t2));
+}
+
+// @impl [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md (race a task against a timeout task or timer)
+template <typename T, typename U>
+auto with_timeout(Task<T>&& task, Task<U>&& timeout_task) {
+    return WhenAnyAwaiter<T, U>(std::move(task), std::move(timeout_task));
+}
+
+template <typename Timer>
+    requires requires(Timer& t, uint32_t us) { t.sleep_us_async(us); }
+auto sleep_us_task(Timer& timer, uint32_t timeout_us)
+    -> Task<decltype(timer.sleep_us_async(timeout_us).await_resume())> {
+    co_return co_await timer.sleep_us_async(timeout_us);
+}
+
+template <typename T, typename Timer>
+    requires requires(Timer& t, uint32_t us) { t.sleep_us_async(us); }
+auto with_timeout(Task<T>&& task, Timer& timer, uint32_t timeout_us) {
+    return with_timeout(std::move(task), sleep_us_task(timer, timeout_us));
 }
 
 } // namespace coro

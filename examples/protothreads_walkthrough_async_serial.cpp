@@ -176,7 +176,7 @@ int main() {
     for (size_t i = 0; i < shell_logs.size(); ++i) {
         std::cout << " Shell Response [" << (i + 1) << "]              : " << shell_logs[i];
     }
-    std::cout << " Total Execution Flight Time     : " << (current_time_us / 1000.0) << " ms\n";
+    std::cout << " Total Execution Flight Time     : " << (static_cast<double>(current_time_us) / 1000.0) << " ms\n";
     std::cout << " Dynamic Heap Memory Allocated   : 0 B (Static Frame Pool)\n";
     std::cout << " Cross-Thread Mutexes Used       : 0 (100% Lock-Free SPSC)\n";
     std::cout << "====================================================================================\n\n";

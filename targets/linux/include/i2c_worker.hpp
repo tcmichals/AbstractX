@@ -74,8 +74,6 @@ public:
             while (queue_.pop(req)) {
                 hal::I2cResult res{};
                 res.status = hal::I2cStatus::Cancelled;
-                req.notify_rx_completion(res);
-                req.notify_tx_completion(res);
                 complete(req, res);
             }
         }
@@ -212,8 +210,6 @@ private:
                 auto end_time = std::chrono::steady_clock::now();
                 res.timestamp_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(end_time.time_since_epoch()).count());
 
-                req.notify_rx_completion(res);
-                req.notify_tx_completion(res);
                 complete(req, res);
             }
         }

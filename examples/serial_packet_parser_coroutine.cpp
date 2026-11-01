@@ -96,9 +96,9 @@ struct MavlinkPacket {
 };
 
 uint16_t crc16_accumulate(uint8_t byte, uint16_t crc) {
-    uint8_t tmp = byte ^ (uint8_t)(crc & 0xFF);
-    tmp ^= (tmp << 4);
-    return (crc >> 8) ^ (tmp << 8) ^ (tmp << 3) ^ (tmp >> 4);
+    uint8_t tmp = static_cast<uint8_t>(byte ^ static_cast<uint8_t>(crc & 0xFF));
+    tmp = static_cast<uint8_t>(tmp ^ (tmp << 4));
+    return static_cast<uint16_t>((crc >> 8) ^ (static_cast<uint16_t>(tmp) << 8) ^ (static_cast<uint16_t>(tmp) << 3) ^ (tmp >> 4));
 }
 
 Task<MavlinkPacket> async_parse_mavlink_packet(
@@ -133,7 +133,7 @@ Task<MavlinkPacket> async_parse_mavlink_packet(
         uint8_t m0 = co_await uart.async_read_byte(current_time_us, timer_reg);
         uint8_t m1 = co_await uart.async_read_byte(current_time_us, timer_reg);
         uint8_t m2 = co_await uart.async_read_byte(current_time_us, timer_reg);
-        pkt.msg_id = m0 | (m1 << 8) | (m2 << 16);
+        pkt.msg_id = static_cast<uint32_t>(m0) | (static_cast<uint32_t>(m1) << 8) | (static_cast<uint32_t>(m2) << 16);
         crc_calc = crc16_accumulate(m0, crc_calc);
         crc_calc = crc16_accumulate(m1, crc_calc);
         crc_calc = crc16_accumulate(m2, crc_calc);

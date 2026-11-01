@@ -179,7 +179,7 @@ int main() {
 
     // 4. Trace stops at the TLP reserve; TLPs still get buffers.
     const size_t dropped_before = engine.get_discarded_count();
-    for (int i = 0; i < 20; ++i) {
+    for (uint64_t i = 0; i < 20; ++i) {
         engine.trace_hal(1, 4, 4, 1, 0, 30 + i);
         engine.flush(31 + i);
     }

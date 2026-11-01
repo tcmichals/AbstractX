@@ -178,11 +178,18 @@ ISpi& get_spi_driver() noexcept {
     return g_e906_spi;
 }
 
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list)
+ISpi* get_spi_port(uint8_t bus) noexcept {
+    if (bus == 0 || bus == 1) {
+        return &g_e906_spi;
+    }
+    return nullptr;
+}
+
 IUart& get_uart_driver() noexcept {
     return get_e906_uart3();
 }
 
-// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list)
 IUart* get_uart_port(uint8_t index) noexcept {
     if (index == 0 || index == 3) {
         return &get_e906_uart3();  // UART2's PB0/PB1 are not connected on the Cubie A5E

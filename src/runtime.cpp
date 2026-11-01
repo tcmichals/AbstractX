@@ -26,6 +26,13 @@ bool g_initialized{false};
 constexpr size_t MAX_ACTIVE_TASKS = 16;
 etl::vector<coro::Task<void>, MAX_ACTIVE_TASKS> g_tasks;
 
+// shared: ISRs / completion hooks set bits via fetch_or, step() takes via exchange; std::atomic
+std::atomic<uint32_t> g_pending_work{0};
+
+void on_spawned_task_done(void*) noexcept {
+    g_pending_work.fetch_or(kWorkTaskDone, std::memory_order_release);
+}
+
 // Active trace sinks (0 B dynamic heap)
 trace::FileTraceSink g_file_sink;
 trace::UdpTraceSink  g_udp_sink;
@@ -179,6 +186,9 @@ __attribute__((weak)) void hal::platform_profile_start(uint32_t /*hz*/) noexcept
 // @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
 __attribute__((weak)) bool hal::platform_trace_listening() noexcept { return true; }
 // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
+__attribute__((weak)) hal::ISpi* hal::get_spi_port(uint8_t index) noexcept {
+    return index == 0 ? &hal::get_spi_driver() : nullptr;
+}
 __attribute__((weak)) hal::IUart* hal::get_uart_port(uint8_t index) noexcept {
     return index == 0 ? &hal::get_uart_driver() : nullptr;
 }
@@ -299,6 +309,7 @@ bool spawn(coro::Task<void> task) noexcept {
     if (g_tasks.full()) {
         return false;
     }
+    task.set_completion_hook(&on_spawned_task_done, nullptr);
     g_tasks.push_back(std::move(task));
     // Kick off the coroutine into the cooperative scheduler
     {
@@ -306,14 +317,23 @@ bool spawn(coro::Task<void> task) noexcept {
         // resume: spawn() starts a never-run task ([SPEC-ARCH-10])
         g_tasks.back().resume();
     }
+    if (g_tasks.back().done()) {
+        g_pending_work.fetch_or(kWorkTaskDone, std::memory_order_release);
+    }
     return true;
+}
+
+void notify_work(uint32_t flags) noexcept {
+    g_pending_work.fetch_or(flags, std::memory_order_release);
 }
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
 void step() noexcept {
     // 1. Drain and resume all ready coroutines in the Dispatcher
-    Dispatcher::process();
+    if (Dispatcher::has_pending_resumes()) {
+        Dispatcher::process();
+    }
 
     // 2. Step the target I/O processor reactor
     hal::get_target_io_processor().step(0);
@@ -321,18 +341,31 @@ void step() noexcept {
     // 3. Service background network stack
     hal::platform_poll_network();
 
-    // 4. Flush trace buffer and service runtime status using one timer read ([SPEC-TRACE-08])
-    const uint64_t now_us = hal::get_timer_driver().get_time_us();
-    trace::g_tracer.flush(now_us);
-    stats::count_step();
-    status_service_at(now_us);
+    // 4. Snapshot pending work flags (set by task final_suspend or notify_work)
+    const uint32_t work = g_pending_work.exchange(0, std::memory_order_acquire);
 
-    // 5. Clean up finished tasks from the active pool
-    for (auto it = g_tasks.begin(); it != g_tasks.end();) {
-        if (it->done()) {
-            it = g_tasks.erase(it);
-        } else {
-            ++it;
+    // 5. Flush trace buffer and service runtime status using one timer read when needed ([SPEC-TRACE-08])
+    stats::count_step();
+    const bool trace_pending = trace::g_tracer.has_pending_events() || ((work & kWorkTraceFlush) != 0);
+    const bool events_pending = events::has_pending();
+    const bool status_check = (g_config.trace.status_period_ms != 0) &&
+                              ((stats::g_state.steps & 0x3Fu) == 1u || !Dispatcher::has_pending_resumes());
+    if (trace_pending || events_pending || status_check) {
+        const uint64_t now_us = hal::get_timer_driver().get_time_us();
+        if (trace_pending) {
+            trace::g_tracer.flush(now_us);
+        }
+        status_service_at(now_us);
+    }
+
+    // 6. Clean up finished tasks from the active pool only when a spawned task completed
+    if ((work & kWorkTaskDone) != 0 && !g_tasks.empty()) {
+        for (auto it = g_tasks.begin(); it != g_tasks.end();) {
+            if (it->done()) {
+                it = g_tasks.erase(it);
+            } else {
+                ++it;
+            }
         }
     }
 }

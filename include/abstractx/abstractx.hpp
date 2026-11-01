@@ -86,6 +86,18 @@ struct StepAwaiter {
     void await_resume() noexcept {}
 };
 
+// Event-driven pending-work bitmask for abstractx::step() ([SPEC-ARCH-06])
+enum WorkFlags : uint32_t {
+    kWorkDispatcher = 1u << 0,
+    kWorkIoEgress   = 1u << 1,
+    kWorkPlatform   = 1u << 2,
+    kWorkTraceFlush = 1u << 3,
+    kWorkTaskDone   = 1u << 4,
+    kWorkAll        = 0x1Fu,
+};
+
+void notify_work(uint32_t flags) noexcept;
+
 /*
  * 3. Cooperative Step in Synchronous Loops:
  *    Pumps the Dispatcher, drains ready coroutines, and services AbstractX I/O.

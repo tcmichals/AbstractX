@@ -9,6 +9,7 @@
  *
  * Uses the official AbstractX coroutine engine (include/asp_coro.hpp).
  */
+// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
 
 #include "asp_coro.hpp"
 #include <iostream>
@@ -27,7 +28,7 @@ using namespace abstractx::coro;
 struct pt { uint16_t lc; };
 #define PT_INIT(pt)               ((pt)->lc = 0)
 #define PT_BEGIN(pt)              switch((pt)->lc) { case 0:
-#define PT_WAIT_UNTIL(pt, cond)   do { (pt)->lc = __LINE__; case __LINE__: \
+#define PT_WAIT_UNTIL(pt, cond)   do { (pt)->lc = __LINE__; [[fallthrough]]; case __LINE__: \
                                        if (!(cond)) return 0; } while (0)
 #define PT_END(pt)                } (pt)->lc = 0; return 1;
 
@@ -135,6 +136,8 @@ int main() {
 
     double pt_ms = run_classic_example_socket();
     double coro_ms = run_modern_example_socket();
+    (void)pt_ms;
+    (void)coro_ms;
 
     std::cout << "====================================================================================\n";
     std::cout << " VERIFICATION RESULT: 100% SUCCESSFUL HTTP TRANSACTION (Status 200 OK)\n";

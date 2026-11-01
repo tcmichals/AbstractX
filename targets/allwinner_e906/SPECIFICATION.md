@@ -840,6 +840,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 
   | Call | Port | Driver | Pins (40-pin header) |
   | :--- | :--- | :--- | :--- |
+  | `get_spi_port(0)`, `get_spi_port(1)`, `get_spi_driver()` | SPI1 | `E906SpiDriver` | PD6 CS0 / PD7 SCLK / PD8 MOSI / PD9 MISO |
   | `get_uart_port(0)`, `get_uart_port(3)`, `get_uart_driver()` | UART3 | `E906Uart` | PI11 TX / PI12 RX (pins 16, 31), function 2, pull-up on RX |
   | `get_uart_port(2)` | none (null) | | UART2's PB0/PB1 are not connected on the Cubie A5E |
   | `get_i2c_port(0)` | TWI0 | `E906I2c` (`get_e906_i2c()`) | none set: not routed to the header |

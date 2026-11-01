@@ -248,7 +248,7 @@ Task<void> processing_core_imu_loop(
         uint32_t raw_accel_z = co_await io.async_read(HwAddr::SPI_IMU_ADDR, Tags::IMU_TAG);
         
         // Execute Flight PID / Attitude Calculation on Core 0
-        float accel_m_s2 = raw_accel_z / 100.0f;
+        float accel_m_s2 = static_cast<float>(raw_accel_z) / 100.0f;
         (void)accel_m_s2; // Process in state matrix
         imu_samples_processed++;
 

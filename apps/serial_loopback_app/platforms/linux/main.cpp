@@ -41,7 +41,7 @@ Task<void> app_serial_loopback_task(hal::ITimer& timer) {
                 echo_tlp.wire.channel = in_tlp.wire.channel;
                 echo_tlp.wire.target_address = in_tlp.target_address();
                 echo_tlp.wire.length_dw = in_tlp.wire.length_dw;
-                echo_tlp.wire.sequence = ++echo_sequence;
+                echo_tlp.wire.sequence = static_cast<uint16_t>(++echo_sequence);
                 echo_tlp.wire.timestamp_ns = timer.get_time_us() * 1000ULL;
                 std::memcpy(echo_tlp.wire.payload, in_tlp.wire.payload, ASP_TLP64_PAYLOAD_SIZE);
 

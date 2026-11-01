@@ -7,7 +7,7 @@
  * next Dispatcher::process(), never inside poll_completions() (2026-10-29: it resumed inline).
  * Also: a second stream waiter on one channel is refused, not overwritten; 1000 rounds flat.
  */
-// @verifies [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
+// @verifies [SPEC-ARCH-10] [SPEC-ARCH-14] docs/DESIGN_SPECIFICATION.md
 #undef NDEBUG
 
 #include "asp_coro.hpp"
@@ -20,6 +20,7 @@ using abstractx::coro::CoroutineIoEngine;
 using abstractx::coro::Task;
 using abstractx::coro::coro_pool_high_water;
 using abstractx::Channel;
+using abstractx::MpscTlpRing;
 using abstractx::SpscTlpRing;
 using abstractx::Tlp64;
 
@@ -37,6 +38,12 @@ Task<void> reader(CoroutineIoEngine& io, uint32_t& out, int& resumes) {
 
 Task<void> streamer(CoroutineIoEngine& io, Tlp64& out, int& resumes) {
     out = co_await io.async_await_stream(Channel::Telemetry);
+    ++resumes;
+}
+
+Task<void> batch_streamer(CoroutineIoEngine& io, std::span<Tlp64> out, size_t min_count,
+                          size_t& got, int& resumes) {
+    got = co_await io.async_await_stream_batch(out, min_count, Channel::Telemetry);
     ++resumes;
 }
 
@@ -107,6 +114,32 @@ int main() {
         assert(Dispatcher::queue_depth() == 0);
     }
 
-    std::printf("[PASS] CoroutineIoEngine: completions posted, second stream waiter refused, 1000 rounds flat\n");
+    // 4. Unified MpscTlpRing<> support + async_await_stream_batch ([SPEC-ARCH-14]):
+    //    wakes only after min_count stream packets arrive.
+    {
+        MpscTlpRing<> mtx{}, mrx{};
+        CoroutineIoEngine mio(mtx, mrx);
+        std::array<Tlp64, 4> batch{};
+        size_t got = 0;
+        int resumes = 0;
+        auto tb = batch_streamer(mio, batch, 3, got, resumes);
+        tb.resume();
+        for (uint8_t k = 1; k <= 3; ++k) {
+            Tlp64 s = Tlp64::make_cpl_d(0, k);
+            s.wire.type = static_cast<uint8_t>(abstractx::TlpType::DmaStream);
+            s.wire.channel = static_cast<uint8_t>(Channel::Telemetry);
+            assert(mrx.push(s));
+            mio.poll_completions();
+            pump();
+            if (k < 3) {
+                assert(!tb.done() && resumes == 0);
+            }
+        }
+        assert(tb.done() && resumes == 1 && got == 3);
+        assert(batch[0].wire.payload[3] == 1 && batch[1].wire.payload[3] == 2 &&
+               batch[2].wire.payload[3] == 3);
+    }
+
+    std::printf("[PASS] CoroutineIoEngine: completions posted, MPSC + batch stream verified, 1000 rounds flat\n");
     return 0;
 }

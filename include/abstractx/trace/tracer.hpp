@@ -500,6 +500,10 @@ public:
         }
     }
 
+    bool has_pending_events() const noexcept {
+        return !buf_.empty() && offset_ > sizeof(CtfPacketHeaderWire);
+    }
+
     size_t get_discarded_count() const noexcept {
         return discarded_count_;
     }

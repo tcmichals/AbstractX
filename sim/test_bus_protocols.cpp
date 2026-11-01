@@ -904,6 +904,12 @@ int main() {
         // Ports: 0 is the default driver; the host target has no second port.
         assert(get_uart_port(0) == &get_uart_driver());
         assert(get_uart_port(1) == nullptr);
+        assert(&get_uart_driver(0) == &get_uart_driver());
+        assert(&get_uart_driver(1) == &get_uart_driver());
+        assert(get_spi_port(0) == &get_spi_driver());
+        assert(get_spi_port(1) == nullptr);
+        assert(&get_spi_driver(0) == &get_spi_driver());
+        assert(&get_spi_driver(1) == &get_spi_driver());
     }
 
     std::printf("[PASS] bus protocols: step callbacks (poll, finish, fail, repeat limit, SMBus), "

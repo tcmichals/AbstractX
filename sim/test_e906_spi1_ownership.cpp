@@ -56,7 +56,7 @@ void complete_dma(bool ok = true) {
             return;
         }
     }
-    assert(!"no DMA in flight");
+    assert(false && "no DMA in flight");
 }
 
 void pump() {

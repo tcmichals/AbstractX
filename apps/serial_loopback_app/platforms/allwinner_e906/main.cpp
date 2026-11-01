@@ -34,7 +34,7 @@ static void print_dec(uint32_t val) {
         return;
     }
     while (val > 0) {
-        buf[idx++] = '0' + (val % 10);
+        buf[idx++] = static_cast<char>('0' + (val % 10));
         val /= 10;
     }
     for (int i = idx - 1; i >= 0; i--) {
@@ -118,7 +118,7 @@ int main(void) {
                         // Echo as Completion (0x03)
                         req->type = 0x03;
                         req->flags = 0; // ASP_STATUS_OK
-                        req->seq = ++seq;
+                        req->seq = static_cast<uint16_t>(++seq);
                         req->timestamp_ns = read_mcycle64() * 5; // 5 ns @ 200 MHz
                     }
                 }
@@ -132,7 +132,7 @@ int main(void) {
                 (void)uart.write(std::span<const uint8_t>(rx_buffer, bytes_read));
 
                 total_packets++;
-                total_bytes += bytes_read;
+                total_bytes += static_cast<uint32_t>(bytes_read);
             }
         }
 
@@ -147,7 +147,7 @@ int main(void) {
             g_tlp_packet.flags = 0;
             g_tlp_packet.tag = 0;
             g_tlp_packet.channel = 0x04; // Debug
-            g_tlp_packet.seq = seq;
+            g_tlp_packet.seq = static_cast<uint16_t>(seq);
             g_tlp_packet.timestamp_ns = now * 5; // 5 ns per cycle at 200 MHz
 
             trace_puts("[AbstractX E906] Heartbeat #");

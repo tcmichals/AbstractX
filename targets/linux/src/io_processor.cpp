@@ -102,7 +102,7 @@ public:
             hal::SpiRequest req{};
             req.tx_data = x.tx;
             req.rx_data = x.rx;
-            req.on_rx_complete = etl::delegate<void(const hal::SpiResult&)>::create<Job, &Job::spi_done>(*j);
+            req.callback = etl::delegate<void(const hal::SpiResult&)>::create<Job, &Job::spi_done>(*j);
             ok = spi_.submit(req);
         } else if (x.bus == hal::BusType::I2c) {
             if (!i2c_.is_running()) i2c_.start("/dev/i2c-1");
@@ -111,7 +111,7 @@ public:
             req.tx_data = x.tx;
             req.rx_data = x.rx;
             req.repeated_start = !x.tx.empty() && !x.rx.empty();
-            req.on_rx_complete = etl::delegate<void(const hal::I2cResult&)>::create<Job, &Job::i2c_done>(*j);
+            req.callback = etl::delegate<void(const hal::I2cResult&)>::create<Job, &Job::i2c_done>(*j);
             ok = i2c_.submit(req);
         }
         if (!ok) j->in_use.store(false, std::memory_order_release);

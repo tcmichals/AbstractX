@@ -28,10 +28,16 @@ static void msgbox_rx_irq(bool enable) noexcept {
 }
 
 bool rpmsg_take_doorbell() noexcept {
+    if (!s_doorbell.load(std::memory_order_acquire)) {
+        return false;
+    }
     return s_doorbell.exchange(false, std::memory_order_acq_rel);
 }
 
 void rpmsg_arm_doorbell() noexcept {
+    if (s_doorbell_armed.load(std::memory_order_acquire)) {
+        return;
+    }
     if (!s_doorbell_armed.exchange(true, std::memory_order_acq_rel)) {
         MsgBox::clear_irq_status(MsgBox::Channel::Channel0);
         MsgBox::clear_irq_status(MsgBox::Channel::Channel1);

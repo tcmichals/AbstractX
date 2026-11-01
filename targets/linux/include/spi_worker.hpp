@@ -78,8 +78,6 @@ public:
             while (queue_.pop(req)) {
                 hal::SpiResult res{};
                 res.status = hal::SpiStatus::Cancelled;
-                req.notify_rx_completion(res);
-                req.notify_tx_completion(res);
                 complete(req, res);
             }
         }
@@ -204,8 +202,6 @@ private:
                 res.bus_duration_us = static_cast<uint32_t>(duration_us);
                 res.timestamp_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(end_time.time_since_epoch()).count());
 
-                req.notify_rx_completion(res);
-                req.notify_tx_completion(res);
                 complete(req, res);
             }
         }

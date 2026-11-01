@@ -507,9 +507,9 @@ Many sensors (e.g. ICM-42688-P, MPU6000, Flash memory) must initialize at slow c
 
 #### SPI HAL Callback Lifecycle:
 1. `ioProcessor` pops `Tlp64` request from `g_tx_ring`, decodes `bus_id`, `cs_pin`, `tx_data`, `rx_len`.
-2. `ioProcessor` constructs `SpiRequest` and sets `on_tx_complete` and `on_rx_complete` delegates (or unified `callback`).
+2. `ioProcessor` constructs `SpiRequest` and sets the unified `callback` delegate.
 3. Concrete HAL executes transfer via hardware DMA (Channel TX + Channel RX).
-4. On DMA interrupt, HAL calls `notify_rx_completion(result)` / `notify_tx_completion(result)`.
+4. On DMA interrupt, HAL calls `push_completion_from_isr(req, result)` (`notify_completion(result)`).
 5. The callback builds `Tlp64::make_spi_cpl(...)` with received bytes and duration, pushes to `g_rx_ring`, and triggers the inter-core doorbell!
 
 ---
@@ -585,12 +585,12 @@ Many sensors (e.g. ICM-42688-P, MPU6000, Flash memory) must initialize at slow c
    - Request: `Type = 0x01` (`MemRd`), `Flags = USE_REG | REPEATED_START`.
    - `ioProcessor` configures `I2cRequest`: sets `slave_addr`, `register_offset`, `repeated_start = true`, `rx_len`.
    - Hardware sequence: `START` $\rightarrow$ Slave Addr (W) $\rightarrow$ Reg Offset $\rightarrow$ `REPEATED START` $\rightarrow$ Slave Addr (R) $\rightarrow$ Read $N$ bytes $\rightarrow$ `STOP`.
-   - When RX DMA or ISR completes, HAL calls `notify_rx_completion(result)`.
+   - When RX DMA or ISR completes, HAL calls `req.callback(result)` (via `notify_rx_completion(result)`).
    - Callback constructs `Tlp64::make_i2c_cpl(tag, status, rx_data, duration_us)`, pushes to `g_rx_ring`, and triggers doorbell.
 2. **Write Register Burst**:
    - Request: `Type = 0x02` (`MemWr`), `Flags = USE_REG`.
    - Hardware sequence: `START` $\rightarrow$ Slave Addr (W) $\rightarrow$ Reg Offset $\rightarrow$ Write Payload bytes $\rightarrow$ `STOP`.
-   - When TX completes, HAL calls `notify_tx_completion(result)`.
+   - When TX completes, HAL calls `req.callback(result)` (via `notify_tx_completion(result)`).
    - Callback constructs `Tlp64` completion status ACK, pushes to `g_rx_ring`, and triggers doorbell.
 3. **Error Handling & NACKs**:
    - If slave fails to acknowledge address or data, HAL immediately reports `I2cStatus::NackAddress` or `I2cStatus::NackData` via the callback.
