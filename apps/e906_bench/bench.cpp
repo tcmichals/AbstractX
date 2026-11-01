@@ -13,6 +13,7 @@
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/hal/io_engine.hpp"
 #include "abstractx/hal/platform.hpp"
+#include "abstractx/trace/event_trace.hpp"
 #include "applib/drivers/imu/icm42688p.hpp"
 #include "hal/auto_dma.hpp"
 #include "hal/gpio_irq.hpp"
@@ -24,6 +25,8 @@ extern "C" {
 __attribute__((weak)) const char *abx_bench_platform_name(void) { return "baremetal"; }
 __attribute__((weak)) bool abx_bench_soft_irq_enable(void) { return false; }
 __attribute__((weak)) bool abx_bench_idle_stats(uint32_t *, uint64_t *) { return false; }
+__attribute__((weak)) bool abx_bench_native_cyclic_start(uint32_t, uint32_t *, uint32_t) { return false; }
+__attribute__((weak)) bool abx_bench_native_cyclic_poll(AbxNativeCyclic *) { return false; }
 
 uint64_t abx_bench_mcycle(void) {
 #if defined(__riscv)
@@ -256,7 +259,58 @@ constexpr uint32_t kCycMax = 600000;
 constexpr uint32_t kCycBuckets = 500;          // 1 us buckets, 0..499 us
 uint32_t s_cyc_hist[kCycBuckets];              // shared: none (bench coroutine only)
 
-abstractx::coro::Task<void> run_cyclic(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count) noexcept {
+void report_cyclic(::hal::IRpmsg &rpmsg, uint32_t host, const char *source, uint32_t done,
+                   uint64_t min_t, uint64_t max_t, uint64_t sum_t, uint32_t over, uint32_t missed) noexcept {
+    auto pct = [&](uint32_t per_mille) -> uint64_t {
+        const uint64_t need = (static_cast<uint64_t>(done) * per_mille + 999) / 1000;
+        uint64_t acc = 0;
+        for (uint32_t b = 0; b < kCycBuckets; ++b) {
+            acc += s_cyc_hist[b];
+            if (acc >= need) return b + 1;
+        }
+        return kCycBuckets;
+    };
+    auto ns = [](uint64_t ticks) -> uint64_t { return ticks * 1000u / ::hal::Timer::TICKS_PER_US; };
+    Report r(rpmsg, host);
+    r.kv("platform", abx_bench_platform_name());
+    r.kv("cyc_source", source);
+    r.kv("cyc_count", done);
+    r.kv("cyc_period_us", static_cast<uint64_t>(1000));
+    r.kv("cyc_late_ns_min", done ? ns(min_t) : 0);
+    r.kv("cyc_late_ns_avg", done ? ns(sum_t / done) : 0);
+    r.kv("cyc_late_ns_max", ns(max_t));
+    r.kv("cyc_late_us_p99", pct(990));
+    r.kv("cyc_late_us_p999", pct(999));
+    r.kv("cyc_over_500us", over);
+    r.kv("cyc_missed", missed);
+    r.kv("end", static_cast<uint64_t>(1));
+    r.flush();
+}
+
+// @impl [SPEC-E906-BENCH-06] apps/e906_bench/SPECIFICATION.md (native FreeRTOS task, 'F')
+abstractx::coro::Task<void> run_native_cyclic(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count) noexcept {
+    if (count == 0) count = kCycDefault;
+    if (count > kCycMax) count = kCycMax;
+    for (auto &b : s_cyc_hist) b = 0;
+    if (!abx_bench_native_cyclic_start(count, s_cyc_hist, kCycBuckets)) {
+        report_cyclic(rpmsg, host, "unsupported", 0, 0, 0, 0, 0, 0);
+        co_return;
+    }
+    AbxNativeCyclic res{};
+    const uint64_t give_up = ::hal::Timer::get_ticks() + (count + 5000ULL) * ::hal::Timer::TICKS_PER_MS;
+    while (!abx_bench_native_cyclic_poll(&res) && ::hal::Timer::get_ticks() < give_up) {
+        co_await ::hal::Timer::sleep_ms_async(100);
+    }
+    uint32_t over = 0;  // histogram over-range is kept by the task in over_tick only
+    report_cyclic(rpmsg, host, "freertos_task", res.done, res.done ? res.min_ticks : 0, res.max_ticks,
+                  res.sum_ticks, over, res.over_tick);
+}
+
+abstractx::coro::Task<void> run_cyclic(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count, bool profiler) noexcept {
+    // Fair comparison ([SPEC-E906-BENCH-06]): the profiler shares this comparator, so it is off
+    // for the run unless asked; FreeRTOS cannot run it at all (the kernel owns the comparator).
+    const uint32_t profile_hz = abstractx::events::g_events.sample_hz;
+    abstractx::hal::platform_profile_start(profiler ? profile_hz : 0);
     if (count == 0) count = kCycDefault;
     if (count > kCycMax) count = kCycMax;
     for (auto &b : s_cyc_hist) b = 0;
@@ -278,29 +332,8 @@ abstractx::coro::Task<void> run_cyclic(::hal::IRpmsg &rpmsg, uint32_t host, uint
         const uint64_t us = late / ::hal::Timer::TICKS_PER_US;
         if (us < kCycBuckets) ++s_cyc_hist[us]; else ++over;
     }
-    auto pct = [&](uint32_t per_mille) -> uint64_t {
-        const uint64_t need = (static_cast<uint64_t>(done) * per_mille + 999) / 1000;
-        uint64_t acc = 0;
-        for (uint32_t b = 0; b < kCycBuckets; ++b) {
-            acc += s_cyc_hist[b];
-            if (acc >= need) return b + 1;
-        }
-        return kCycBuckets;
-    };
-    auto ns = [](uint64_t ticks) -> uint64_t { return ticks * 1000u / ::hal::Timer::TICKS_PER_US; };
-    Report r(rpmsg, host);
-    r.kv("platform", abx_bench_platform_name());
-    r.kv("cyc_count", done);
-    r.kv("cyc_period_us", static_cast<uint64_t>(1000));
-    r.kv("cyc_late_ns_min", done ? ns(min_t) : 0);
-    r.kv("cyc_late_ns_avg", done ? ns(sum_t / done) : 0);
-    r.kv("cyc_late_ns_max", ns(max_t));
-    r.kv("cyc_late_us_p99", pct(990));
-    r.kv("cyc_late_us_p999", pct(999));
-    r.kv("cyc_over_500us", over);
-    r.kv("cyc_missed", missed);
-    r.kv("end", static_cast<uint64_t>(1));
-    r.flush();
+    abstractx::hal::platform_profile_start(profile_hz);  // as it was
+    report_cyclic(rpmsg, host, profiler ? "abstractx_profiler_on" : "abstractx", done, min_t, max_t, sum_t, over, missed);
 }
 
 abstractx::coro::Task<void> run_imu(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count) noexcept {
@@ -505,11 +538,14 @@ abstractx::coro::Task<void> worker_task(::hal::IRpmsg &rpmsg) noexcept {
             for (uint16_t i = 0; i < 4 && 1U + i < s.len; ++i) {
                 count |= static_cast<uint32_t>(s.data[1 + i]) << (8U * i);
             }
+            const uint8_t flags = s.len > 5 ? s.data[5] : 0;  // 'C': bit 0 = keep the profiler on
             ++s_tail;  // free the slot before a long run
             if (cmd == 'R') {
                 co_await run_suite(rpmsg, host);
             } else if (cmd == 'C') {
-                co_await run_cyclic(rpmsg, host, count);  // [SPEC-E906-BENCH-06]
+                co_await run_cyclic(rpmsg, host, count, (flags & 1U) != 0);  // [SPEC-E906-BENCH-06]
+            } else if (cmd == 'F') {
+                co_await run_native_cyclic(rpmsg, host, count);  // [SPEC-E906-BENCH-06] native RTOS
             } else if (cmd == 'A') {
                 co_await run_imu(rpmsg, host, count);
             } else if (cmd == 'I') {

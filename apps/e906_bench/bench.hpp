@@ -30,6 +30,13 @@ abstractx::coro::Task<void> worker_task(::hal::IRpmsg &rpmsg) noexcept;
 // Runtime hooks ([SPEC-E906-BENCH-01]); the bench provides weak defaults.
 extern "C" {
 const char *abx_bench_platform_name(void);
+// [SPEC-E906-BENCH-06] native RTOS cyclic run: start returns false without an RTOS.
+struct AbxNativeCyclic {
+    uint32_t done, over_tick;
+    uint64_t min_ticks, max_ticks, sum_ticks;
+};
+bool abx_bench_native_cyclic_start(uint32_t count, uint32_t *hist, uint32_t buckets);
+bool abx_bench_native_cyclic_poll(AbxNativeCyclic *out);
 // Route CLIC line 3 to abx_bench_soft_isr() and enable it; false if unsupported.
 bool abx_bench_soft_irq_enable(void);
 // Idle accounting since boot; false if the runtime is not instrumented.

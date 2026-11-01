@@ -5,6 +5,8 @@
  * main.cpp - AbstractX as one FreeRTOS task on the XuanTie E906.
  * @impl [SPEC-E906-RTOS-03] [SPEC-E906-RTOS-04] [SPEC-E906-RTOS-05] [SPEC-E906-RTOS-06] apps/e906_freertos_app/SPECIFICATION.md
  */
+#include <atomic>
+#include <cstdint>
 #include "abstractx/abstractx.hpp"
 #include "abstractx/trace/event_trace.hpp"
 #include "bench.hpp"
@@ -16,6 +18,10 @@
 extern "C" {
 #include "FreeRTOS.h"
 #include "task.h"
+extern "C" {
+extern uint64_t ullNextTime;                    // FreeRTOS RISC-V port.c: next tick compare value
+extern const size_t uxTimerIncrementsForOneTick;  // port.c: mtime ticks per kernel tick
+}
 }
 
 namespace abstractx::hal {
@@ -46,6 +52,41 @@ volatile uint32_t s_unexpected_irqs = 0;  // shared: interrupt handler only writ
 volatile uint32_t s_idle_wakes = 0;       // shared: idle hook writes, abx_bench_idle_stats reads; both inside taskENTER_CRITICAL
 volatile uint64_t s_idle_cycles = 0;      // shared: as s_idle_wakes (64-bit, so only inside taskENTER_CRITICAL)
 
+// [SPEC-E906-BENCH-06] native cyclic task state.
+// shared: abstractx task writes the parameters before xTaskNotifyGive, cyclic task reads after the
+// notify; results the other way, published with s_cyc_done (release / acquire); single hart
+StaticTask_t s_cyc_tcb;
+StackType_t s_cyc_stack[512];
+TaskHandle_t s_cyc_task = nullptr;
+uint32_t s_cyc_count = 0;
+uint32_t *s_cyc_hist = nullptr;
+uint32_t s_cyc_buckets = 0;
+AbxNativeCyclic s_cyc_res{};
+std::atomic<bool> s_cyc_done{false};
+
+void cyclic_task(void *) {
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        AbxNativeCyclic r{0, 0, UINT64_MAX, 0, 0};
+        TickType_t last = xTaskGetTickCount();
+        for (uint32_t i = 0; i < s_cyc_count; ++i) {
+            vTaskDelayUntil(&last, 1);
+            const uint64_t now = hal::Timer::get_ticks();
+            const uint64_t tick = ullNextTime - uxTimerIncrementsForOneTick;  // the tick that woke us
+            const uint64_t late = now > tick ? now - tick : 0;
+            if (late < r.min_ticks) r.min_ticks = late;
+            if (late > r.max_ticks) r.max_ticks = late;
+            r.sum_ticks += late;
+            ++r.done;
+            if (late > 900ULL * hal::Timer::TICKS_PER_US) ++r.over_tick;
+            const uint64_t us = late / hal::Timer::TICKS_PER_US;
+            if (us < s_cyc_buckets) ++s_cyc_hist[us];
+        }
+        s_cyc_res = r;
+        s_cyc_done.store(true, std::memory_order_release);
+    }
+}
+
 void notify_from_isr() noexcept {
     if (s_ax_task) {
         BaseType_t woken = pdFALSE;
@@ -75,6 +116,26 @@ void abstractx_task(void *) {
 extern "C" {
 
 const char *abx_bench_platform_name(void) { return "freertos"; }
+
+// [SPEC-E906-BENCH-06] native FreeRTOS cyclic run: a plain task on vTaskDelayUntil, lateness
+// against the tick that woke it (the RISC-V port's ullNextTime minus one tick).
+
+// @impl [SPEC-E906-BENCH-06] apps/e906_bench/SPECIFICATION.md (native FreeRTOS task)
+bool abx_bench_native_cyclic_start(uint32_t count, uint32_t *hist, uint32_t buckets) {
+    if (s_cyc_task == nullptr || hist == nullptr) return false;
+    s_cyc_count = count;
+    s_cyc_hist = hist;
+    s_cyc_buckets = buckets;
+    s_cyc_done.store(false, std::memory_order_release);
+    xTaskNotifyGive(s_cyc_task);
+    return true;
+}
+
+bool abx_bench_native_cyclic_poll(AbxNativeCyclic *out) {
+    if (!s_cyc_done.load(std::memory_order_acquire)) return false;
+    *out = s_cyc_res;
+    return true;
+}
 
 // @impl [SPEC-E906-RTOS-07] apps/e906_freertos_app/SPECIFICATION.md
 static uint64_t s_task_in_cycles = 0;
@@ -178,6 +239,8 @@ int main() {
     clic_enable(kLineTimer, true);
     clic_enable(kLineMsgbox, true);
 
+    s_cyc_task = xTaskCreateStatic(cyclic_task, "cyclic", 512, nullptr, configMAX_PRIORITIES - 1,
+                                   s_cyc_stack, &s_cyc_tcb);  // [SPEC-E906-BENCH-06]
     s_ax_task = xTaskCreateStatic(abstractx_task, "abstractx", kAbstractxStackWords, nullptr,
                                   configMAX_PRIORITIES - 1, s_ax_stack, &s_ax_tcb);
     vTaskStartScheduler();

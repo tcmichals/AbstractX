@@ -96,8 +96,21 @@ sequenceDiagram
 * **Report** (`key=value`, ends with `end`): `cyc_count`, `cyc_period_us` (1000), `cyc_late_ns_min`,
   `cyc_late_ns_avg`, `cyc_late_ns_max`, `cyc_late_us_p99`, `cyc_late_us_p999` (bucket upper edge),
   `cyc_over_500us`, `cyc_missed`.
-* **Verified by**: board bench (`bench_e906_runtime.py --cyclic`), `e906-build-layout`
-* **Implementation Target**: `apps/e906_bench/bench.cpp`, `apps/e906_repl_app/tests/board/bench_e906_runtime.py`
+* **Requirement (fair: one job per comparator)**: the profiler sample shares the core timer
+  comparator with coroutine deadlines on bare metal and cannot run under FreeRTOS (the kernel owns
+  it), so `C` stops the profiler for the run and restores it after; byte 5 bit 0 = keep it on
+  (`cyc_source=abstractx_profiler_on`), to show its cost. Moving the profiler to its own MCU timer
+  (MCU Timers 0..5, `CLK_MCU_TIMER0..5`) is TODO: register base and interrupt line not yet known.
+* **Requirement (native FreeRTOS, `F`)**: `F` [+ `uint32` count] runs the same 1 ms loop as a plain
+  FreeRTOS task (highest priority, `vTaskDelayUntil(&last, 1)`), measuring lateness against the
+  tick that woke it (`ullNextTime - uxTimerIncrementsForOneTick` of the RISC-V port, read after
+  the wake), with the same statistics and report keys plus `cyc_source=freertos_task`. The
+  firmware without FreeRTOS reports `cyc_source=unsupported`. Hooks: `abx_bench_native_cyclic_start`
+  / `abx_bench_native_cyclic_poll` (weak in `bench.cpp`). A wake later than one tick is
+  under-reported (the next tick has already advanced `ullNextTime`); `cyc_over_tick` counts
+  wakes later than 900 µs.
+* **Verified by**: board bench (`bench_e906_runtime.py --cyclic` / `--native-cyclic`), `e906-build-layout`
+* **Implementation Target**: `apps/e906_bench/bench.cpp`, `apps/e906_bench/bench.hpp`, `apps/e906_freertos_app/src/main.cpp`, `apps/e906_repl_app/tests/board/bench_e906_runtime.py`
 
 ### `[SPEC-E906-BENCH-05]` IMU DRDY Auto-DMA Run (`A`)
 * **Why**: the sensor comparison (bare metal, FreeRTOS, MicroPython, Linux) is paced by the IMU's
