@@ -6,13 +6,14 @@ bench_e906_runtime.py - Collect the E906 runtime benchmark (stdlib only, runs on
 
   python3 bench_e906_runtime.py [--n 1000] [--json out.json]
   python3 bench_e906_runtime.py --imu 2000 [--json out.json]   # IMU DRDY auto-DMA run only
-  python3 bench_e906_runtime.py --cyclic 60000 [--json out.json] # cyclictest equivalent (1 ms)
+  python3 bench_e906_runtime.py --cyclic 60000 [--profiler-on] [--json out.json] # cyclictest equivalent (1 ms)
+  python3 bench_e906_runtime.py --native-cyclic 60000 [--json out.json] # native FreeRTOS task on vTaskDelayUntil(1)
 
 Talks to endpoint 1030 'abstractx-bench' served by e906_bench_app (bare metal) or
 e906_freertos_app (FreeRTOS); both run the same benchmark code ([SPEC-E906-BENCH-*]).
 Exit 0 ok, 1 a check failed, 2 could not run (endpoint not announced).
 """
-# @impl [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-04] [SPEC-E906-BENCH-05] apps/e906_bench/SPECIFICATION.md
+# @impl [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-04] [SPEC-E906-BENCH-05] [SPEC-E906-BENCH-06] apps/e906_bench/SPECIFICATION.md
 
 import json
 import os
@@ -135,16 +136,28 @@ def run_imu(link: BenchLink, count: int) -> dict:
     return rep
 
 
-def run_cyclic(link: BenchLink, count: int) -> dict:
+def run_cyclic(link: BenchLink, count: int, profiler: bool = False) -> dict:
     """[SPEC-E906-BENCH-06] cyclictest equivalent: 1 ms deadlines, wake lateness."""
-    rep = run_suite(link, timeout_s=count / 1000.0 + 15.0, request=b"C" + count.to_bytes(4, "little"))
+    flags = 1 if profiler else 0
+    payload = b"C" + count.to_bytes(4, "little") + bytes([flags])
+    rep = run_suite(link, timeout_s=count / 1000.0 + 15.0, request=payload)
     if rep.get("cyc_count", 0) + rep.get("cyc_missed", 0) != count:
         rep.setdefault("error", "cyclic run incomplete")
     return rep
 
 
+def run_native_cyclic(link: BenchLink, count: int) -> dict:
+    """[SPEC-E906-BENCH-06] native FreeRTOS task on vTaskDelayUntil(1)."""
+    payload = b"F" + count.to_bytes(4, "little")
+    rep = run_suite(link, timeout_s=count / 1000.0 + 15.0, request=payload)
+    if rep.get("cyc_count", 0) + rep.get("cyc_missed", 0) != count:
+        rep.setdefault("error", "native cyclic run incomplete")
+    return rep
+
+
 def main(argv) -> int:
-    n, json_out, imu, cyc = 1000, None, 0, 0
+    n, json_out, imu, cyc, native_cyc = 1000, None, 0, 0, 0
+    profiler = False
     args = list(argv)
     while args:
         a = args.pop(0)
@@ -154,6 +167,10 @@ def main(argv) -> int:
             imu = int(args.pop(0))
         elif a == "--cyclic" and args:
             cyc = int(args.pop(0))
+        elif a == "--native-cyclic" and args:
+            native_cyc = int(args.pop(0))
+        elif a == "--profiler-on":
+            profiler = True
         elif a == "--json" and args:
             json_out = args.pop(0)
         else:
@@ -168,14 +185,16 @@ def main(argv) -> int:
     except (OSError, RuntimeError) as e:
         print(f"could not run: {e} (is e906_bench_app or e906_freertos_app loaded?)")
         return 2
-    if cyc:
+    if cyc or native_cyc:
+        count = native_cyc if native_cyc else cyc
         try:
             link.drain()
-            rep = run_cyclic(link, cyc)
+            rep = run_native_cyclic(link, count) if native_cyc else run_cyclic(link, count, profiler)
         finally:
             link.close()
-        result = {"check": "board:e906:cyclic", "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                  "uname": os.uname().release, "count": cyc, "cyclic": rep}
+        check_name = "board:e906:native-cyclic" if native_cyc else "board:e906:cyclic"
+        result = {"check": check_name, "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                  "uname": os.uname().release, "count": count, "cyclic": rep}
         print(json.dumps(result, indent=1))
         if json_out:
             with open(json_out, "w") as f:

@@ -486,6 +486,11 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   core clock (measured: `mcycle`/200000 per ms matched 24,000,410 `mtime` ticks over 1 s).
 * **Requirement**: the timer interrupt (line 7) is level while `mtime >= mtimecmp`; the handler
   re-arms or parks `mtimecmp` at all-ones before returning, never leaves it matched.
+* **Requirement (FreeRTOS / external scheduler coexistence, [SPEC-E906-RTOS-03])**: when running
+  under FreeRTOS or another kernel owning the core timer, `hal::Timer::use_external_tick()` is
+  called before `abstractx::init()`. This permanently disables `mtimecmp` writes by `hal::Timer`.
+  FreeRTOS owns `mtimecmp` exclusively, and AbstractX coroutine sleeps are evaluated via
+  `hal::Timer::tick_from_isr()` inside `vApplicationTickHook` at 1 ms tick resolution.
 * **Requirement**: `hal::Timer::SleepAwaiter` inherits `etl::bidirectional_link<0>` and nodes form a
   deadline-sorted `etl::intrusive_list<SleepAwaiter, etl::bidirectional_link<0>>` so any number of
   coroutines and `E906TimerDriver` (`ITimer`) requests may sleep concurrently without overwriting
@@ -903,8 +908,8 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Requirement (I2C bus recovery, 2026-10-31)**: `E906I2c::init()` recovers the bus before the
   controller soft reset: with the SCL/SDA pins switched to GPIO inputs, if SDA reads low it clocks
   SCL (open drain, ~100 kHz) up to 9 times until SDA is released, then sends a STOP, then gives the
-  pins back to the TWI function. A transfer timeout marks the bus for recovery: the sync path
-  (`transfer_sync`) recovers and soft-resets the controller before its next transfer; the async
+  pins back to the TWI function. A transfer timeout marks the bus for recovery: the pre-scheduler
+  bring-up path recovers and soft-resets the controller before its next transfer; the async
   deadline (`poll_timeout`, event loop) only sets the mark, because recovery waits ~100 µs.
   `irq_stats()` counts recoveries (`i2c_recoveries`).
 * **Rationale (2026-10-31)**: after a day of remoteproc restarts the compass held SDA low (a
