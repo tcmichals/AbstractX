@@ -355,7 +355,7 @@ async def async_main():
                         if imu_sample is not None
                         else "IMU=none"
                     )
-                    print(f"[BRIDGE] Forwarded #{seq}: {imu_str} Heading={heading_deg:.1f}° Sats={gps_sats} Spd={gps_spd:.2f}m/s")
+                    print(f"[BRIDGE] Forwarded #{seq}: {imu_str} Heading={heading_deg:.1f}° Sats={gps_sats} Spd={gps_spd:.2f}m/s NMEA_bad={nmea_rejected}")
             else:
                 if line:
                     print(f"[PROC] {line}")
