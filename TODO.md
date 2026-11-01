@@ -59,7 +59,7 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 - [ ] Board: run a FIFO SPI transfer while the DRDY channel is armed; expect `busy_drops`, no corrupt samples ([SPEC-E906-HAL-03]).
 - [ ] Static analysis: 16 findings not in `tools/static_analysis_baseline.txt` on 2026-10-30 (same with and without the SPI change): triage, fix or baseline with reasons.
 - [x] Zynq UIO interrupt left masked after a burst: re-armed on the first drained `step()` ([SPEC-ZYNQ-02], 2026-10-30, host test only).
-- [ ] Code review 2026-10-30 (background agent, read-only; not yet fixed): Linux/Zynq `stop()` from another thread while `run()` is in `poll_events` (use-after-free / SIGBUS) and `SpiWorker::submit` vs `stop` drain can strand a request; `DMA_CFG` SETUP changes `trigger_pin` without re-arming the backend, and `configure()` ignores `init_channel` failure; `IsrDispatcher::post` unlocked on bare metal from non-ISR context (latent); Linux engine drains its own `rx_doorbell_`.
+- [ ] Code review 2026-10-30 (background agent, read-only; partially fixed): Linux/Zynq `stop()` from another thread while `run()` is in `poll_events` (use-after-free / SIGBUS) and `SpiWorker::submit` vs `stop` drain can strand a request; ~~`DMA_CFG` SETUP changes `trigger_pin` without re-arming the backend, and `configure()` ignores `init_channel` failure~~ (fixed 2026-10-31, `[SPEC-ARCH-13]`, `sim/test_io_engine.cpp`); `IsrDispatcher::post` unlocked on bare metal from non-ISR context (latent); Linux engine drains its own `rx_doorbell_`.
 
 ### 2b. Articles (`docs/articles/`)
 - [x] Part 4 text and tables corrected against the evidence (idle not instrumented, 5.5 % = busy share of the whole run, newlib malloc still linked, -O2, 1970 timestamps) (`ca4182a`).

@@ -227,8 +227,12 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   4. **Concurrency**: each auto channel owns its tx/rx buffers, a config snapshot and an atomic busy
      flag. A trigger only starts channels whose `trigger_pin` matches. A trigger while that channel's
      transfer is still in flight is counted (`auto_overruns()`) and dropped; it never restarts the
-     transfer or reuses its buffers. Config writes (`DMA_CFG`, `set_auto_mode`) and the trigger's
-     snapshot are taken under `InterruptGuard`. Bridge transfers use a fixed slot pool; a full pool
+     transfer or reuses its buffers. `configure()` fails (`false`) if `backend_.init_channel(ch)`
+     fails for any channel. Config writes (`DMA_CFG`, `set_auto_mode`) and the trigger's
+     snapshot are taken under `InterruptGuard`. `ASP_DMA_CMD_SETUP` matches the channel by
+     `channel_id`, refuses with `ASP_STATUS_DMA_ERROR` while that channel is `busy`, updates its
+     config, and calls `backend_.init_channel()` so a changed trigger pin or edge is re-armed in the
+     back end. Bridge transfers use a fixed slot pool; a full pool
      answers `ASP_STATUS_QUEUE_FULL`. Each completion is matched to the slot or channel that started it.
      A completed auto read is copied into its TLP, then the channel is released (busy cleared), and only
      then is the TLP published (`emit`, which wakes the consumer): a consumer on another thread or core

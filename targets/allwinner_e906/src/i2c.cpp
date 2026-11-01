@@ -94,7 +94,9 @@ bool E906I2c::set_frequency(uint32_t frequency_hz) {
 void E906I2c::recover_bus() noexcept {
     if (port_.pins.cfg == 0 || port_.pins.mask == 0) return;  // pins not routed by this target
     auto& cfg = *reinterpret_cast<volatile uint32_t*>(port_.pins.cfg);
-    const uintptr_t bank = PIO_BASE + ((port_.pins.cfg - PIO_BASE) / 0x30U) * 0x30U;
+    const uintptr_t bank = (port_.pins.cfg >= PIO_BASE && port_.pins.cfg < PIO_BASE + 0x0400U)
+                               ? (PIO_BASE + ((port_.pins.cfg - PIO_BASE) / 0x30U) * 0x30U)
+                               : port_.pins.cfg;
     auto& dat = *reinterpret_cast<volatile uint32_t*>(bank + 0x10U);
     const uint32_t field = static_cast<uint32_t>(__builtin_ctz(port_.pins.mask));  // SCL field, SDA next
     const uint32_t reg_index = static_cast<uint32_t>((port_.pins.cfg - bank) / 4U);

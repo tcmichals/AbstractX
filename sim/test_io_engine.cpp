@@ -27,10 +27,18 @@ struct MockBackend final : IIoBackend {
     size_t n_pending{0};
     size_t started{0};
     size_t last_tx{0}, last_rx{0};
+    size_t init_calls{0};
+    uint32_t last_init_pin{0};
+    bool refuse_init{false};
     bool refuse{false};
     uint32_t notified{0};
 
-    bool init_channel(const AutoChannelConfig&) noexcept override { return true; }
+    bool init_channel(const AutoChannelConfig& ch) noexcept override {
+        if (refuse_init) return false;
+        ++init_calls;
+        last_init_pin = ch.trigger_pin;
+        return true;
+    }
     bool start_transfer(const IoTransfer& x) noexcept override {
         if (refuse || n_pending >= kMax) return false;
         assert(x.bus != BusType::Spi || x.tx.size() == x.rx.size());
@@ -102,15 +110,24 @@ int main() {
     assert(eng.init(setup));
 
     // 1. Host-controlled lengths (tx 255, rx 255) are clamped: 8-byte command, 64-byte transfer.
-    assert(to_io.push(dma_cfg(ASP_DMA_CMD_SETUP, 0, 20, 255, 255, 1)));
+    //    DMA_CFG SETUP also re-arms the back end via init_channel().
+    const size_t init_before = be.init_calls;
+    assert(to_io.push(dma_cfg(ASP_DMA_CMD_SETUP, 0, 22, 255, 255, 1)));
     assert(to_io.push(dma_cfg(ASP_DMA_CMD_ENABLE, 0, 0, 0, 0, 2)));
     eng.step(0);
+    assert(be.init_calls == init_before + 1 && be.last_init_pin == 22);
     assert(drain(from_io) == 2);
-    eng.on_trigger(20, 123);
+    eng.on_trigger(22, 123);
     assert(be.started == 1 && be.last_tx == IoEngine::kAutoXferMax && be.last_rx == IoEngine::kAutoXferMax);
 
+    // 1b. DMA_CFG SETUP while the channel is in flight is refused with ASP_STATUS_DMA_ERROR.
+    assert(to_io.push(dma_cfg(ASP_DMA_CMD_SETUP, 0, 20, 1, 15, 10)));
+    eng.step(0);
+    Tlp64 cfg_reply{};
+    assert(from_io.pop(cfg_reply) && cfg_reply.tag() == 10 && cfg_reply.wire.payload[0] == ASP_STATUS_DMA_ERROR);
+
     // 2. A second edge while the transfer is in flight is counted and dropped.
-    eng.on_trigger(20, 124);
+    eng.on_trigger(22, 124);
     assert(be.started == 1 && eng.auto_overruns() == 1);
 
     // 3. A trigger on another pin does not start channel 0; channel 1 is not armed.
@@ -196,6 +213,10 @@ int main() {
     eng.step(0);
     assert(from_io.pop(s) && s.tag() == 9 && s.wire.payload[0] == ASP_STATUS_QUEUE_FULL);
     assert(eng.bridge_slots_in_use() == 0);
+
+    // 9. configure() fails when init_channel() fails.
+    be.refuse_init = true;
+    assert(!eng.configure(setup));
 
     eng.stop();
     std::printf("[PASS] IoEngine: length clamps, own-pin triggers, overrun drop, bus lockout, slot pool, GPIO bounds, 1000 rounds flat\n");

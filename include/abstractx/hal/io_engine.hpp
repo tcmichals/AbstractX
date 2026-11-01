@@ -100,12 +100,13 @@ public:
     bool configure(const IoProcessorSetup& setup) override {
         setup_ = setup;
         InterruptGuard guard;
+        configured_ = false;
         num_channels_ = 0;
         for (const auto& ch : setup_.channels) {
             if (num_channels_ >= kMaxChannels) break;
             autos_[num_channels_].cfg = ch;
             autos_[num_channels_].busy.store(false, std::memory_order_relaxed);
-            (void)backend_.init_channel(ch);
+            if (!backend_.init_channel(ch)) return false;
             ++num_channels_;
         }
         configured_ = true;
@@ -289,18 +290,30 @@ private:
         uint8_t status = ASP_STATUS_OK;
         if (cfg.cmd == ASP_DMA_CMD_ENABLE || cfg.cmd == ASP_DMA_CMD_DISABLE) {
             if (!set_auto_mode(cfg.channel_id, cfg.cmd == ASP_DMA_CMD_ENABLE)) status = ASP_STATUS_DMA_ERROR;
-        } else if (cfg.cmd == ASP_DMA_CMD_SETUP && cfg.channel_id < num_channels_) {
-            InterruptGuard guard;
-            auto& ch = autos_[cfg.channel_id].cfg;
-            ch.trigger_pin = cfg.trigger_pin;
-            ch.trigger_rising = (cfg.trigger_edge == ASP_GPIO_EDGE_RISING || cfg.trigger_edge == ASP_GPIO_EDGE_BOTH);
-            ch.bus_type = static_cast<BusType>(cfg.bus_type);
-            ch.bus_index = cfg.bus_id;
-            ch.tx_len = cfg.tx_len > kAutoCmdMax ? static_cast<uint8_t>(kAutoCmdMax) : cfg.tx_len;
-            ch.rx_len = cfg.rx_len;
-            std::memcpy(ch.tx_cmd, cfg.tx_cmd, sizeof(ch.tx_cmd));
-            ch.tlp_channel = cfg.tlp_channel;
-            ch.tlp_tag = cfg.tlp_tag;
+        } else if (cfg.cmd == ASP_DMA_CMD_SETUP) {
+            AutoChannelConfig updated{};
+            bool ok = false;
+            {
+                InterruptGuard guard;
+                for (size_t i = 0; i < num_channels_; ++i) {
+                    if (autos_[i].cfg.channel_id != cfg.channel_id) continue;
+                    if (autos_[i].busy.load(std::memory_order_acquire)) break;
+                    auto& ch = autos_[i].cfg;
+                    ch.trigger_pin = cfg.trigger_pin;
+                    ch.trigger_rising = (cfg.trigger_edge == ASP_GPIO_EDGE_RISING || cfg.trigger_edge == ASP_GPIO_EDGE_BOTH);
+                    ch.bus_type = static_cast<BusType>(cfg.bus_type);
+                    ch.bus_index = cfg.bus_id;
+                    ch.tx_len = cfg.tx_len > kAutoCmdMax ? static_cast<uint8_t>(kAutoCmdMax) : cfg.tx_len;
+                    ch.rx_len = cfg.rx_len;
+                    std::memcpy(ch.tx_cmd, cfg.tx_cmd, sizeof(ch.tx_cmd));
+                    ch.tlp_channel = cfg.tlp_channel;
+                    ch.tlp_tag = cfg.tlp_tag;
+                    updated = ch;
+                    ok = true;
+                    break;
+                }
+            }
+            if (!ok || !backend_.init_channel(updated)) status = ASP_STATUS_DMA_ERROR;
         } else {
             status = ASP_STATUS_DMA_ERROR;
         }

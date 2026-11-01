@@ -25,17 +25,17 @@
 
 ---
 
-## 1. The Vision: Emulating a High-Speed Bus Fabric on Embedded Silicon
+## 1. The Vision: Dedicated I/O Accelerators, Auto-DMA & Packet-Switched Fabrics
 
-AbstractX is built around a single, game-changing architectural concept: **What if your entire embedded system behaved like a massive packet-switched bus topology with switches, endpoints, and transaction packets?**
+AbstractX is built around a foundational hardware-software co-design principle (`[SPEC-ARCH-14]`): **Accelerators run the buses with autonomous DMA, the fast loop runs where the samples land, and Linux (or the host core) sees results in blocks.**
 
-In high-performance computing, CPUs do not wire point-to-point bespoke GPIOs or poll blocking hardware buses; they communicate across a **packet-switched fabric** using standardized **Transaction Layer Packets (TLPs)** routed through **Switches** to dedicated IP endpoints.
+In high-performance computing, application CPUs do not poll slow physical buses or take per-byte GPIO interrupts; dedicated I/O engines and packet-switched fabrics move data using standardized **Transaction Layer Packets (TLPs)** and lock-free rings.
 
-AbstractX brings this exact data-center computing model to microcontrollers, coprocessors, and FPGAs:
-* **The Fabric**: Standardized 64-byte TLPs flowing across lock-free SPSC/MPSC rings (in shared SRAM, over SPI, or through FPGA AXI-Stream crossbars).
-* **The Switch**: The I/O Processor (RP2350 Core 0, XuanTie E906 RISC-V, or FPGA `asp_router.sv`) acts as the **Switch**, decoding virtual BAR addresses and channel tags to forward transactions directly to downstream IP blocks (UART, DMA, SPI, GPIO/LED).
-* **The Endpoints**: Hardware peripherals (IMU Auto-DMA, ESC controllers, LEDs) appear as clean endpoints on a virtual bus.
-* **Split Transactions**: Application loops never wait for slow physical hardware clocking; they fire non-blocking posted writes (`MemWrite`) or await tagged completions (`CplD`).
+AbstractX brings this exact model to heterogeneous SoCs, dual-core microcontrollers, and FPGAs:
+* **Dedicated I/O Offload & Auto-DMA**: A dedicated I/O accelerator per platform—the XuanTie E906 RISC-V core on the Allwinner T527, Core 0 + PIO on the RP2350, an HP core + GDMA on the ESP32-P4, or the **pio2** Programmable I/O tile in an FPGA—owns SPI, I2C, UART, DShot, and PWM. Every transfer is started by hardware triggers (sensor `DRDY` edge, hardware timer) and clocked by autonomous DMA (`IoEngine` auto-channels / PIO DMA) with zero CPU polling.
+* **FPGA Offloading via 100% PIO (`pio2`)**: On FPGA targets (`[SPEC-ZYNQ-07]`), instead of maintaining a sprawl of fixed-function peripheral IP cores, the I/O accelerator is the **pio2** tile running RP2040/RP2350 PIO state-machine programs (SPI sensors, bidirectional DShot, high-speed UART, PWM decode, NeoPixel) backed by its own DMA engine writing directly into shared rings.
+* **The Data Plane (64-Byte TLPs & Zero-Copy Rings)**: Standardized 64-byte TLPs and zero-copy CTF 1.8 streams flow across lock-free rings (in shared SRAM over RPMsg, UIO DDR rings, SIO FIFOs, or Dual-SPI/AXI-Stream fabrics).
+* **Split Transactions & Virtual BARs**: Where a host or peer core bridges control transactions through `IoEngine`, requests are non-blocking posted writes (`MemWrite`) or tagged split-transaction completions (`CplD`) decoded against a virtual BAR address map.
 
 ---
 
@@ -44,8 +44,8 @@ AbstractX brings this exact data-center computing model to microcontrollers, cop
 Traditional embedded architectures often rely on a Real-Time Operating System (RTOS) and spawn separate threads for every sensor and I/O bus. While an RTOS is a powerful, proven tool, the "thread-per-bus" approach inherently requires dedicating 2–4 KB of SRAM per task and consumes hundreds of clock cycles for every OS context switch.
 
 AbstractX achieves extreme concurrency differently by introducing the **Coroutine-Native HAL**. Inspired by high-performance server paradigms (like Boost.Asio or epoll), it brings event-driven deterministic scheduling to bare-metal. By replacing OS threads with C++20 compiler-generated state machines, AbstractX achieves two fundamental hardware goals:
-1. **Limit Memory Usage**: A suspended coroutine frame consumes less than 120 bytes of static memory (in `.bss`), running the entire system on a single shared 2 KB stack. It enforces **0 bytes of dynamic heap allocation**.
-2. **Maximize Processor Speed**: By removing OS preemption, a context switch becomes an indirect call from the dispatcher (a full yield round trip through the event loop measured 9.80 µs on the bare-metal E906; the bare call alone is not measured). Because the CPU never spins in blocking `while(busy)` loops, 100% of the processor's clock cycles are dedicated to useful work (like AHRS matrix math), extracting maximum theoretical throughput from the silicon.
+1. **Limit Memory Usage**: A suspended coroutine frame consumes less than 120 bytes of static memory (in `.bss`), running all coroutines on the single startup stack (8 KB on the E906). It enforces **0 bytes of dynamic heap allocation** in AbstractX code.
+2. **Maximize Processor Speed**: By removing OS preemption, a context switch becomes an indirect call from the dispatcher (a full yield round trip through the event loop measured **10.20 µs / 2,040 cycles** on the E906 at 200 MHz; the bare call alone is not measured). Because the CPU never spins in blocking `while(busy)` loops, 100% of the processor's clock cycles are dedicated to useful work (like AHRS matrix math), extracting maximum throughput from the silicon.
 
 ---
 
@@ -80,11 +80,11 @@ In contrast, the AbstractX **64-byte TLP (Transaction Layer Packet)** is a **uni
 
 ---
 
-## 5. Asymmetric Multiprocessing (AMP) & The I/O Switch Architecture
+## 5. Asymmetric Multiprocessing (AMP), Auto-DMA Offloading & The I/O Switch Architecture
 
-For extreme performance, AbstractX completely decouples application math (AHRS / Flight Control) from hardware peripheral manipulation using **Asymmetric Multiprocessing (AMP)** communicating over lock-free **SPSC Rings** and **64-byte TLPs**:
-* **The App Processor (Core 1 / Linux)**: Runs linear high-speed estimation and flight control algorithms. When it needs to interact with hardware (e.g. transmit an ESC serial command, read a sensor register, or toggle an LED), it constructs a 64-byte TLP and pushes it into the ring.
-* **The I/O Processor (Core 0 / RISC-V / FPGA)**: Acts as the **Bus Switch / Master**. It consumes TLPs from the ring, decodes the target endpoint from the virtual BAR map or channel ID, and routes the transaction directly onto the destination IP core (UART, SPI DMA, GPIO). If a read is requested, it routes a completion TLP (`CplD`) back to the App Processor.
+AbstractX takes Linux and general-purpose application cores off the physical sensor buses (`[SPEC-ARCH-14]`):
+* **The I/O Accelerator (XuanTie E906 / RP2350 Core 0 / FPGA `pio2`)**: Owns the physical buses (SPI, I2C, UART, DShot, PWM) and runs **Auto-DMA** (`IoEngine` auto-channels or FPGA PIO DMA). Hardware triggers (such as an IMU's `DRDY` rising edge) kick off DMA bursts directly (~5.9 µs from `DRDY` edge to SPI1 DMA start on the E906), and the fast estimation loop runs where the samples land.
+* **The Application / Host Processor (Linux on Cortex-A55 / Core 1)**: Receives fused state, batched sensor streams, and CTF 1.8 telemetry over shared-memory rings (VirtIO RPMsg, UIO DDR rings, or SIO FIFOs). When the host needs to configure an auto-DMA channel or bridge a control transfer, it pushes a 64-byte TLP into the egress ring (`IoEngine` decodes `DMA_CFG`, SPI/I2C/GPIO bridge, and virtual BAR requests and returns a tagged completion `CplD`).
 
 ![AMP I/O switch: the application processor pushes 64-byte TLPs into a lock-free SPSC ring; the I/O processor (E906 / asp_router.sv) decodes channel and BAR address and routes to the UART/ESC, SPI/DMA and GPIO/LED IP](assets/abstractx-io-switch.svg)
 
@@ -440,15 +440,13 @@ On the Allwinner T527 heterogeneous architecture (quad Cortex-A55 Linux + XuanTi
 
 ---
 
-## 13. FPGA Switch Fabric, PIO & 64-Byte TLP Integration
+## 13. FPGA Offloading: 100% PIO (`pio2`), Auto-DMA & 64-Byte TLP Integration
 
-In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burning CPU cycles executing software driver routines, autonomous synthesizable SystemVerilog cores act as pure hardware drivers on Wishbone / AXI-Stream buses:
-* **[`rtl/asp_top.sv`](rtl/asp_top.sv)**: Top-level switch fabric wrapper interconnecting Wishbone / AXI-Stream buses.
-* **[`rtl/asp_router.sv`](rtl/asp_router.sv)**: Full-crossbar AXI-Stream router switching packets based on 64B TLP channel tags.
-* **[`rtl/pio/src/rtl/asp_pio_tile.sv`](rtl/pio/src/rtl/asp_pio_tile.sv) (pio2 submodule)**: **Autonomous Programmable I/O Tile** with 4 concurrent state machines running RP2040/RP2350 ISA microcode. Delivers **0.0% CPU overhead** for 8 kHz IMU sampling with single-cycle 512-bit TLP auto-DMA, saving **~45% FPGA logic** (~940 LUTs / ~700 FFs vs separate hardwired cores).
-* **[`rtl/imu/asp_imu_auto_dma.sv`](rtl/imu/asp_imu_auto_dma.sv)**: Dedicated hardware Auto-DMA driver core latching DIO pin triggers (IMU DRDY) and clocking SPI bursts without CPU intervention.
-* **[`rtl/motor/asp_dshot_core.sv`](rtl/motor/asp_dshot_core.sv)**: 4-Channel hardware DShot actuator driver with bidirectional telemetry & PWM generation.
-* **[`rtl/serial/asp_uart_core.sv`](rtl/serial/asp_uart_core.sv)**: High-speed full-duplex UART core for GPS and RC receiver telemetry.
+In AbstractX, **FPGA I/O offloading is 100% PIO (`[SPEC-ZYNQ-07]`)**. Rather than burning CPU cycles executing software driver routines or maintaining a separate fixed-function RTL core for every peripheral protocol, FPGA targets use the **[`rtl/pio`](rtl/pio) (`pio2` submodule)** Programmable I/O tile backed by autonomous DMA:
+* **[`rtl/pio/src/rtl/asp_pio_tile.sv`](rtl/pio/src/rtl/asp_pio_tile.sv) (`pio2` submodule)**: **Autonomous Programmable I/O Tile** with 4 concurrent state machines running RP2040/RP2350 PIO microcode, its own AXI4-Lite register interface (bridged via [`rtl/asp_pio_wrap.sv`](rtl/asp_pio_wrap.sv), `[SPEC-TLP-05]`), DMA engine, rings, and trace. Every FPGA peripheral—SPI IMU auto-read, bidirectional DShot, ESC serial passthrough, high-speed UART, RC PWM decoding, and NeoPixel—runs as a PIO program with DMA.
+* **Zero Custom Kernel Drivers on Zynq (`[SPEC-ZYNQ-07]`)**: On Zynq-7000, the Cortex-A9 reaches `pio2` through `generic-uio` only: control registers over AXI GP0, streaming data in DDR rings written by `pio2`'s own DMA over HP0, and a single interrupt.
+* **[`rtl/asp_top.sv`](rtl/asp_top.sv) & [`rtl/asp_router.sv`](rtl/asp_router.sv)**: Switch fabric wrapper and full-crossbar AXI-Stream router switching 64B TLP packets by channel tag.
+* **Legacy Fixed-Function Cores (Being Retired)**: Earlier standalone cores ([`rtl/imu/asp_imu_auto_dma.sv`](rtl/imu/asp_imu_auto_dma.sv), [`rtl/motor/asp_dshot_core.sv`](rtl/motor/asp_dshot_core.sv), [`rtl/serial/asp_uart_core.sv`](rtl/serial/asp_uart_core.sv)) remain in the current top-level wrappers only until the corresponding `pio2` programs replace them (`TODO.md`).
 
 ```text
 0                   1                   2                   3
@@ -485,8 +483,8 @@ The telemetry format is completely self-describing via [`trace/barectf_config.ya
 * Physical engineering units (`deg`, `m`, `m/s`, `g`, `deg/s`, `us`)
 * UI widget bindings (`artificial_horizon`, `altimeter`, `compass`, `oscilloscope`, `throttle_bar`)
 
-### AbstractX Studio Observability Framework
-Implemented in Python using `imgui-bundle` (`Dear ImGui` + `ImPlot` + GLFW/OpenGL):
+### AbstractX Studio Observability Framework (`Python + imgui-bundle`)
+Implemented on the host PC in Python ([`tools/visualizer/abstractx_studio.py`](tools/visualizer/abstractx_studio.py)) using `imgui-bundle` (`Dear ImGui` + `ImPlot` + `HelloImGui` / GLFW/OpenGL), while **MicroPython** runs on the **XuanTie E906 / E902** RISC-V coprocessor (`apps/e906_repl_app/`) for hardware offloading, interactive experiments, and quick peripheral investigation:
 * **Platform Topology**: Live graph of discovered processor cores, hardware coprocessors, clock frequencies, and lock-free queue saturation.
 * **Dual-Plane Execution Timeline**: Correlating hardware driver latency (Plane 1) against cooperative coroutine tasks (Plane 2), with interactive one-click jumping to exact C++ source locations (`__FILE__` : `__LINE__`).
 * **Multi-Core Utilization**: Real-time breakdown of CPU/SPU cores, host process load, and mailbox doorbell latency.

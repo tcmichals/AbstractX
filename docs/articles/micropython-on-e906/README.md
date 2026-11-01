@@ -455,7 +455,7 @@ To eliminate this blindness, AbstractX includes **AbstractX Studio** ([`tools/vi
 
 ### 7.1 What is AbstractX Studio?
 
-AbstractX Studio is a native desktop application written in modern C++20 using **Dear ImGui** and **HelloImGui**. It runs on your development PC (Linux, macOS, or Windows) at a silky 60 FPS and connects to the Cubie A5E over a standard SSH connection or network socket.
+AbstractX Studio is a native desktop application written in Python ([`tools/visualizer/abstractx_studio.py`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/abstractx_studio.py)) powered by **`imgui-bundle`** (**Dear ImGui**, **ImPlot**, and **HelloImGui** C++ bindings). It runs on your development PC (Linux, macOS, or Windows) at a silky 60 FPS and connects to the Cubie A5E over a standard SSH connection or network socket.
 
 The workbench is **fully customizable**: developers can drag, re-dock, split horizontally or vertically, and stack tabs anywhere on the canvas. With multi-viewport docking enabled by default, any tool can be torn off into its own independent OS window on a second monitor with a 1-click `Pop In` button to re-dock. Crucially, Studio is not a fixed dashboard—it allows developers to **embed their own custom tabs and instruments** directly into the workbench using an open Python plugin architecture.
 

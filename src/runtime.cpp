@@ -192,11 +192,10 @@ __attribute__((weak)) void hal::platform_runtime_stats(stats::PlatformStats& out
 }
 
 // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
-void status_service() noexcept {
+void status_service_at(uint64_t now_us) noexcept {
     if (!g_initialized) {
         return;
     }
-    const uint64_t now_us = hal::get_timer_driver().get_time_us();
     events_service(now_us);  // [SPEC-TRACE-09] [SPEC-TRACE-10]
     const uint32_t period_ms = g_config.trace.status_period_ms;
     if (period_ms == 0 || now_us < g_status_due_us) {
@@ -209,6 +208,13 @@ void status_service() noexcept {
     if (hal::platform_trace_listening()) {  // nobody reads: skip, do not count a discard
         emit_status(now_us);
     }
+}
+
+void status_service() noexcept {
+    if (!g_initialized) {
+        return;
+    }
+    status_service_at(hal::get_timer_driver().get_time_us());
 }
 
 uint64_t status_deadline_us() noexcept {
@@ -315,12 +321,11 @@ void step() noexcept {
     // 3. Service background network stack
     hal::platform_poll_network();
 
-    // 4. Flush trace buffer if required
-    trace::g_tracer.flush(hal::get_timer_driver().get_time_us());
-
-    // 4b. Runtime status report when due ([SPEC-TRACE-08])
+    // 4. Flush trace buffer and service runtime status using one timer read ([SPEC-TRACE-08])
+    const uint64_t now_us = hal::get_timer_driver().get_time_us();
+    trace::g_tracer.flush(now_us);
     stats::count_step();
-    status_service();
+    status_service_at(now_us);
 
     // 5. Clean up finished tasks from the active pool
     for (auto it = g_tasks.begin(); it != g_tasks.end();) {

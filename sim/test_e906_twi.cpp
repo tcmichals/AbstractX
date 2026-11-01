@@ -68,11 +68,12 @@ constexpr uint32_t kIntEn = 1U << 7, kMSta = 1U << 5, kMStp = 1U << 4, kIntFlg =
                    kAAck = 1U << 2;
 
 alignas(4) uint32_t regs[0x20];
-uint32_t pin_cfg = 0x0000'0077U;  // PB0/PB1 bits set: must survive TWI1 pinmux
+uint32_t pio_bank[8] = {0x0000'0077U, 0, 0, 0, 0xFFFF'FFFFU};  // [0]=PB_CFG0 (PB0/PB1 set), [4]=PB_DAT
+uint32_t& pin_cfg = pio_bank[0];
 
 const ::hal::ports::TwiPort kPort{reinterpret_cast<uintptr_t>(regs), 43,
                                   ::hal::Ccu::BusModule::Twi1,
-                                  {reinterpret_cast<uintptr_t>(&pin_cfg), 0xFFU << 16, 0x22U << 16},
+                                  {reinterpret_cast<uintptr_t>(&pio_bank[0]), 0xFFU << 16, 0x22U << 16},
                                   "twi-test"};
 E906I2c dut{kPort};
 

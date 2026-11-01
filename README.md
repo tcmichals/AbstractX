@@ -49,8 +49,8 @@ ESP32-P4 back end and the pio2 Zynq / Tang paths are specified, not built (`TODO
 Traditional embedded systems force an undesirable trade-off: allocate **20+ KB of preemptive RTOS thread stacks and mutexes**, or write **unreadable callback state machines with volatile flags**.
 
 AbstractX replaces both approaches with a unified event-driven coroutine architecture:
-* **Stackless C++20 coroutines** instead of thread stacks: a full yield round trip through the event loop measured **9.80 µs (1,961 cycles)** on the E906 at 200 MHz with AbstractX alone, no RTOS (Part 4).
-* **0 Bytes dynamic heap (`0 B`)** on a single shared 2 KB stack.
+* **Stackless C++20 coroutines** instead of thread stacks: a full yield round trip through the event loop measured **10.20 µs (2,040 cycles)** on the E906 at 200 MHz with AbstractX alone, no RTOS (Part 4).
+* **0 Bytes dynamic heap (`0 B`)** on a single shared startup stack (8 KB on the E906).
 * **Parallel in-flight sensor ingestion** (8 kHz IMU, 100 Hz Mag, 10 Hz GPS) without locks or spinloops.
 * **Bare-metal MicroPython with native DMA** for interactive hardware REPL and rapid bring-up on coprocessors.
 * **FPGA I/O that is 100% PIO** (pio2): bus work runs in PIO programs with DMA, not on a CPU.
@@ -65,11 +65,11 @@ AbstractX replaces both approaches with a unified event-driven coroutine archite
 
 ```mermaid
 flowchart LR
-    A["<b>1. FAST C++20 COROS</b><br/>• 9.8 µs yield round trip (E906)<br/>• 0 Bytes heap (0 B)<br/>• 2 KB shared stack<br/>• Zero RTOS jitter"]
+    A["<b>1. FAST C++20 COROS</b><br/>• 10.2 µs yield round trip (E906)<br/>• 0 Bytes heap (0 B)<br/>• 1 shared stack<br/>• Zero RTOS jitter"]
     B["<b>2. PARALLEL SENSORS</b><br/>• 8 kHz IMU + Mag + GPS<br/>• co_await when_all<br/>• Primary-Paced channels<br/>• Zero locks or spinloops"]
-    C["<b>3. BARE-METAL MICROPYTHON</b><br/>• XuanTie E906 / RP2350<br/>• Quarantined SRAM heap<br/>• Direct DMA burst bindings<br/>• Python-to-C++ AI skill"]
+    C["<b>3. BARE-METAL MICROPYTHON</b><br/>• XuanTie E906 / E902<br/>• Offloading & quick experiments<br/>• Quarantined SRAM heap + DMA<br/>• Python-to-C++ AI skill"]
     D["<b>4. PIO & SYSTEMVERILOG</b><br/>• FPGA PIO tile (RP2040 ISA)<br/>• PIO programs + DMA<br/>• AXI-Stream crossbar router<br/>• 64B hardware framing"]
-    E["<b>5. STUDIO WORKBENCH</b><br/>• Sub-µs timing breakdown<br/>• Test with / without silicon<br/>• Interactive source jump<br/>• CTF 1.8 120 FPS trace"]
+    E["<b>5. STUDIO WORKBENCH</b><br/>• Python + imgui-bundle<br/>• Sub-µs timing breakdown<br/>• Interactive source jump<br/>• CTF 1.8 120 FPS trace"]
 
     A <--> B <--> C <--> D <--> E
     classDef col fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#ffffff;
@@ -126,11 +126,11 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 
 ---
 
-### 3. 🐍 Bare-Metal MicroPython with Native DMA for Rapid Prototyping
-* **Experiment First, Compile Later**: Bring up new sensor ICs, inspect registers, and test filtering math in MicroPython before committing to C++.
-* **Bare-Metal Silicon REPL**: Run interactive MicroPython directly on coprocessors like the **XuanTie E906 RISC-V** (Radxa Cubie A5E) and **RP2350** (Pico 2 W).
-* **Quarantined SRAM Heaps**: MicroPython runs inside an isolated, strictly bounded SRAM partition—it can never corrupt or fragment the deterministic C++20 real-time flight loops.
-* **Direct Native DMA Bindings**: Python scripts trigger hardware DMA burst transfers directly over shared memory rings.
+### 3. 🐍 Bare-Metal MicroPython on XuanTie E906 / E902 for Offloading & Quick Investigation
+* **Experiment First, Compile Later**: Bring up new sensor ICs, inspect registers, and run quick hardware investigations in MicroPython on the coprocessor before committing to C++.
+* **Bare-Metal Coprocessor REPL**: Runs interactive MicroPython directly on the **XuanTie E906 / E902 RISC-V** coprocessors (Allwinner T527 / A733) alongside the AbstractX event loop and interrupt-driven drivers.
+* **Quarantined SRAM Heap**: MicroPython runs inside an isolated, strictly bounded SRAM partition (e.g. the 128 KB HiFi4 DSP SRAM on the T527)—it can never corrupt or fragment the deterministic C++20 real-time loops.
+* **Direct Native DMA & Auto-DMA Bindings**: Python scripts arm DRDY auto-DMA channels and circular UART DMA rings directly over shared memory.
 * **Autonomous Python-to-C++ AI Skill**: Once your algorithm is proven in Python, the `.agents/skills/micropython-to-cpp/` skill autonomously synthesizes it into deterministic, freestanding C++20 coroutines.
 
 ---
