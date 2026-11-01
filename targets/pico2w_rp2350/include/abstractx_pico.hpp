@@ -130,6 +130,13 @@ protected:
         active_req_ = req;
 #ifdef PICO_ON_DEVICE
         alarm_id_ = add_alarm_in_us(req.duration_us, alarm_callback_wrapper, this, true);
+        if (alarm_id_ < 0) {
+            TimerResult result{};
+            result.status = TimerStatus::Error;
+            result.timestamp_us = get_time_us();
+            push_completion_from_isr(req, result);
+            set_hardware_idle_from_isr();
+        }
 #else
         TimerResult result{};
         result.status = TimerStatus::Ok;

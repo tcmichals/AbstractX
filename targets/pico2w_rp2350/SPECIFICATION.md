@@ -266,7 +266,12 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   timer alarm callback complete the finished request with `push_completion_from_isr(active_req_,
   result)` and then call `set_hardware_idle_from_isr()` **only**. That call already pops and starts
   the next queued request; popping and starting another one afterwards overwrites `active_req_`
-  and loses a completion.
+  and loses a completion. If `add_alarm_in_us` returns `< 0` (no hardware alarm available),
+  `PicoTimer::start_hardware_transfer_from_isr` completes immediately with `TimerStatus::Error`
+  and calls `set_hardware_idle_from_isr()`. `PicoIoBackend` submits both SPI and I2C transfers
+  asynchronously through `PicoSpi::submit_request` and ` get_pico_i2c().submit_request`, and
+  `PicoUart::write_byte` guards its FIFO-or-queue decision with `InterruptGuard` so `UART0_IRQ`
+  cannot reorder bytes.
 * **Requirement (SPI mode)**: `PicoSpi::init` programs CPOL/CPHA from `SpiConfig::mode`
   (Mode0 = CPOL0/CPHA0 ... Mode3 = CPOL1/CPHA1) with `spi_set_format`. The RP2350 PL022 only
   shifts MSB first (Pico SDK `spi_set_format` asserts `SPI_MSB_FIRST`), so `lsb_first = true` is

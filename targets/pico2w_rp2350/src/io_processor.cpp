@@ -54,14 +54,14 @@ public:
         } else if (ch.bus_type == hal::BusType::I2c) {
             hal::I2cConfig cfg{};
             cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 400'000;
-            i2c_.init(cfg);
+            hal::get_pico_i2c().init(cfg);
             i2c_ready_ = true;
         }
         return true;
     }
 
-    // SPI: queued on the PicoSpi DMA driver, completed from the DMA ISR. I2C: PicoI2c only has
-    // blocking calls, so it completes before returning ([SPEC-ARCH-13] 5).
+    // SPI: queued on the PicoSpi DMA driver, completed from the DMA ISR.
+    // I2C: queued on get_pico_i2c(), completed from I2C0_IRQ ([SPEC-PICO-HAL-01]).
     bool start_transfer(const hal::IoTransfer& x) noexcept override {
         if (x.bus == hal::BusType::Spi) {
             if (!spi_ready_) {
@@ -88,17 +88,23 @@ public:
             if (!i2c_ready_) {
                 hal::I2cConfig cfg{};
                 cfg.frequency_hz = 400'000;
-                i2c_.init(cfg);
+                hal::get_pico_i2c().init(cfg);
                 i2c_ready_ = true;
             }
-            bool ok = true;
-            if (!x.tx.empty() && !x.rx.empty()) ok = i2c_.write_read_sync(x.device, x.tx, x.rx);
-            else if (!x.rx.empty())             ok = i2c_.read_sync(x.device, x.rx);
-            else if (!x.tx.empty())             ok = i2c_.write_sync(x.device, x.tx);
-            hal::IoResult r{};
-            r.ok = ok;
-            r.transferred = ok ? x.rx.size() : 0;
-            x.done(r);
+            Job* j = alloc_job();
+            if (!j) return false;
+            j->done = x.done;
+            hal::I2cRequest req{};
+            req.slave_addr = x.device;
+            req.tx_data = x.tx;
+            req.rx_data = x.rx;
+            req.is_read = !x.rx.empty();
+            req.repeated_start = !x.tx.empty() && !x.rx.empty();
+            req.callback = etl::delegate<void(const hal::I2cResult&)>::create<Job, &Job::i2c_done>(*j);
+            if (!hal::get_pico_i2c().submit_request(req)) {
+                j->in_use.store(false, std::memory_order_release);
+                return false;
+            }
             return true;
         }
         return false;
@@ -171,6 +177,18 @@ private:
             out.ok = r.status == hal::SpiStatus::Ok;
             out.transferred = r.transferred_bytes;
             out.timestamp_ns = r.timestamp_us * 1000ULL;
+            finish(out);
+        }
+
+        void i2c_done(const hal::I2cResult& r) noexcept {
+            hal::IoResult out{};
+            out.ok = r.status == hal::I2cStatus::Ok;
+            out.transferred = r.transferred_bytes;
+            out.timestamp_ns = r.timestamp_us * 1000ULL;
+            finish(out);
+        }
+
+        void finish(const hal::IoResult& out) noexcept {
             auto cb = done;
             in_use.store(false, std::memory_order_release);
             if (cb.is_valid()) cb(out);
@@ -193,7 +211,6 @@ private:
 
     hal::IoEngine* engine_{nullptr};
     hal::PicoSpi spi_{};
-    hal::PicoI2c i2c_{};
     bool spi_ready_{false};
     bool i2c_ready_{false};
     std::array<Job, hal::IoEngine::kMaxChannels + hal::IoEngine::kBridgeSlots> jobs_{};

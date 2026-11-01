@@ -65,8 +65,10 @@ void PicoUart::init(uint32_t baudrate) {
 #endif
 }
 
+// @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
 void PicoUart::write_byte(uint8_t ch) {
 #ifdef PICO_ON_DEVICE
+    InterruptGuard lock;
     // If TX queue is empty and hardware FIFO is writable, write directly
     if (tx_queue_.empty() && uart_is_writable(uart0)) {
         uart_putc_raw(uart0, ch);
