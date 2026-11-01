@@ -10,8 +10,12 @@
 
 #if __has_include(<gpiod.h>)
 #include <gpiod.h>
-#define ABSTRACTX_HAVE_LIBGPIOD 1
-#else
+#if defined(GPIOD_LINE_DIRECTION_INPUT)
+#define ABSTRACTX_HAS_LIBGPIOD_V2 1
+#endif
+#endif
+
+#if !(defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2)
 struct gpiod_chip;
 struct gpiod_line_request;
 struct gpiod_edge_event_buffer;
@@ -40,7 +44,7 @@ public:
         close();
         line_offset_ = line_offset;
 
-#ifdef ABSTRACTX_HAVE_LIBGPIOD
+#if defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2
         if (!chip_path || chip_path[0] == '\0') {
             chip_path = "/dev/gpiochip0";
         }
@@ -103,7 +107,7 @@ public:
     }
 
     void close() noexcept {
-#ifdef ABSTRACTX_HAVE_LIBGPIOD
+#if defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2
         if (event_buf_) {
             ::gpiod_edge_event_buffer_free(event_buf_);
             event_buf_ = nullptr;
@@ -120,7 +124,7 @@ public:
     }
 
     int get_fd() const noexcept {
-#ifdef ABSTRACTX_HAVE_LIBGPIOD
+#if defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2
         if (request_) {
             return ::gpiod_line_request_get_fd(request_);
         }
@@ -134,7 +138,7 @@ public:
 
     template <typename Callback>
     int process_events(Callback&& cb) noexcept {
-#ifdef ABSTRACTX_HAVE_LIBGPIOD
+#if defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2
         if (request_ && event_buf_) {
             int count = ::gpiod_line_request_read_edge_events(request_, event_buf_, 16);
             if (count > 0) {

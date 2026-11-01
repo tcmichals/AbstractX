@@ -3453,3 +3453,28 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
      - Added the Linux C++20 Coroutine sensor & Studio bridge `apps/gps_imu_app/platforms/linux/e906_rpmsg_studio_bridge.cpp` (`e906_rpmsg_studio_bridge`, using `CoroutineIoEngine` over RPMsg endpoint 1024 `abstractx-tlp`) running `compass_coro_task`, `imu_coro_task` (selectable PI8 DRDY Auto-DMA or polled SPI TLP calls), and `gps_coro_task` on Linux, performing all sensor conversion/NMEA/attitude math on Linux, and emitting the same Tag 1 IMU (`0x40001000`), Tag 2 GPS (`0x40005000`), Tag 3 Compass (`0x40003000`), and Tag 5 Attitude (`0x40000100`) 64-byte TLPs to AbstractX Studio (`tools/visualizer/flight_plugin.py`).
      - Added `build_auto_dma_cfg_tlp()`, `send_auto_dma_control()`, and toolbar buttons (`⚡ Auto-DMA (PI8 DRDY): ON / OFF`, `⚙ Setup DRDY (PI8 -> SPI1)`, and `Runtime: C++20 E906 / MicroPython Streamer`) in `tools/visualizer/flight_plugin.py`, plus `set_auto_dma()` / `setup_drdy()` in `apps/e906_repl_app/raw_sensor_streamer.py`.
 * **Checks**: added unit tests in `sim/test_bus_protocols.cpp` (`sizeof(SpiRequest)` / `sizeof(I2cRequest)` bound check), `sim/test_coroutine_io_engine.cpp` (`MpscRingAndBatchStreamAwaiter`), `sim/test_coro_combinators.cpp` (`WithTimeoutTaskWins` / `WithTimeoutTimerFires`), and `apps/e906_repl_app/tests/unit/test_board_suite_local.py` (`test_imu_bytes_decode_on_the_host`).
+
+---
+
+### 2026-11-01: Pure C++20 E906 Generic I/O Coprocessor, Python Asyncio RPMsg Test Suite & Board Sweep
+* **Architectural Invariant Addressed**:
+  - The old MicroPython REPL tests (`test_e906_irq.py`) relied on blocking `abstractx.sleep_ms()` calls because the single-threaded MicroPython interpreter lacked event-driven coroutine bindings, freezing CPU execution while waiting for UART DMA buffers and violating AbstractX's non-blocking coroutine architecture.
+  - Furthermore, MicroPython REPL tests bypassed the pure C++20 `IoEngine` + `E906IoBackend` loop entirely by calling direct Hal C-bindings.
+* **Work Accomplished (`[SPEC-ARCH-13]`, `[SPEC-ARCH-14]`, `[SPEC-APP-11]`)**:
+  1. **Python Async RPMsg Driver (`AsyncRpmsgLink`)**:
+     - Built `tests/board/test_e906_coprocessor_async.py` using native Python `asyncio`.
+     - Zero blocking sleeps: registers `/dev/rpmsg0` into the event loop via `loop.add_reader(self.fd, self._on_readable)`.
+     - Tag Multiplexing: Correlates outgoing 64-byte TLP requests to incoming completions using `asyncio.Future` mapped by 8-bit transaction tags.
+     - Stream Subscriptions: Dispatches autonomous Auto-DMA samples (Channel 2 Telemetry / Tag 1) into asynchronous queues (`asyncio.Queue`) reactively.
+     - Supports both unified shared RPMsg session (`async with AsyncRpmsgLink() as link:`) and pytest per-function execution.
+  2. **Protocol Alignment (`ASP_TLP_TYPE_DMA_CFG`)**:
+     - Corrected `flight_plugin.py` and documentation where `ASP_TLP_TYPE_DMA_CFG` was erroneously referenced as `0x31` instead of `0x11` matching `include/asp_tlp64.h`.
+     - Aligned Auto-DMA command opcodes (`ASP_DMA_CMD_SETUP = 0x01`, `ASP_DMA_CMD_ENABLE = 0x02`, `ASP_DMA_CMD_DISABLE = 0x03`).
+  3. **Hardware Sensor Sweep on Physical Radxa Cubie A5E (`192.168.1.13`)**:
+     - **SPI1 DMA**: Queried ICM-42688-P `WHO_AM_I` register (`0xF5`) on CS0 -> returned `0x47`. **PASS**.
+     - **TWI1 (I2C)**: Read HMC5883L identification registers `0x0A..0x0C` at slave `0x1E` -> returned `b"H43"`. **PASS**.
+     - **UART3 DMA**: Configured baud to 9600, read u-blox NEO-M8N stream, validated complete NMEA sentences (`$GPGSV`, `$GPGGA`) with verified XOR checksums. **PASS**.
+     - **Auto-DMA Stream**: Armed PI8 DRDY interrupt (pin 264) triggering autonomous SPI1 DMA reads; gathered 25 consecutive samples directly from `asyncio.Queue` at 1009 Hz (~1000 µs interval) with strictly monotonic nanosecond timestamps. **PASS**.
+     - Standalone & batch runs via `python3 run_board_tests.py -k coprocessor` passed 4/4 in 0.1s.
+  4. **Documentation**:
+     - Documented split-core AMP architecture, C++20 coroutine bridge, and Python asyncio test runner in `apps/gps_imu_app/README.md` and `docs/DESIGN_SPECIFICATION.md`.

@@ -102,17 +102,17 @@ def set_bridge_runtime_mode(mode: str) -> None:
     global g_bridge_runtime_mode
     g_bridge_runtime_mode = mode
 
-# ASP_TLP_TYPE_DMA_CFG (0x31) constants matching include/abstractx/hal/tlp_AutoDmaConfig.h
-ASP_TLP_TYPE_DMA_CFG = 0x31
-ASP_DMA_CMD_DISABLE  = 0
-ASP_DMA_CMD_ENABLE   = 1
-ASP_DMA_CMD_SETUP    = 2
+# ASP_TLP_TYPE_DMA_CFG (0x11) constants matching include/asp_tlp64.h
+ASP_TLP_TYPE_DMA_CFG = 0x11
+ASP_DMA_CMD_SETUP    = 0x01
+ASP_DMA_CMD_ENABLE   = 0x02
+ASP_DMA_CMD_DISABLE  = 0x03
 
 
 def build_auto_dma_cfg_tlp(
     cmd: int,
     channel_id: int = 0,
-    trigger_pin: int = 264,  # PI8 on Allwinner A527/T527 E906
+    trigger_pin: int = 264,  # PI8 on Allwinner A527/T527 E906 (modulo 256 for 8-bit wire field)
     rising_edge: bool = True,
     bus_type: int = 0,       # 0 = SPI, 1 = I2C
     bus_id: int = 1,         # SPI1
@@ -124,8 +124,8 @@ def build_auto_dma_cfg_tlp(
     seq: int = 1,
 ) -> bytes:
     """
-    Constructs a 64-byte ASP_TLP_TYPE_DMA_CFG (0x31) TLP matching asp_tlp_auto_dma_cfg_t
-    in include/abstractx/hal/tlp_AutoDmaConfig.h for dynamic DRDY Auto-DMA configuration.
+    Constructs a 64-byte ASP_TLP_TYPE_DMA_CFG (0x11) TLP matching asp_tlp_auto_dma_cfg_t
+    in include/asp_tlp64.h for dynamic DRDY Auto-DMA configuration.
     """
     hdr = struct.pack(
         "<BBBBIHHQ",
@@ -138,24 +138,24 @@ def build_auto_dma_cfg_tlp(
         seq & 0xFFFF,
         int(time.time() * 1e9) & 0xFFFFFFFFFFFFFFFF,
     )
-    tx_padded = (tx_cmd[:4]).ljust(4, b"\x00")
+    tx_padded = (tx_cmd[:8]).ljust(8, b"\x00")
+    edge = 1 if rising_edge else 2
     cfg_payload = struct.pack(
-        "<BBHBBBB4sBBBB",
+        "<BBBBBBBB8sBB",
         cmd & 0xFF,
         channel_id & 0xFF,
-        trigger_pin & 0xFFFF,
-        1 if rising_edge else 0,
+        trigger_pin & 0xFF,
+        edge,
         bus_type & 0xFF,
         bus_id & 0xFF,
-        cs_or_addr & 0xFF,
-        tx_padded,
-        len(tx_cmd[:4]) & 0xFF,
+        len(tx_cmd) & 0xFF,
         rx_len & 0xFF,
+        tx_padded,
         tlp_channel & 0xFF,
         tlp_tag & 0xFF,
     )
     pad = b"\x00" * (40 - len(cfg_payload))
-    return hdr + cfg_payload + pad + struct.pack("<I", 0xDEADBEEF)
+    return hdr + cfg_payload + pad + struct.pack("<I", 0xEFBEADDE)
 
 
 def send_auto_dma_control(
@@ -167,7 +167,7 @@ def send_auto_dma_control(
 ) -> bool:
     """
     Sends Auto-DMA (PI8 DRDY -> DMA -> SPI1 -> TLP ring) configuration to BOTH:
-      1. C++20 E906 firmware / RPMsg bridge via 64-byte ASP_TLP_TYPE_DMA_CFG (0x31) UDP datagrams on :9872
+      1. C++20 E906 firmware / RPMsg bridge via 64-byte ASP_TLP_TYPE_DMA_CFG (0x11) UDP datagrams on :9872
       2. MicroPython E906 raw_sensor_streamer via CLI EXEC ('setup_drdy()' / 'set_auto_dma(True/False)')
     """
     ok_udp = False

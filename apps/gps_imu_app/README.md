@@ -219,6 +219,90 @@ The exact same `main.cpp` code compiles and executes across three target silicon
 | **Allwinner Cubie A5E (Pure Silicon)** | **Quad AArch64 @ 1.4 GHz + E906**<br/>• A55: PREEMPT_RT Flight Thread<br/>• E906: On-Chip SPI0/TWI/UART DMA | Hardware ARM NEON vector and scalar floating-point engine. | 1 GB – 4 GB LPDDR4.<br/>Filter state + queues = **< 1 KB static SRAM**.<br/>Loop execution: **0.8 µs**. |
 | **Allwinner Cubie A5E + FPGA (X-Fabric)** | **Quad AArch64 @ 1.4 GHz + E906 + FPGA**<br/>• A55: PREEMPT_RT Flight Thread<br/>• FPGA: Hardware Auto-DMA & Router | Hardware ARM NEON FPU + FPGA DSPs. | 1 GB – 4 GB LPDDR4 + FPGA BRAM.<br/>Filter state + queues = **< 1 KB static SRAM**.<br/>Loop execution: **0.4 µs**. |
 
+---
+
+## 5a. Split-Core Heterogeneous Architecture: E906 C++20 I/O Processor & Linux Coroutines
+
+On the **Radxa Cubie A5E**, `gps_imu_app` implements a true split-core asymmetric multiprocessing (AMP) architecture that separates high-speed hardware bus management from flight mathematics and telemetry:
+
+```mermaid
+flowchart TD
+    subgraph SENSORS["Physical Sensors on Board"]
+        HW_IMU["<b>ICM-42688-P 6-Axis IMU</b><br/>SPI1 DMA (10 MHz) + PI8 DRDY Interrupt"]
+        HW_MAG["<b>HMC5883L / QMC5883L Compass</b><br/>TWI1 Fast Mode (400 kHz)"]
+        HW_GPS["<b>u-blox NEO-M8N GPS</b><br/>UART3 DMA (9600 / 115200 Baud)"]
+    end
+
+    subgraph E906["XuanTie E906 RISC-V Coprocessor (e906_coprocessor.elf)"]
+        direction TB
+        subgraph NO_MP["Zero MicroPython • Pure C++20"]
+            IO_ENG["<b>IoEngine + E906IoBackend</b><br/>Sensor-Agnostic Generic I/O Engine"]
+            AUTO_DMA["<b>Hardware Auto-DMA Engine</b><br/>PI8 Rising Edge -> Autonomous SPI1 DMA Read<br/>1 kHz Stream • Zero CPU Intervention"]
+            BRIDGES["<b>TLP Peripheral Bridges</b><br/>• SPI Bridge (0x06)<br/>• I2C Bridge (0x07)<br/>• Serial UART Bridge (0x05)"]
+        end
+    end
+
+    subgraph IPC["Shared SRAM VirtIO RPMsg Ring Buffers"]
+        TLP_EPT["<b>Endpoint 1024 ('abstractx-tlp')</b><br/>64-Byte PCIe-like TLP Request/Completion & Stream Ring"]
+        TRACE_EPT["<b>Endpoint 1025 ('abstractx-trace')</b><br/>CTF 1.8 Nanosecond Timeline Profiler Stream"]
+    end
+
+    subgraph LINUX["ARM Cortex-A55 Linux Host (Quad AArch64 @ 1.4 GHz)"]
+        direction TB
+        subgraph CPP_BRIDGE["e906_rpmsg_studio_bridge (C++20 Coroutine Bridge)"]
+            IMU_CORO["<b>imu_coro_task</b><br/>Auto-DMA Ingest & SI Unit Scaling"]
+            MAG_CORO["<b>mag_coro_task</b><br/>Periodic I2C Polling & Heading"]
+            GPS_CORO["<b>gps_coro_task</b><br/>UART DMA Stream & NMEA Checksums"]
+            AHRS_CORO["<b>attitude_filter_task</b><br/>9-DoF Mahony AHRS Quaternion Math"]
+        end
+
+        subgraph PY_TEST["test_e906_coprocessor_async.py (Python Async Test Suite)"]
+            ASYNC_LINK["<b>AsyncRpmsgLink</b><br/>loop.add_reader(fd) • Futures • Queues<br/><b>Zero Blocking Sleeps</b>"]
+        end
+    end
+
+    subgraph STUDIO["AbstractX Visualizer Studio & UDP Telemetry"]
+        UDP_TELEM["<b>UDP :9870</b>: 64B CTF/TLP Stream (IMU, GPS, Compass, Attitude)"]
+        UDP_CTRL["<b>UDP :9872</b>: Auto-DMA Dynamic Configuration (ASP_TLP_TYPE_DMA_CFG = 0x11)"]
+    end
+
+    SENSORS <--> E906
+    E906 <--> IPC
+    IPC <--> LINUX
+    CPP_BRIDGE --> UDP_TELEM
+    STUDIO -->|Control Datagrams| CPP_BRIDGE
+```
+
+### 1. Pure C++20 E906 Generic I/O Coprocessor (`e906_coprocessor.elf`)
+- **Zero MicroPython in Flight**: Replaces the bulky 3.2 MB MicroPython image with an optimized 1.5 MB pure C++20 binary.
+- **Sensor-Agnostic Design**: The E906 firmware contains **zero sensor drivers** and **zero floating-point math**. It acts strictly as an intelligent I/O processor servicing standard 64-byte TLP requests:
+  - **SPI Bridge (`Channel::SpiBridge = 0x06`)**: Direct DMA transactions on SPI1 (PB11..PB14).
+  - **I2C Bridge (`Channel::I2cBridge = 0x07`)**: Sub-addressed read/write packets on TWI1 (PH0..PH1).
+  - **Serial Bridge (`Channel::EscSerial = 0x05`)**: DMA circular ring RX/TX on UART3 (PB6..PB7).
+  - **Autonomous Auto-DMA (`ASP_TLP_TYPE_DMA_CFG = 0x11`)**: Configures the hardware trigger engine. When armed, silicon interrupts on PI8 (pin 264, ICM-42688-P DRDY) autonomously execute a 14-byte SPI1 DMA burst at 1 kHz ODR, packing the sensor readings into 64-byte Tag 1 Telemetry TLPs with monotonic nanosecond timestamps and streaming them into the RPMsg ring with zero CPU intervention.
+
+### 2. Linux C++20 Coroutine Sensor Bridge (`e906_rpmsg_studio_bridge`)
+- **Location**: [`platforms/linux/e906_rpmsg_studio_bridge.cpp`](file:///home/tcmichals/projects/AbstractX/apps/gps_imu_app/platforms/linux/e906_rpmsg_studio_bridge.cpp)
+- **Role**: Sits between Linux VirtIO RPMsg `/dev/rpmsg0` and network clients (AbstractX Studio and UDP visualization tools).
+- **Coroutine Sensor Ingestion**: Executes parallel, non-blocking coroutines:
+  - Ingests 1 kHz Auto-DMA bursts or dispatches periodic SPI polls.
+  - Converts raw integers to standard SI physical units ($\text{m/s}^2$, $\text{rad/s}$, $\mu\text{T}$).
+  - Accumulates UART3 GPS bytes, validates NMEA checksums, and parses coordinates.
+  - Paces the 9-DoF Mahony AHRS fusion loop and emits Tag 1 (IMU), Tag 2 (GPS), Tag 3 (Compass), and Tag 5 (Attitude Quaternion) TLPs.
+- **Dynamic Control Server**: Listens on UDP `:9872` for `ASP_TLP_TYPE_DMA_CFG` (0x11) packets sent by AbstractX Studio, allowing the user to dynamically toggle between polled bridge mode and autonomous hardware Auto-DMA directly from the GUI.
+
+### 3. Asynchronous Linux Python Test Suite (`test_e906_coprocessor_async.py`)
+- **Location**: [`tests/board/test_e906_coprocessor_async.py`](file:///home/tcmichals/projects/AbstractX/tests/board/test_e906_coprocessor_async.py)
+- **Zero Blocking Sleeps**: Traditional test scripts rely on blocking `time.sleep()` or MicroPython `abstractx.sleep_ms()`, which freeze execution threads and violate AbstractX's non-blocking coroutine architecture. `test_e906_coprocessor_async.py` implements a 100% event-driven test engine using native Python `asyncio`:
+  - `AsyncRpmsgLink`: Registers `/dev/rpmsg0` directly into the asyncio event loop using `loop.add_reader(fd, callback)`.
+  - Tag Multiplexing: Every outgoing TLP allocates an 8-bit transaction tag and associates an `asyncio.Future`. When the E906 completion TLP arrives, the future is resolved reactively with zero polling.
+  - Stream Subscriptions: Telemetry and Auto-DMA streams (Tag 1) are dispatched non-blockingly into `asyncio.Queue` objects.
+- **Hardware Sweep Coverage**:
+  - `test_coprocessor_spi_imu_whoami`: Asserts ICM-42688-P `WHO_AM_I` (`0x47`) over SPI1 DMA.
+  - `test_coprocessor_i2c_compass_id`: Asserts HMC5883L ID string (`b"H43"`) over TWI1.
+  - `test_coprocessor_serial_gps_stream`: Streams u-blox NEO-M8N sentences over UART3 DMA and validates NMEA XOR checksums.
+  - `test_coprocessor_auto_dma_stream`: Arms PI8 DRDY Auto-DMA, gathers 25 consecutive samples from the queue, asserts payload validity, and verifies timestamp monotonicity with a 1 kHz inter-sample interval ($\sim 1.0\text{ ms}$).
+
 ### Platform Deployment & Debugging Guides (`platforms/`)
 
 `gps_imu_app` provides dedicated deployment, build, flashing, and debugging HOWTO guides for each supported platform under [`platforms/`](file:///home/tcmichals/ssdData/projects/home/AbstractX/apps/gps_imu_app/platforms/):

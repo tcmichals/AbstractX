@@ -258,8 +258,19 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   read it, and E906 starting every auto channel on any DRDY edge.
 * **Verified by**: `host-tests` (`sim/test_io_engine.cpp`: mock back end, bounds, overrun, lockout,
   slot pool exhaustion, 1000 rounds flat; `sim/test_io_processor.cpp` on the Linux back end),
+  `board-tests` (`tests/board/test_e906_coprocessor_async.py`: live SPI1 DMA, TWI1, UART3 DMA, and Auto-DMA on Cubie A5E),
   `sanitizer-gate`, `thread-sanitizer`, `e906-build-layout`
 * **Implementation Target**: `include/abstractx/hal/io_engine.hpp`, `targets/*/src/io_processor.cpp`
+
+### `[SPEC-ARCH-14]` Split-Core Generic E906 I/O Coprocessor & Linux Python Async Testing
+* **Goal**: completely decouple hardware bus drivers from sensor protocols on split-core systems, eliminate MicroPython runtime overhead from flight firmware, and enforce 100% non-blocking coroutine testing over VirtIO RPMsg.
+* **Requirement**:
+  1. **Generic Firmware**: On split-core silicon (`Allwinner Cubie A5E`), the XuanTie E906 firmware (`e906_coprocessor.elf`) contains zero sensor-specific drivers (no IMU registers, compass calibration, or GPS parsing) and zero floating-point math. It executes `IoEngine` + `E906IoBackend`, processing 64-byte TLP requests (`SPI_BRIDGE`, `I2C_BRIDGE`, `ESC_SERIAL`, and `DMA_CFG = 0x11`).
+  2. **Zero MicroPython**: MicroPython is eliminated from flight firmware to minimize memory footprint (1.5 MB vs 3.2 MB) and eradicate blocking synchronous REPL delays.
+  3. **Linux C++20 Sensor Bridge**: The Linux A55 host (`e906_rpmsg_studio_bridge`) executes the sensor coroutines over `/dev/rpmsg0` (`abstractx-tlp` 1024), performs engineering-unit conversion and 9-DoF Mahony AHRS math, and provides UDP telemetry on `:9870` and dynamic Auto-DMA control on `:9872`.
+  4. **Python Asyncio Testing Interface**: Host verification (`tests/board/test_e906_coprocessor_async.py`) uses `AsyncRpmsgLink`, integrating `/dev/rpmsg0` directly into Python's native `asyncio` event loop via `loop.add_reader()`. It strictly bans synchronous blocking sleeps (`time.sleep()`, `sleep_ms()`), using reactive `asyncio.Future` tag resolution and `asyncio.Queue` stream delivery.
+* **Verified by**: `board-tests` (`tests/board/test_e906_coprocessor_async.py`), `e906-coprocessor-build`
+* **Implementation Target**: `apps/gps_imu_app/platforms/allwinner_e906/main.cpp`, `apps/gps_imu_app/platforms/linux/e906_rpmsg_studio_bridge.cpp`, `tests/board/test_e906_coprocessor_async.py`
 
 ---
 

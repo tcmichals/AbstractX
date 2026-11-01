@@ -12,7 +12,7 @@
  *       * I2C Bridge   (Channel::I2cBridge = 0x07, TWI1 / TWI0)
  *       * Serial/UART  (Channel::EscSerial = 0x05, UART3 DMA RX/TX)
  *       * GPIO Bridge  (Channel::GpioBridge = 0x08)
- *       * Auto-DMA     (ASP_TLP_TYPE_DMA_CFG = 0x31: programmable GPIO-edge
+ *       * Auto-DMA     (ASP_TLP_TYPE_DMA_CFG = 0x11: programmable GPIO-edge
  *                       or timer-triggered SPI/I2C DMA bursts -> TLP stream 0x10)
  *   - Streams CTF 1.8 runtime status, profiler, and timeline packets over
  *     RPMsg endpoint 1025 ("abstractx-trace").
@@ -47,7 +47,7 @@ abstractx::coro::Task<void> io_egress_task() {
 int main() {
     static abstractx::hal::AutoChannelConfig auto_channels[2]{};
     auto_channels[0].channel_id     = 0;
-    auto_channels[0].auto_mode      = false; // Enabled dynamically by Linux/Studio via ASP_TLP_TYPE_DMA_CFG (0x31)
+    auto_channels[0].auto_mode      = false; // Enabled dynamically by Linux/Studio via ASP_TLP_TYPE_DMA_CFG (0x11)
     auto_channels[0].trigger_mode   = abstractx::hal::TriggerMode::GpioEdge;
     auto_channels[0].trigger_pin    = abstractx::hal::platform_default_imu_drdy_pin();
     auto_channels[0].trigger_rising = true;

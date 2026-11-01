@@ -13,7 +13,7 @@
  *       1. compass_coro_task : I2C bridge TLPs (HMC5883L 0x1E / QMC5883L 0x0D),
  *          decodes X/Y/Z and magnetic heading on Linux -> Tag 3 TLP (0x40003000)
  *       2. imu_coro_task     : SPI bridge TLPs (ICM-42688-P on SPI1) + selectable
- *          Auto-DMA (ASP_TLP_TYPE_DMA_CFG 0x31 on PI8 DRDY pin 264) or standard
+ *          Auto-DMA (ASP_TLP_TYPE_DMA_CFG 0x11 on PI8 DRDY pin 264) or standard
  *          polled SPI TLP calls; decodes accel/gyro/temp/roll/pitch on Linux ->
  *          Tag 1 IMU TLP (0x40001000) & Tag 5 Attitude TLP (0x40000100)
  *       3. gps_coro_task     : Serial bridge TLPs (u-blox NEO-M8N on UART3 @
