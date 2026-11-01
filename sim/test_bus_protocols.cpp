@@ -596,6 +596,18 @@ int main() {
         check2(wire3, std::array<SpiSegment, 1>{SpiSegment::duplex(four, four_in)}, SpiStatus::InvalidArgument);
         check2(wire3, std::array<SpiSegment, 1>{SpiSegment::read(four_in)}, SpiStatus::Ok);
         assert(SpiDevice{}.fill == 0xFF);
+
+        // Single-byte SPI register helpers ([SPEC-HAL-08]):
+        uint8_t spi_reg_val = 0;
+        SpiResult sr_w{}, sr_r{};
+        auto spi_reg_task = [](FakeSpi& b, SpiResult& w_out, SpiResult& r_out, uint8_t& val_out) -> Task<void> {
+            w_out = co_await b.write_reg_async(kSensor, 0x1A, 0x55);
+            r_out = co_await b.read_reg_async(kSensor, 0x1A, val_out);
+        }(bus, sr_w, sr_r, spi_reg_val);
+        spi_reg_task.resume();
+        pump(bus);
+        assert(spi_reg_task.done() && sr_w.status == SpiStatus::Ok && sr_r.status == SpiStatus::Ok);
+        assert(sr_w.transferred_bytes == 2 && sr_r.transferred_bytes == 2);
     }
 
     // ================= [SPEC-HAL-14] bus lock =================
@@ -825,6 +837,28 @@ int main() {
     assert(w.transferred_bytes == 4 && r.transferred_bytes == 2 + 3);   // {12 34 11 22}; {AB CD} + 3
         assert(bus.last_write_n == 2 && bus.last_write[0] == 0xAB && bus.last_write[1] == 0xCD);  // read: reg only
 
+        // Single-byte I2C register helpers, I2cDevice overloads, and probe_async ([SPEC-HAL-09]):
+        const I2cDevice kEepromDev{0x50, 400'000};
+        uint8_t i2c_byte = 0;
+        I2cResult ir_probe{}, ir_w1{}, ir_r1{}, ir_w16{}, ir_r16{};
+        auto i2c_dev_task = [](FakeI2c& b, const I2cDevice& dev, uint8_t& out_b,
+                               I2cResult& p, I2cResult& w1, I2cResult& r1,
+                               I2cResult& w16, I2cResult& r16) -> Task<void> {
+            p   = co_await b.probe_async(dev);
+            w1  = co_await b.write_reg_async(dev, 0x10, 0x77);
+            r1  = co_await b.read_reg_async(dev, 0x10, out_b);
+            const std::array<uint8_t, 2> wbuf{0xAA, 0xBB};
+            std::array<uint8_t, 2> rbuf{};
+            w16 = co_await b.write_regs16_async(dev, 0x0102, wbuf);
+            r16 = co_await b.read_regs16_async(dev, 0x0102, rbuf);
+        }(bus, kEepromDev, i2c_byte, ir_probe, ir_w1, ir_r1, ir_w16, ir_r16);
+        i2c_dev_task.resume();
+        pump(bus);
+        assert(i2c_dev_task.done());
+        assert(ir_probe.status == I2cStatus::Ok && ir_probe.msgs_done == 1);
+        assert(ir_w1.status == I2cStatus::Ok && ir_r1.status == I2cStatus::Ok && i2c_byte == 0x40);
+        assert(ir_w16.status == I2cStatus::Ok && ir_r16.status == I2cStatus::Ok && bus.last_hz == 400'000);
+
         // PEC: CRC-8/SMBUS check value of "123456789" is 0xF4.
         const std::array<uint8_t, 9> check{'1', '2', '3', '4', '5', '6', '7', '8', '9'};
         static_assert(smbus_pec(0, std::span<const uint8_t>()) == 0);
@@ -888,6 +922,18 @@ int main() {
         assert(q.done() && b.status == UartStatus::Ok && u.log_n == 3);
         assert(u.log[0] == 2 && u.log[1] == (0x80000000U | 100U) && u.log[2] == 1);   // in order
 
+        // UART write_async(std::string_view) ([SPEC-HAL-10]):
+        UartResult sv_res{};
+        auto sv_task = [](FakeUart& drv, UartResult& out) -> Task<void> {
+            out = co_await drv.write_async(std::string_view("AT+OK\r\n"));
+        }(u, sv_res);
+        sv_task.resume();
+        while (u.has_active() || Dispatcher::has_pending_resumes()) {
+            if (u.has_active()) u.complete_one();
+            Dispatcher::process();
+        }
+        assert(sv_task.done() && sv_res.status == UartStatus::Ok && sv_res.bytes_transferred == 7);
+
         // Data hook sees every byte exactly once, across the wrap, with no reader.
         static UartRxRing<64, 4> rx;
         static HookLog hook;
@@ -900,6 +946,28 @@ int main() {
         }
         assert(hook.n == 500);
         for (size_t i = 0; i < hook.n; ++i) assert(hook.seen[i] == static_cast<uint8_t>(i));
+
+        // SpiRequest and I2cRequest single-callback size check ([SPEC-HAL-01]):
+        // each request carries only one etl::delegate in AsyncTransactionMeta, and SpiRequest
+        // removed deprecated link_b spans (120 bytes on 64-bit host, down from 184 bytes).
+        static_assert(sizeof(SpiRequest) <= 120, "SpiRequest must not carry duplicate delegates or link_b spans");
+        static_assert(sizeof(I2cRequest) <= 128, "I2cRequest must not carry duplicate delegates");
+
+        // UartRxView split-span helpers ([SPEC-HAL-10]):
+        {
+            const uint8_t span_a[] = {'A', 'B', 'C'};
+            const uint8_t span_b[] = {'D', '\n', 'F'};
+            UartRxView v{};
+            v.first = span_a;
+            v.second = span_b;
+            assert(v.size() == 6 && !v.empty());
+            assert(v[0] == 'A' && v[2] == 'C' && v[3] == 'D' && v[5] == 'F');
+            assert(v.find('\n') == 4);
+            assert(v.find('Z') == UartRxView::npos);
+            uint8_t cp[4]{};
+            assert(v.copy_to(cp, 2) == 4);
+            assert(cp[0] == 'C' && cp[1] == 'D' && cp[2] == '\n' && cp[3] == 'F');
+        }
 
         // Ports: 0 is the default driver; the host target has no second port.
         assert(get_uart_port(0) == &get_uart_driver());

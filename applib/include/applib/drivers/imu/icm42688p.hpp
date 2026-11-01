@@ -73,18 +73,28 @@ public:
     explicit Icm42688p(hal::ISpi& spi_driver, Icm42688pConfig cfg = {}) : spi_(spi_driver), cfg_(cfg) {}
 
     /*
+     * C++20 Coroutine Async Register Read with Status Check (Zero Heap, Non-Blocking)
+     */
+    coro::Task<bool> read_reg_async(uint8_t reg, uint8_t& out_val) {
+        hal::SpiResult res = co_await spi_.read_reg_async(reg, out_val, 0x80);
+        co_return res.status == hal::SpiStatus::Ok;
+    }
+
+    /*
      * C++20 Coroutine Async Register Read (Zero Heap, Non-Blocking)
      */
     coro::Task<uint8_t> read_reg_async(uint8_t reg) {
-        co_return co_await spi_.read_reg_async(reg, 0x80);
+        uint8_t val = 0;
+        (void)co_await spi_.read_reg_async(reg, val, 0x80);
+        co_return val;
     }
 
     /*
      * C++20 Coroutine Async Register Write (Zero Heap, Non-Blocking)
      */
     coro::Task<bool> write_reg_async(uint8_t reg, uint8_t val) {
-        co_await spi_.write_reg_async(reg, val, 0x7F);
-        co_return true;
+        hal::SpiResult res = co_await spi_.write_reg_async(reg, val, 0x7F);
+        co_return res.status == hal::SpiStatus::Ok;
     }
 
     /*
@@ -101,7 +111,8 @@ public:
             co_return false;
         }
 
-        if (co_await read_reg_async(IcmRegs::WHO_AM_I) != IcmRegs::WHO_AM_I_VAL) {
+        uint8_t who_am_i = 0;
+        if (!co_await read_reg_async(IcmRegs::WHO_AM_I, who_am_i) || who_am_i != IcmRegs::WHO_AM_I_VAL) {
             co_return false;
         }
 
@@ -117,8 +128,11 @@ public:
             {IcmRegs::PWR_MGMT0,     0x0F},   // gyro + accel low noise
         }};
         for (const auto& w : writes) {
-            co_await write_reg_async(w[0], w[1]);
-            if (co_await read_reg_async(w[0]) != w[1]) {
+            if (!co_await write_reg_async(w[0], w[1])) {
+                co_return false;
+            }
+            uint8_t rb = 0;
+            if (!co_await read_reg_async(w[0], rb) || rb != w[1]) {
                 co_return false;
             }
         }

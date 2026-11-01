@@ -244,8 +244,6 @@ struct SpiResult {
 struct SpiRequest : public AsyncTransactionMeta<SpiResult> {
     std::span<const uint8_t> tx_data{};
     std::span<uint8_t>       rx_data{};
-    std::span<const uint8_t> tx_data_link_b{};   // deprecated [SPEC-HAL-11]: second link
-    std::span<uint8_t>       rx_data_link_b{};   // deprecated [SPEC-HAL-11]: second link
     uint32_t                 cs_pin{0};          // deprecated [SPEC-HAL-11]: SpiDevice::cs
     bool                     auto_cs{true};      // deprecated [SPEC-HAL-11]
     bool                     is_dual_spi{false}; // deprecated [SPEC-HAL-11]: SpiLanes::Dual
@@ -317,9 +315,11 @@ public:
         AsyncSpiDriver&             driver;
         const SpiDevice&            device;
         std::span<const SpiSegment> caller_segments{};
-        // Helpers: segment 0 is a command byte (own storage) or a caller tx span; segment 1 caller's.
-        uint8_t                     helper{0};   // 0 = caller segments, 1 = cmd + seg1, 2 = tx0 + seg1
+        // Helpers: segment 0 is a command byte (own storage) or a caller tx span; segment 1 caller's
+        // or 1-byte own storage (helper == 3).
+        uint8_t                     helper{0};   // 0 = caller segments, 1 = cmd + seg1, 2 = tx0 + seg1, 3 = cmd + val_byte
         uint8_t                     cmd{0};
+        uint8_t                     val_byte{0};
         std::span<const uint8_t>    tx0{};
         SpiSegment                  seg1{};
         std::array<SpiSegment, 2>   own_segments{};
@@ -338,11 +338,13 @@ public:
             return helper == 0 ? caller_segments : std::span<const SpiSegment>(own_segments);
         }
 
-        // Runs on the awaiter's final address, so &cmd stays valid until resume.
+        // Runs on the awaiter's final address, so &cmd and &val_byte stay valid until resume.
         bool await_ready() noexcept {
             if (helper != 0) {
-                own_segments[0] = SpiSegment::write(helper == 1 ? std::span<const uint8_t>(&cmd, 1) : tx0);
-                own_segments[1] = seg1;
+                own_segments[0] = SpiSegment::write(helper == 2 ? tx0 : std::span<const uint8_t>(&cmd, 1));
+                own_segments[1] = (helper == 3)
+                                      ? SpiSegment::write(std::span<const uint8_t>(&val_byte, 1))
+                                      : seg1;
             }
             result.status = check_spi_transaction(driver.capabilities(), device, segments());
             return result.status != SpiStatus::Ok;   // refused: resume at once, no hardware
@@ -413,6 +415,22 @@ public:
         a.helper = 1;
         a.cmd = static_cast<uint8_t>(reg & write_mask);
         a.seg1 = SpiSegment::write(in);
+        return a;
+    }
+
+    // Single-byte register read into caller's `out_byte`; full SpiResult returned ([SPEC-HAL-08]).
+    AsyncTransactionAwaiter read_reg_async(const SpiDevice& dev, uint8_t reg, uint8_t& out_byte,
+                                           uint8_t read_flag = 0x80) noexcept {
+        return read_regs_async(dev, reg, std::span<uint8_t>(&out_byte, 1), read_flag);
+    }
+
+    // Single-byte register write with value stored in the awaiter; full SpiResult returned ([SPEC-HAL-08]).
+    AsyncTransactionAwaiter write_reg_async(const SpiDevice& dev, uint8_t reg, uint8_t val,
+                                            uint8_t write_mask = 0x7F) noexcept {
+        AsyncTransactionAwaiter a{*this, dev};
+        a.helper = 3;
+        a.cmd = static_cast<uint8_t>(reg & write_mask);
+        a.val_byte = val;
         return a;
     }
 
@@ -489,8 +507,46 @@ public:
         }
     };
 
-    // Deprecated [SPEC-HAL-11]: these three byte helpers return only the data byte; use
-    // read_regs_async / write_regs_async, which return the status as well.
+    /*
+     * Status-returning 2-byte full-duplex register transfer awaiter ([SPEC-HAL-08]).
+     * Writes `rx_buf[1]` into `*out_byte` (when non-null) and returns the full `SpiResult`.
+     */
+    struct AsyncRegStatusAwaiter {
+        AsyncSpiDriver&        driver;
+        std::array<uint8_t, 2> tx_buf{};
+        std::array<uint8_t, 2> rx_buf{};
+        uint8_t*               out_byte{nullptr};
+        SpiRequest             request{};
+        SpiResult              result{};
+
+        AsyncRegStatusAwaiter(AsyncSpiDriver& drv, uint8_t cmd, uint8_t val, uint8_t* out = nullptr) noexcept
+            : driver(drv), tx_buf{cmd, val}, out_byte(out) {}
+
+        bool await_ready() const noexcept { return false; }
+
+        bool await_suspend(std::coroutine_handle<> handle) noexcept {
+            request.tx_data = tx_buf;
+            request.rx_data = rx_buf;
+            request.coro_handle = handle;
+            request.result_slot = &result;
+            if (!driver.submit_request(request)) {
+                result.status = SpiStatus::QueueFull;
+                return false; // resume immediately; never resume inline
+            }
+            return true;
+        }
+
+        SpiResult await_resume() noexcept {
+            if (out_byte != nullptr && result.status == SpiStatus::Ok) {
+                *out_byte = rx_buf[1];
+            }
+            return result;
+        }
+    };
+
+    // Deprecated [SPEC-HAL-11]: these two byte helpers return only the data byte; use
+    // read_reg_async(reg, out_byte) / write_reg_async(reg, val) or read_regs_async / write_regs_async,
+    // which return the status as well.
     AsyncRegTransferAwaiter transfer_reg_async(uint8_t cmd, uint8_t val = 0) noexcept {
         return AsyncRegTransferAwaiter(*this, cmd, val);
     }
@@ -499,8 +555,14 @@ public:
         return AsyncRegTransferAwaiter(*this, static_cast<uint8_t>(reg | read_mask), 0x00);
     }
 
-    AsyncRegTransferAwaiter write_reg_async(uint8_t reg, uint8_t val, uint8_t write_mask = 0x7F) noexcept {
-        return AsyncRegTransferAwaiter(*this, static_cast<uint8_t>(reg & write_mask), val);
+    // Status-returning single-byte register read into `out_byte` ([SPEC-HAL-08]).
+    AsyncRegStatusAwaiter read_reg_async(uint8_t reg, uint8_t& out_byte, uint8_t read_mask = 0x80) noexcept {
+        return AsyncRegStatusAwaiter(*this, static_cast<uint8_t>(reg | read_mask), 0x00, &out_byte);
+    }
+
+    // Status-returning single-byte register write ([SPEC-HAL-08]).
+    AsyncRegStatusAwaiter write_reg_async(uint8_t reg, uint8_t val, uint8_t write_mask = 0x7F) noexcept {
+        return AsyncRegStatusAwaiter(*this, static_cast<uint8_t>(reg & write_mask), val, nullptr);
     }
 
     // @impl [SPEC-HAL-11] docs/DESIGN_SPECIFICATION.md
@@ -510,10 +572,9 @@ public:
                                              std::span<const uint8_t> tx_b,
                                              std::span<uint8_t> rx_a,
                                              std::span<uint8_t> rx_b) noexcept {
-        AsyncTransferAwaiter awaiter(*this, tx_a, rx_a, true);
-        awaiter.request.tx_data_link_b = tx_b;
-        awaiter.request.rx_data_link_b = rx_b;
-        return awaiter;
+        (void)tx_b;
+        (void)rx_b;
+        return AsyncTransferAwaiter(*this, tx_a, rx_a, true);
     }
 
 protected:

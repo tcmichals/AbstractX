@@ -161,9 +161,9 @@ inline Task<void> telemetry_egress_task() {
 
 // @impl [SPEC-APP-01] [SPEC-ARCH-03] [SPEC-ARCH-05] [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-03
 inline Task<void> app_main(int max_steps = 0) {
-    auto& uart  = hal::get_uart_driver();
+    auto& uart  = hal::get_uart_driver(0);
     auto& timer = hal::get_timer_driver();
-    auto& spi   = hal::get_spi_driver();
+    auto& spi   = hal::get_spi_driver(0);
     auto& i2c   = hal::get_i2c_driver();
 
     printf("\n========================================================\n");
@@ -173,7 +173,7 @@ inline Task<void> app_main(int max_steps = 0) {
 
     static Icm42688p       imu(spi);
     static UbloxGps        gps(uart);
-    static Qmc5883l        mag(i2c);
+    static Qmc5883l        mag(i2c, hal::I2cDevice{DEFAULT_QMC_I2C_ADDR, 0});
     static AttitudeFilter  filter;
 
     // Structured Parallel Boot: Initialize SPI IMU, UART GPS, and I2C Mag concurrently!

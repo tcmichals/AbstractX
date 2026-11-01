@@ -451,9 +451,11 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   segment (E906: [SPEC-E906-HAL-01], larger than the FIFO = DMA, else FIFO + one completion
   interrupt). `SpiCapabilities::dma` and `fifo_bytes` are informative only.
 * **Requirement (helpers)**: `write_then_read_async(dev, tx, rx, rx_lanes)` (two segments, CS held),
-  `read_regs_async(dev, reg, out, read_flag = 0x80)` and `write_regs_async(dev, reg, in,
-  write_mask = 0x7F)` return the full `SpiResult`. The command byte and segment array live in the
-  awaiter and are bound to the request in `await_suspend` (AGENTS §10.4c).
+  `read_regs_async(dev, reg, out, read_flag = 0x80)`, `write_regs_async(dev, reg, in,
+  write_mask = 0x7F)`, `read_reg_async(dev, reg, out_byte, read_flag = 0x80)`, and
+  `write_reg_async(dev, reg, val_byte, write_mask = 0x7F)` return the full `SpiResult`. The command
+  byte, single-byte value, and segment array live in the awaiter and are bound to the request in
+  `await_suspend` (AGENTS §10.4c).
 * **Worked examples** (all host-tested against one fake bus driver):
   * FPGA Dual-SPI TLP link (`docs/tier2_contracts/ASP_SPI_TRANSPORT.md` §3,
     `rtl/spi/asp_spi_frontend.sv`): write = `{0xA1}` on 1 lane, then 64 TLP bytes on 2 lanes;
@@ -489,8 +491,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Requirement (helpers)**: `read_regs_async(addr, reg, out)` = write `{reg}` + repeated START +
   read; `write_regs_async(addr, reg, in)` = write `{reg}` + write `in` with `NoStart` when the
   driver supports it, otherwise `{reg, in...}` built in the awaiter (at most
-  `kI2cRegWriteMax` = 32 bytes; a control-path copy, not a data path, [SPEC-ARCH-08]). Both return
-  the full `I2cResult`.
+  `kI2cRegWriteMax` = 32 bytes; a control-path copy, not a data path, [SPEC-ARCH-08]). Both (along
+  with `read_regs16_async` / `write_regs16_async`) also accept `const I2cDevice&` (applying
+  `dev.max_hz`), and `read_reg_async(dev, reg, out_byte)` / `write_reg_async(dev, reg, val_byte)`
+  and `probe_async(addr | dev)` return the full `I2cResult`.
 * **Requirement (recovery)**: `co_await i2c.recover_bus_async()` clocks SCL until the slave releases
   SDA (up to 9 pulses) and sends STOP; `Ok` when SDA is high afterwards, `BusError` otherwise,
   `NotSupported` when the driver cannot drive the pins.
@@ -530,7 +534,9 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `timeout_us` (`Timeout`, possibly with fewer bytes; 0 = no deadline), or on `cancel_read()`
   (`Cancelled`). It returns a `UartRxView`: up to two spans into the ring (the second after the
   wrap point; no copy), the bytes dropped since the previous view and the line errors seen since
-  then. The reader calls `release_rx(n)` when it has parsed `n` bytes; unreleased bytes are offered
+  then, plus split-span helpers `operator[](i)`, `copy_to(dst, offset)`, and `find(byte, start)`.
+  `AsyncUartDriver::write_async` also accepts `std::string_view` in addition to `std::span<const uint8_t>`.
+  The reader calls `release_rx(n)` when it has parsed `n` bytes; unreleased bytes are offered
   again by the next `read_async`. One reader per port: a second concurrent reader gets
   `QueueFull`. A deadline needs the driver's timer hook; without it a non-zero `timeout_us` is
   refused with `NotSupported`.
@@ -684,7 +690,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
   | Deprecated | Why | Replacement |
   |---|---|---|
-  | SPI `transfer_dual_async`, `SpiRequest::is_dual_spi`, `tx_data_link_b`, `rx_data_link_b` | means two parallel links; no target implements it; the FPGA link is one link with 2 data lanes | `transfer_async(dev, segments)` with `SpiLanes::Dual` ([SPEC-HAL-08]) |
+  | SPI `transfer_dual_async`, `SpiRequest::is_dual_spi` (`tx_data_link_b` / `rx_data_link_b` removed) | means two parallel links; no target implements it; the FPGA link is one link with 2 data lanes | `transfer_async(dev, segments)` with `SpiLanes::Dual` ([SPEC-HAL-08]) |
   | SPI `read_reg_async`, `write_reg_async`, `transfer_reg_async` | return only the byte; `QueueFull` or a failure reads as data 0 | `read_regs_async` / `write_regs_async` returning `SpiResult` |
   | SPI `SpiConfig::use_dma`, `dual_spi`, `SpiRequest::cs_pin`, `auto_cs`, `select()` | unread by targets, or bus-wide where the setting is per device | `SpiDevice`; the bus driver's DMA rule |
   | I2C `transfer_async(uint8_t, tx, rx)`, `I2cRequest::slave_addr`, `use_register`, `register_offset`, `I2cConfig::ten_bit_addr` | 8-bit address makes 10-bit impossible; one write + one read only; no timeout | `transfer_async(uint16_t, msgs, timeout_us)` ([SPEC-HAL-09]) |

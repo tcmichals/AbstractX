@@ -340,21 +340,119 @@ class UbloxM8nDriver:
         return parsed_record
 
 # ==============================================================================
+# 4.5. ICM-42688-P 6-Axis IMU Driver (SPI1 @ 10 MHz + PI8 DRDY Auto-DMA)
+# ==============================================================================
+
+class Icm42688pDriver:
+    """
+    Driver for TDK InvenSense ICM-42688-P 6-Axis MEMS IMU on SPI1 (PI2..PI5, PI8 DRDY).
+    Prefers hardware DRDY auto-DMA (`abstractx.imu_drdy_*`) and falls back to SPI1
+    14-byte burst transfers (`0x1D | 0x80`).
+    """
+    WHO_AM_I_REG = 0x75
+    WHO_AM_I_VAL = 0x47
+    PWR_MGMT0_REG = 0x4E
+    TEMP_DATA1_REG = 0x1D
+
+    def __init__(self, baud_hz=10000000):
+        self.baud_hz = baud_hz
+        self.mode = None
+        self._drdy_buf = bytearray(22)
+        self.sample_count = 0
+
+    def init(self):
+        if hasattr(abstractx, "imu_drdy_start"):
+            try:
+                if abstractx.imu_drdy_start():
+                    self.mode = "DRDY"
+                    return True
+            except Exception:
+                pass
+        try:
+            abstractx.spi_init(self.baud_hz)
+            abstractx.sleep_ms(20)
+            who = abstractx.spi_xfer(bytes([self.WHO_AM_I_REG | 0x80, 0x00]))[1]
+            if who == self.WHO_AM_I_VAL:
+                abstractx.spi_xfer(bytes([self.PWR_MGMT0_REG, 0x0F]))
+                abstractx.sleep_ms(10)
+                self.mode = "SPI"
+                return True
+        except Exception:
+            pass
+        self.mode = None
+        return False
+
+    def stop(self):
+        if self.mode == "DRDY" and hasattr(abstractx, "imu_drdy_stop"):
+            try:
+                abstractx.imu_drdy_stop()
+            except Exception:
+                pass
+        self.mode = None
+
+    def read_sample(self):
+        """Returns (ax_mg, ay_mg, az_mg, gx_dps, gy_dps, gz_dps, temp_c) or None."""
+        if self.mode is None:
+            return None
+        raw = None
+        if self.mode == "DRDY":
+            got = False
+            while abstractx.imu_drdy_read_into(self._drdy_buf, 0):
+                got = True
+            if got or abstractx.imu_drdy_read_into(self._drdy_buf, 2):
+                raw = bytes(self._drdy_buf[8:22])
+        else:
+            rx = abstractx.spi_xfer(bytes([self.TEMP_DATA1_REG | 0x80]) + b"\x00" * 14)
+            if len(rx) == 15:
+                raw = bytes(rx[1:15])
+        if not raw or len(raw) != 14:
+            return None
+
+        vals = []
+        for i in range(0, 14, 2):
+            v = (raw[i] << 8) | raw[i + 1]
+            if v >= 32768:
+                v -= 65536
+            vals.append(v)
+        temp_raw, ax, ay, az, gx, gy, gz = vals
+        ax_mg = (ax * 1000) // 2048
+        ay_mg = (ay * 1000) // 2048
+        az_mg = (az * 1000) // 2048
+        gx_dps = (gx * 10) // 164
+        gy_dps = (gy * 10) // 164
+        gz_dps = (gz * 10) // 164
+        temp_c = 25 + (temp_raw // 132)
+        self.sample_count += 1
+        return (ax_mg, ay_mg, az_mg, gx_dps, gy_dps, gz_dps, temp_c)
+
+
+# ==============================================================================
 # 5. Cooperative Primary-Paced Flight Executive
 # ==============================================================================
 
 class FlightExecutive:
     """
     Cooperative Primary-Paced Multi-Rate Execution Loop for XuanTie E906.
-    Follows AbstractX Invariant 5: Primary sensor (Compass @ 20Hz) paces fusion,
+    Follows AbstractX Invariant 5: Primary sensors (IMU @ 50Hz / Compass @ 20Hz) pace fusion,
     while auxiliary high-rate serial GPS (10Hz @ 115200 baud) streams into SPSC channels.
     """
     def __init__(self):
+        self.imu = Icm42688pDriver()
         self.compass = CompassDriver()
         self.gps = UbloxM8nDriver()
+        self.imu_queue = AsyncQueue(capacity=8)
         self.compass_queue = AsyncQueue(capacity=8)
         self.gps_queue = AsyncQueue(capacity=8)
         self.running = True
+
+    def task_imu_producer(self):
+        """50 Hz IMU Producer Task on SPI1 / PI8 DRDY."""
+        self.imu.init()
+        while self.running:
+            sample = self.imu.read_sample()
+            if sample:
+                self.imu_queue.try_push(sample)
+            yield 20  # 50 Hz (20 ms)
 
     def task_compass_producer(self):
         """20 Hz Magnetometer Producer Task."""
@@ -376,13 +474,25 @@ class FlightExecutive:
 
     def task_fusion_consumer(self, max_epochs=12):
         """
-        Primary-Paced Fusion & Telemetry Telemetry Task.
-        Consumes primary compass updates and non-blockingly drains GPS updates.
+        Primary-Paced Fusion & Telemetry Task.
+        Consumes primary compass & IMU updates and non-blockingly drains GPS updates.
         """
         epoch = 0
         last_gps_summary = "Acquiring Satellites..."
+        last_imu_summary = "IMU: N/A"
 
         while epoch < max_epochs:
+            # Drain any pending IMU samples from the queue
+            while not self.imu_queue.is_empty():
+                imu_item = self.imu_queue.try_pop()
+                if imu_item:
+                    ax_mg, ay_mg, az_mg, gx_dps, gy_dps, gz_dps, temp_c = imu_item
+                    last_imu_summary = (
+                        "IMU: A=(" + str(ax_mg) + "," + str(ay_mg) + "," + str(az_mg) + ")mg " +
+                        "G=(" + str(gx_dps) + "," + str(gy_dps) + "," + str(gz_dps) + ")dps " +
+                        "T=" + str(temp_c) + "C"
+                    )
+
             # Drain any pending GPS fixes from the queue
             while not self.gps_queue.is_empty():
                 gps_item = self.gps_queue.try_pop()
@@ -396,7 +506,8 @@ class FlightExecutive:
             compass_item = self.compass_queue.try_pop()
             if compass_item:
                 heading, cardinal, mx, my, mz = compass_item
-                print("[TLM #" + str(epoch) + " | " + str(abstractx.ticks_ms()) + " ms] Compass: " +
+                print("[TLM #" + str(epoch) + " | " + str(abstractx.ticks_ms()) + " ms] " +
+                      last_imu_summary + " | Compass: " +
                       str(heading) + " deg (" + cardinal + ") [Mag: " + str(mx) + ", " + str(my) + ", " + str(mz) +
                       "] | GPS (115200 baud @ 10Hz): " + last_gps_summary)
                 epoch += 1
@@ -410,15 +521,17 @@ class FlightExecutive:
         print("    AbstractX XuanTie E906 Professional Cooperative Flight Sensor Stack         ")
         print("================================================================================")
         print("Silicon Target: XuanTie E906 RISC-V (SRAM Space 0 @ 0x3FFC0000, Zero Heap)")
-        print("Sensors: I2C1 (PB4/PB5) Compass @ 20Hz | UART3 (PI11/PI12) u-blox M8N @ 115200 10Hz")
+        print("Sensors: SPI1 ICM-42688-P IMU | I2C1 Compass @ 20Hz | UART3 u-blox M8N @ 115200 10Hz")
         print("Execution Model: Primary-Paced Coroutine Channel Pattern (AsyncQueue SPSC)")
         print("--------------------------------------------------------------------------------")
 
+        t_imu     = self.task_imu_producer()
         t_compass = self.task_compass_producer()
         t_gps     = self.task_gps_producer()
         t_fusion  = self.task_fusion_consumer(max_epochs=max_epochs)
 
         tasks = [
+            [t_imu, 0],
             [t_compass, 0],
             [t_gps, 0],
             [t_fusion, 0]
@@ -426,37 +539,41 @@ class FlightExecutive:
 
         start_time = abstractx.ticks_ms()
         last_heartbeat_ms = abstractx.ticks_ms()
-        while self.running and (abstractx.ticks_ms() - start_time < timeout_ms):
-            # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
-            cmd = abstractx.console_read(64)
-            if cmd:
-                if b"PING" in cmd or b"HEARTBEAT" in cmd:
-                    last_heartbeat_ms = abstractx.ticks_ms()
-                elif b"STOP" in cmd or b"CLOSE" in cmd or b"\x03" in cmd:
-                    print("[E906_STOP_REQUESTED]")
+        try:
+            while self.running and (abstractx.ticks_ms() - start_time < timeout_ms):
+                # @impl [SPEC-E906-REPL-14] apps/e906_repl_app/SPECIFICATION.md
+                cmd = abstractx.console_read(64)
+                if cmd:
+                    if b"PING" in cmd or b"HEARTBEAT" in cmd:
+                        last_heartbeat_ms = abstractx.ticks_ms()
+                    elif b"STOP" in cmd or b"CLOSE" in cmd or b"\x03" in cmd:
+                        print("[E906_STOP_REQUESTED]")
+                        self.running = False
+                        break
+
+                if abstractx.ticks_ms() - last_heartbeat_ms > 3000:
+                    print("[E906_WATCHDOG_TIMEOUT_SHUTDOWN]")
                     self.running = False
                     break
 
-            if abstractx.ticks_ms() - last_heartbeat_ms > 3000:
-                print("[E906_WATCHDOG_TIMEOUT_SHUTDOWN]")
-                self.running = False
-                break
-
-            now = abstractx.ticks_ms()
-            for idx in range(len(tasks)):
-                item = tasks[idx]
-                coro, next_t = item
-                if now >= next_t:
-                    try:
-                        sleep_ms = next(coro)
-                        item[1] = now + (sleep_ms if sleep_ms else 1)
-                    except StopIteration:
-                        self.running = False
-                        break
-            abstractx.sleep_ms(2)
+                now = abstractx.ticks_ms()
+                for idx in range(len(tasks)):
+                    item = tasks[idx]
+                    coro, next_t = item
+                    if now >= next_t:
+                        try:
+                            sleep_ms = next(coro)
+                            item[1] = now + (sleep_ms if sleep_ms else 1)
+                        except StopIteration:
+                            self.running = False
+                            break
+                abstractx.sleep_ms(2)
+        finally:
+            self.imu.stop()
 
         print("--------------------------------------------------------------------------------")
-        print("Execution Complete: " + str(self.gps.total_fixes) + " High-Speed GPS Sentences Ingested.")
+        print("Execution Complete: " + str(self.imu.sample_count) + " IMU Samples, " +
+              str(self.gps.total_fixes) + " High-Speed GPS Sentences Ingested.")
         print("================================================================================")
 
 # Execute flight stack

@@ -25,6 +25,7 @@ except ImportError:
 # ==============================================================================
 # 1. Asynchronous Channel Queues (matching AbstractX C++ AsyncQueue<T, N>)
 # ==============================================================================
+imu_channel = abstractx_coro.AsyncQueue(capacity=16)
 mag_channel = abstractx_coro.AsyncQueue(capacity=16)
 gps_channel = abstractx_coro.AsyncQueue(capacity=16)
 
@@ -32,6 +33,25 @@ gps_channel = abstractx_coro.AsyncQueue(capacity=16)
 # ==============================================================================
 # 2. Sensor Producer Coroutines
 # ==============================================================================
+def imu_producer(channel, max_samples=25):
+    """Samples ICM-42688-P IMU on SPI1 (10 MHz) at 50 Hz (20 ms period) using pre-allocated buffer."""
+    tx_buf = bytearray([0x9D] + [0] * 14)
+    rx_buf = bytearray(15)
+    count = 0
+    while count < max_samples:
+        if HAS_ABSTRACTX:
+            n = abstractx.spi_xfer_into(tx_buf, rx_buf)
+            if n == 15:
+                channel.try_push((count, bytes(rx_buf[1:15])))
+                count += 1
+        else:
+            # Simulated 14B IMU tick for host SITL (Temp, Accel X/Y/Z, Gyro X/Y/Z)
+            channel.try_push((count, b"\x00\x00\x00\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00\x00"))
+            count += 1
+
+        yield abstractx_coro.sleep_ms(20)
+
+
 def compass_producer(channel, max_samples=25):
     """Samples compass at 50 Hz (20 ms period) using pre-allocated buffer."""
     buf = bytearray(6)
@@ -72,13 +92,14 @@ def gps_producer(channel, max_samples=5):
 # ==============================================================================
 # 3. Primary-Paced Consumer Loop
 # ==============================================================================
-def flight_fusion_task(mag_q, gps_q, max_epochs=20):
+def flight_fusion_task(imu_q, mag_q, gps_q, max_epochs=20):
     """
     Primary-paced flight loop:
     - Primary sensor (Compass) acts as the physical pacing clock
-    - Auxiliary lower-rate sensor (GPS) is drained non-blockingly
+    - Auxiliary sensors (IMU & GPS) are drained non-blockingly
     """
     epochs = 0
+    last_imu = None
     last_gps = None
 
     print("[FLIGHT_FUSION] Starting Primary-Paced Multi-Rate Coroutine Task...")
@@ -87,7 +108,13 @@ def flight_fusion_task(mag_q, gps_q, max_epochs=20):
         # Await next compass sample (blocks cooperatively until producer pushes)
         mag_sample = yield mag_q.pop()
 
-        # Non-blockingly drain auxiliary GPS fixes
+        # Non-blockingly drain auxiliary IMU & GPS samples
+        while True:
+            imu = imu_q.try_pop()
+            if imu is None:
+                break
+            last_imu = imu
+
         while True:
             gps = gps_q.try_pop()
             if gps is None:
@@ -96,8 +123,10 @@ def flight_fusion_task(mag_q, gps_q, max_epochs=20):
 
         epochs += 1
         mag_idx = mag_sample[0] if isinstance(mag_sample, tuple) else epochs
+        imu_status = "valid" if last_imu else "searching"
         gps_status = "valid" if last_gps else "searching"
-        print("  [EPOCH " + str(epochs) + "] MagTick=" + str(mag_idx) + " | GPS=" + gps_status)
+        print("  [EPOCH " + str(epochs) + "] MagTick=" + str(mag_idx) +
+              " | IMU=" + imu_status + " | GPS=" + gps_status)
 
     print("[FLIGHT_FUSION] Completed " + str(epochs) + " epochs with zero GC pauses.")
 
@@ -107,13 +136,15 @@ def flight_fusion_task(mag_q, gps_q, max_epochs=20):
 # ==============================================================================
 def main():
     if HAS_ABSTRACTX:
+        abstractx.spi_init(10000000)
         abstractx.i2c_init(400000)
         abstractx.uart_init(115200)
 
     dispatcher = abstractx_coro.Dispatcher()
+    dispatcher.spawn(imu_producer(imu_channel, max_samples=25))
     dispatcher.spawn(compass_producer(mag_channel, max_samples=25))
     dispatcher.spawn(gps_producer(gps_channel, max_samples=5))
-    dispatcher.spawn(flight_fusion_task(mag_channel, gps_channel, max_epochs=20))
+    dispatcher.spawn(flight_fusion_task(imu_channel, mag_channel, gps_channel, max_epochs=20))
 
     dispatcher.run(timeout_ms=5000)
 

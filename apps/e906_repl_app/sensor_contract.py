@@ -12,10 +12,12 @@ Plain python3, no dependencies (also copied to /root on the board).
 """
 # @impl [SPEC-E906-REPL-11] apps/e906_repl_app/SPECIFICATION.md
 
+import math
 import struct
 
 # Compass bytes as the E906 reads them: no reordering on the target.
 MAG_CHIPS = ("HMC5883L", "QMC5883L")
+IMU_CHIPS = ("ICM42688P",)
 
 
 def decode_mag(raw: bytes, chip: str = "QMC5883L"):
@@ -60,6 +62,80 @@ def decode_mag_payload(payload: bytes) -> dict:
         raise ValueError("compass payload: decoded X/Y/Z do not match the raw bytes")
     field_ut = (sum(v * v for v in xyz) ** 0.5) / MAG_LSB_PER_GAUSS[chip] * 100.0
     return {"raw": raw, "chip": chip, "xyz": xyz, "field_ut": field_ut}
+
+
+# Tag-1 TLP payload: ICM-42688-P 14-byte register burst (regs 0x1D..0x2A: TEMP, ACCEL XYZ, GYRO XYZ
+# big-endian). Shared between board_studio_bridge.py and Studio.
+IMU_TAG = 1
+IMU_ADDR = 0x40001000
+IMU_CHIP_CODE = {"ICM42688P": 1}
+IMU_ACCEL_LSB_PER_G = 2048.0   # +/-16g full-scale
+IMU_GYRO_LSB_PER_DPS = 16.4    # +/-2000 dps full-scale
+IMU_TEMP_SENSITIVITY = 132.48
+IMU_TEMP_OFFSET_C = 25.0
+
+
+def decode_imu(raw: bytes, chip: str = "ICM42688P") -> dict:
+    """Decodes 14-byte ICM-42688-P burst (0x1D..0x2A: Temp, Accel X/Y/Z, Gyro X/Y/Z big-endian)."""
+    if len(raw) != 14:
+        raise ValueError(f"IMU sample is {len(raw)} bytes, expected 14")
+    if chip not in IMU_CHIP_CODE:
+        raise ValueError(f"unknown IMU chip {chip!r}")
+    temp_raw, ax, ay, az, gx, gy, gz = struct.unpack(">hhhhhhh", raw)
+    temp_c = (temp_raw / IMU_TEMP_SENSITIVITY) + IMU_TEMP_OFFSET_C
+    ax_g = ax / IMU_ACCEL_LSB_PER_G
+    ay_g = ay / IMU_ACCEL_LSB_PER_G
+    az_g = az / IMU_ACCEL_LSB_PER_G
+    gx_dps = gx / IMU_GYRO_LSB_PER_DPS
+    gy_dps = gy / IMU_GYRO_LSB_PER_DPS
+    gz_dps = gz / IMU_GYRO_LSB_PER_DPS
+    if abs(ax_g) > 1e-4 or abs(ay_g) > 1e-4 or abs(az_g) > 1e-4:
+        roll_deg = math.degrees(math.atan2(ay_g, az_g if az_g != 0.0 else 1e-6))
+        pitch_deg = math.degrees(math.atan2(-ax_g, math.sqrt(ay_g * ay_g + az_g * az_g)))
+    else:
+        roll_deg = 0.0
+        pitch_deg = 0.0
+    return {
+        "raw": bytes(raw),
+        "chip": chip,
+        "temp_raw": temp_raw,
+        "accel_raw": (ax, ay, az),
+        "gyro_raw": (gx, gy, gz),
+        "temp_c": temp_c,
+        "accel_g": (ax_g, ay_g, az_g),
+        "gyro_dps": (gx_dps, gy_dps, gz_dps),
+        "roll_deg": roll_deg,
+        "pitch_deg": pitch_deg,
+    }
+
+
+def encode_imu_payload(raw: bytes, chip: str = "ICM42688P") -> bytes:
+    """14 raw register bytes, chip code, pad, decoded <hhhhhhh temp ax ay az gx gy gz> = 30 bytes."""
+    d = decode_imu(raw, chip)
+    ax, ay, az = d["accel_raw"]
+    gx, gy, gz = d["gyro_raw"]
+    return (
+        bytes(raw)
+        + bytes([IMU_CHIP_CODE[chip], 0])
+        + struct.pack("<hhhhhhh", d["temp_raw"], ax, ay, az, gx, gy, gz)
+    )
+
+
+def decode_imu_payload(payload: bytes) -> dict:
+    """Inverse of encode_imu_payload; re-decodes the raw bytes and verifies agreement."""
+    if len(payload) < 30:
+        raise ValueError(f"IMU payload is {len(payload)} bytes, expected >= 30")
+    chips = {v: k for k, v in IMU_CHIP_CODE.items()}
+    chip = chips.get(payload[14])
+    if chip is None:
+        raise ValueError(f"unknown IMU chip code {payload[14]}")
+    raw = bytes(payload[:14])
+    unpacked = struct.unpack("<hhhhhhh", payload[16:30])
+    d = decode_imu(raw, chip)
+    expected = (d["temp_raw"], *d["accel_raw"], *d["gyro_raw"])
+    if unpacked != expected:
+        raise ValueError("IMU payload: decoded values do not match the raw bytes")
+    return d
 
 
 # GPS: NMEA sentences arrive as raw UART bytes. A sentence counts only if its *hh checksum

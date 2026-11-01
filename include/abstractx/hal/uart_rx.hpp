@@ -41,12 +41,40 @@ struct UartRxStats {
 
 // What a read returns: spans into the ring (second is the part after the wrap point).
 struct UartRxView {
+    static constexpr size_t npos = static_cast<size_t>(-1);
+
     UartStatus               status{UartStatus::Ok};
     std::span<const uint8_t> first{};
     std::span<const uint8_t> second{};
     uint32_t                 dropped{0};      // bytes lost since the previous view
     uint8_t                  line_errors{0};  // UartLineError bits seen since the previous view
+
     size_t size() const noexcept { return first.size() + second.size(); }
+    bool empty() const noexcept { return first.empty() && second.empty(); }
+
+    uint8_t operator[](size_t i) const noexcept {
+        return i < first.size() ? first[i] : second[i - first.size()];
+    }
+
+    // Copy up to dst.size() bytes starting at `offset` across `first` and `second`.
+    size_t copy_to(std::span<uint8_t> dst, size_t offset = 0) const noexcept {
+        const size_t total = size();
+        if (offset >= total || dst.empty()) return 0;
+        const size_t n = (total - offset) < dst.size() ? (total - offset) : dst.size();
+        for (size_t i = 0; i < n; ++i) {
+            dst[i] = (*this)[offset + i];
+        }
+        return n;
+    }
+
+    // Find first occurrence of `byte` at or after `start`, or `npos`.
+    size_t find(uint8_t byte, size_t start = 0) const noexcept {
+        const size_t total = size();
+        for (size_t i = start; i < total; ++i) {
+            if ((*this)[i] == byte) return i;
+        }
+        return npos;
+    }
 };
 
 // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md

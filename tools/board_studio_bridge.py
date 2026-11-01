@@ -23,7 +23,14 @@ import asyncio
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [_HERE, os.path.join(_HERE, "..", "apps", "e906_repl_app")]
 # The app's sensor format (copied next to this file on the board); AbstractX does not define it.
-from sensor_contract import decode_mag, encode_mag_payload, nmea_sentence_ok, clamp_i32  # noqa: E402
+from sensor_contract import (  # noqa: E402
+    decode_imu,
+    decode_mag,
+    encode_imu_payload,
+    encode_mag_payload,
+    nmea_sentence_ok,
+    clamp_i32,
+)
 
 HOST_IP = os.environ.get("STUDIO_HOST_IP", "192.168.3.1")
 HOST_PORT = int(os.environ.get("STUDIO_PORT", 9870))
@@ -241,24 +248,19 @@ async def async_main():
                 roll_deg, pitch_deg = 0.0, 0.0
                 ax_g, ay_g, az_g = 0.0, 0.0, 1.0
                 gx_dps, gy_dps, gz_dps = 0.0, 0.0, 0.0
+                imu_temp_c = 25.0
                 raw_imu = b""
+                imu_sample = None
                 if len(imu_hex) >= 28:
                     try:
-                        raw_imu = bytes.fromhex(imu_hex)
-                        # 0..1: Temp, 2..7: Accel X,Y,Z, 8..13: Gyro X,Y,Z (Big-Endian)
-                        ax_raw, ay_raw, az_raw = struct.unpack(">3h", raw_imu[2:8])
-                        gx_raw, gy_raw, gz_raw = struct.unpack(">3h", raw_imu[8:14])
-                        # +-16G scale -> 2048 LSB/G
-                        ax_g = ax_raw / 2048.0
-                        ay_g = ay_raw / 2048.0
-                        az_g = az_raw / 2048.0
-                        # +-2000 dps scale -> 16.4 LSB/(deg/s)
-                        gx_dps = gx_raw / 16.4
-                        gy_dps = gy_raw / 16.4
-                        gz_dps = gz_raw / 16.4
-
-                        roll_deg = math.degrees(math.atan2(ay_g, az_g))
-                        pitch_deg = math.degrees(math.atan2(-ax_g, math.sqrt(ay_g * ay_g + az_g * az_g)))
+                        raw_imu = bytes.fromhex(imu_hex[:28])
+                        if any(b != 0 for b in raw_imu) and any(b != 0xFF for b in raw_imu):
+                            imu_sample = decode_imu(raw_imu, "ICM42688P")
+                            ax_g, ay_g, az_g = imu_sample["accel_g"]
+                            gx_dps, gy_dps, gz_dps = imu_sample["gyro_dps"]
+                            imu_temp_c = imu_sample["temp_c"]
+                            roll_deg = imu_sample["roll_deg"]
+                            pitch_deg = imu_sample["pitch_deg"]
                     except Exception:
                         pass
 
@@ -337,15 +339,19 @@ async def async_main():
                 frame_mag = hdr_mag + payload_mag + b"\x00" * (40 - len(payload_mag)) + b"\xde\xad\xbe\xef"
                 emit_tlp(frame_mag)
 
-                # Synthesize 64B TLP Tag 1 (Raw 6-DoF IMU Burst: 6B Accel + 6B Gyro + 2B Temp)
-                if len(raw_imu) >= 14:
-                    hdr_imu = struct.pack("<BBBBIHHQ", 0x10, 0x00, 1, 2, 0x40001000, 4, seq, ts)
-                    payload_imu = raw_imu[2:14] + raw_imu[0:2] # Accel (2..7), Gyro (8..13), Temp (0..1)
+                # Synthesize 64B TLP Tag 1 (ICM-42688-P 6-DoF IMU Sample via sensor_contract.encode_imu_payload)
+                if imu_sample is not None:
+                    payload_imu = encode_imu_payload(raw_imu, "ICM42688P")
+                    hdr_imu = struct.pack("<BBBBIHHQ", 0x10, 0x00, 1, 2, 0x40001000, (len(payload_imu) + 3) // 4, seq, ts)
                     frame_imu = hdr_imu + payload_imu + (b"\x00" * (40 - len(payload_imu))) + b"\xde\xad\xbe\xef"
                     emit_tlp(frame_imu)
 
                 if seq % 5 == 0:
-                    imu_str = f"Roll={roll_deg:+.1f}° Pitch={pitch_deg:+.1f}°" if len(raw_imu) >= 14 else "IMU=none"
+                    imu_str = (
+                        f"Roll={roll_deg:+.1f}° Pitch={pitch_deg:+.1f}° T={imu_temp_c:.1f}C"
+                        if imu_sample is not None
+                        else "IMU=none"
+                    )
                     print(f"[BRIDGE] Forwarded #{seq}: {imu_str} Heading={heading_deg:.1f}° Sats={gps_sats} Spd={gps_spd:.2f}m/s")
             else:
                 if line:

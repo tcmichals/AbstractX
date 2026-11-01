@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <span>
+#include <string_view>
 #include <coroutine>
 
 #include "async_driver.hpp"
@@ -199,6 +200,11 @@ public:
 
     AsyncWriteAwaiter write_async(std::span<const uint8_t> buffer) noexcept {
         return AsyncWriteAwaiter(*this, buffer);
+    }
+
+    AsyncWriteAwaiter write_async(std::string_view str) noexcept {
+        return AsyncWriteAwaiter(*this, std::span<const uint8_t>(
+            reinterpret_cast<const uint8_t*>(str.data()), str.size()));
     }
 
     /*

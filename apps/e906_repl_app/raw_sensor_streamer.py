@@ -59,9 +59,20 @@ MAG_CHIP = mag_chip(MAG_ADDR)
 abstractx.sleep_ms(20)
 
 # ==============================================================================
-# 1.5. IMU (ICM-42688-P on SPI1 @ 10 MHz)
+# 1.5. IMU (ICM-42688-P on SPI1 @ 10 MHz, PI8 DRDY Auto-DMA or SPI burst read)
 # ==============================================================================
+_imu_drdy_buf = bytearray(22)
+_imu_last_sample = b""
+
+
 def imu_init():
+    # Prefer hardware DRDY auto-DMA (PI8 -> DMA ch 2 -> SPI1 -> MpscTlpRing)
+    if hasattr(abstractx, "imu_drdy_start"):
+        try:
+            if abstractx.imu_drdy_start():
+                return "DRDY"
+        except Exception:
+            pass
     try:
         abstractx.spi_init(10000000)
         abstractx.sleep_ms(20)
@@ -69,18 +80,30 @@ def imu_init():
         if who == 0x47:
             abstractx.spi_xfer(b"\x4e\x0f")
             abstractx.sleep_ms(10)
-            return True
+            return "SPI"
     except Exception:
         pass
-    return False
+    return None
 
 
-HAS_IMU = imu_init()
+IMU_MODE = imu_init()
+HAS_IMU = IMU_MODE is not None
 
 
 def imu_read():
+    global _imu_last_sample
     if not HAS_IMU:
         return b""
+    if IMU_MODE == "DRDY":
+        # Drain ring to get the freshest 1 kHz DRDY sample ([8:22] = 14B register burst)
+        got_any = False
+        while abstractx.imu_drdy_read_into(_imu_drdy_buf, 0):
+            got_any = True
+        if got_any:
+            _imu_last_sample = bytes(_imu_drdy_buf[8:22])
+        elif not _imu_last_sample and abstractx.imu_drdy_read_into(_imu_drdy_buf, 5):
+            _imu_last_sample = bytes(_imu_drdy_buf[8:22])
+        return _imu_last_sample
     # Register 0x1D | 0x80 = 0x9D: 2 temp + 6 accel (X,Y,Z) + 6 gyro (X,Y,Z)
     return bytes(abstractx.spi_xfer(b"\x9d" + b"\x00" * 14)[1:])
 
@@ -215,5 +238,11 @@ while not stop:
     print(out_line)
 
     abstractx.sleep_ms(100)
+
+if IMU_MODE == "DRDY" and hasattr(abstractx, "imu_drdy_stop"):
+    try:
+        abstractx.imu_drdy_stop()
+    except Exception:
+        pass
 
 print("[E906_RAW_STREAMER_COMPLETE]")

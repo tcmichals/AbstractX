@@ -116,6 +116,30 @@ private:
                 hal::I2cResult res{};
                 res.status = hal::I2cStatus::Ok;
 
+                // Normalize [SPEC-HAL-09] req.msgs into req.slave_addr / tx_data / rx_data when present
+                if (!req.msgs.empty()) {
+                    req.slave_addr = static_cast<uint8_t>(req.address & 0x7FU);
+                    if (req.msgs.size() == 1) {
+                        if (req.msgs[0].is_read()) {
+                            req.tx_data = {};
+                            req.rx_data = req.msgs[0].rx;
+                        } else {
+                            req.tx_data = req.msgs[0].tx;
+                            req.rx_data = {};
+                        }
+                        req.repeated_start = false;
+                    } else if (req.msgs.size() == 2 && !req.msgs[0].is_read() && req.msgs[1].is_read()) {
+                        req.tx_data = req.msgs[0].tx;
+                        req.rx_data = req.msgs[1].rx;
+                        req.repeated_start = true;
+                        if (req.tx_data.size() == 1) {
+                            req.use_register = true;
+                            req.register_offset = req.tx_data[0];
+                        }
+                    }
+                    res.msgs_done = static_cast<uint8_t>(req.msgs.size());
+                }
+
                 if (fd_ >= 0) {
                     if (req.repeated_start && !req.tx_data.empty() && !req.rx_data.empty()) {
                         // Combined Write-then-Read (Repeated Start)

@@ -20,14 +20,16 @@ public:
         : i2c_(i2c_driver), hmc_(i2c_driver), qmc_(i2c_driver) {}
 
     coro::Task<bool> init_async() override {
-        // Try HMC5883L first (addr 0x1E, whoami "H43")
-        if (co_await hmc_.init_async()) {
+        // Probe & try HMC5883L first (addr 0x1E, whoami "H43")
+        if ((co_await i2c_.probe_async(DEFAULT_HMC_I2C_ADDR)).status == hal::I2cStatus::Ok &&
+            co_await hmc_.init_async()) {
             active_chip_ = ChipType::Hmc;
             co_return true;
         }
 
-        // Try QMC5883L next (addr 0x0D)
-        if (co_await qmc_.init_async()) {
+        // Probe & try QMC5883L next (addr 0x0D)
+        if ((co_await i2c_.probe_async(DEFAULT_QMC_I2C_ADDR)).status == hal::I2cStatus::Ok &&
+            co_await qmc_.init_async()) {
             active_chip_ = ChipType::Qmc;
             co_return true;
         }
@@ -42,6 +44,10 @@ public:
             co_return co_await qmc_.read_sample_async();
         }
         co_return MagSample{};
+    }
+
+    Tlp64 pack_tlp(const MagSample& s, uint32_t seq = 0) const noexcept {
+        return active_chip_ == ChipType::Qmc ? Qmc5883l::to_tlp(s, seq) : Hmc5883l::to_tlp(s, seq);
     }
 
     static Tlp64 to_tlp(const MagSample& s, uint32_t seq = 0) noexcept {

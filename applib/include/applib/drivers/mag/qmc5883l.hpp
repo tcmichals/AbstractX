@@ -59,24 +59,36 @@ constexpr uint8_t DEFAULT_QMC_I2C_ADDR = 0x0D;
 class Qmc5883l : public IMagDriver {
 public:
     explicit Qmc5883l(hal::II2c& i2c_driver, uint8_t slave_addr = DEFAULT_QMC_I2C_ADDR)
-        : i2c_(i2c_driver), slave_addr_(slave_addr) {}
+        : i2c_(i2c_driver), dev_{slave_addr, 0} {}
+
+    explicit Qmc5883l(hal::II2c& i2c_driver, const hal::I2cDevice& dev)
+        : i2c_(i2c_driver), dev_(dev) {}
 
     /*
      * C++20 Coroutine Async Lifecycle Initialization [SPEC-MAG-01]
      */
     coro::Task<bool> init_async() override {
         hal::I2cConfig config{};
-        config.frequency_hz = 400'000; // 400 kHz Fast Mode
+        config.frequency_hz = dev_.max_hz ? dev_.max_hz : 400'000; // 400 kHz Fast Mode
         config.speed = hal::I2cSpeed::Fast_400k;
         if (!i2c_.init(config)) {
             co_return false;
         }
 
+        // Verify device presence on bus before register configuration
+        if ((co_await i2c_.probe_async(dev_)).status != hal::I2cStatus::Ok) {
+            co_return false;
+        }
+
         // 1. Soft Reset: Write 0x80 to CONTROL_2
-        co_await i2c_.write_reg_async(slave_addr_, QmcRegs::CONTROL_2, 0x80);
+        if ((co_await i2c_.write_reg_async(dev_, QmcRegs::CONTROL_2, 0x80)).status != hal::I2cStatus::Ok) {
+            co_return false;
+        }
 
         // 2. Set SET/RESET period to recommended 0x01
-        co_await i2c_.write_reg_async(slave_addr_, QmcRegs::PERIOD, 0x01);
+        if ((co_await i2c_.write_reg_async(dev_, QmcRegs::PERIOD, 0x01)).status != hal::I2cStatus::Ok) {
+            co_return false;
+        }
 
         // 3. Configure CONTROL_1:
         //    Mode: Continuous (0x01)
@@ -84,7 +96,9 @@ public:
         //    Range: 8 Gauss (0x01 << 4 = 0x10)
         //    OSR: 512 (0x00 << 6)
         //    Combined: 0x01 | 0x04 | 0x10 = 0x15 (or 0x1D for 200Hz)
-        co_await i2c_.write_reg_async(slave_addr_, QmcRegs::CONTROL_1, 0x1D);
+        if ((co_await i2c_.write_reg_async(dev_, QmcRegs::CONTROL_1, 0x1D)).status != hal::I2cStatus::Ok) {
+            co_return false;
+        }
 
         initialized_ = true;
         co_return true;
@@ -99,14 +113,8 @@ public:
             co_return s;
         }
 
-        uint8_t reg_addr = QmcRegs::DATA_X_LSB;
         std::array<uint8_t, 6> raw_buf{};
-
-        hal::I2cResult res = co_await i2c_.transfer_async(
-            slave_addr_,
-            std::span<const uint8_t>(&reg_addr, 1),
-            std::span<uint8_t>(raw_buf.data(), raw_buf.size())
-        );
+        hal::I2cResult res = co_await i2c_.read_regs_async(dev_, QmcRegs::DATA_X_LSB, raw_buf);
 
         if (res.status == hal::I2cStatus::Ok) {
             int16_t raw_x = static_cast<int16_t>(raw_buf[0] | (raw_buf[1] << 8));
@@ -158,9 +166,9 @@ public:
     }
 
 private:
-    hal::II2c& i2c_;
-    uint8_t    slave_addr_{DEFAULT_QMC_I2C_ADDR};
-    bool       initialized_{false};
+    hal::II2c&     i2c_;
+    hal::I2cDevice dev_{DEFAULT_QMC_I2C_ADDR, 0};
+    bool           initialized_{false};
 };
 
 } // namespace applib::drivers::mag

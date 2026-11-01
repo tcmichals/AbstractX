@@ -285,9 +285,10 @@ public:
         uint16_t                 address{0};
         std::span<const I2cMsg>  caller_msgs{};
         uint32_t                 timeout_us{kI2cDefaultTimeoutUs};
-        uint8_t                  helper{0};   // 0 = caller msgs, 1 = read regs, 2 = write regs, 3 = recover
+        uint8_t                  helper{0};   // 0 = caller msgs, 1 = read regs, 2 = write regs, 3 = recover, 4 = write 1B, 5 = probe
         std::array<uint8_t, 2>   reg{};       // register address, high byte first when reg_len == 2
         uint8_t                  reg_len{1};
+        uint8_t                  val_byte{0};
         std::span<uint8_t>       out{};
         std::span<const uint8_t> in{};
         std::array<I2cMsg, 2>    own_msgs{};
@@ -309,15 +310,24 @@ public:
             return helper == 0 ? caller_msgs : std::span<const I2cMsg>(own_msgs.data(), own_count);
         }
 
-        // Runs on the awaiter's final address, so spans into reg/combined stay valid.
+        // Runs on the awaiter's final address, so spans into reg/combined/val_byte stay valid.
         bool await_ready() noexcept {
             const I2cCapabilities caps = driver.capabilities();
             if (helper == 3) {
                 result.status = caps.bus_recovery ? I2cStatus::Ok : I2cStatus::NotSupported;
                 return result.status != I2cStatus::Ok;
             }
+            if (helper == 4) {
+                in = std::span<const uint8_t>(&val_byte, 1);
+                helper = 2;
+            }
             const std::span<const uint8_t> regs(reg.data(), reg_len);
-            if (helper == 1) {
+            if (helper == 5) {
+                own_msgs[0] = caps.zero_length_write
+                                  ? I2cMsg::write({})
+                                  : I2cMsg::read(std::span<uint8_t>(&val_byte, 1));
+                own_count = 1;
+            } else if (helper == 1) {
                 own_msgs[0] = I2cMsg::write(regs);
                 own_msgs[1] = I2cMsg::read(out);
                 own_count = 2;
@@ -425,6 +435,64 @@ public:
         AsyncMsgAwaiter a = write_regs_async(address, static_cast<uint8_t>(reg >> 8), in, timeout_us);
         a.reg[1] = static_cast<uint8_t>(reg);
         a.reg_len = 2;
+        return a;
+    }
+
+    // I2cDevice overloads (apply dev.address and dev.max_hz, [SPEC-HAL-09]).
+    AsyncMsgAwaiter read_regs_async(const I2cDevice& dev, uint8_t reg, std::span<uint8_t> out,
+                                    uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        AsyncMsgAwaiter a = read_regs_async(dev.address, reg, out, timeout_us);
+        a.hz = dev.max_hz;
+        return a;
+    }
+
+    AsyncMsgAwaiter write_regs_async(const I2cDevice& dev, uint8_t reg, std::span<const uint8_t> in,
+                                     uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        AsyncMsgAwaiter a = write_regs_async(dev.address, reg, in, timeout_us);
+        a.hz = dev.max_hz;
+        return a;
+    }
+
+    AsyncMsgAwaiter read_regs16_async(const I2cDevice& dev, uint16_t reg, std::span<uint8_t> out,
+                                      uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        AsyncMsgAwaiter a = read_regs16_async(dev.address, reg, out, timeout_us);
+        a.hz = dev.max_hz;
+        return a;
+    }
+
+    AsyncMsgAwaiter write_regs16_async(const I2cDevice& dev, uint16_t reg, std::span<const uint8_t> in,
+                                       uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        AsyncMsgAwaiter a = write_regs16_async(dev.address, reg, in, timeout_us);
+        a.hz = dev.max_hz;
+        return a;
+    }
+
+    // Single-byte register read/write returning the full I2cResult ([SPEC-HAL-09]).
+    AsyncMsgAwaiter read_reg_async(const I2cDevice& dev, uint8_t reg, uint8_t& out_byte,
+                                   uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        return read_regs_async(dev, reg, std::span<uint8_t>(&out_byte, 1), timeout_us);
+    }
+
+    AsyncMsgAwaiter write_reg_async(const I2cDevice& dev, uint8_t reg, uint8_t val,
+                                    uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        AsyncMsgAwaiter a{*this, dev.address, {}, timeout_us};
+        a.helper = 4;
+        a.reg[0] = reg;
+        a.val_byte = val;
+        a.hz = dev.max_hz;
+        return a;
+    }
+
+    // Address presence probe (0-length write if supported, else 1-byte read into awaiter scratch).
+    AsyncMsgAwaiter probe_async(uint16_t address, uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        AsyncMsgAwaiter a{*this, address, {}, timeout_us};
+        a.helper = 5;
+        return a;
+    }
+
+    AsyncMsgAwaiter probe_async(const I2cDevice& dev, uint32_t timeout_us = kI2cDefaultTimeoutUs) noexcept {
+        AsyncMsgAwaiter a = probe_async(dev.address, timeout_us);
+        a.hz = dev.max_hz;
         return a;
     }
 

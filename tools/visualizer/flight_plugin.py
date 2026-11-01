@@ -444,10 +444,24 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
             gps_lon = state.gps_lon
             gps_sats = state.gps_sats
             gps_fix = state.gps_fix_type
+            imu_accel_g = getattr(state, "imu_accel_g", (0.0, 0.0, 0.0))
+            imu_gyro_dps = getattr(state, "imu_gyro_dps", (0.0, 0.0, 0.0))
+            imu_temp_c = getattr(state, "imu_temp_c", 0.0)
+            imu_payload = getattr(state, "imu_payload", b"")
 
         # Fused Ground Track (COG) with realistic wind drift crab angle
         cog_deg = (yaw + 7.5 * math.sin(self.sim_phase * 0.4)) % 360.0
         drift_deg = ((cog_deg - yaw + 180.0) % 360.0) - 180.0
+
+        # IMU: decode contract payload when present in live mode
+        if not getattr(state, "sim_mode", False) and sensor_contract is not None and len(imu_payload) >= 30 and any(imu_payload[:14]):
+            try:
+                imu_sample = sensor_contract.decode_imu_payload(imu_payload)
+                imu_accel_g = imu_sample["accel_g"]
+                imu_gyro_dps = imu_sample["gyro_dps"]
+                imu_temp_c = imu_sample["temp_c"]
+            except ValueError:
+                pass
 
         # Magnetometer: the received sample in live mode, a made-up one only with --sim
         if getattr(state, "sim_mode", False):
@@ -530,17 +544,24 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.separator()
 
         # ----------------------------------------------------------------------
-        # 2. Main Navigation Dashboard: Side-by-Side Compass HSI & GPS Geodetic
+        # 2. Main Navigation Dashboard: PFD (IMU) + Compass HSI + GPS Geodetic
         # ----------------------------------------------------------------------
         avail_w = imgui.get_content_region_avail().x
-        col_w = max(360.0, (avail_w - 20.0) / 2.0)
-        inst_h = 360.0
+        col_w = max(260.0, (avail_w - 30.0) / 3.0)
+        inst_h = 340.0
 
-        imgui.columns(2, "nav_main_cols", False)
+        imgui.columns(3, "nav_main_cols", False)
         imgui.set_column_width(0, col_w + 10.0)
         imgui.set_column_width(1, col_w + 10.0)
+        imgui.set_column_width(2, col_w + 10.0)
 
-        # Left Column: High-Precision Vector Compass Rose (HSI)
+        # Column 1: Primary Flight Display (Artificial Horizon from ICM-42688-P IMU)
+        imgui.text_colored(imgui.ImVec4(0.95, 0.75, 0.2, 1.0), "🛩 ICM-42688-P Primary Flight Display (PFD)")
+        self._render_pfd(col_w, inst_h, roll, pitch)
+
+        imgui.next_column()
+
+        # Column 2: High-Precision Vector Compass Rose (HSI)
         imgui.text_colored(imgui.ImVec4(0.4, 0.9, 0.6, 1.0), "🧭 QMC5883L High-Precision Vector Compass Rose (HSI)")
         fix_label = "3D DGPS Fix" if gps_fix == 2 else ("3D Fix" if gps_fix == 1 else "No Fix")
         self._render_compass_rose(col_w, inst_h, yaw, cog_deg, speed_mps, alt_m, fix_label, gps_sats,
@@ -548,7 +569,7 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
 
         imgui.next_column()
 
-        # Right Column: GPS Geodetic Navigation & Satellites Panel
+        # Column 3: GPS Geodetic Navigation & Satellites Panel
         imgui.text_colored(imgui.ImVec4(0.2, 0.8, 1.0, 1.0), "🛰 u-blox NEO-M8N Live Geodetic Navigation & Satellite Fix")
         self._render_gps_navigation_panel(col_w, inst_h, gps_lat, gps_lon, alt_m, speed_mps, gps_sats, fix_label, cog_deg)
 
@@ -556,15 +577,19 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.separator()
 
         # ----------------------------------------------------------------------
-        # 3. Bottom Sensor Details & Ingestion Rate Banner
+        # 3. Bottom Sensor Details & Ingestion Rate Banner (IMU + Compass)
         # ----------------------------------------------------------------------
+        imgui.columns(2, "sensor_detail_cols", False)
+        self._render_imu_sensor_panel(roll, pitch, imu_accel_g, imu_gyro_dps, imu_temp_c, imu_hz)
+        imgui.next_column()
         self._render_compass_sensor_panel(yaw, (mag_x, mag_y, mag_z), mag_field_ut, mag_hz)
+        imgui.columns(1)
         imgui.separator()
 
         # ----------------------------------------------------------------------
         # 4. Real-Time Oscilloscope (ImPlot)
         # ----------------------------------------------------------------------
-        if implot.begin_plot("High-Rate Sensor Telemetry & Magnetometer Waveforms", imgui.ImVec2(-1, 200)):
+        if implot.begin_plot("High-Rate 6-DoF IMU Telemetry (ICM-42688-P Accel g & Gyro dps)", imgui.ImVec2(-1, 200)):
             implot.setup_axes("Time (s)", "Dynamic Amplitude", implot.AxisFlags_.auto_fit, implot.AxisFlags_.auto_fit)
             with state.lock:
                 t_data = np.copy(state.time_history)
@@ -575,9 +600,9 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
                 gy_data = np.copy(state.gyro_y)
                 gz_data = np.copy(state.gyro_z)
 
-            implot.plot_line("Mag X / Accel X", t_data, ax_data)
-            implot.plot_line("Mag Y / Accel Y", t_data, ay_data)
-            implot.plot_line("Mag Z / Accel Z", t_data, az_data)
+            implot.plot_line("Accel X (g)", t_data, ax_data)
+            implot.plot_line("Accel Y (g)", t_data, ay_data)
+            implot.plot_line("Accel Z (g)", t_data, az_data)
             implot.plot_line("Gyro X (dps)", t_data, gx_data)
             implot.plot_line("Gyro Y (dps)", t_data, gy_data)
             implot.plot_line("Gyro Z (dps)", t_data, gz_data)
@@ -829,6 +854,32 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.text_colored(imgui.ImVec4(0.4, 0.8, 0.5, 1.0),
                            "Hardware: u-blox NEO-M8N on UART3 (PI11/PI12) @ 115,200 Baud")
 
+        imgui.end_child()
+
+    def _render_imu_sensor_panel(self, roll_deg: float, pitch_deg: float,
+                                 accel_g: tuple, gyro_dps: tuple, temp_c: float, imu_hz: int):
+        """
+        Draws the live ICM-42688-P 6-Axis IMU sensor details (SPI1 DMA + PI8 DRDY).
+        """
+        imgui.begin_child("ImuSensorPanel", imgui.ImVec2(-1, 115), True)
+        ax, ay, az = accel_g
+        gx, gy, gz = gyro_dps
+        imgui.columns(3, "imu_info_cols", False)
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "ATTITUDE & TEMP")
+        imgui.text_colored(imgui.ImVec4(0.95, 0.75, 0.2, 1.0), f"R={roll_deg:+5.1f}° P={pitch_deg:+5.1f}° ({temp_c:.1f}°C)")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "ACCEL (g)")
+        imgui.text_colored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), f"X={ax:+.2f} Y={ay:+.2f} Z={az:+.2f}")
+
+        imgui.next_column()
+        imgui.text_colored(imgui.ImVec4(0.6, 0.7, 0.8, 1.0), "GYRO (°/s)")
+        imgui.text_colored(imgui.ImVec4(0.2, 0.85, 1.0, 1.0), f"X={gx:+5.1f} Y={gy:+5.1f} Z={gz:+5.1f}")
+        imgui.columns(1)
+
+        imgui.separator()
+        imgui.text_colored(imgui.ImVec4(0.4, 0.8, 0.5, 1.0),
+                           f"ICM-42688-P on SPI1 (PI2..PI5 + PI8 DRDY) @ 10 MHz | {imu_hz} Hz Telemetry")
         imgui.end_child()
 
     def _render_compass_sensor_panel(self, heading_deg: float, mag_xyz: tuple, field_ut: float, mag_hz: int):

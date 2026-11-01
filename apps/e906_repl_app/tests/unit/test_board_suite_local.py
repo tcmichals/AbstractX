@@ -109,6 +109,32 @@ def test_compass_bytes_decode_on_the_host():
         raise AssertionError(f"decode_mag accepted {bad!r}")
 
 
+def test_imu_bytes_decode_on_the_host():
+    """The E906 sends 14-byte ICM-42688-P bursts as read; the host decodes and checks integrity."""
+    sys.path.insert(0, str(ROOT / "apps" / "e906_repl_app"))
+    import sensor_contract as wire
+    # Temp=1325 (~35.0C), Accel=(0, 0, 2048 -> 1g), Gyro=(164 -> 10dps, -164 -> -10dps, 0)
+    raw = struct.pack(">hhhhhhh", 1325, 0, 0, 2048, 164, -164, 0)
+    d = wire.decode_imu(raw)
+    assert d["chip"] == "ICM42688P"
+    assert d["accel_raw"] == (0, 0, 2048) and d["gyro_raw"] == (164, -164, 0)
+    assert abs(d["accel_g"][2] - 1.0) < 1e-6
+    assert abs(d["gyro_dps"][0] - 10.0) < 1e-3 and abs(d["gyro_dps"][1] + 10.0) < 1e-3
+    assert 34.9 < d["temp_c"] < 35.1
+    assert abs(d["roll_deg"]) < 1e-3 and abs(d["pitch_deg"]) < 1e-3
+    payload = wire.encode_imu_payload(raw) + bytes(10)
+    sample = wire.decode_imu_payload(payload)
+    assert sample["accel_raw"] == (0, 0, 2048) and sample["raw"] == raw
+    tampered = bytearray(wire.encode_imu_payload(raw))
+    tampered[18] ^= 1
+    try:
+        wire.decode_imu_payload(bytes(tampered))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("decode_imu_payload accepted tampered values")
+
+
 def test_nmea_checksum_gate():
     """Only checksummed NMEA reaches the GPS packet (a garbled sentence killed the stream)."""
     sys.path.insert(0, str(ROOT / "apps" / "e906_repl_app"))

@@ -60,40 +60,44 @@ constexpr uint8_t DEFAULT_HMC_I2C_ADDR = 0x1E;
 class Hmc5883l : public IMagDriver {
 public:
     explicit Hmc5883l(hal::II2c& i2c_driver, uint8_t slave_addr = DEFAULT_HMC_I2C_ADDR)
-        : i2c_(i2c_driver), slave_addr_(slave_addr) {}
+        : i2c_(i2c_driver), dev_{slave_addr, 0} {}
+
+    explicit Hmc5883l(hal::II2c& i2c_driver, const hal::I2cDevice& dev)
+        : i2c_(i2c_driver), dev_(dev) {}
 
     /*
      * C++20 Coroutine Async Lifecycle Initialization
      */
     coro::Task<bool> init_async() override {
         hal::I2cConfig config{};
-        config.frequency_hz = 400'000;
+        config.frequency_hz = dev_.max_hz ? dev_.max_hz : 400'000;
         config.speed = hal::I2cSpeed::Fast_400k;
         if (!i2c_.init(config)) {
             co_return false;
         }
 
-        // Verify ID registers ('H', '4', '3')
-        uint8_t id_reg = HmcRegs::ID_A;
+        // Verify ID registers ('H', '4', '3') via [SPEC-HAL-09] read_regs_async(dev, reg, out)
         std::array<uint8_t, 3> id_buf{};
-        hal::I2cResult id_res = co_await i2c_.transfer_async(
-            slave_addr_,
-            std::span<const uint8_t>(&id_reg, 1),
-            std::span<uint8_t>(id_buf.data(), id_buf.size())
-        );
+        hal::I2cResult id_res = co_await i2c_.read_regs_async(dev_, HmcRegs::ID_A, id_buf);
 
         if (id_res.status != hal::I2cStatus::Ok || id_buf[0] != 'H' || id_buf[1] != '4' || id_buf[2] != '3') {
             co_return false;
         }
 
         // CRA: 8-average, 75 Hz (0x78) or 15 Hz (0x70)
-        co_await i2c_.write_reg_async(slave_addr_, HmcRegs::CONFIG_A, 0x78);
+        if ((co_await i2c_.write_reg_async(dev_, HmcRegs::CONFIG_A, 0x78)).status != hal::I2cStatus::Ok) {
+            co_return false;
+        }
 
         // CRB: +-1.3 Gauss range (0x20) -> 1090 LSB/Gauss
-        co_await i2c_.write_reg_async(slave_addr_, HmcRegs::CONFIG_B, 0x20);
+        if ((co_await i2c_.write_reg_async(dev_, HmcRegs::CONFIG_B, 0x20)).status != hal::I2cStatus::Ok) {
+            co_return false;
+        }
 
         // Mode: Continuous measurement (0x00)
-        co_await i2c_.write_reg_async(slave_addr_, HmcRegs::MODE, 0x00);
+        if ((co_await i2c_.write_reg_async(dev_, HmcRegs::MODE, 0x00)).status != hal::I2cStatus::Ok) {
+            co_return false;
+        }
 
         initialized_ = true;
         co_return true;
@@ -108,14 +112,8 @@ public:
             co_return s;
         }
 
-        uint8_t reg_addr = HmcRegs::DATA_X_MSB;
         std::array<uint8_t, 6> raw_buf{};
-
-        hal::I2cResult res = co_await i2c_.transfer_async(
-            slave_addr_,
-            std::span<const uint8_t>(&reg_addr, 1),
-            std::span<uint8_t>(raw_buf.data(), raw_buf.size())
-        );
+        hal::I2cResult res = co_await i2c_.read_regs_async(dev_, HmcRegs::DATA_X_MSB, raw_buf);
 
         if (res.status == hal::I2cStatus::Ok) {
             // Note: HMC5883L register order is X, Z, Y
@@ -163,9 +161,9 @@ public:
     }
 
 private:
-    hal::II2c& i2c_;
-    uint8_t    slave_addr_{DEFAULT_HMC_I2C_ADDR};
-    bool       initialized_{false};
+    hal::II2c&     i2c_;
+    hal::I2cDevice dev_{DEFAULT_HMC_I2C_ADDR, 0};
+    bool           initialized_{false};
 };
 
 } // namespace applib::drivers::mag

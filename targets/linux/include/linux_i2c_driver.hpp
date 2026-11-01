@@ -39,6 +39,16 @@ public:
         return worker_.set_frequency(frequency_hz);
     }
 
+    I2cCapabilities capabilities() const noexcept override {
+        I2cCapabilities caps{};
+        caps.max_hz = 1'000'000;
+        caps.max_msgs = 16;
+        caps.no_start = true;
+        caps.zero_length_write = true;
+        caps.per_device_hz = true;
+        return caps;
+    }
+
     bool write_read_sync(uint8_t slave_addr,
                          std::span<const uint8_t> tx_data,
                          std::span<uint8_t> rx_data) override {

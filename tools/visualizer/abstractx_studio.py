@@ -128,7 +128,7 @@ class TelemetryState:
             {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
             {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & Sensors", "clock_mhz": 800},
         ]
-        self.hardware_accels = ["UART3 FIFO (GPS)", "TWI1 I2C (Compass)", "sun6i-msgbox"]
+        self.hardware_accels = ["SPI1 DMA + PI8 DRDY (ICM-42688-P IMU)", "UART3 FIFO (GPS)", "TWI1 I2C (Compass)", "sun6i-msgbox"]
 
         # Dual-Plane Execution Data (Level 1)
         # Plane 1: I/O Processor & Drivers (Interrupt & DMA Context)
@@ -186,8 +186,12 @@ class TelemetryState:
         self._mag_count = 0
         self._gps_count = 0
         self._ahrs_count = 0
-        # Last tag-3 payload as received; its format belongs to the app (plugins decode it)
+        # Last tag-3 / tag-1 payloads as received; their format belongs to the app (plugins decode them)
         self.mag_payload = b""
+        self.imu_payload = b""
+        self.imu_temp_c = 0.0
+        self.imu_accel_g = (0.0, 0.0, 0.0)
+        self.imu_gyro_dps = (0.0, 0.0, 0.0)
 
         # Ring buffers for Sensor Data (Time vs Value)
         self.time_history = np.zeros(HISTORY_SIZE, dtype=np.float64)
@@ -1255,6 +1259,9 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                 g_state.yaw_deg = yaw
                 g_state.altitude_m = alt
                 g_state.ground_speed_mps = spd
+                g_state.imu_accel_g = (float(ax), float(ay), float(az))
+                g_state.imu_gyro_dps = (float(gx), float(gy), float(gz))
+                g_state.imu_temp_c = 32.5
                 g_state.motors = [m1, m2, m3, m4]
                 g_state.packet_count += 1
                 g_state.rate_counter += 1
@@ -1404,6 +1411,7 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                 g_state.yaw_deg = yaw_cdeg * 0.01
                                 g_state.altitude_m = alt_mm * 0.001
                                 g_state.ground_speed_mps = spd_cm_s * 0.01
+                                g_state._ahrs_count += 1
                         elif le_type == 0x10 and le_tag == 2:
                             # Stream 2: GPS Geodetic Solution Packet (26B)
                             if len(frame) >= 46:
@@ -1411,8 +1419,11 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                 with g_state.lock:
                                     g_state.gps_lat = lat_i * 1e-7
                                     g_state.gps_lon = lon_i * 1e-7
+                                    g_state.gps_alt_m = alt_i * 0.001
+                                    g_state.gps_speed_mps = spd_i * 0.001
                                     g_state.gps_sats = sats_b
                                     g_state.gps_fix_type = fix_b
+                                    g_state._gps_count += 1
                         elif le_type == 0x10 and le_tag == 3:
                             # @impl [SPEC-STUDIO-14] tools/visualizer/SPECIFICATION.md
                             with g_state.lock:
@@ -1462,21 +1473,40 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                         })
 
                         elif le_tag == 1:
-                            # Stream 1 Event 1: IMU Sample
-                            if len(frame) >= 47:
+                            # Stream 1: Either Live Board ICM-42688-P Payload (addr 0x40001000) or SITL CTF Event 1
+                            if le_addr == 0x40001000:
+                                raw_14 = frame[20:34]
+                                if len(raw_14) == 14 and any(b != 0 for b in raw_14):
+                                    temp_raw, ax, ay, az, gx, gy, gz = struct.unpack(">hhhhhhh", raw_14)
+                                    ax_g = ax / 2048.0
+                                    ay_g = ay / 2048.0
+                                    az_g = az / 2048.0
+                                    gx_dps = gx / 16.4
+                                    gy_dps = gy / 16.4
+                                    gz_dps = gz / 16.4
+                                    temp_c = (temp_raw / 132.48) + 25.0
+                                    g_state.push_sensor_sample(t, ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps)
+                                    with g_state.lock:
+                                        g_state.imu_payload = bytes(frame[20:60])
+                                        g_state.imu_accel_g = (ax_g, ay_g, az_g)
+                                        g_state.imu_gyro_dps = (gx_dps, gy_dps, gz_dps)
+                                        g_state.imu_temp_c = temp_c
+                                        g_state._imu_count += 1
+                            elif len(frame) >= 47:
                                 _, _, sample_seq, ax_mg, ay_mg, az_mg, gx_dps, gy_dps, gz_dps, temp_c = struct.unpack(
                                     "<BQihhhhhhh", frame[20:47]
                                 )
-                                g_state.push_sensor_sample(
-                                    t,
-                                    ax_mg / 1000.0,
-                                    ay_mg / 1000.0,
-                                    az_mg / 1000.0,
-                                    gx_dps / 10.0,
-                                    gy_dps / 10.0,
-                                    gz_dps / 10.0
-                                )
+                                ax_g = ax_mg / 1000.0
+                                ay_g = ay_mg / 1000.0
+                                az_g = az_mg / 1000.0
+                                gx_d = gx_dps / 10.0
+                                gy_d = gy_dps / 10.0
+                                gz_d = gz_dps / 10.0
+                                g_state.push_sensor_sample(t, ax_g, ay_g, az_g, gx_d, gy_d, gz_d)
                                 with g_state.lock:
+                                    g_state.imu_accel_g = (ax_g, ay_g, az_g)
+                                    g_state.imu_gyro_dps = (gx_d, gy_d, gz_d)
+                                    g_state.imu_temp_c = temp_c / 100.0
                                     g_state._imu_count += 1
 
                         elif le_tag == 2:

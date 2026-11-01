@@ -24,29 +24,33 @@ using namespace abstractx::coro;
 // @impl [SPEC-LOOP-01] [SPEC-TLP-03] apps/serial_loopback_app/SPECIFICATION.md#spec-loop-01 docs/DESIGN_SPECIFICATION.md#spec-tlp-03
 static MpscTlpRing<> g_serial_tx_ring;
 static MpscTlpRing<> g_serial_rx_ring;
+static CoroutineIoEngine g_serial_io{g_serial_tx_ring, g_serial_rx_ring};
 
 // @impl [SPEC-LOOP-01] [SPEC-LOOP-08] [SPEC-LOOP-09] apps/serial_loopback_app/SPECIFICATION.md
 Task<void> serial_ping_loopback_task(hal::ITimer& timer) {
     uint32_t echo_sequence = 0;
     while (true) {
-        Tlp64 in_tlp{};
-        // Check for ingress TLP packet from abstract transport ring (Serial / RPMSG / UDP)
-        if (g_serial_rx_ring.pop(in_tlp)) {
-            // Verify if this is an App-Layer Ping Request (MemRead / 0x01)
-            if (in_tlp.type() == TlpType::MemRead || in_tlp.type() == TlpType::MemWrite) {
-                Tlp64 echo_tlp{};
-                echo_tlp.wire.type = static_cast<uint8_t>(TlpType::Completion);
-                echo_tlp.wire.flags = 0; // ASP_STATUS_OK
-                echo_tlp.wire.tag = in_tlp.tag();
-                echo_tlp.wire.channel = in_tlp.wire.channel;
-                echo_tlp.wire.target_address = in_tlp.target_address();
-                echo_tlp.wire.length_dw = in_tlp.wire.length_dw;
-                echo_tlp.wire.sequence = static_cast<uint16_t>(++echo_sequence);
-                echo_tlp.wire.timestamp_ns = timer.get_time_us() * 1000ULL;
-                std::memcpy(echo_tlp.wire.payload, in_tlp.wire.payload, ASP_TLP64_PAYLOAD_SIZE);
+        Tlp64 batch[8]{};
+        if (!g_serial_rx_ring.empty()) {
+            const size_t n = co_await g_serial_io.async_await_stream_batch(batch);
+            for (size_t i = 0; i < n; ++i) {
+                const Tlp64& in_tlp = batch[i];
+                // Verify if this is an App-Layer Ping Request (MemRead / 0x01)
+                if (in_tlp.type() == TlpType::MemRead || in_tlp.type() == TlpType::MemWrite) {
+                    Tlp64 echo_tlp{};
+                    echo_tlp.wire.type = static_cast<uint8_t>(TlpType::Completion);
+                    echo_tlp.wire.flags = 0; // ASP_STATUS_OK
+                    echo_tlp.wire.tag = in_tlp.tag();
+                    echo_tlp.wire.channel = in_tlp.wire.channel;
+                    echo_tlp.wire.target_address = in_tlp.target_address();
+                    echo_tlp.wire.length_dw = in_tlp.wire.length_dw;
+                    echo_tlp.wire.sequence = static_cast<uint16_t>(++echo_sequence);
+                    echo_tlp.wire.timestamp_ns = timer.get_time_us() * 1000ULL;
+                    std::memcpy(echo_tlp.wire.payload, in_tlp.wire.payload, ASP_TLP64_PAYLOAD_SIZE);
 
-                // Push echo completion into egress ring (Threshold-balanced DMA/FIFO transport)
-                g_serial_tx_ring.push(echo_tlp);
+                    // Push echo completion into egress ring (Threshold-balanced DMA/FIFO transport)
+                    g_serial_tx_ring.push(echo_tlp);
+                }
             }
         }
         co_await abstractx::step_async();
