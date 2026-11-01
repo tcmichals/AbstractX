@@ -17,6 +17,7 @@
 #include "applib/drivers/mag/qmc5883l.hpp"
 #include "attitude_filter.hpp"
 #include <cstdio>
+#include <cstring>
 
 using namespace abstractx;
 using namespace abstractx::coro;
@@ -27,9 +28,9 @@ using namespace abstractx::fusion;
 
 // Lock-free static TLP rings for inter-domain communication
 // @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-ARCH-02] [SPEC-APP-07] [SPEC-E906-MEM-01] [SPEC-E906-IPC-04] docs/DESIGN_SPECIFICATION.md#spec-tlp-01 apps/gps_imu_app/SPECIFICATION.md#spec-app-07 targets/allwinner_e906/SPECIFICATION.md#spec-e906-mem-01
-inline MpscTlpRing<> g_tx_ring;        // Flight Controller -> I/O Processor (Requests)
-inline MpscTlpRing<> g_sensor_ring;    // I/O Processor -> Flight Controller (Completions)
-inline MpscTlpRing<> g_telemetry_ring; // Flight Controller -> Egress / Network (:9870)
+inline MpscTlpRing<> g_tx_ring;        // Flight Controller / Host RPMsg -> I/O Processor (Requests / DMA_CFG)
+inline MpscTlpRing<> g_sensor_ring;    // I/O Processor -> Flight Controller (Completions & Auto-DMA Stream TLPs)
+inline MpscTlpRing<> g_telemetry_ring; // Flight Controller -> Egress / RPMsg / Network (:9870)
 
 // Lock-free asynchronous coroutine channels for multi-rate sensor streaming
 // @impl [SPEC-APP-02] [SPEC-APP-03] [SPEC-ARCH-02] apps/gps_imu_app/SPECIFICATION.md#spec-app-02
@@ -37,17 +38,185 @@ inline AsyncQueue<ImuSample, 32> g_imu_channel; // High rate (1 kHz - 8 kHz)
 inline AsyncQueue<MagSample, 16> g_mag_channel; // Medium rate (50 Hz - 100 Hz)
 inline AsyncQueue<GpsFix, 8>     g_gps_channel; // Low rate (5 Hz - 10 Hz)
 
+namespace detail_studio_tlp {
+
+inline void pack_be16(uint8_t* dst, int16_t v) noexcept {
+    const auto u = static_cast<uint16_t>(v);
+    dst[0] = static_cast<uint8_t>(u >> 8);
+    dst[1] = static_cast<uint8_t>(u & 0xFFU);
+}
+
+inline void pack_le16(uint8_t* dst, int16_t v) noexcept {
+    const auto u = static_cast<uint16_t>(v);
+    dst[0] = static_cast<uint8_t>(u & 0xFFU);
+    dst[1] = static_cast<uint8_t>(u >> 8);
+}
+
+inline void pack_le32(uint8_t* dst, int32_t v) noexcept {
+    const auto u = static_cast<uint32_t>(v);
+    dst[0] = static_cast<uint8_t>(u & 0xFFU);
+    dst[1] = static_cast<uint8_t>((u >> 8) & 0xFFU);
+    dst[2] = static_cast<uint8_t>((u >> 16) & 0xFFU);
+    dst[3] = static_cast<uint8_t>((u >> 24) & 0xFFU);
+}
+
+inline int16_t unpack_be16(const uint8_t* src) noexcept {
+    return static_cast<int16_t>((static_cast<uint16_t>(src[0]) << 8) | static_cast<uint16_t>(src[1]));
+}
+
+inline ImuSample decode_raw_imu_14b(const uint8_t* raw, uint64_t ts_us, uint32_t /*seq*/) noexcept {
+    ImuSample s{};
+    const int16_t temp_raw = unpack_be16(raw + 0);
+    const int16_t ax_raw   = unpack_be16(raw + 2);
+    const int16_t ay_raw   = unpack_be16(raw + 4);
+    const int16_t az_raw   = unpack_be16(raw + 6);
+    const int16_t gx_raw   = unpack_be16(raw + 8);
+    const int16_t gy_raw   = unpack_be16(raw + 10);
+    const int16_t gz_raw   = unpack_be16(raw + 12);
+
+    s.temp_deg_c   = (static_cast<float>(temp_raw) / 132.48f) + 25.0f;
+    s.accel_g[0]   = static_cast<float>(ax_raw) / 2048.0f;
+    s.accel_g[1]   = static_cast<float>(ay_raw) / 2048.0f;
+    s.accel_g[2]   = static_cast<float>(az_raw) / 2048.0f;
+    s.gyro_dps[0]  = static_cast<float>(gx_raw) / 16.4f;
+    s.gyro_dps[1]  = static_cast<float>(gy_raw) / 16.4f;
+    s.gyro_dps[2]  = static_cast<float>(gz_raw) / 16.4f;
+    s.timestamp_us = ts_us;
+    s.valid        = true;
+    return s;
+}
+
+// Tag 1 TLP (target_address = 0x40001000): 30-byte sensor_contract.encode_imu_payload layout
+inline Tlp64 make_imu_tlp_from_raw(const uint8_t* raw14, uint16_t seq, uint64_t ts_ns, uint8_t flags = 0x01) noexcept {
+    Tlp64 tlp{};
+    tlp.wire.type           = static_cast<uint8_t>(TlpType::DmaStream);
+    tlp.wire.flags          = flags;
+    tlp.wire.tag            = 1;
+    tlp.wire.channel        = static_cast<uint8_t>(Channel::Telemetry);
+    tlp.wire.target_address = 0x40001000U;
+    tlp.wire.length_dw      = 8; // 30 bytes = 8 DWs
+    tlp.wire.sequence       = seq;
+    tlp.wire.timestamp_ns   = ts_ns;
+    std::memcpy(tlp.wire.payload, raw14, 14);
+    tlp.wire.payload[14]    = 1; // ICM42688P chip code
+    tlp.wire.payload[15]    = 0;
+    for (int i = 0; i < 7; ++i) {
+        pack_le16(&tlp.wire.payload[16 + i * 2], unpack_be16(&raw14[i * 2]));
+    }
+    tlp.wire.crc32 = 0xEFBEADDEU;
+    return tlp;
+}
+
+inline Tlp64 make_imu_tlp_from_sample(const ImuSample& s, uint16_t seq) noexcept {
+    uint8_t raw14[14]{};
+    const auto temp_raw = static_cast<int16_t>((s.temp_deg_c - 25.0f) * 132.48f);
+    const auto ax_raw   = static_cast<int16_t>(s.accel_g[0] * 2048.0f);
+    const auto ay_raw   = static_cast<int16_t>(s.accel_g[1] * 2048.0f);
+    const auto az_raw   = static_cast<int16_t>(s.accel_g[2] * 2048.0f);
+    const auto gx_raw   = static_cast<int16_t>(s.gyro_dps[0] * 16.4f);
+    const auto gy_raw   = static_cast<int16_t>(s.gyro_dps[1] * 16.4f);
+    const auto gz_raw   = static_cast<int16_t>(s.gyro_dps[2] * 16.4f);
+    pack_be16(&raw14[0], temp_raw);
+    pack_be16(&raw14[2], ax_raw);
+    pack_be16(&raw14[4], ay_raw);
+    pack_be16(&raw14[6], az_raw);
+    pack_be16(&raw14[8], gx_raw);
+    pack_be16(&raw14[10], gy_raw);
+    pack_be16(&raw14[12], gz_raw);
+    return make_imu_tlp_from_raw(raw14, seq, s.timestamp_us * 1000ULL, 0x00);
+}
+
+// Tag 3 TLP (target_address = 0x40003000): 14-byte sensor_contract.encode_mag_payload layout
+inline Tlp64 make_mag_tlp(const MagSample& s, uint16_t seq) noexcept {
+    Tlp64 tlp{};
+    tlp.wire.type           = static_cast<uint8_t>(TlpType::DmaStream);
+    tlp.wire.flags          = 0;
+    tlp.wire.tag            = 3;
+    tlp.wire.channel        = static_cast<uint8_t>(Channel::Telemetry);
+    tlp.wire.target_address = 0x40003000U;
+    tlp.wire.length_dw      = 4; // 14 bytes = 4 DWs
+    tlp.wire.sequence       = seq;
+    tlp.wire.timestamp_ns   = s.timestamp_us * 1000ULL;
+    // QMC5883L (chip_code = 2): 6 raw LE bytes + [2, 0] + 6 decoded LE bytes (3 LSB/mG @ 8G)
+    const auto rx = static_cast<int16_t>(s.mag_mgauss[0] * 3.0f);
+    const auto ry = static_cast<int16_t>(s.mag_mgauss[1] * 3.0f);
+    const auto rz = static_cast<int16_t>(s.mag_mgauss[2] * 3.0f);
+    pack_le16(&tlp.wire.payload[0], rx);
+    pack_le16(&tlp.wire.payload[2], ry);
+    pack_le16(&tlp.wire.payload[4], rz);
+    tlp.wire.payload[6] = 2; // QMC5883L
+    tlp.wire.payload[7] = 0;
+    pack_le16(&tlp.wire.payload[8], rx);
+    pack_le16(&tlp.wire.payload[10], ry);
+    pack_le16(&tlp.wire.payload[12], rz);
+    tlp.wire.crc32 = 0xEFBEADDEU;
+    return tlp;
+}
+
+// Tag 2 TLP (target_address = 0x40005000): 26-byte GPS Geodetic Solution (<i5i2B)
+inline Tlp64 make_gps_tlp(const GpsFix& f, uint16_t seq) noexcept {
+    Tlp64 tlp{};
+    tlp.wire.type           = static_cast<uint8_t>(TlpType::DmaStream);
+    tlp.wire.flags          = 0;
+    tlp.wire.tag            = 2;
+    tlp.wire.channel        = static_cast<uint8_t>(Channel::Telemetry);
+    tlp.wire.target_address = 0x40005000U;
+    tlp.wire.length_dw      = 7; // 26 bytes = 7 DWs
+    tlp.wire.sequence       = seq;
+    tlp.wire.timestamp_ns   = f.timestamp_us * 1000ULL;
+    pack_le32(&tlp.wire.payload[0], static_cast<int32_t>(f.itow_ms));
+    pack_le32(&tlp.wire.payload[4], f.lat_1e7);
+    pack_le32(&tlp.wire.payload[8], f.lon_1e7);
+    pack_le32(&tlp.wire.payload[12], f.alt_msl_mm);
+    pack_le32(&tlp.wire.payload[16], f.ground_speed_mm_s);
+    pack_le32(&tlp.wire.payload[20], f.heading_1e5);
+    tlp.wire.payload[24] = f.satellites;
+    tlp.wire.payload[25] = static_cast<uint8_t>(f.fix_type);
+    tlp.wire.crc32 = 0xEFBEADDEU;
+    return tlp;
+}
+
+} // namespace detail_studio_tlp
+
 // ============================================================================
 // Multi-Rate Sensor Producer Coroutines (Zero State Machines)
 // ============================================================================
 
-// High-Rate IMU Task: Ingests 8 kHz SPI DMA auto-burst samples
+// High-Rate IMU Task: Supports both hardware Auto-DMA (PI8 DRDY -> g_sensor_ring)
+// and Polled SPI (imu.next_sample_async()), selectable from AbstractX Studio!
 // @impl [SPEC-IMU-01] [SPEC-IMU-02] [SPEC-HAL-02] [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md#spec-imu-01
 inline Task<void> imu_producer_task(Icm42688p& imu) {
+    uint32_t seq = 0;
     while (true) {
+        bool got_auto = false;
+        Tlp64 tlp{};
+        while (g_sensor_ring.pop(tlp)) {
+            if (tlp.wire.type == 0x32U) { // ASP_TLP_TYPE_HW_FUSION_CPL
+                g_telemetry_ring.push(tlp);
+                continue;
+            }
+            const auto raw = tlp.payload();
+            if (tlp.tag() == 1 && raw.size() >= 14) {
+                ++seq;
+                ImuSample sample = detail_studio_tlp::decode_raw_imu_14b(
+                    raw.data(), tlp.wire.timestamp_ns / 1000ULL, seq);
+                g_imu_channel.try_push(sample);
+                g_telemetry_ring.push(detail_studio_tlp::make_imu_tlp_from_raw(
+                    raw.data(), static_cast<uint16_t>(seq), tlp.wire.timestamp_ns, 0x01));
+                got_auto = true;
+            }
+        }
+        if (got_auto) {
+            co_await abstractx::step_async();
+            continue;
+        }
+
         ImuSample sample = co_await imu.next_sample_async();
         if (sample.valid) {
+            ++seq;
             g_imu_channel.try_push(sample);
+            g_telemetry_ring.push(detail_studio_tlp::make_imu_tlp_from_sample(
+                sample, static_cast<uint16_t>(seq)));
         }
     }
 }
@@ -55,11 +224,13 @@ inline Task<void> imu_producer_task(Icm42688p& imu) {
 // Medium-Rate Magnetometer Task: Ingests 50 Hz I2C 3-axis magnetic compass samples
 // @impl [SPEC-HAL-05] [SPEC-APP-03] apps/gps_imu_app/SPECIFICATION.md#spec-app-03
 inline Task<void> mag_producer_task(Qmc5883l& mag, hal::ITimer& timer) {
+    uint16_t seq = 0;
     while (true) {
         co_await timer.sleep_ms_async(20); // 50 Hz sampling cadence
         MagSample sample = co_await mag.read_sample_async();
         if (sample.valid) {
             g_mag_channel.try_push(sample);
+            g_telemetry_ring.push(detail_studio_tlp::make_mag_tlp(sample, ++seq));
         }
     }
 }
@@ -67,10 +238,12 @@ inline Task<void> mag_producer_task(Qmc5883l& mag, hal::ITimer& timer) {
 // Low-Rate GPS Navigation Task: Ingests 10 Hz UBX-NAV-PVT solutions from UART
 // @impl [SPEC-GPS-01] [SPEC-GPS-02] [SPEC-HAL-03] docs/DESIGN_SPECIFICATION.md#spec-gps-01
 inline Task<void> gps_producer_task(UbloxGps& gps) {
+    uint16_t seq = 0;
     while (true) {
         GpsFix fix = co_await gps.next_fix_async();
         if (fix.valid) {
             g_gps_channel.try_push(fix);
+            g_telemetry_ring.push(detail_studio_tlp::make_gps_tlp(fix, ++seq));
         }
     }
 }

@@ -192,6 +192,9 @@ class TelemetryState:
         self.imu_temp_c = 0.0
         self.imu_accel_g = (0.0, 0.0, 0.0)
         self.imu_gyro_dps = (0.0, 0.0, 0.0)
+        self.imu_auto_dma_enabled = True
+        self.imu_dma_completions = 0
+        self.e906_runtime_mode = "python"
 
         # Ring buffers for Sensor Data (Time vs Value)
         self.time_history = np.zeros(HISTORY_SIZE, dtype=np.float64)
@@ -1472,6 +1475,12 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                             "token": f"Task: {name_str}"
                                         })
 
+                        elif le_type == 0x32:
+                            # ASP_TLP_TYPE_HW_FUSION_CPL (0x32): Auto-DMA configuration completion ACK from E906 IoEngine
+                            with g_state.lock:
+                                g_state.imu_dma_completions += 1
+                                g_state.fpga_trace = f"UDP: E906 IoEngine Auto-DMA ACK (0x32, ch={le_ch}, tag={le_tag}) | Seq: #{le_seq}"
+
                         elif le_tag == 1:
                             # Stream 1: Either Live Board ICM-42688-P Payload (addr 0x40001000) or SITL CTF Event 1
                             if le_addr == 0x40001000:
@@ -1491,6 +1500,8 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                                         g_state.imu_accel_g = (ax_g, ay_g, az_g)
                                         g_state.imu_gyro_dps = (gx_dps, gy_dps, gz_dps)
                                         g_state.imu_temp_c = temp_c
+                                        if le_flags in (0x00, 0x01):
+                                            g_state.imu_auto_dma_enabled = (le_flags & 0x01) != 0
                                         g_state._imu_count += 1
                             elif len(frame) >= 47:
                                 _, _, sample_seq, ax_mg, ay_mg, az_mg, gx_dps, gy_dps, gz_dps, temp_c = struct.unpack(

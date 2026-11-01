@@ -6,9 +6,13 @@ add_executable(e906_coprocessor
     main.cpp
 )
 
+target_include_directories(e906_coprocessor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../include
+)
+
 target_link_libraries(e906_coprocessor PRIVATE
-    abstractx_target_e906
     abstractx_core
+    abstractx_target_e906
     etl
     m
 )

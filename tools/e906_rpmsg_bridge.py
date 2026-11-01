@@ -243,12 +243,12 @@ class AsyncBridge:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    ap.add_argument("mode", choices=sorted(ENDPOINTS))
+    ap.add_argument("mode", choices=sorted(list(ENDPOINTS) + ["studio"]))
     ap.add_argument("--ctrl", default="/dev/rpmsg_ctrl0", help="rpmsg control device")
     ap.add_argument("--dev", help="use an existing /dev/rpmsgN instead of creating one")
     ap.add_argument("--udp-host", default="127.0.0.1")
-    ap.add_argument("--udp-port", type=int, help="destination port (trace 9870, tlp 9871)")
-    ap.add_argument("--listen-port", type=int, default=9872, help="tlp: UDP port for TLPs to the E906")
+    ap.add_argument("--udp-port", type=int, help="destination port (trace/studio 9870, tlp 9871)")
+    ap.add_argument("--listen-port", type=int, default=9872, help="tlp/studio: UDP port for TLPs to the E906")
     ap.add_argument("--exit-on-stdin-eof", action="store_true",
                     help="exit when stdin closes (run over ssh: ends with the session) [SPEC-E906-REPL-18]")
     ap.add_argument("--sync", dest="use_async", action="store_false", default=True,
@@ -260,6 +260,36 @@ def main() -> int:
             sys.stdin.buffer.read()
             os._exit(0)
         threading.Thread(target=_watch_stdin, daemon=True).start()
+
+    if args.mode == "studio":
+        # Unified Studio mode: bridges both abstractx-tlp (1024) and abstractx-trace (1025)
+        # to UDP :9870, and forwards control TLPs received on UDP :9872 to abstractx-tlp.
+        port = args.udp_port or 9870
+        tlp_dev = create_endpoint(args.ctrl, ENDPOINTS["tlp"]["name"], ENDPOINTS["tlp"]["addr"])
+        trace_dev = create_endpoint(args.ctrl, ENDPOINTS["trace"]["name"], ENDPOINTS["trace"]["addr"])
+        tlp_fd = os.open(tlp_dev, os.O_RDWR)
+        trace_fd = os.open(trace_dev, os.O_RDWR)
+        out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        in_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        in_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        in_sock.bind(("0.0.0.0", args.listen_port))
+
+        print(f"[bridge] studio: {tlp_dev} (1024) + {trace_dev} (1025) -> udp {args.udp_host}:{port} (ctrl :{args.listen_port})",
+              file=sys.stderr)
+
+        async def _run_studio():
+            b_tlp = AsyncBridge("tlp", tlp_fd, out, (args.udp_host, port), in_sock)
+            b_trace = AsyncBridge("trace", trace_fd, out, (args.udp_host, port), None)
+            await asyncio.gather(b_tlp.run(), b_trace.run())
+
+        try:
+            asyncio.run(_run_studio())
+        except KeyboardInterrupt:
+            pass
+        finally:
+            os.close(tlp_fd)
+            os.close(trace_fd)
+        return 0
 
     ep = ENDPOINTS[args.mode]
     dev = args.dev or create_endpoint(args.ctrl, ep["name"], ep["addr"])

@@ -974,7 +974,38 @@ public:
         }
     };
 
+    // Awaitable for any split-transaction TLP request (SPI/I2C/GPIO/Serial/DMA_CFG)
+    struct TransactAwaiter {
+        CoroutineIoEngine& engine;
+        Tlp64 req;
+        uint8_t tag{0};
+
+        TransactAwaiter(CoroutineIoEngine& eng, const Tlp64& r) noexcept : engine(eng), req(r) {}
+
+        bool await_ready() const noexcept { return false; }
+
+        bool await_suspend(std::coroutine_handle<> coro) noexcept {
+            tag = engine.allocate_tag();
+            if (tag == 0) return false;
+            req.wire.tag = tag;
+            engine.register_awaiter(tag, req.wire.target_address, coro);
+            if (!engine.push_tx(req)) {
+                engine.pending_requests_[tag].active = false;
+                return false;
+            }
+            return true;
+        }
+
+        Tlp64 await_resume() noexcept {
+            return engine.pending_requests_[tag].response_tlp;
+        }
+    };
+
     // Helper functions returning awaitables
+    TransactAwaiter async_transact(const Tlp64& req) noexcept {
+        return TransactAwaiter{*this, req};
+    }
+
     MemReadAwaiter async_read(uint32_t address) {
         return MemReadAwaiter{*this, address};
     }

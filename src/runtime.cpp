@@ -185,6 +185,8 @@ __attribute__((weak)) void hal::platform_event_buffers(hal::EventBuffers& out) n
 __attribute__((weak)) void hal::platform_profile_start(uint32_t /*hz*/) noexcept {}
 // @impl [SPEC-E906-IPC-05] targets/allwinner_e906/SPECIFICATION.md
 __attribute__((weak)) bool hal::platform_trace_listening() noexcept { return true; }
+__attribute__((weak)) void hal::platform_bind_io_rings(MpscTlpRing<>*, MpscTlpRing<>*) noexcept {}
+__attribute__((weak)) uint32_t hal::platform_default_imu_drdy_pin() noexcept { return 20U; }
 // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
 __attribute__((weak)) hal::ISpi* hal::get_spi_port(uint8_t index) noexcept {
     return index == 0 ? &hal::get_spi_driver() : nullptr;
@@ -269,6 +271,7 @@ bool init(const Config& config) noexcept {
     }
 
     // 3. Initialize and arm target ioProcessor
+    hal::platform_bind_io_rings(g_config.io_setup.egress_tx_ring, g_config.io_setup.ingress_rx_ring);
     auto& io_proc = hal::get_target_io_processor();
     if (g_config.io_setup.channels.data() != nullptr) {
         io_proc.init(g_config.io_setup);

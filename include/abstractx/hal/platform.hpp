@@ -83,6 +83,12 @@ void platform_profile_start(uint32_t hz) noexcept;
 // True while a host reads the trace transport ([SPEC-E906-IPC-05]); weak default: always.
 bool platform_trace_listening() noexcept;
 
+// Bind application egress/ingress TLP rings to the platform's host IPC channel (e.g. RPMsg abstractx-tlp).
+void platform_bind_io_rings(MpscTlpRing<>* egress_tx_ring, MpscTlpRing<>* ingress_rx_ring) noexcept;
+
+// Target's default IMU DRDY GPIO pin number (e.g. PI8 = 264 on E906, GP20 = 20 on Pico/Linux).
+uint32_t platform_default_imu_drdy_pin() noexcept;
+
 // Universal HAL Driver Accessors
 // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
 ISpi&         get_spi_driver() noexcept;

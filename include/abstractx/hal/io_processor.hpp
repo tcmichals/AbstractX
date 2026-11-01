@@ -146,6 +146,14 @@ public:
      * Dynamic Auto-Mode Control: Enables or disables autonomous read & forward per channel.
      */
     virtual bool set_auto_mode(uint8_t channel_id, bool enable) = 0;
+
+    /*
+     * Query whether a channel currently has autonomous trigger-driven mode enabled.
+     */
+    virtual bool is_auto_mode(uint8_t channel_id) const noexcept {
+        (void)channel_id;
+        return false;
+    }
 };
 
 /*

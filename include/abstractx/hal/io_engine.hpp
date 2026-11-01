@@ -67,6 +67,16 @@ public:
     virtual uint32_t read_reg(uint32_t addr) noexcept { (void)addr; return 0; }
     virtual void write_reg(uint32_t addr, uint32_t value) noexcept { (void)addr; (void)value; }
 
+    // Generic Serial / UART tunnel (Channel::EscSerial = 0x05).
+    // When baud_hz != 0, configures UART baud rate (and RX DMA). Writes `tx` if non-empty,
+    // reads up to `rx.size()` available bytes from the UART RX ring, and returns bytes read.
+    virtual size_t serial_xfer(uint8_t port, uint32_t baud_hz,
+                               std::span<const uint8_t> tx,
+                               std::span<uint8_t> rx) noexcept {
+        (void)port; (void)baud_hz; (void)tx; (void)rx;
+        return 0;
+    }
+
     // Wake the consumer of the ingress ring (MSGBOX, SIO FIFO, eventfd).
     virtual void notify_host() noexcept {}
 
@@ -151,6 +161,16 @@ public:
         return false;
     }
 
+    bool is_auto_mode(uint8_t channel_id) const noexcept override {
+        InterruptGuard guard;
+        for (size_t i = 0; i < num_channels_; ++i) {
+            if (autos_[i].cfg.channel_id == channel_id) {
+                return autos_[i].cfg.auto_mode;
+            }
+        }
+        return false;
+    }
+
     // Trigger edge on `pin` (ISR, GPIO event or timer). Starts each armed channel on that pin.
     // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md
     void on_trigger(uint32_t pin, uint64_t ts_ns) noexcept {
@@ -166,24 +186,40 @@ public:
                 a.snap = a.cfg;
             }
             a.ts_ns = ts_ns;
-            if (a.snap.bus_type != BusType::Spi) {     // only SPI auto reads are defined
-                a.busy.store(false, std::memory_order_release);
-                continue;
-            }
-            a.cmd_len = a.snap.tx_len > kAutoCmdMax ? kAutoCmdMax : a.snap.tx_len;
-            size_t xfer = a.cmd_len + a.snap.rx_len;
-            if (xfer > kAutoXferMax) xfer = kAutoXferMax;
-            std::memset(a.tx, 0, sizeof(a.tx));
-            std::memcpy(a.tx, a.snap.tx_cmd, a.cmd_len);
+            if (a.snap.bus_type == BusType::Spi) {
+                a.cmd_len = a.snap.tx_len > kAutoCmdMax ? kAutoCmdMax : a.snap.tx_len;
+                size_t xfer = a.cmd_len + a.snap.rx_len;
+                if (xfer > kAutoXferMax) xfer = kAutoXferMax;
+                std::memset(a.tx, 0, sizeof(a.tx));
+                std::memcpy(a.tx, a.snap.tx_cmd, a.cmd_len);
 
-            IoTransfer t{};
-            t.bus = BusType::Spi;
-            t.bus_index = a.snap.bus_index;
-            t.device = static_cast<uint8_t>(a.snap.cs_pin);
-            t.tx = std::span<const uint8_t>(a.tx, xfer);
-            t.rx = std::span<uint8_t>(a.rx, xfer);
-            t.done = etl::delegate<void(const IoResult&)>::create<AutoState, &AutoState::on_done>(a);
-            if (!backend_.start_transfer(t)) {
+                IoTransfer t{};
+                t.bus = BusType::Spi;
+                t.bus_index = a.snap.bus_index;
+                t.device = static_cast<uint8_t>(a.snap.cs_pin);
+                t.tx = std::span<const uint8_t>(a.tx, xfer);
+                t.rx = std::span<uint8_t>(a.rx, xfer);
+                t.done = etl::delegate<void(const IoResult&)>::create<AutoState, &AutoState::on_done>(a);
+                if (!backend_.start_transfer(t)) {
+                    a.busy.store(false, std::memory_order_release);
+                }
+            } else if (a.snap.bus_type == BusType::I2c) {
+                a.cmd_len = a.snap.tx_len > kAutoCmdMax ? kAutoCmdMax : a.snap.tx_len;
+                size_t rx_n = a.snap.rx_len > kAutoXferMax ? kAutoXferMax : a.snap.rx_len;
+                std::memset(a.tx, 0, sizeof(a.tx));
+                std::memcpy(a.tx, a.snap.tx_cmd, a.cmd_len);
+
+                IoTransfer t{};
+                t.bus = BusType::I2c;
+                t.bus_index = a.snap.bus_index;
+                t.device = static_cast<uint8_t>(a.snap.cs_pin);
+                t.tx = std::span<const uint8_t>(a.tx, a.cmd_len);
+                t.rx = std::span<uint8_t>(a.rx, rx_n);
+                t.done = etl::delegate<void(const IoResult&)>::create<AutoState, &AutoState::on_done>(a);
+                if (!backend_.start_transfer(t)) {
+                    a.busy.store(false, std::memory_order_release);
+                }
+            } else {
                 a.busy.store(false, std::memory_order_release);
             }
         }
@@ -242,9 +278,10 @@ private:
             return;
         }
         const size_t got = r.transferred < kAutoXferMax ? r.transferred : kAutoXferMax;
-        const size_t payload = got > a.cmd_len ? got - a.cmd_len : 0;
+        const size_t off = (a.snap.bus_type == BusType::Spi) ? a.cmd_len : 0;
+        const size_t payload = got > off ? got - off : 0;
         Tlp64 tlp = Tlp64::make_stream_tx(static_cast<Channel>(a.snap.tlp_channel), 0,
-                                          std::span<const uint8_t>(a.rx + a.cmd_len, payload),
+                                          std::span<const uint8_t>(a.rx + off, payload),
                                           a.snap.tlp_tag);
         tlp.wire.timestamp_ns = a.ts_ns;
         a.busy.store(false, std::memory_order_release);   // a.rx may be reused from here on
@@ -361,7 +398,10 @@ private:
         size_t tx_n = 0;
         if (hdr->sub_flags & ASP_I2C_FLAG_USE_REG) {
             s->tx[0] = hdr->reg_offset;
-            tx_n = 1;
+            const auto tx = view.tx_data();
+            const size_t copy_n = tx.size() > (kI2cTxMax - 1) ? (kI2cTxMax - 1) : tx.size();
+            if (copy_n > 0) std::memcpy(s->tx + 1, tx.data(), copy_n);
+            tx_n = 1 + copy_n;
         } else {
             const auto tx = view.tx_data();                     // clamped to 32 by the view
             std::memcpy(s->tx, tx.data(), tx.size());
@@ -369,6 +409,7 @@ private:
         }
         IoTransfer t{};
         t.bus = BusType::I2c;
+        t.bus_index = hdr->bus_id;
         t.device = hdr->slave_addr;
         t.tx = std::span<const uint8_t>(s->tx, tx_n);
         t.rx = std::span<uint8_t>(s->rx, s->rx_len);
@@ -377,6 +418,34 @@ private:
             s->in_use.store(false, std::memory_order_release);
             reject(tlp, BusType::I2c, ASP_STATUS_QUEUE_FULL);
         }
+    }
+
+    void handle_serial(const Tlp64& tlp) noexcept {
+        const uint8_t port = static_cast<uint8_t>((tlp.wire.target_address >> 8) & 0x03U);
+        uint32_t baud_hz = 0;
+        std::span<const uint8_t> tx{};
+        if (tlp.wire.type == ASP_TLP_TYPE_MEM_WR) {
+            if ((tlp.wire.target_address & 0xFFU) == 0x04U && tlp.wire.length_dw >= 1) {
+                baud_hz = (static_cast<uint32_t>(tlp.wire.payload[0])) |
+                          (static_cast<uint32_t>(tlp.wire.payload[1]) << 8) |
+                          (static_cast<uint32_t>(tlp.wire.payload[2]) << 16) |
+                          (static_cast<uint32_t>(tlp.wire.payload[3]) << 24);
+            } else {
+                const size_t n = tlp.wire.length_dw <= 40U ? tlp.wire.length_dw : 40U;
+                tx = std::span<const uint8_t>(tlp.wire.payload, n);
+            }
+        }
+        Tlp64 cpl{};
+        cpl.wire.type = ASP_TLP_TYPE_CPL_D;
+        cpl.wire.flags = ASP_STATUS_OK;
+        cpl.wire.tag = tlp.tag();
+        cpl.wire.channel = static_cast<uint8_t>(Channel::EscSerial);
+        cpl.wire.target_address = tlp.wire.target_address;
+        cpl.wire.timestamp_ns = backend_.now_ns();
+        const size_t got = backend_.serial_xfer(
+            port, baud_hz, tx, std::span<uint8_t>(cpl.wire.payload, sizeof(cpl.wire.payload)));
+        cpl.wire.length_dw = static_cast<uint16_t>(got);
+        emit(cpl);
     }
 
     void handle_gpio(const Tlp64& tlp) noexcept {
@@ -412,6 +481,10 @@ private:
             }
             if (ch == ASP_CHANNEL_GPIO_BRIDGE || in_window(addr, ASP_ADDR_GPIO_BASE, 0x400U)) {
                 handle_gpio(tlp);
+                continue;
+            }
+            if (ch == ASP_CHANNEL_ESC_SERIAL) {
+                handle_serial(tlp);
                 continue;
             }
             if (tlp.wire.type == ASP_TLP_TYPE_MEM_WR) {

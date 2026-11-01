@@ -8,6 +8,7 @@
  * bounds, and 1000 rounds with no slot or ring growth.
  */
 // @verifies [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md
+// @verifies [SPEC-APP-11] apps/gps_imu_app/SPECIFICATION.md
 #undef NDEBUG
 
 #include "abstractx/hal/io_engine.hpp"
@@ -48,9 +49,22 @@ struct MockBackend final : IIoBackend {
         ++started;
         return true;
     }
+    uint32_t last_baud{0};
+    size_t last_serial_tx{0};
+
     bool gpio(const asp_tlp_gpio_req_header_t& req, uint8_t& level) noexcept override {
         level = static_cast<uint8_t>(req.pin & 1U);
         return true;
+    }
+    size_t serial_xfer(uint8_t /*port*/, uint32_t baud_hz,
+                       std::span<const uint8_t> tx,
+                       std::span<uint8_t> rx) noexcept override {
+        if (baud_hz != 0) last_baud = baud_hz;
+        last_serial_tx = tx.size();
+        const char nmea[] = "$GPGGA,00*66\n";
+        const size_t n = sizeof(nmea) - 1 < rx.size() ? sizeof(nmea) - 1 : rx.size();
+        std::memcpy(rx.data(), nmea, n);
+        return n;
     }
     void notify_host() noexcept override { ++notified; }
 
@@ -206,6 +220,20 @@ int main() {
     assert(to_io.push(Tlp64::make_gpio_read(5, 61)));
     eng.step(0);
     assert(from_io.pop(s) && s.tag() == 61 && s.wire.payload[0] == ASP_STATUS_OK);
+
+    // 7c. Generic Serial/UART bridge (Channel::EscSerial = 0x05) sets baud and returns RX bytes ([SPEC-APP-11]).
+    Tlp64 ser_baud{};
+    ser_baud.wire.type = ASP_TLP_TYPE_MEM_WR;
+    ser_baud.wire.channel = ASP_CHANNEL_ESC_SERIAL;
+    ser_baud.wire.tag = 62;
+    ser_baud.wire.target_address = 0x40000504U;
+    ser_baud.wire.length_dw = 1;
+    const uint32_t baud = 115200U;
+    std::memcpy(ser_baud.wire.payload, &baud, 4);
+    assert(to_io.push(ser_baud));
+    eng.step(0);
+    assert(be.last_baud == 115200U);
+    assert(from_io.pop(s) && s.tag() == 62 && s.wire.length_dw == 13 && std::memcmp(s.wire.payload, "$GPGGA,00*66\n", 13) == 0);
 
     // 8. A refused start frees the slot and answers QUEUE_FULL.
     be.refuse = true;

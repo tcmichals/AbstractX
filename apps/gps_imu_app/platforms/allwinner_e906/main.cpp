@@ -2,89 +2,86 @@
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * AbstractX XuanTie E906 Co-Processor Firmware
- * --------------------------------------------
- * Integrates:
- * 1. AbstractX C++20 Zero-Allocation Coroutines
- * 2. Embedded Template Library (ETL) Containers
- * 3. Linux RemoteProc Resource Table & Trace Logging
- * 4. Lock-Free SPSC Telemetry & Heartbeat Engine
+ * AbstractX XuanTie E906 Generic I/O Co-Processor Firmware (e906_coprocessor)
+ * ---------------------------------------------------------------------------
+ * Sensor-agnostic C++20 I/O Processor for the Allwinner XuanTie E906:
+ *   - Contains ZERO sensor-specific drivers (no IMU, Compass, GPS, or AHRS math).
+ *   - Executes generic 64-byte TLP bridge requests from Linux over RPMsg
+ *     endpoint 1024 ("abstractx-tlp") via IoEngine + E906IoBackend:
+ *       * SPI Bridge   (Channel::SpiBridge = 0x06, SPI1 DMA)
+ *       * I2C Bridge   (Channel::I2cBridge = 0x07, TWI1 / TWI0)
+ *       * Serial/UART  (Channel::EscSerial = 0x05, UART3 DMA RX/TX)
+ *       * GPIO Bridge  (Channel::GpioBridge = 0x08)
+ *       * Auto-DMA     (ASP_TLP_TYPE_DMA_CFG = 0x31: programmable GPIO-edge
+ *                       or timer-triggered SPI/I2C DMA bursts -> TLP stream 0x10)
+ *   - Streams CTF 1.8 runtime status, profiler, and timeline packets over
+ *     RPMsg endpoint 1025 ("abstractx-trace").
  */
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <etl/vector.h>
-#include <etl/circular_buffer.h>
-
-#include "hal/timer.hpp"
-#include "hal/uart.hpp"
-#include "hal/trace.hpp"
-#include "hal/ccu.hpp"
-#include "memory_map.h"
-
-extern "C" {
-    void trace_init(void);
-    void trace_puts(const char *s);
-}
-
-static void put_uint(uint32_t val) {
-    char buf[12];
-    int idx = 0;
-    if (val == 0) {
-        trace_puts("0");
-        return;
-    }
-    while (val > 0) {
-        buf[idx++] = '0' + (val % 10);
-        val /= 10;
-    }
-    for (int i = idx - 1; i >= 0; i--) {
-        char c[2] = {buf[i], '\0'};
-        trace_puts(c);
-    }
-}
-
-// @impl [SPEC-ARCH-04] [SPEC-TRACE-03] docs/DESIGN_SPECIFICATION.md#spec-trace-03
+// @impl [SPEC-ARCH-04] [SPEC-ARCH-13] [SPEC-TRACE-03] [SPEC-E906-IPC-04] [SPEC-APP-11] docs/DESIGN_SPECIFICATION.md#spec-trace-03 apps/gps_imu_app/SPECIFICATION.md#spec-app-11
 // @status Complete
-int main(void) {
-    // 1. Remoteproc shared counters in SRAM / DRAM
-    volatile uint32_t *sram_counter = (volatile uint32_t *)0x40000004;
-    volatile uint32_t *dram_counter = (volatile uint32_t *)0x4E010004;
 
-    // 2. Initialize Remoteproc Trace Buffer
-    trace_init();
-    trace_puts("================================================================\n");
-    trace_puts("  AbstractX - XuanTie E906 RISC-V Co-Processor Ready!           \n");
-    trace_puts("  Runtime: C++20 Coroutine + ETL Fixed Container Engine         \n");
-    trace_puts("  Trace Buffer: /sys/kernel/debug/remoteproc/remoteproc0/trace0 \n");
-    trace_puts("================================================================\n");
+#include "abstractx/abstractx.hpp"
+#include "abstractx/hal/io_processor.hpp"
 
-    // 3. Initialize hardware timer
-    hal::Timer::init();
+namespace {
 
-    // 4. Demonstrate ETL zero-allocation circular buffer
-    etl::circular_buffer<uint32_t, 16> telemetry_history;
+// Static lock-free TLP rings connecting RPMsg endpoint 1024 ("abstractx-tlp") to IoEngine
+abstractx::MpscTlpRing<> g_e906_tx_ring; // Linux RPMsg 1024 -> E906 IoEngine (Bridge & DMA_CFG TLPs)
+abstractx::MpscTlpRing<> g_e906_rx_ring; // E906 IoEngine -> Linux RPMsg 1024 (Completions & Auto-DMA Stream TLPs)
 
-    uint32_t uptime_sec = 0;
-
-    // 5. Periodic Heartbeat Loop
-    while (1) {
-        uptime_sec++;
-        *sram_counter = uptime_sec;
-        *dram_counter = uptime_sec;
-
-        telemetry_history.push(uptime_sec);
-
-        hal::Timer::delay_ms(1000);
-
-        trace_puts("[AbstractX E906] Heartbeat #");
-        put_uint(uptime_sec);
-        trace_puts(" (uptime: ");
-        put_uint(uptime_sec);
-        trace_puts("s) | ETL Items: ");
-        put_uint(static_cast<uint32_t>(telemetry_history.size()));
-        trace_puts(" | Status: OK\n");
+// Coroutine that drains IoEngine completions and Auto-DMA stream TLPs to RPMsg endpoint 1024
+abstractx::coro::Task<void> io_egress_task() {
+    while (true) {
+        abstractx::Tlp64 tlp{};
+        while (g_e906_rx_ring.pop(tlp)) {
+            abstractx::hal::platform_send_telemetry(
+                reinterpret_cast<const uint8_t*>(&tlp), sizeof(tlp));
+        }
+        co_await abstractx::step_async();
     }
+}
 
+} // namespace
+
+int main() {
+    static abstractx::hal::AutoChannelConfig auto_channels[2]{};
+    auto_channels[0].channel_id     = 0;
+    auto_channels[0].auto_mode      = false; // Enabled dynamically by Linux/Studio via ASP_TLP_TYPE_DMA_CFG (0x31)
+    auto_channels[0].trigger_mode   = abstractx::hal::TriggerMode::GpioEdge;
+    auto_channels[0].trigger_pin    = abstractx::hal::platform_default_imu_drdy_pin();
+    auto_channels[0].trigger_rising = true;
+    auto_channels[0].bus_type       = abstractx::hal::BusType::Spi;
+    auto_channels[0].bus_index      = 1;
+    auto_channels[0].cs_pin         = 0;
+    auto_channels[0].bus_speed_hz   = 10'000'000;
+    auto_channels[0].tx_cmd[0]      = 0x9D;
+    auto_channels[0].tx_len         = 1;
+    auto_channels[0].rx_len         = 14;
+    auto_channels[0].tlp_channel    = static_cast<uint8_t>(abstractx::Channel::Telemetry);
+    auto_channels[0].tlp_tag        = 1;
+
+    auto_channels[1].channel_id     = 1;
+    auto_channels[1].auto_mode      = false;
+    auto_channels[1].trigger_mode   = abstractx::hal::TriggerMode::Timer;
+    auto_channels[1].trigger_pin    = 0;
+    auto_channels[1].trigger_rising = true;
+    auto_channels[1].bus_type       = abstractx::hal::BusType::I2c;
+    auto_channels[1].bus_index      = 1;
+    auto_channels[1].cs_pin         = 0x0D;
+    auto_channels[1].bus_speed_hz   = 400'000;
+    auto_channels[1].tx_cmd[0]      = 0x00;
+    auto_channels[1].tx_len         = 1;
+    auto_channels[1].rx_len         = 6;
+    auto_channels[1].tlp_channel    = static_cast<uint8_t>(abstractx::Channel::Telemetry);
+    auto_channels[1].tlp_tag        = 3;
+
+    abstractx::Config cfg{};
+    cfg.io_setup.channels        = std::span<const abstractx::hal::AutoChannelConfig>(auto_channels, 2);
+    cfg.io_setup.egress_tx_ring  = &g_e906_tx_ring;
+    cfg.io_setup.ingress_rx_ring = &g_e906_rx_ring;
+
+    abstractx::init(cfg);
+    abstractx::run(io_egress_task());
     return 0;
 }

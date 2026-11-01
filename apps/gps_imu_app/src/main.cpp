@@ -33,19 +33,19 @@ int main() {
     config.trace.sink_target = "127.0.0.1:9870";
     config.trace.flush_interval_ms = 10;
 
-    // 2. Configure Sensor HW Fusion Channel
+    // 2. Configure Sensor HW Fusion Channel (PI8 = 264 on E906, GP20 = 20 on Pico/Linux)
     static hal::AutoChannelConfig auto_channels[1]{};
     auto_channels[0].channel_id = 0;
     auto_channels[0].auto_mode = true;
     auto_channels[0].trigger_mode = hal::TriggerMode::GpioEdge;
-    auto_channels[0].trigger_pin = 20; // Pin 3 / GP20 DRDY
+    auto_channels[0].trigger_pin = hal::platform_default_imu_drdy_pin();
     auto_channels[0].trigger_rising = true;
     auto_channels[0].bus_type = hal::BusType::Spi;
     auto_channels[0].bus_index = 1;
     auto_channels[0].bus_speed_hz = 10'000'000;
     auto_channels[0].tx_cmd[0] = 0x80 | 0x1D;
     auto_channels[0].tx_len = 1;
-    auto_channels[0].rx_len = 15;
+    auto_channels[0].rx_len = 14;
     auto_channels[0].tlp_channel = 0x02;
     auto_channels[0].tlp_tag = 1;
 

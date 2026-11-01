@@ -149,9 +149,49 @@ def to_hex(raw_b):
         return "none"
     return "".join(["%02x" % b for b in raw_b])
 
+def set_auto_dma(enable=True):
+    """Dynamically switch IMU acquisition between PI8 DRDY Auto-DMA and Polled SPI1."""
+    global IMU_MODE, HAS_IMU
+    if enable and hasattr(abstractx, "imu_drdy_start"):
+        try:
+            if abstractx.imu_drdy_start():
+                IMU_MODE = "DRDY"
+                HAS_IMU = True
+                return "DRDY"
+        except Exception:
+            pass
+    if hasattr(abstractx, "imu_drdy_stop"):
+        try:
+            abstractx.imu_drdy_stop()
+        except Exception:
+            pass
+    try:
+        abstractx.spi_init(10000000)
+        abstractx.sleep_ms(10)
+        who = abstractx.spi_xfer(b"\xf5\x00")[1]
+        if who == 0x47:
+            abstractx.spi_xfer(b"\x4e\x0f")
+            abstractx.sleep_ms(5)
+            IMU_MODE = "SPI"
+            HAS_IMU = True
+            return "SPI"
+    except Exception:
+        pass
+    return IMU_MODE
+
+
+def setup_drdy(pin=264, rising=True):
+    """Configure and arm PI8 (pin 264) DRDY hardware Auto-DMA channel."""
+    return set_auto_dma(True)
+
+
 # Live CLI beside the stream: EXEC <id> <hex> runs Python in one kept namespace.
 # @impl [SPEC-E906-REPL-19] apps/e906_repl_app/SPECIFICATION.md
-_cli_env = {"abstractx": abstractx}
+_cli_env = {
+    "abstractx": abstractx,
+    "set_auto_dma": set_auto_dma,
+    "setup_drdy": setup_drdy,
+}
 
 
 def unhex(h):
@@ -232,7 +272,7 @@ while not stop:
 
     out_line = "!RAW:M=" + mag_hex + ":C=" + MAG_CHIP
     if imu_hex != "none":
-        out_line += ":I=" + imu_hex
+        out_line += ":I=" + imu_hex + ":DM=" + (IMU_MODE or "SPI")
     if raw_gps and len(raw_gps) > 0:
         out_line += ":G=" + to_hex(raw_gps)
     print(out_line)

@@ -37,9 +37,11 @@ Implemented in Python using Dear ImGui Bundle (imgui-bundle):
 import collections
 import threading
 import math
+import socket
 import struct
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 # The e906_repl_app's sensor format (the app owns it, not AbstractX or Studio)
@@ -93,6 +95,107 @@ def send_cli(cid: str, code_hex: str) -> bool:
         return False
 
 g_trace_bridge_proc = None
+g_bridge_runtime_mode = "python"  # "python" (MicroPython raw_sensor_streamer) or "cpp" (C++20 e906_coprocessor + RPMsg)
+
+
+def set_bridge_runtime_mode(mode: str) -> None:
+    global g_bridge_runtime_mode
+    g_bridge_runtime_mode = mode
+
+# ASP_TLP_TYPE_DMA_CFG (0x31) constants matching include/abstractx/hal/tlp_AutoDmaConfig.h
+ASP_TLP_TYPE_DMA_CFG = 0x31
+ASP_DMA_CMD_DISABLE  = 0
+ASP_DMA_CMD_ENABLE   = 1
+ASP_DMA_CMD_SETUP    = 2
+
+
+def build_auto_dma_cfg_tlp(
+    cmd: int,
+    channel_id: int = 0,
+    trigger_pin: int = 264,  # PI8 on Allwinner A527/T527 E906
+    rising_edge: bool = True,
+    bus_type: int = 0,       # 0 = SPI, 1 = I2C
+    bus_id: int = 1,         # SPI1
+    cs_or_addr: int = 0,
+    tx_cmd: bytes = b"\x9d", # ICM-42688-P TEMP_DATA1 | 0x80 burst read
+    rx_len: int = 14,
+    tlp_channel: int = 2,
+    tlp_tag: int = 1,
+    seq: int = 1,
+) -> bytes:
+    """
+    Constructs a 64-byte ASP_TLP_TYPE_DMA_CFG (0x31) TLP matching asp_tlp_auto_dma_cfg_t
+    in include/abstractx/hal/tlp_AutoDmaConfig.h for dynamic DRDY Auto-DMA configuration.
+    """
+    hdr = struct.pack(
+        "<BBBBIHHQ",
+        ASP_TLP_TYPE_DMA_CFG,
+        0x00,
+        tlp_tag & 0xFF,
+        tlp_channel & 0xFF,
+        0x40001000,
+        4,
+        seq & 0xFFFF,
+        int(time.time() * 1e9) & 0xFFFFFFFFFFFFFFFF,
+    )
+    tx_padded = (tx_cmd[:4]).ljust(4, b"\x00")
+    cfg_payload = struct.pack(
+        "<BBHBBBB4sBBBB",
+        cmd & 0xFF,
+        channel_id & 0xFF,
+        trigger_pin & 0xFFFF,
+        1 if rising_edge else 0,
+        bus_type & 0xFF,
+        bus_id & 0xFF,
+        cs_or_addr & 0xFF,
+        tx_padded,
+        len(tx_cmd[:4]) & 0xFF,
+        rx_len & 0xFF,
+        tlp_channel & 0xFF,
+        tlp_tag & 0xFF,
+    )
+    pad = b"\x00" * (40 - len(cfg_payload))
+    return hdr + cfg_payload + pad + struct.pack("<I", 0xDEADBEEF)
+
+
+def send_auto_dma_control(
+    enable: bool,
+    setup_first: bool = False,
+    board_ip: str = _board_ip(),
+    ctrl_port: int = 9872,
+    trigger_pin: int = 264,
+) -> bool:
+    """
+    Sends Auto-DMA (PI8 DRDY -> DMA -> SPI1 -> TLP ring) configuration to BOTH:
+      1. C++20 E906 firmware / RPMsg bridge via 64-byte ASP_TLP_TYPE_DMA_CFG (0x31) UDP datagrams on :9872
+      2. MicroPython E906 raw_sensor_streamer via CLI EXEC ('setup_drdy()' / 'set_auto_dma(True/False)')
+    """
+    ok_udp = False
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        targets = {(board_ip, ctrl_port), ("127.0.0.1", ctrl_port)}
+        if setup_first:
+            setup_tlp = build_auto_dma_cfg_tlp(ASP_DMA_CMD_SETUP, trigger_pin=trigger_pin)
+            for tgt in targets:
+                try:
+                    sock.sendto(setup_tlp, tgt)
+                except OSError:
+                    pass
+        cmd_code = ASP_DMA_CMD_ENABLE if enable else ASP_DMA_CMD_DISABLE
+        cmd_tlp = build_auto_dma_cfg_tlp(cmd_code, trigger_pin=trigger_pin)
+        for tgt in targets:
+            try:
+                sock.sendto(cmd_tlp, tgt)
+                ok_udp = True
+            except OSError:
+                pass
+        sock.close()
+    except OSError:
+        pass
+
+    py_expr = f"setup_drdy({trigger_pin}, True)" if (setup_first and enable) else f"set_auto_dma({ 'True' if enable else 'False' })"
+    ok_cli = send_cli("dma", py_expr.encode().hex())
+    return ok_udp or ok_cli
 
 
 def get_bridge_status() -> bool:
@@ -100,13 +203,16 @@ def get_bridge_status() -> bool:
     global g_bridge_proc
     return g_bridge_proc is not None and g_bridge_proc.poll() is None
 
-def start_board_bridge(board_ip: str = _board_ip(), host_ip: str | None = None, port: int = 9870):
+def start_board_bridge(board_ip: str = _board_ip(), host_ip: str | None = None, port: int = 9870, runtime_mode: str | None = None):
     """
     # @impl [SPEC-USER-PLUGIN-01] tools/visualizer/flight_plugin.py
-    Spawns background board_studio_bridge on Radxa Cubie A5E via SSH,
-    streaming live QMC5883L & u-blox NEO-M8N 64-byte TLPs to UDP port 9870.
+    Spawns background telemetry bridge on Radxa Cubie A5E via SSH, supporting:
+      - runtime_mode="python": MicroPython raw_sensor_streamer.py + board_studio_bridge.py
+      - runtime_mode="cpp"   : Native C++20 E906 firmware + e906_rpmsg_studio_bridge / e906_rpmsg_bridge.py studio
     """
-    global g_bridge_proc
+    global g_bridge_proc, g_bridge_runtime_mode
+    if runtime_mode is not None:
+        g_bridge_runtime_mode = runtime_mode
     if get_bridge_status():
         return
     # Copy the repo's board scripts first: the board must run what is checked in, not stale
@@ -114,15 +220,41 @@ def start_board_bridge(board_ip: str = _board_ip(), host_ip: str | None = None, 
     repo = Path(__file__).resolve().parents[2]
     board_files = [repo / "apps/e906_repl_app/run_e906_script.py", repo / "apps/e906_repl_app/raw_sensor_streamer.py",
                    repo / "apps/e906_repl_app/flight_sensors.py", repo / "apps/e906_repl_app/sensor_contract.py",
-                   repo / "tools/board_studio_bridge.py", repo / "tools/e906_rpmsg_bridge.py"]
+                   repo / "tools/board_studio_bridge.py", repo / "tools/e906_rpmsg_bridge.py",
+                   repo / "apps/gps_imu_app/platforms/linux/e906_rpmsg_studio_bridge.cpp"]
     copy = subprocess.run(["scp", "-O", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
                            *map(str, board_files), f"root@{board_ip}:/root/"],
                           capture_output=True, text=True, timeout=20)
-    g_bridge_log.append(f"[STUDIO] copied {len(board_files)} board scripts: "
+    g_bridge_log.append(f"[STUDIO] copied {len(board_files)} board files: "
                         f"{'ok' if copy.returncode == 0 else copy.stderr.strip()}")
+    resolved_host = host_ip or _host_ip(board_ip)
+    if g_bridge_runtime_mode == "cpp":
+        # Native C++20 mode: prefer compiled /root/e906_rpmsg_studio_bridge if present on board,
+        # otherwise fall back to e906_rpmsg_bridge.py studio (bridges abstractx-tlp 1024 + abstractx-trace 1025 + UDP :9872).
+        remote_cmd = (
+            f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={resolved_host} STUDIO_PORT={port} "
+            f"sh -c 'if [ -x /root/e906_rpmsg_studio_bridge ]; then "
+            f"exec /root/e906_rpmsg_studio_bridge --udp-host {resolved_host} --udp-port {port} --listen-port 9872 --exit-on-stdin-eof; "
+            f"else exec python3 -u /root/e906_rpmsg_bridge.py studio --udp-host {resolved_host} --udp-port {port} --listen-port 9872 --exit-on-stdin-eof; fi'"
+        )
+        cmd = ["ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}", remote_cmd]
+        try:
+            g_bridge_proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            threading.Thread(target=_drain_bridge_output, args=(g_bridge_proc,), daemon=True).start()
+        except Exception as e:
+            print(f"Error starting C++ board bridge: {e}", file=sys.stderr)
+        return
+
     cmd = [
         "ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-        f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={host_ip or _host_ip(board_ip)} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
+        f"EXIT_ON_STDIN_EOF=1 STUDIO_HOST_IP={resolved_host} STUDIO_PORT={port} STREAM_DURATION=0 python3 -u /root/board_studio_bridge.py"
     ]
     try:
         g_bridge_proc = subprocess.Popen(
@@ -142,7 +274,7 @@ def start_board_bridge(board_ip: str = _board_ip(), host_ip: str | None = None, 
     try:
         g_trace_bridge_proc = subprocess.Popen(
             ["ssh", "-o", "StrictHostKeyChecking=no", f"root@{board_ip}",
-             f"python3 -u /root/e906_rpmsg_bridge.py trace --udp-host {host_ip or _host_ip(board_ip)} --udp-port {port} --exit-on-stdin-eof"],
+             f"python3 -u /root/e906_rpmsg_bridge.py trace --udp-host {resolved_host} --udp-port {port} --exit-on-stdin-eof"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         threading.Thread(target=_drain_bridge_output, args=(g_trace_bridge_proc,), daemon=True).start()
     except Exception as e:
@@ -536,6 +668,41 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         if imgui.button("⚡ Fast Compass (200Hz ODR)"):
             state.add_log("CFG", "MAG", "Sent QMC5883L REG_CONTROL_1 = 0x1D (200 Hz continuous ODR, 8G scale)")
 
+        # Selectable Auto-DMA (PI8 DRDY -> DMA -> SPI1 -> MpscTlpRing) & Runtime Mode controls
+        auto_dma_enabled = getattr(state, "imu_auto_dma_enabled", True)
+        runtime_mode = getattr(state, "e906_runtime_mode", g_bridge_runtime_mode)
+
+        imgui.same_line(0, 10)
+        dma_btn_col = imgui.ImVec4(0.12, 0.68, 0.32, 1.0) if auto_dma_enabled else imgui.ImVec4(0.55, 0.40, 0.12, 1.0)
+        dma_hov_col = imgui.ImVec4(0.18, 0.78, 0.38, 1.0) if auto_dma_enabled else imgui.ImVec4(0.68, 0.50, 0.16, 1.0)
+        imgui.push_style_color(imgui.Col_.button, dma_btn_col)
+        imgui.push_style_color(imgui.Col_.button_hovered, dma_hov_col)
+        dma_label = "⚡ Auto-DMA (PI8 DRDY): ON##toggle_autodma" if auto_dma_enabled else "○ Auto-DMA (PI8 DRDY): OFF (Polled)##toggle_autodma"
+        if imgui.button(dma_label):
+            new_dma = not auto_dma_enabled
+            with state.lock:
+                state.imu_auto_dma_enabled = new_dma
+            send_auto_dma_control(new_dma, setup_first=new_dma, board_ip=b_ip)
+            mode_str = "ENABLED (PI8 DRDY -> DMA2 -> SPI1)" if new_dma else "DISABLED (Polled SPI1)"
+            state.add_log("DMA", "IMU", f"Auto-DMA {mode_str} via TLP 0x31 & CLI")
+        imgui.pop_style_color(2)
+
+        imgui.same_line(0, 8)
+        if imgui.button("⚙ Setup DRDY (PI8 -> SPI1)##setup_drdy"):
+            with state.lock:
+                state.imu_auto_dma_enabled = True
+            send_auto_dma_control(True, setup_first=True, board_ip=b_ip, trigger_pin=264)
+            state.add_log("DMA", "DRDY", "Configured Ch0: PI8 (pin 264) rising-edge -> SPI1 reg 0x9D (14B) -> Tag 1")
+
+        imgui.same_line(0, 8)
+        rt_label = "Runtime: C++20 E906 (RPMsg TLP)##rt_mode" if runtime_mode == "cpp" else "Runtime: MicroPython Streamer##rt_mode"
+        if imgui.button(rt_label):
+            next_rt = "cpp" if runtime_mode == "python" else "python"
+            with state.lock:
+                state.e906_runtime_mode = next_rt
+            set_bridge_runtime_mode(next_rt)
+            state.add_log("CFG", "RUNTIME", f"Selected E906 bridge mode: {'C++20 Native RPMsg' if next_rt == 'cpp' else 'MicroPython Streamer'}")
+
         imgui.end_group()
 
         # Target banner
@@ -580,7 +747,9 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         # 3. Bottom Sensor Details & Ingestion Rate Banner (IMU + Compass)
         # ----------------------------------------------------------------------
         imgui.columns(2, "sensor_detail_cols", False)
-        self._render_imu_sensor_panel(roll, pitch, imu_accel_g, imu_gyro_dps, imu_temp_c, imu_hz)
+        self._render_imu_sensor_panel(roll, pitch, imu_accel_g, imu_gyro_dps, imu_temp_c, imu_hz,
+                                      getattr(state, "imu_auto_dma_enabled", True),
+                                      getattr(state, "imu_dma_completions", 0))
         imgui.next_column()
         self._render_compass_sensor_panel(yaw, (mag_x, mag_y, mag_z), mag_field_ut, mag_hz)
         imgui.columns(1)
@@ -857,7 +1026,8 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.end_child()
 
     def _render_imu_sensor_panel(self, roll_deg: float, pitch_deg: float,
-                                 accel_g: tuple, gyro_dps: tuple, temp_c: float, imu_hz: int):
+                                 accel_g: tuple, gyro_dps: tuple, temp_c: float, imu_hz: int,
+                                 auto_dma_enabled: bool = True, dma_completions: int = 0):
         """
         Draws the live ICM-42688-P 6-Axis IMU sensor details (SPI1 DMA + PI8 DRDY).
         """
@@ -878,8 +1048,11 @@ class FlightVisualizerPlugin(AbstractXStudioPlugin):
         imgui.columns(1)
 
         imgui.separator()
-        imgui.text_colored(imgui.ImVec4(0.4, 0.8, 0.5, 1.0),
-                           f"ICM-42688-P on SPI1 (PI2..PI5 + PI8 DRDY) @ 10 MHz | {imu_hz} Hz Telemetry")
+        acq_str = "AUTO-DMA (PI8 DRDY -> DMA2 -> SPI1)" if auto_dma_enabled else "POLLED SPI1 (Software)"
+        acq_col = imgui.ImVec4(0.2, 0.95, 0.5, 1.0) if auto_dma_enabled else imgui.ImVec4(0.95, 0.75, 0.2, 1.0)
+        cpl_suffix = f" | ACK #{dma_completions}" if dma_completions > 0 else ""
+        imgui.text_colored(acq_col,
+                           f"ICM-42688-P on SPI1 @ 10 MHz | Mode: {acq_str} | {imu_hz} Hz{cpl_suffix}")
         imgui.end_child()
 
     def _render_compass_sensor_panel(self, heading_deg: float, mag_xyz: tuple, field_ut: float, mag_hz: int):

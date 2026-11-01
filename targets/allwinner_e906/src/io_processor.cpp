@@ -11,6 +11,7 @@
 #include "abstractx/hal/io_engine.hpp"
 #include "hal/spi.hpp"
 #include "hal/i2c.hpp"
+#include "hal/uart.hpp"
 #include "hal/pio.hpp"
 #include "hal/dma.hpp"
 #include "hal/msgbox.hpp"
@@ -46,8 +47,8 @@ public:
         } else if (ch.bus_type == hal::BusType::I2c) {
             hal::I2cConfig cfg{};
             cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 400'000;
-            i2c_.init(cfg);
-            i2c_ready_ = true;
+            i2c_port(ch.bus_index).init(cfg);
+            i2c_ready_[ch.bus_index & 1U] = true;
         }
         return true;
     }
@@ -81,16 +82,18 @@ public:
             return true;
         }
         if (x.bus == hal::BusType::I2c) {
-            if (!i2c_ready_) {
+            const uint8_t idx = x.bus_index & 1U;
+            auto& bus = i2c_port(idx);
+            if (!i2c_ready_[idx]) {
                 hal::I2cConfig cfg{};
                 cfg.frequency_hz = 400'000;
-                i2c_.init(cfg);
-                i2c_ready_ = true;
+                bus.init(cfg);
+                i2c_ready_[idx] = true;
             }
             bool ok = true;
-            if (!x.tx.empty() && !x.rx.empty()) ok = i2c_.write_read_sync(x.device, x.tx, x.rx);
-            else if (!x.rx.empty())             ok = i2c_.read_sync(x.device, x.rx);
-            else if (!x.tx.empty())             ok = i2c_.write_sync(x.device, x.tx);
+            if (!x.tx.empty() && !x.rx.empty()) ok = bus.write_read_sync(x.device, x.tx, x.rx);
+            else if (!x.rx.empty())             ok = bus.read_sync(x.device, x.rx);
+            else if (!x.tx.empty())             ok = bus.write_sync(x.device, x.tx);
             hal::IoResult r{};
             r.ok = ok;
             r.transferred = ok ? x.rx.size() : 0;
@@ -127,6 +130,28 @@ public:
         if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
             if (value != 0) PC_DATA_REG |= (1U << 1); else PC_DATA_REG &= ~(1U << 1);
         }
+    }
+
+    size_t serial_xfer(uint8_t /*port*/, uint32_t baud_hz,
+                       std::span<const uint8_t> tx,
+                       std::span<uint8_t> rx) noexcept override {
+        auto& uart = hal::get_e906_uart3();
+        if (baud_hz != 0) {
+            uart.init(baud_hz);
+            uart.set_dma(true);
+            uart_ready_ = true;
+        } else if (!uart_ready_) {
+            uart.init(115200);
+            uart.set_dma(true);
+            uart_ready_ = true;
+        }
+        if (!tx.empty()) {
+            (void)uart.write(tx);
+        }
+        if (!rx.empty()) {
+            return uart.read(rx);
+        }
+        return 0;
     }
 
     void notify_host() noexcept override { ::hal::MsgBox::send(::hal::MsgBox::Channel::Channel0, 0x01); }
@@ -182,10 +207,15 @@ private:
         if (cb.is_valid()) cb(r);
     }
 
+    static hal::E906I2c& i2c_port(uint8_t idx) noexcept {
+        // On the Radxa Cubie A5E, the external sensor header is TWI1 (PB4/PB5).
+        return (idx == 0 || idx == 1) ? hal::get_e906_twi1() : hal::get_e906_i2c();
+    }
+
     hal::IoEngine* engine_{nullptr};
-    hal::E906I2c& i2c_ = hal::get_e906_i2c();  // the TWI0 port object, never a second driver ([SPEC-E906-HAL-04])
     bool dma_ready_{false};
-    bool i2c_ready_{false};
+    bool i2c_ready_[2]{false, false};
+    bool uart_ready_{false};
     bool drdy_bound_{false};
     uint32_t drdy_pin_{0};
     etl::delegate<void(const hal::IoResult&)> spi_done_{};   // shared: SPI DMA ISR clears; one transfer in flight

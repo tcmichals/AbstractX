@@ -230,6 +230,7 @@ async def async_main():
                 fields = dict(p.split("=", 1) for p in parts[1:] if "=" in p)
                 gps_hex = fields.get("G", "")
                 imu_hex = fields.get("I", "")
+                imu_dm = fields.get("DM", "DRDY")
                 mag_chip = fields.get("C", "QMC5883L")  # untagged lines come from older streamers
 
                 # 1. Process Magnetometer
@@ -340,9 +341,11 @@ async def async_main():
                 emit_tlp(frame_mag)
 
                 # Synthesize 64B TLP Tag 1 (ICM-42688-P 6-DoF IMU Sample via sensor_contract.encode_imu_payload)
+                # Flag bit 0 (0x01) = PI8 DRDY Auto-DMA active; 0x00 = Polled SPI1
                 if imu_sample is not None:
+                    imu_flags = 0x01 if imu_dm == "DRDY" else 0x00
                     payload_imu = encode_imu_payload(raw_imu, "ICM42688P")
-                    hdr_imu = struct.pack("<BBBBIHHQ", 0x10, 0x00, 1, 2, 0x40001000, (len(payload_imu) + 3) // 4, seq, ts)
+                    hdr_imu = struct.pack("<BBBBIHHQ", 0x10, imu_flags, 1, 2, 0x40001000, (len(payload_imu) + 3) // 4, seq, ts)
                     frame_imu = hdr_imu + payload_imu + (b"\x00" * (40 - len(payload_imu))) + b"\xde\xad\xbe\xef"
                     emit_tlp(frame_imu)
 

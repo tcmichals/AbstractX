@@ -45,6 +45,15 @@ elseif(ABSTRACTX_TARGET STREQUAL "zynq7000")
 else()
     # Linux (Desktop workstation, SITL, or Allwinner Cubie A5E Linux)
     target_link_libraries(gps_imu_app PRIVATE abstractx_target_linux)
+
+    add_executable(e906_rpmsg_studio_bridge
+        platforms/linux/e906_rpmsg_studio_bridge.cpp
+    )
+    target_link_libraries(e906_rpmsg_studio_bridge PRIVATE
+        abstractx_core
+        abstractx_target_linux
+        etl
+    )
 endif()
 
 # Companion XuanTie E906 coprocessor firmware for Allwinner A5E

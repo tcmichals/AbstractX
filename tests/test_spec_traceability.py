@@ -40,8 +40,8 @@ def test_reference_application_specification_traceability(repo_root, app_spec_pa
     implemented = results["implemented"]
     coverage = results["coverage"]
 
-    assert total == 10, f"Expected 10 reference app specs, found {total}"
-    assert implemented == 10, f"Expected 10 implemented reference app specs, found {implemented}"
+    assert total == 11, f"Expected 11 reference app specs, found {total}"
+    assert implemented == 11, f"Expected 11 implemented reference app specs, found {implemented}"
     assert coverage == 100.0, f"Reference app coverage is {coverage}%, expected 100.0%"
 
 def test_studio_specification_traceability(repo_root, studio_spec_path):

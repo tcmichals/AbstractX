@@ -332,6 +332,17 @@ bool platform_trace_listening() noexcept {
     return g_trace_transport.listening();
 }
 
+void platform_bind_io_rings(MpscTlpRing<>* egress_tx_ring, MpscTlpRing<>* ingress_rx_ring) noexcept {
+    (void)ingress_rx_ring;
+    if (egress_tx_ring) {
+        g_tlp_channel.set_ingress_ring(egress_tx_ring);
+    }
+}
+
+uint32_t platform_default_imu_drdy_pin() noexcept {
+    return 264U; // PI8 (header pin 29, ICM-42688-P INT1)
+}
+
 void platform_profile_start(uint32_t hz) noexcept {
     ::hal::Timer::set_sample_period(hz ? ::hal::Timer::CLOCK_FREQ_HZ / hz : 0);
 }
