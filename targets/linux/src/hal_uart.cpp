@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * AbstractX Linux HAL: termios2 Non-Blocking Serial Driver with Low Latency
+ * @impl [SPEC-HAL-03] docs/DESIGN_SPECIFICATION.md#spec-hal-03
  */
 
 #include "abstractx/hal/uart.hpp"
@@ -82,7 +83,8 @@ public:
             ssize_t ret = ::write(fd_, buffer.data(), buffer.size());
             return (ret > 0) ? static_cast<size_t>(ret) : 0;
         } else {
-            std::cout.write(reinterpret_cast<const char*>(buffer.data()), buffer.size());
+            std::cout.write(reinterpret_cast<const char*>(buffer.data()),
+                            static_cast<std::streamsize>(buffer.size()));
             std::cout.flush();
             return buffer.size();
         }
@@ -145,18 +147,18 @@ private:
         struct termios2 tio{};
         if (::ioctl(fd_, TCGETS2, &tio) < 0) return false;
 
-        tio.c_cflag &= ~CBAUD;
+        tio.c_cflag &= ~static_cast<tcflag_t>(CBAUD);
         tio.c_cflag |= BOTHER;
         tio.c_ispeed = baud;
         tio.c_ospeed = baud;
 
         // 8N1 raw mode
-        tio.c_cflag &= ~(PARENB | CSTOPB | CSIZE | CRTSCTS);
+        tio.c_cflag &= ~static_cast<tcflag_t>(PARENB | CSTOPB | CSIZE | CRTSCTS);
         tio.c_cflag |= (CS8 | CREAD | CLOCAL);
 
-        tio.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXOFF | IXANY);
-        tio.c_oflag &= ~OPOST;
-        tio.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+        tio.c_iflag &= ~static_cast<tcflag_t>(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON | IXOFF | IXANY);
+        tio.c_oflag &= ~static_cast<tcflag_t>(OPOST);
+        tio.c_lflag &= ~static_cast<tcflag_t>(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
 
         tio.c_cc[VMIN]  = 0;
         tio.c_cc[VTIME] = 0;
@@ -168,7 +170,7 @@ private:
         if (fd_ < 0) return;
         struct serial_struct ser_info{};
         if (::ioctl(fd_, TIOCGSERIAL, &ser_info) == 0) {
-            ser_info.flags |= ASYNC_LOW_LATENCY;
+            ser_info.flags = static_cast<int>(static_cast<unsigned int>(ser_info.flags) | ASYNC_LOW_LATENCY);
             ::ioctl(fd_, TIOCSSERIAL, &ser_info);
         }
     }

@@ -170,7 +170,7 @@ Task<void> imu_rate_loop(CoroutineIoEngine& io, FlightStatistics& stats, std::at
     while (running) {
         // Suspend until next 64B DMA_Stream TLP arrives on Channel 2 (Telemetry)
         Tlp64 tlp = co_await io.async_await_stream(Channel::Telemetry);
-        
+        (void)tlp;
         stats.imu_samples_processed++;
         // Fast Attitude PID update logic here (simulated)
     }
@@ -262,11 +262,10 @@ int main() {
     auto sim_start = std::chrono::steady_clock::now();
     auto last_baro_time = sim_start;
     auto last_mag_time  = sim_start;
-    auto last_ekf_time  = sim_start;
 
     std::vector<Task<void>> active_tasks;
     Task<uint32_t> ekf_task = read_baro_and_mag_concurrent(io_engine, stats);
-    bool ekf_active = false;
+    (void)ekf_task;
 
     // -------------------------------------------------------------------------
     // Main Single-Threaded Flight Loop Execution Engine

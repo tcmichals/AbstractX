@@ -173,9 +173,13 @@ private:
     }
 
     unsigned int                    line_offset_{0};
+#if defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2
     struct gpiod_chip*              chip_{nullptr};
+#endif
     struct gpiod_line_request*      request_{nullptr};
+#if defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2
     struct gpiod_edge_event_buffer* event_buf_{nullptr};
+#endif
     EventFd                         sim_eventfd_{};
 
 };

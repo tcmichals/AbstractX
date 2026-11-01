@@ -22,6 +22,8 @@
 #include <cassert>
 #include <cstring>
 #include <cstdlib>
+#include <thread>
+#include <chrono>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -200,6 +202,15 @@ void test_zynq_io_processor_reactor_loop() {
 
     io_proc.stop();
     assert(!io_proc.is_running() && "io_proc must report is_running() == false after stop");
+
+    // 3. Verify concurrent stop() from another thread while run() is active
+    assert(io_proc.start() && "io_proc restart must succeed");
+    std::thread runner([&]() { io_proc.run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    io_proc.stop();
+    runner.join();
+    assert(!io_proc.is_running() && "io_proc must report is_running() == false after concurrent stop");
+
     ::unsetenv("ABSTRACTX_UIO_DEV");
     std::printf("  -> Target IoProcessor reactor data plane passed.\n");
 }

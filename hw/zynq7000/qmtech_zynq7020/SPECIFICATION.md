@@ -186,7 +186,7 @@ configuration:
       };
   };
   ```
-* The user-space driver MUST await the interrupt using `epoll()` / non-blocking read on `/dev/uio0` without busy-waiting or thread locks.
+* The user-space driver MUST await the interrupt using `epoll()` / non-blocking read on `/dev/uio0` without busy-waiting or thread locks. `Zynq7000IoProcessor::stop()` MUST wake any concurrent `step()` blocked in `poll()` via a dedicated wakeup `eventfd` and synchronize `close_uio()` (`munmap`) with `step()` so stopping from another thread never unmaps the AXI-Lite window underneath an active `step()`.
 * **Re-arm rule (2026-10-30)**: reading a UIO event leaves the interrupt masked by `generic-uio`.
   The bridge records that (`note_interrupt_taken()`) and re-arms it (W1C `REG_IRQ_STATUS`, then
   write `1` to the UIO fd) on the first `step()` that finds the egress buffer empty

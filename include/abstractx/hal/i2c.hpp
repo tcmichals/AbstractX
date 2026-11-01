@@ -143,7 +143,8 @@ constexpr uint8_t smbus_pec(uint8_t crc, std::span<const uint8_t> bytes) noexcep
     for (uint8_t b : bytes) {
         crc = static_cast<uint8_t>(crc ^ b);
         for (int i = 0; i < 8; ++i) {
-            crc = static_cast<uint8_t>((crc & 0x80U) != 0 ? (crc << 1) ^ 0x07U : crc << 1);
+            const uint32_t shifted = static_cast<uint32_t>(crc) << 1U;
+            crc = static_cast<uint8_t>((crc & 0x80U) != 0U ? (shifted ^ 0x07U) : shifted);
         }
     }
     return crc;

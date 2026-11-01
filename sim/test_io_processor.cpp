@@ -183,6 +183,14 @@ int main() {
     io_proc.stop();
     assert(!io_proc.is_running() && "Expected is_running() to be false after final stop()");
 
+    // 12. Verify concurrent stop() from another thread while run() is in poll_events()
+    assert(io_proc.start() && "Expected restart to succeed");
+    std::thread runner([&]() { io_proc.run(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
+    io_proc.stop();
+    runner.join();
+    assert(!io_proc.is_running() && "Expected is_running() to be false after concurrent stop()");
+
     std::cout << "[SUCCESS] Sensor HW Fusion API & Bus Lockout verified 100% cleanly!" << std::endl;
     return 0;
 }

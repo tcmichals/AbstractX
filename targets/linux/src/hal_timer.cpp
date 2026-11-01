@@ -41,7 +41,8 @@ public:
     uint64_t get_time_us() const override {
         struct timespec ts{};
         ::clock_gettime(CLOCK_MONOTONIC, &ts);
-        return static_cast<uint64_t>(ts.tv_sec) * 1'000'000ULL + (ts.tv_nsec / 1'000);
+        return static_cast<uint64_t>(ts.tv_sec) * 1'000'000ULL +
+               static_cast<uint64_t>(ts.tv_nsec) / 1'000ULL;
     }
 
     uint32_t get_time_ms() const override {

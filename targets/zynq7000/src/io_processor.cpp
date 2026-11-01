@@ -14,11 +14,13 @@
  */
 
 #include "abstractx/hal/io_processor.hpp"
+#include "abstractx/interrupt_lock.hpp"
 #include "abstractx/target/zynq_uio.hpp"
 
 #include <atomic>
 #include <array>
 #include <poll.h>
+#include <sys/eventfd.h>
 #include <unistd.h>
 
 namespace abstractx::target {
@@ -27,18 +29,24 @@ class Zynq7000IoProcessor final : public hal::IIoProcessor {
 public:
     static constexpr uint32_t DEFAULT_RING_CAPACITY = 256;
 
-    Zynq7000IoProcessor() noexcept = default;
+    Zynq7000IoProcessor() noexcept : wake_fd_(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)) {}
 
     ~Zynq7000IoProcessor() override {
         stop();
+        if (wake_fd_ >= 0) {
+            ::close(wake_fd_);
+            wake_fd_ = -1;
+        }
     }
 
     bool configure(const hal::IoProcessorSetup& setup) override {
+        InterruptGuard lock;
         setup_ = setup;
         return true;
     }
 
     bool start() override {
+        InterruptGuard lock;
         if (running_.load(std::memory_order_acquire)) {
             return true;
         }
@@ -58,77 +66,99 @@ public:
 
     void stop() override {
         running_.store(false, std::memory_order_release);
+        if (wake_fd_ >= 0) {
+            const uint64_t val = 1;
+            [[maybe_unused]] auto n = ::write(wake_fd_, &val, sizeof(val));
+        }
+        InterruptGuard lock;
         bridge_.close_uio();
     }
 
     int step(int timeout_ms = 0) override {
-        if (!running_.load(std::memory_order_acquire) || !bridge_.is_open()) {
-            return 0;
-        }
-
         int processed = 0;
-
-        // 1. Flush outgoing commands/TLPs from Application -> FPGA Ingress BRAM
-        // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-        if (setup_.egress_tx_ring) {
-            Tlp64 tx_tlp{};
-            uint32_t free_slots = bridge_.ingress_free();
-            while (free_slots > 0 && setup_.egress_tx_ring->pop(tx_tlp)) {
-                if (bridge_.write_tlp(tx_tlp)) {
-                    ++processed;
-                    --free_slots;
-                }
+        int uio_fd = -1;
+        {
+            InterruptGuard lock;
+            if (!running_.load(std::memory_order_acquire) || !bridge_.is_open()) {
+                return 0;
             }
-        }
 
-        // 2. Drain incoming telemetry/TLPs from FPGA Egress BRAM -> Ingress RX Ring
-        // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-        if (setup_.ingress_rx_ring) {
-            Tlp64 rx_tlp{};
-            uint32_t count = bridge_.egress_count();
-            while (count > 0 && bridge_.read_tlp(rx_tlp)) {
-                setup_.ingress_rx_ring->push(rx_tlp);
-                ++processed;
-                if (setup_.on_rx_pushed) {
-                    setup_.on_rx_pushed();
-                }
-                --count;
-            }
-        }
-
-        // Re-arm the interrupt once a burst taken earlier has been drained (polled or woken).
-        // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
-        bridge_.rearm_if_drained();
-
-        // 3. If timeout requested and nothing was immediately processed, wait on UIO eventfd
-        // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
-        if (processed == 0 && timeout_ms > 0 && bridge_.fd() >= 0) {
-            struct pollfd pfd{};
-            pfd.fd = bridge_.fd();
-            pfd.events = POLLIN;
-
-            const int ret = ::poll(&pfd, 1, timeout_ms);
-            if (ret > 0 && (pfd.revents & POLLIN)) {
-                uint32_t irq_count = 0;
-                [[maybe_unused]] auto bytes = ::read(bridge_.fd(), &irq_count, sizeof(irq_count));
-                bridge_.note_interrupt_taken();
-
-                // Drain incoming packets on interrupt wake
-                if (setup_.ingress_rx_ring) {
-                    Tlp64 rx_tlp{};
-                    uint32_t irq_drain_count = bridge_.egress_count();
-                    while (irq_drain_count > 0 && bridge_.read_tlp(rx_tlp)) {
-                        setup_.ingress_rx_ring->push(rx_tlp);
+            // 1. Flush outgoing commands/TLPs from Application -> FPGA Ingress BRAM
+            // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+            if (setup_.egress_tx_ring) {
+                Tlp64 tx_tlp{};
+                uint32_t free_slots = bridge_.ingress_free();
+                while (free_slots > 0 && setup_.egress_tx_ring->pop(tx_tlp)) {
+                    if (bridge_.write_tlp(tx_tlp)) {
                         ++processed;
-                        if (setup_.on_rx_pushed) {
-                            setup_.on_rx_pushed();
-                        }
-                        --irq_drain_count;
+                        --free_slots;
                     }
                 }
+            }
 
-                // Clear and re-arm if drained; otherwise a later step() re-arms it
-                bridge_.rearm_if_drained();
+            // 2. Drain incoming telemetry/TLPs from FPGA Egress BRAM -> Ingress RX Ring
+            // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
+            if (setup_.ingress_rx_ring) {
+                Tlp64 rx_tlp{};
+                uint32_t count = bridge_.egress_count();
+                while (count > 0 && bridge_.read_tlp(rx_tlp)) {
+                    setup_.ingress_rx_ring->push(rx_tlp);
+                    ++processed;
+                    if (setup_.on_rx_pushed) {
+                        setup_.on_rx_pushed();
+                    }
+                    --count;
+                }
+            }
+
+            // Re-arm the interrupt once a burst taken earlier has been drained (polled or woken).
+            // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+            bridge_.rearm_if_drained();
+            uio_fd = bridge_.fd();
+        }
+
+        // 3. If timeout requested and nothing was immediately processed, wait on UIO + wake eventfd
+        // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+        if (processed == 0 && timeout_ms > 0 && uio_fd >= 0) {
+            struct pollfd pfds[2]{};
+            pfds[0].fd = uio_fd;
+            pfds[0].events = POLLIN;
+            pfds[1].fd = wake_fd_;
+            pfds[1].events = POLLIN;
+            const nfds_t nfds = (wake_fd_ >= 0) ? 2 : 1;
+
+            const int ret = ::poll(pfds, nfds, timeout_ms);
+            if (ret > 0) {
+                if (nfds == 2 && (pfds[1].revents & POLLIN)) {
+                    uint64_t val = 0;
+                    [[maybe_unused]] auto n = ::read(wake_fd_, &val, sizeof(val));
+                }
+                if (pfds[0].revents & POLLIN) {
+                    InterruptGuard lock;
+                    if (!running_.load(std::memory_order_acquire) || !bridge_.is_open()) {
+                        return processed;
+                    }
+                    uint32_t irq_count = 0;
+                    [[maybe_unused]] auto bytes = ::read(bridge_.fd(), &irq_count, sizeof(irq_count));
+                    bridge_.note_interrupt_taken();
+
+                    // Drain incoming packets on interrupt wake
+                    if (setup_.ingress_rx_ring) {
+                        Tlp64 rx_tlp{};
+                        uint32_t irq_drain_count = bridge_.egress_count();
+                        while (irq_drain_count > 0 && bridge_.read_tlp(rx_tlp)) {
+                            setup_.ingress_rx_ring->push(rx_tlp);
+                            ++processed;
+                            if (setup_.on_rx_pushed) {
+                                setup_.on_rx_pushed();
+                            }
+                            --irq_drain_count;
+                        }
+                    }
+
+                    // Clear and re-arm if drained; otherwise a later step() re-arms it
+                    bridge_.rearm_if_drained();
+                }
             }
         }
 
@@ -136,7 +166,7 @@ public:
     }
 
     void run() override {
-        while (running_.load(std::memory_order_relaxed)) {
+        while (running_.load(std::memory_order_acquire)) {
             step(10);
         }
     }
@@ -152,6 +182,7 @@ public:
 private:
     ZynqUioBridge bridge_{};
     hal::IoProcessorSetup setup_{};
+    int wake_fd_{-1};
     std::atomic<bool> running_{false};
 };
 

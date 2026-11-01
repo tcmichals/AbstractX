@@ -27,8 +27,11 @@ class LinuxIoBackend final : public hal::IIoBackend {
 public:
     static constexpr size_t MAX_EVENTS = 16;
 
-    LinuxIoBackend() noexcept : rx_doorbell_(true) {
+    LinuxIoBackend() noexcept : rx_doorbell_(true), wake_eventfd_(true) {
         for (auto& j : jobs_) j.owner = this;
+        if (reactor_.is_valid()) {
+            reactor_.add_fd_u64(wake_eventfd_.fd(), EPOLLIN, FD_TAG_WAKE);
+        }
     }
 
     void attach(hal::IoEngine& engine) noexcept { engine_ = &engine; }
@@ -37,20 +40,28 @@ public:
 
     // @impl [SPEC-LINUX-GPIO-01] targets/linux/SPECIFICATION.md
     bool init_channel(const hal::AutoChannelConfig& ch) noexcept override {
-        if (!rx_registered_ && reactor_.is_valid()) {
-            reactor_.add_fd_u64(rx_doorbell_.fd(), EPOLLIN, FD_TAG_RX_DOORBELL);
-            rx_registered_ = true;
-        }
         if (ch.trigger_mode == hal::TriggerMode::GpioEdge) {
-            if (num_triggers_ >= hal::IoEngine::kMaxChannels) return false;
-            auto& t = triggers_[num_triggers_];
+            InterruptGuard lock;
+            size_t idx = num_triggers_;
+            for (size_t i = 0; i < num_triggers_; ++i) {
+                if (triggers_[i].channel_id == ch.channel_id) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx >= hal::IoEngine::kMaxChannels) return false;
+            auto& t = triggers_[idx];
+            const int old_fd = t.monitor.get_fd();
+            if (old_fd >= 0) reactor_.remove_fd(old_fd);
+            t.monitor.close();
+            t.channel_id = ch.channel_id;
             t.pin = ch.trigger_pin;
             if (!t.monitor.open_pin_interrupt(gpiochip_, ch.trigger_pin, ch.trigger_rising, !ch.trigger_rising)) {
                 return false;   // a real chip refused the line: never fall back to simulation
             }
             const int fd = t.monitor.get_fd();
-            if (fd >= 0) reactor_.add_fd_u64(fd, EPOLLIN | EPOLLET, FD_TAG_TRIGGER_BASE + num_triggers_);
-            ++num_triggers_;
+            if (fd >= 0) reactor_.add_fd_u64(fd, EPOLLIN | EPOLLET, FD_TAG_TRIGGER_BASE + idx);
+            if (idx == num_triggers_) ++num_triggers_;
         }
         if (ch.bus_type == hal::BusType::Spi) {
             if (!spi_.is_running()) start_spi(ch.bus_index, static_cast<uint8_t>(ch.cs_pin), ch.bus_speed_hz);
@@ -61,6 +72,7 @@ public:
     }
 
     bool trigger_simulated(uint32_t pin) const noexcept {
+        InterruptGuard lock;
         for (size_t i = 0; i < num_triggers_; ++i) {
             if (triggers_[i].pin == pin) return triggers_[i].monitor.is_simulated();
         }
@@ -68,6 +80,7 @@ public:
     }
 
     bool simulate_edge(uint32_t pin) noexcept {
+        InterruptGuard lock;
         for (size_t i = 0; i < num_triggers_; ++i) {
             if (triggers_[i].pin == pin && triggers_[i].monitor.is_simulated()) {
                 triggers_[i].monitor.trigger_simulated_edge();
@@ -105,7 +118,10 @@ public:
         return ok;
     }
 
-    void notify_host() noexcept override { rx_doorbell_.notify(1); }
+    void notify_host() noexcept override {
+        rx_doorbell_.notify(1);
+        wake_eventfd_.notify(1);
+    }
 
     int poll_events(int timeout_ms) noexcept override {
         if (!reactor_.is_valid()) return 0;
@@ -113,13 +129,17 @@ public:
         const int count = reactor_.wait(events, timeout_ms);
         for (int i = 0; i < count; ++i) {
             const uint64_t tag = events[static_cast<size_t>(i)].data.u64;
-            if (tag == FD_TAG_RX_DOORBELL) {
-                rx_doorbell_.drain();
-            } else if (tag >= FD_TAG_TRIGGER_BASE && tag < FD_TAG_TRIGGER_BASE + num_triggers_) {
-                auto& t = triggers_[tag - FD_TAG_TRIGGER_BASE];
-                t.monitor.process_events([this, &t](unsigned int, uint64_t ts_ns) {
-                    if (engine_) engine_->on_trigger(t.pin, ts_ns);
-                });
+            if (tag == FD_TAG_WAKE) {
+                wake_eventfd_.drain();
+            } else {
+                InterruptGuard lock;
+                if (tag >= FD_TAG_TRIGGER_BASE && tag < FD_TAG_TRIGGER_BASE + num_triggers_) {
+                    auto& t = triggers_[tag - FD_TAG_TRIGGER_BASE];
+                    const uint32_t pin = t.pin;
+                    t.monitor.process_events([this, pin](unsigned int, uint64_t ts_ns) {
+                        if (engine_) engine_->on_trigger(pin, ts_ns);
+                    });
+                }
             }
         }
         return count > 0 ? count : 0;
@@ -128,9 +148,15 @@ public:
     void idle_wait() noexcept override { (void)poll_events(100); }
 
     void on_stop() noexcept override {
+        wake_eventfd_.notify(1);
         spi_.stop();
         i2c_.stop();
-        for (size_t i = 0; i < num_triggers_; ++i) triggers_[i].monitor.close();
+        InterruptGuard lock;
+        for (size_t i = 0; i < num_triggers_; ++i) {
+            const int fd = triggers_[i].monitor.get_fd();
+            if (fd >= 0) reactor_.remove_fd(fd);
+            triggers_[i].monitor.close();
+        }
         num_triggers_ = 0;
     }
 
@@ -179,11 +205,12 @@ private:
     }
 
     struct Trigger {
+        uint8_t channel_id{0};
         uint32_t pin{0};
         GpiodV2Monitor monitor{};
     };
 
-    static constexpr uint64_t FD_TAG_RX_DOORBELL  = 2;
+    static constexpr uint64_t FD_TAG_WAKE         = 2;
     static constexpr uint64_t FD_TAG_TRIGGER_BASE = 10;
 
     hal::IoEngine* engine_{nullptr};
@@ -191,7 +218,7 @@ private:
     char spidev_path_[32]{};
     EpollReactor reactor_{};
     EventFd rx_doorbell_;
-    bool rx_registered_{false};
+    EventFd wake_eventfd_;
     SpiWorker spi_{};
     I2cWorker i2c_{};
     std::array<Trigger, hal::IoEngine::kMaxChannels> triggers_{};

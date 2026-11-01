@@ -101,8 +101,10 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
   - A failing `SPI_IOC_MESSAGE` / `I2C_RDWR` ioctl MUST complete with a non-`Ok` status
     (`SpiStatus::DmaError`, `I2cStatus::NackAddress`) and `transferred_bytes = 0`.
   - `SpiWorker::submit` / `I2cWorker::submit` MUST return `false` when the worker thread is not
-    running or its queue is full. The driver MUST then complete that request at once through
-    `push_completion_from_isr` with `SpiStatus::QueueFull` / `I2cStatus::QueueFull`.
+    running or its queue is full, and MUST synchronize the `running_` check and queue enqueue with
+    `stop()` so no request can be enqueued after `stop()` drains the queue. The driver MUST then
+    complete a refused request at once through `push_completion_from_isr` with
+    `SpiStatus::QueueFull` / `I2cStatus::QueueFull`.
   - The device path is a constructor argument of the driver class (default `/dev/spidev1.0`,
     `/dev/i2c-1`), and the classes live in `linux_spi_driver.hpp` / `linux_i2c_driver.hpp`, so a
     host test can run the real driver against a device that fails (`/dev/null`).
@@ -146,7 +148,10 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
   trigger, never merged with the next.
 * **Requirement**: the trigger runs `IoEngine::on_trigger` on the thread that calls `step()` /
   `run()`; the SPI completion runs on the `SpiWorker` thread and only pushes the TLP and calls
-  `on_rx_pushed` ([SPEC-LINUX-HAL-01]).
+  `on_rx_pushed` ([SPEC-LINUX-HAL-01]). `LinuxIoBackend` wakes its `epoll` reactor via a dedicated
+  internal `wake_eventfd_` (never draining `rx_doorbell_` inside `poll_events`) and synchronizes
+  trigger lifecycle across `init_channel`, `poll_events`, and `on_stop` so `stop()` from another
+  thread safely wakes `poll_events()` without use-after-close.
 * **Not known yet**: on the Cubie A5E with kernel 7.1, bank-I edges latch `EINT_STA` but never
   reach Linux's GIC ([SPEC-E906-IRQ-07] "Not yet known"), so the hardware column is blocked.
 * **Verified by**: `host-tests` (`sim/test_linux_drdy_auto.cpp`), `sanitizer-gate`, `thread-sanitizer`

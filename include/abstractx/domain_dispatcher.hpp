@@ -64,7 +64,9 @@ public:
     using value_type = typename QueuePolicy::value_type;
     static constexpr size_t QUEUE_CAPACITY = static_cast<size_t>(QueuePolicy::MAX_SIZE);
 
-    // I/O domain producer: called from an ISR, where interrupts are already masked.
+    // I/O domain producer: safe from both ISR and non-ISR contexts because queue_.push()
+    // uses InterruptLock (saves/restores interrupt state on single-core bare metal, takes
+    // spinlock/mutex on SMP and hosted builds).
     // A false return means the coroutine will never be resumed; it is counted in
     // dropped_resumes() so a hang caused by an undersized queue is diagnosable.
     // @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md#spec-arch-01
@@ -72,12 +74,7 @@ public:
         if (!is_resumable(handle)) {
             return false;
         }
-#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
-        // Hosted: the posting "ISR" is a worker thread; take the lock.
         return record(queue_.push(handle));
-#else
-        return record(queue_.push_from_isr(handle));
-#endif
     }
 
     static inline bool isr_post_resume(value_type handle) noexcept {
@@ -122,11 +119,7 @@ public:
     }
 
     static inline bool has_pending_resumes() noexcept {
-#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
         return !queue_.empty();
-#else
-        return !queue_.empty_from_isr();
-#endif
     }
 
     static inline void reset() noexcept {

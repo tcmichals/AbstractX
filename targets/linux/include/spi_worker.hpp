@@ -59,7 +59,12 @@ public:
     }
 
     void stop() noexcept {
-        if (running_.exchange(false, std::memory_order_acq_rel)) {
+        bool was_running = false;
+        {
+            InterruptGuard lock;
+            was_running = running_.exchange(false, std::memory_order_acq_rel);
+        }
+        if (was_running) {
             wakeup_eventfd_.notify(1);
             if (worker_thread_.joinable()) {
                 worker_thread_.join();
@@ -83,10 +88,14 @@ public:
     // @impl [SPEC-LINUX-HAL-01] targets/linux/SPECIFICATION.md
     // false = refused (worker not running or queue full); the caller completes the request.
     bool submit(const hal::SpiRequest& req) noexcept {
-        if (!running_.load(std::memory_order_acquire)) {
-            return false;
+        bool pushed = false;
+        {
+            InterruptGuard lock;
+            if (running_.load(std::memory_order_acquire)) {
+                pushed = queue_.push(req);
+            }
         }
-        if (!queue_.push(req)) {
+        if (!pushed) {
             return false;
         }
         (void)wakeup_eventfd_.notify(1);  // queued: never report it as refused
