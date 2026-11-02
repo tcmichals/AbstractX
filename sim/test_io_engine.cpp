@@ -32,6 +32,7 @@ struct MockBackend final : IIoBackend {
     uint32_t last_init_pin{0};
     bool refuse_init{false};
     bool refuse{false};
+    bool refuse_if_busy{false};
     uint32_t notified{0};
 
     bool init_channel(const AutoChannelConfig& ch) noexcept override {
@@ -42,6 +43,13 @@ struct MockBackend final : IIoBackend {
     }
     bool start_transfer(const IoTransfer& x) noexcept override {
         if (refuse || n_pending >= kMax) return false;
+        if (refuse_if_busy) {
+            for (size_t i = 0; i < n_pending; ++i) {
+                if (pending[i].bus == x.bus && pending[i].bus_index == x.bus_index) {
+                    return false; // Hardware bus is busy with another transfer
+                }
+            }
+        }
         assert(x.bus != BusType::Spi || x.tx.size() == x.rx.size());
         last_tx = x.tx.size();
         last_rx = x.rx.size();
@@ -67,6 +75,19 @@ struct MockBackend final : IIoBackend {
         return n;
     }
     void notify_host() noexcept override { ++notified; }
+
+    // Complete the oldest pending transfer in FIFO order
+    void complete_one(bool ok = true) {
+        if (n_pending == 0) return;
+        IoTransfer x = pending[0];
+        for (size_t i = 1; i < n_pending; ++i) pending[i - 1] = pending[i];
+        --n_pending;
+        for (size_t i = 0; i < x.rx.size(); ++i) x.rx[i] = static_cast<uint8_t>(0xA0U + i);
+        IoResult r{};
+        r.ok = ok;
+        r.transferred = x.rx.size();
+        x.done(r);
+    }
 
     // Complete every pending transfer: fill rx with a pattern (ASan sees any overrun).
     void complete_all(bool ok = true) {
@@ -246,7 +267,104 @@ int main() {
     be.refuse_init = true;
     assert(!eng.configure(setup));
 
+    // 10. Multi-channel shared bus arbitration (TODO.md line 48 / [SPEC-ARCH-13] 4):
+    // Two channels on the same SPI bus (bus 0, cs 0 and cs 1) with colliding edges ->
+    // mock backend refuses while a transfer is in flight on that bus.
+    // Both transfers execute in sequence, both samples delivered with exact edge timestamps,
+    // 1000 rounds flat with 0 overruns and 0 drops.
+    be.refuse = false;
+    be.refuse_init = false;
+    be.refuse_if_busy = true;
+
+    AutoChannelConfig arb_ch[2]{};
+    arb_ch[0].channel_id = 0;
+    arb_ch[0].trigger_pin = 20;
+    arb_ch[0].auto_mode = true;
+    arb_ch[0].bus_type = BusType::Spi;
+    arb_ch[0].bus_index = 0;
+    arb_ch[0].cs_pin = 0;
+    arb_ch[0].tx_cmd[0] = 0x9F;
+    arb_ch[0].tx_len = 1;
+    arb_ch[0].rx_len = 14;
+    arb_ch[0].tlp_channel = ASP_CHANNEL_TELEMETRY;
+    arb_ch[0].tlp_tag = 0x10;
+
+    arb_ch[1].channel_id = 1;
+    arb_ch[1].trigger_pin = 21;
+    arb_ch[1].auto_mode = true;
+    arb_ch[1].bus_type = BusType::Spi;
+    arb_ch[1].bus_index = 0;
+    arb_ch[1].cs_pin = 1;
+    arb_ch[1].tx_cmd[0] = 0x8F;
+    arb_ch[1].tx_len = 1;
+    arb_ch[1].rx_len = 6;
+    arb_ch[1].tlp_channel = ASP_CHANNEL_TELEMETRY;
+    arb_ch[1].tlp_tag = 0x20;
+
+    IoProcessorSetup arb_setup{};
+    arb_setup.channels = std::span<const AutoChannelConfig>(arb_ch, 2);
+    arb_setup.egress_tx_ring = &to_io;
+    arb_setup.ingress_rx_ring = &from_io;
+    assert(eng.configure(arb_setup));
+    assert(eng.start());
+    drain(from_io);
+
+    const uint32_t overruns_before = eng.auto_overruns();
+    for (int round = 0; round < 1000; ++round) {
+        const uint64_t t0 = static_cast<uint64_t>(round * 1000 + 10);
+        const uint64_t t1 = static_cast<uint64_t>(round * 1000 + 20);
+
+        // Edge on pin 20: starts channel 0 on SPI0 CS0
+        eng.on_trigger(20, t0);
+        assert(be.n_pending == 1);
+        assert(be.pending[0].device == 0);
+
+        // Colliding edge on pin 21: channel 1 deferred because SPI0 is in flight
+        eng.on_trigger(21, t1);
+        assert(be.n_pending == 1); // Channel 1 is pending, not yet on backend
+
+        // Complete channel 0: auto_done retries SPI0 and immediately starts channel 1
+        be.complete_one();
+        assert(be.n_pending == 1);
+        assert(be.pending[0].device == 1); // Channel 1 is now in flight on CS1
+
+        // Verify channel 0 sample was emitted with exact timestamp t0
+        assert(from_io.pop(s));
+        assert(s.wire.timestamp_ns == t0);
+        assert(s.tag() == 0x10);
+
+        // Complete channel 1
+        be.complete_one();
+        assert(be.n_pending == 0);
+
+        // Verify channel 1 sample was emitted with exact timestamp t1
+        assert(from_io.pop(s));
+        assert(s.wire.timestamp_ns == t1);
+        assert(s.tag() == 0x20);
+
+        assert(from_io.empty());
+    }
+    assert(eng.auto_overruns() == overruns_before);
+    assert(eng.ingress_dropped() == 0);
+
+    // 10b. Superseding test on a pending channel:
+    // When channel 1 is already pending, a newer edge updates ts_ns and increments overruns.
+    {
+        eng.on_trigger(20, 5000); // channel 0 in flight
+        assert(be.n_pending == 1);
+        eng.on_trigger(21, 6000); // channel 1 pending with ts=6000
+        assert(be.n_pending == 1);
+        eng.on_trigger(21, 7000); // newer edge on channel 1: supersedes ts to 7000, overruns++
+        assert(eng.auto_overruns() == overruns_before + 1);
+
+        be.complete_one();        // channel 0 done -> channel 1 starts
+        assert(from_io.pop(s) && s.wire.timestamp_ns == 5000);
+        be.complete_one();        // channel 1 done
+        assert(from_io.pop(s) && s.wire.timestamp_ns == 7000 && "superseded timestamp delivered");
+        assert(from_io.empty());
+    }
+
     eng.stop();
-    std::printf("[PASS] IoEngine: length clamps, own-pin triggers, overrun drop, bus lockout, slot pool, GPIO bounds, 1000 rounds flat\n");
+    std::printf("[PASS] IoEngine: length clamps, own-pin triggers, overrun drop, bus lockout, slot pool, GPIO bounds, shared bus arbitration, 1000 rounds flat\n");
     return 0;
 }

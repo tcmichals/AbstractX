@@ -28,6 +28,8 @@ bool e906_uart3_init(uint32_t baud) {
     return uart().attached();
 }
 
+void e906_uart3_stop(void) { uart().stop(); }
+
 bool e906_uart3_set_dma(bool enable) { return uart().set_dma(enable); }
 bool e906_uart3_get_dma(void) { return uart().dma_active(); }
 

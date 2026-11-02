@@ -80,6 +80,7 @@ static MP_DEFINE_CONST_FUN_OBJ_2(mod_abstractx_poke_obj, mod_abstractx_poke);
 
 // Circular DMA / Interrupt-driven UART3 and TWI1 live in e906_periph.cpp ([SPEC-E906-REPL-16] [SPEC-E906-HAL-02]).
 extern bool e906_uart3_init(uint32_t baud);
+extern void e906_uart3_stop(void);
 extern size_t e906_uart3_read(uint8_t *dst, size_t max_len);
 extern size_t e906_uart3_write(const uint8_t *src, size_t len);
 extern uint32_t e906_uart3_lsr(void);
@@ -109,6 +110,13 @@ static mp_obj_t mod_abstractx_uart_init(size_t n_args, const mp_obj_t *args) {
     return mp_obj_new_bool(e906_uart3_init(baud));
 }
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(mod_abstractx_uart_init_obj, 0, 1, mod_abstractx_uart_init);
+
+// abstractx.uart_stop() -> None
+static mp_obj_t mod_abstractx_uart_stop(void) {
+    e906_uart3_stop();
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(mod_abstractx_uart_stop_obj, mod_abstractx_uart_stop);
 
 // abstractx.uart_read(max_bytes=256) -> bytes (from the RX ring)
 // @impl [SPEC-E906-REPL-06] [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
@@ -484,6 +492,7 @@ static const mp_rom_map_elem_t mp_module_abstractx_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_version), MP_ROM_PTR(&mod_abstractx_version_obj) },
     { MP_ROM_QSTR(MP_QSTR_alive), MP_ROM_PTR(&mod_abstractx_alive_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_init), MP_ROM_PTR(&mod_abstractx_uart_init_obj) },
+    { MP_ROM_QSTR(MP_QSTR_uart_stop), MP_ROM_PTR(&mod_abstractx_uart_stop_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_read), MP_ROM_PTR(&mod_abstractx_uart_read_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_read_into), MP_ROM_PTR(&mod_abstractx_uart_read_into_obj) },
     { MP_ROM_QSTR(MP_QSTR_uart_dma), MP_ROM_PTR(&mod_abstractx_uart_dma_obj) },

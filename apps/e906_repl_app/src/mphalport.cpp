@@ -186,6 +186,7 @@ int mp_hal_stdin_rx_chr(void) {
         while (!abstractx::g_repl_console->try_read_char(ch)) {
             abstractx_repl_vm_hook();
             abstractx::hal::platform_idle_wait();
+            abstractx::status_service();
         }
         return static_cast<int>(ch);
     }

@@ -268,7 +268,8 @@ bool Spi1::start_dma_transfer(
     ::hal::DmaController::start_transfer(
         static_cast<uint8_t>(g_spi_rx_chan),
         &g_spi_rx_lli,
-        etl::delegate<void(uint8_t, bool)>::create<on_spi_rx_dma_complete>()
+        etl::delegate<void(uint8_t, bool)>::create<on_spi_rx_dma_complete>(),
+        ::hal::DMA_IRQ_PKG | ::hal::DMA_IRQ_QUEUE
     );
 
     ::hal::DmaController::start_transfer(

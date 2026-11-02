@@ -9,6 +9,7 @@
  */
 
 #include "hal/i2c.hpp"
+#include "hal/timer.hpp"
 #include "hal/driver_wait.hpp"
 #include "repl_wait.hpp"
 
@@ -47,8 +48,14 @@ int e906_twi1_xfer(uint8_t addr, int reg, const uint8_t* wdata, size_t wlen, uin
     if (reg >= 0) s_wbuf[n++] = static_cast<uint8_t>(reg);
     for (size_t i = 0; i < wlen; ++i) s_wbuf[n++] = wdata[i];
 
-    const I2cStatus st = twi().transfer_sync(addr, std::span<const uint8_t>(s_wbuf, n),
-                                             std::span<uint8_t>(s_rbuf, rlen));
+    I2cStatus st = I2cStatus::BusError;
+    const int max_tries = (reg >= 0 || rlen > 0) ? 3 : 1;
+    for (int t = 0; t < max_tries; ++t) {
+        st = twi().transfer_sync(addr, std::span<const uint8_t>(s_wbuf, n),
+                                 std::span<uint8_t>(s_rbuf, rlen));
+        if (st == I2cStatus::Ok || st == I2cStatus::Timeout) break;
+        ::hal::Timer::delay_us(200);
+    }
     if (st == I2cStatus::Timeout) return -2;
     if (st != I2cStatus::Ok) return -1;
     const size_t got = twi().bytes_read();

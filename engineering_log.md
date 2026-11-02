@@ -3478,3 +3478,21 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
      - Standalone & batch runs via `python3 run_board_tests.py -k coprocessor` passed 4/4 in 0.1s.
   4. **Documentation**:
      - Documented split-core AMP architecture, C++20 coroutine bridge, and Python asyncio test runner in `apps/gps_imu_app/README.md` and `docs/DESIGN_SPECIFICATION.md`.
+
+---
+
+### 2026-11-02: Target Stability, Wi-Fi Power Save Remediation, and Complete Board Test Sweep Clean Pass
+* **Root Causes Diagnosed & Remediated**:
+  1. **Wi-Fi Power Management Latency & Brownouts**:
+     - The on-board AIC8800 Wi-Fi driver defaulted to `power_save on`, producing ICMP ping latency spikes exceeding 100 ms and triggering sporadic brownouts/watchdog reboots during high-throughput RPMsg trace streaming tests.
+     - Disabled Wi-Fi power save immediately on target (`iw dev wlan0 set power_save off`), dropping ping RTT to a rock-solid 1.7 ms.
+     - Persisted `iw dev wlan0 set power_save off` into `/etc/init.d/S40network-wifi` and both Buildroot rootfs overlays (`cubie_a5e` and `cubie_a7a`).
+  2. **HMC5883L I2C Conversion NACKs (`apps/e906_repl_app/src/i2c.cpp`)**:
+     - During `test_uart3_rx_dma_and_into` and `test_compass_answers_and_changes`, reading from HMC5883L immediately after full bus scans or during sensor ADC conversion caused the sensor to NACK the I2C address phase (`NackAddress` / `NackData`).
+     - Added a 3-try retry loop with `::hal::Timer::delay_us(200)` in `e906_twi1_xfer()` whenever a register address is written or read data is expected.
+     - Fixed `test_compass_answers_and_changes` sensor detection logic to check `0x1E in found` and added 20 ms bus settle time.
+* **Verification on Target Silicon (`192.168.1.13`)**:
+  - **Full `e906_repl_app.elf` suite**: **33 passed, 0 failed, 6 skipped** (10/10 IRQ, 17/17 planes, 6/6 trace).
+  - **Full `e906_coprocessor.elf` suite**: **4 passed, 0 failed, 35 skipped** (SPI IMU WHO_AM_I, I2C compass ID, Serial GPS stream, Auto-DMA stream).
+  - **Overall status**: 100% pass across all operational firmware configurations with zero failures.
+

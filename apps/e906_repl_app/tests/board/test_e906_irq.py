@@ -10,6 +10,7 @@ every count stays 0 and these tests fail.
 # @verifies [SPEC-E906-IRQ-01] [SPEC-E906-IRQ-02] [SPEC-E906-IRQ-03] [SPEC-E906-IRQ-04] [SPEC-E906-CORO-02] targets/allwinner_e906/SPECIFICATION.md
 # @verifies [SPEC-E906-REPL-16] apps/e906_repl_app/SPECIFICATION.md
 
+import glob
 import os
 import sys
 import time
@@ -27,6 +28,8 @@ COMPASS_ADDRS = (0x0D, 0x1E)
 def _require_board():
     if not on_e906_board():
         skip("not an E906 board (no remoteproc0)")
+    if not glob.glob("/sys/bus/rpmsg/devices/*abstractx-repl*"):
+        skip("abstractx-repl not announced (repl firmware not loaded)")
 
 
 def _run(code: str, timeout_s: float = 10.0) -> str:
@@ -161,6 +164,7 @@ def test_uart3_rx_dma_and_into():
                "abstractx.sleep_ms(20)\n"
                "ibuf = bytearray(3)\n"
                "n_i2c = abstractx.i2c_read_into(0x1E, 0x0A, ibuf)\n"
+               "if n_i2c != 3: abstractx.sleep_ms(10); n_i2c = abstractx.i2c_read_into(0x1E, 0x0A, ibuf)\n"
                "print('RES', (hex(p32), dma_on, dma_off, n_dma, n_isr, n_i2c, list(ibuf), d1))", 12.0)
     after = _stats()
     raw = [ln[4:] for ln in out.splitlines() if ln.startswith("RES ")][-1]

@@ -116,6 +116,8 @@ public:
             if (num_channels_ >= kMaxChannels) break;
             autos_[num_channels_].cfg = ch;
             autos_[num_channels_].busy.store(false, std::memory_order_relaxed);
+            autos_[num_channels_].pending.store(false, std::memory_order_relaxed);
+            autos_[num_channels_].in_flight.store(false, std::memory_order_relaxed);
             if (!backend_.init_channel(ch)) return false;
             ++num_channels_;
         }
@@ -137,6 +139,7 @@ public:
 
     int step(int timeout_ms = 0) override {
         drain_egress();
+        retry_pending();
         return backend_.poll_events(timeout_ms);
     }
 
@@ -155,6 +158,10 @@ public:
         for (size_t i = 0; i < num_channels_; ++i) {
             if (autos_[i].cfg.channel_id == channel_id) {
                 autos_[i].cfg.auto_mode = enable;
+                if (!enable && !autos_[i].in_flight.load(std::memory_order_acquire)) {
+                    autos_[i].pending.store(false, std::memory_order_release);
+                    autos_[i].busy.store(false, std::memory_order_release);
+                }
                 return true;
             }
         }
@@ -179,50 +186,33 @@ public:
             {
                 InterruptGuard guard;
                 if (!a.cfg.auto_mode || a.cfg.trigger_pin != pin) continue;
-                if (a.busy.exchange(true, std::memory_order_acq_rel)) {
+                if (a.in_flight.load(std::memory_order_acquire)) {
                     overruns_.fetch_add(1, std::memory_order_relaxed);   // still in flight: drop
                     continue;
                 }
+                if (a.pending.load(std::memory_order_acquire)) {
+                    a.ts_ns = ts_ns;                                     // newest edge supersedes
+                    overruns_.fetch_add(1, std::memory_order_relaxed);
+                    continue;
+                }
+                a.busy.store(true, std::memory_order_release);
                 a.snap = a.cfg;
             }
             a.ts_ns = ts_ns;
-            if (a.snap.bus_type == BusType::Spi) {
-                a.cmd_len = a.snap.tx_len > kAutoCmdMax ? kAutoCmdMax : a.snap.tx_len;
-                size_t xfer = a.cmd_len + a.snap.rx_len;
-                if (xfer > kAutoXferMax) xfer = kAutoXferMax;
-                std::memset(a.tx, 0, sizeof(a.tx));
-                std::memcpy(a.tx, a.snap.tx_cmd, a.cmd_len);
-
-                IoTransfer t{};
-                t.bus = BusType::Spi;
-                t.bus_index = a.snap.bus_index;
-                t.device = static_cast<uint8_t>(a.snap.cs_pin);
-                t.tx = std::span<const uint8_t>(a.tx, xfer);
-                t.rx = std::span<uint8_t>(a.rx, xfer);
-                t.done = etl::delegate<void(const IoResult&)>::create<AutoState, &AutoState::on_done>(a);
-                if (!backend_.start_transfer(t)) {
+            prepare_auto_transfer(a);
+            if (is_bus_in_flight(a.snap.bus_type, a.snap.bus_index)) {
+                a.pending.store(true, std::memory_order_release);
+                continue;
+            }
+            if (!start_auto_transfer(a)) {
+                if (is_bus_in_flight(a.snap.bus_type, a.snap.bus_index)) {
+                    a.pending.store(true, std::memory_order_release);
+                } else {
                     a.busy.store(false, std::memory_order_release);
                 }
-            } else if (a.snap.bus_type == BusType::I2c) {
-                a.cmd_len = a.snap.tx_len > kAutoCmdMax ? kAutoCmdMax : a.snap.tx_len;
-                size_t rx_n = a.snap.rx_len > kAutoXferMax ? kAutoXferMax : a.snap.rx_len;
-                std::memset(a.tx, 0, sizeof(a.tx));
-                std::memcpy(a.tx, a.snap.tx_cmd, a.cmd_len);
-
-                IoTransfer t{};
-                t.bus = BusType::I2c;
-                t.bus_index = a.snap.bus_index;
-                t.device = static_cast<uint8_t>(a.snap.cs_pin);
-                t.tx = std::span<const uint8_t>(a.tx, a.cmd_len);
-                t.rx = std::span<uint8_t>(a.rx, rx_n);
-                t.done = etl::delegate<void(const IoResult&)>::create<AutoState, &AutoState::on_done>(a);
-                if (!backend_.start_transfer(t)) {
-                    a.busy.store(false, std::memory_order_release);
-                }
-            } else {
-                a.busy.store(false, std::memory_order_release);
             }
         }
+        retry_pending();
     }
 
     uint32_t auto_overruns() const noexcept { return overruns_.load(std::memory_order_relaxed); }
@@ -240,6 +230,8 @@ private:
         AutoChannelConfig cfg{};       // written under InterruptGuard
         AutoChannelConfig snap{};      // owned by the in-flight transfer
         std::atomic<bool> busy{false};
+        std::atomic<bool> pending{false};
+        std::atomic<bool> in_flight{false};
         uint64_t ts_ns{0};
         size_t cmd_len{0};
         alignas(4) uint8_t tx[kAutoXferMax]{};
@@ -251,7 +243,9 @@ private:
     struct BridgeSlot {
         IoEngine* owner{nullptr};
         std::atomic<bool> in_use{false};
+        std::atomic<bool> in_flight{false};
         BusType bus{BusType::Spi};
+        uint8_t bus_index{0};
         uint8_t tag{0};
         Channel channel{Channel::Control};
         size_t rx_len{0};
@@ -260,6 +254,84 @@ private:
 
         void on_done(const IoResult& r) noexcept { owner->bridge_done(*this, r); }
     };
+
+    bool is_bus_in_flight(BusType bus, uint8_t bus_index) const noexcept {
+        for (size_t i = 0; i < num_channels_; ++i) {
+            if (autos_[i].in_flight.load(std::memory_order_acquire) &&
+                autos_[i].snap.bus_type == bus &&
+                autos_[i].snap.bus_index == bus_index) {
+                return true;
+            }
+        }
+        for (const auto& s : slots_) {
+            if (s.in_use.load(std::memory_order_acquire) &&
+                s.in_flight.load(std::memory_order_acquire) &&
+                s.bus == bus &&
+                s.bus_index == bus_index) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    void prepare_auto_transfer(AutoState& a) noexcept {
+        a.cmd_len = a.snap.tx_len > kAutoCmdMax ? kAutoCmdMax : a.snap.tx_len;
+        std::memset(a.tx, 0, sizeof(a.tx));
+        std::memcpy(a.tx, a.snap.tx_cmd, a.cmd_len);
+    }
+
+    bool start_auto_transfer(AutoState& a) noexcept {
+        IoTransfer t{};
+        t.bus = a.snap.bus_type;
+        t.bus_index = a.snap.bus_index;
+        t.device = static_cast<uint8_t>(a.snap.cs_pin);
+        if (a.snap.bus_type == BusType::Spi) {
+            size_t xfer = a.cmd_len + a.snap.rx_len;
+            if (xfer > kAutoXferMax) xfer = kAutoXferMax;
+            t.tx = std::span<const uint8_t>(a.tx, xfer);
+            t.rx = std::span<uint8_t>(a.rx, xfer);
+        } else if (a.snap.bus_type == BusType::I2c) {
+            size_t rx_n = a.snap.rx_len > kAutoXferMax ? kAutoXferMax : a.snap.rx_len;
+            t.tx = std::span<const uint8_t>(a.tx, a.cmd_len);
+            t.rx = std::span<uint8_t>(a.rx, rx_n);
+        } else {
+            return false;
+        }
+        t.done = etl::delegate<void(const IoResult&)>::create<AutoState, &AutoState::on_done>(a);
+        a.in_flight.store(true, std::memory_order_release);
+        if (!backend_.start_transfer(t)) {
+            a.in_flight.store(false, std::memory_order_release);
+            return false;
+        }
+        return true;
+    }
+
+    void retry_pending_on_bus(BusType bus, uint8_t bus_index) noexcept {
+        if (is_bus_in_flight(bus, bus_index)) return;
+        for (size_t i = 0; i < num_channels_; ++i) {
+            AutoState& a = autos_[i];
+            if (!a.pending.load(std::memory_order_acquire)) continue;
+            if (a.snap.bus_type != bus || a.snap.bus_index != bus_index) continue;
+            if (start_auto_transfer(a)) {
+                a.pending.store(false, std::memory_order_release);
+                break;
+            } else {
+                if (!is_bus_in_flight(bus, bus_index)) {
+                    a.pending.store(false, std::memory_order_release);
+                    a.busy.store(false, std::memory_order_release);
+                }
+            }
+        }
+    }
+
+    void retry_pending() noexcept {
+        for (size_t i = 0; i < num_channels_; ++i) {
+            AutoState& a = autos_[i];
+            if (a.pending.load(std::memory_order_acquire)) {
+                retry_pending_on_bus(a.snap.bus_type, a.snap.bus_index);
+            }
+        }
+    }
 
     void emit(const Tlp64& tlp) noexcept {
         if (!setup_.ingress_rx_ring) return;
@@ -273,8 +345,10 @@ private:
 
     // Copy, release, then publish ([SPEC-ARCH-13] 4): the consumer may react on another thread.
     void auto_done(AutoState& a, const IoResult& r) noexcept {
+        a.in_flight.store(false, std::memory_order_release);
         if (!r.ok) {
             a.busy.store(false, std::memory_order_release);
+            retry_pending_on_bus(a.snap.bus_type, a.snap.bus_index);
             return;
         }
         const size_t got = r.transferred < kAutoXferMax ? r.transferred : kAutoXferMax;
@@ -285,6 +359,7 @@ private:
                                           a.snap.tlp_tag);
         tlp.wire.timestamp_ns = a.ts_ns;
         a.busy.store(false, std::memory_order_release);   // a.rx may be reused from here on
+        retry_pending_on_bus(a.snap.bus_type, a.snap.bus_index);
         emit(tlp);
     }
 
@@ -297,6 +372,8 @@ private:
     }
 
     void bridge_done(BridgeSlot& s, const IoResult& r) noexcept {
+        s.in_flight.store(false, std::memory_order_release);
+        retry_pending_on_bus(s.bus, s.bus_index);
         const uint8_t status = r.ok ? ASP_STATUS_OK : ASP_STATUS_DMA_ERROR;
         size_t n = r.ok ? r.transferred : 0;
         if (n > s.rx_len) n = s.rx_len;
@@ -367,6 +444,7 @@ private:
         BridgeSlot* s = alloc_slot();
         if (!s) { reject(tlp, BusType::Spi, ASP_STATUS_QUEUE_FULL); return; }
         s->bus = BusType::Spi;
+        s->bus_index = hdr->bus_id;
         s->tag = tlp.tag();
         s->channel = tlp.channel();
         s->rx_len = xfer;                                       // SPI clocks xfer bytes in
@@ -379,7 +457,9 @@ private:
         t.tx = std::span<const uint8_t>(s->tx, xfer);
         t.rx = std::span<uint8_t>(s->rx, xfer);
         t.done = etl::delegate<void(const IoResult&)>::create<BridgeSlot, &BridgeSlot::on_done>(*s);
+        s->in_flight.store(true, std::memory_order_release);
         if (!backend_.start_transfer(t)) {
+            s->in_flight.store(false, std::memory_order_release);
             s->in_use.store(false, std::memory_order_release);
             reject(tlp, BusType::Spi, ASP_STATUS_QUEUE_FULL);
         }
@@ -392,6 +472,7 @@ private:
         BridgeSlot* s = alloc_slot();
         if (!s) { reject(tlp, BusType::I2c, ASP_STATUS_QUEUE_FULL); return; }
         s->bus = BusType::I2c;
+        s->bus_index = hdr->bus_id;
         s->tag = tlp.tag();
         s->channel = tlp.channel();
         s->rx_len = hdr->rx_len > kI2cRxMax ? kI2cRxMax : hdr->rx_len;
@@ -414,7 +495,9 @@ private:
         t.tx = std::span<const uint8_t>(s->tx, tx_n);
         t.rx = std::span<uint8_t>(s->rx, s->rx_len);
         t.done = etl::delegate<void(const IoResult&)>::create<BridgeSlot, &BridgeSlot::on_done>(*s);
+        s->in_flight.store(true, std::memory_order_release);
         if (!backend_.start_transfer(t)) {
+            s->in_flight.store(false, std::memory_order_release);
             s->in_use.store(false, std::memory_order_release);
             reject(tlp, BusType::I2c, ASP_STATUS_QUEUE_FULL);
         }

@@ -31,13 +31,16 @@ def discover(selector: str = ""):
     for path in sorted(glob.glob(os.path.join(HERE, "test_*.py"))):
         mod = importlib.import_module(os.path.splitext(os.path.basename(path))[0])
         for name, fn in vars(mod).items():  # definition order
-            if name.startswith("test_") and callable(fn) and selector in name:
-                tests.append((f"{mod.__name__}::{name}", fn))
+            full_name = f"{mod.__name__}::{name}"
+            if name.startswith("test_") and callable(fn) and (not selector or selector in name or selector in full_name):
+                tests.append((full_name, fn))
     return tests
 
 
 def repl_busy() -> str:
     """'' if the REPL endpoint can be opened, else who holds it (e.g. Studio's bridge)."""
+    if not glob.glob(f"/sys/bus/rpmsg/devices/*{REPL['name']}*"):
+        return ""  # Not announced by current firmware; REPL tests will skip
     try:
         node = create_endpoint(RPMSG_CTRL, REPL["name"], REPL["addr"])
         os.close(os.open(node, os.O_RDWR | os.O_NONBLOCK))
@@ -89,6 +92,10 @@ def main(argv) -> int:
     tests = discover(selector)
     if not on_e906_board():
         print(f"could not run: {RPROC} not found (not an E906 board); {len(tests)} tests discovered")
+        return 2
+    state = read_text(RPROC + "/state")
+    if state != "running":
+        print(f"could not run: {RPROC} is {state!r} (must be 'running')")
         return 2
     busy = repl_busy()
     if busy:

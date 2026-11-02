@@ -60,9 +60,9 @@ void DmaController::init() noexcept {
 int DmaController::allocate_channel() noexcept {
     abstractx::InterruptGuard guard;
     for (size_t i = DMA_START_CHANNEL; i < NUM_CHANNELS; ++i) {
-        // Channels 9 and 10 are reserved on Allwinner T527 / A523 (OP-TEE / TrustZone / DSP firewall;
-        // hardware ignores descriptor fetches). Channels 8, 11..15 are available.
-        if (i == 9 || i == 10) continue;
+        // Channels 8, 9, and 10 are reserved on Allwinner T527 / A523 (OP-TEE / TrustZone / DSP firewall;
+        // hardware ignores descriptor fetches and leaves CFG=0). Channels 11..15 are available.
+        if (i == 8 || i == 9 || i == 10) continue;
         if (!g_channels[i].allocated) {
             g_channels[i].allocated = true;
             g_channels[i].callback = {};

@@ -28,9 +28,11 @@ def _link():
             break
         cur = os.path.dirname(cur)
     from e906_rpmsg_bridge import find_node
-    announced = any(open(os.path.join(d, "name")).read().strip() == bench.BENCH["name"]
-                    for d in (os.path.join("/sys/class/rpmsg", e) for e in os.listdir("/sys/class/rpmsg"))
-                    if os.path.exists(os.path.join(d, "name")))
+    import glob
+    announced = bool(glob.glob("/sys/bus/rpmsg/devices/*" + bench.BENCH["name"] + "*")) or any(
+        open(os.path.join(d, "name")).read().strip() == bench.BENCH["name"]
+        for d in (os.path.join("/sys/class/rpmsg", e) for e in os.listdir("/sys/class/rpmsg"))
+        if os.path.exists(os.path.join(d, "name")))
     if find_node(bench.BENCH["name"]) is None and not announced:
         skip("abstractx-bench not announced (bench firmware not loaded)")
     return bench.BenchLink()

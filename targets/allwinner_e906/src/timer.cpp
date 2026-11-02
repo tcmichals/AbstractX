@@ -189,6 +189,10 @@ void Timer::handle_irq() noexcept {
         other = true;
         g_wake_target = kNever;  // the woken wfi loop re-checks its own deadline
     }
+    if (abstractx::events::g_events.samples.size() >= abstractx::events::kMaxSamplesPerPacket ||
+        (abstractx::events::g_events.timeline_on && abstractx::events::g_events.spans.size() >= abstractx::events::kMaxEventsPerPacket)) {
+        other = true;
+    }
     g_irq_sample_only = other ? 0u : 1u;
     reprogram();
 }

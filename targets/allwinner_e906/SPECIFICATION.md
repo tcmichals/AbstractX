@@ -263,8 +263,10 @@ sequenceDiagram
     and Channel 1 must be drained in a tight loop (`s_host_kicks`) to avoid filling the 8-slot
     hardware FIFO and overflowing Linux's software mailbox queue (`MBOX_TX_QUEUE_LEN`).
 * **VirtIO Kick Suppression**:
-  * In polling mode, `s_tx_vq.used->flags` and `s_rx_vq.used->flags` default to `VRING_USED_F_NO_NOTIFY`
-    to suppress redundant host kicks. `enable_rx_kick(bool)` toggles `s_rx_vq.used->flags`.
+  * On remote RX (`s_rx_vq`), kicks from the Linux host are never suppressed (`s_rx_vq.used->flags = 0`
+    always), ensuring that whenever Linux queues an incoming buffer, it generates a hardware mailbox kick.
+  * On remote TX (`s_tx_vq`), kicks are dynamically managed: suppressed when transmit buffers are free,
+    and enabled only when waiting for the host to return a buffer.
 * **Re-init never keeps old vrings** (2026-10-22): `init()` clears both vring layouts
   (`s_tx_vq`, `s_rx_vq`; `s_lite_*` for `RpmsgLiteMetal`) together with the ready flag, and
   `enable_rx_kick()` writes the used ring only when `is_driver_ready()` is true (which maps the
@@ -506,24 +508,21 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   the vrings, `hal::rpmsg_arm_doorbell()` to unmask.
 * **Requirement**: no application or platform loop calls `poll()` unconditionally; RX vrings are
   read only after a doorbell (or when an awaiter's `await_ready` sees pending descriptors).
-* **Requirement (no lost wakeup, 2026-10-31)**: Linux kicks only while the RX vring's
+* **Requirement (no lost wakeup, 2026-10-31 / 2026-11-01)**: Linux kicks only while the RX vring's
   `used->flags` has `VRING_USED_F_NO_NOTIFY` clear. Therefore:
-  1. `NO_NOTIFY` is set only inside `poll()` while it drains, and every return from `poll()`
-     leaves it clear. The RX awaiter never sets it.
-  2. Before a coroutine sleeps on the doorbell (`AsyncRxAwaiter::await_suspend`) and before the
-     core sleeps (`platform_idle_wait`, interrupts masked), the code clears `NO_NOTIFY` **and then**
-     re-checks the RX avail ring. A descriptor found there is handled as a doorbell (the awaiter
-     does not suspend; idle sets the doorbell flag and does not `wfi`), because Linux may have
-     posted it while kicks were suppressed.
+  1. `NO_NOTIFY` is never set on the RX vring (`s_rx_vq.used->flags == 0` permanently).
+     Linux kicks are never suppressed on RX, preventing any missed edge on concurrent host posts.
+  2. Idle wake deadline (`hal::idle::wake_deadline_us`) is bounded by `kMaxIdleSleepUs = 5000` (5 ms),
+     guaranteeing a hard latency ceiling.
   3. An awaiter that withdraws after the re-check releases its wake slot only if the ISR has not
      taken it; if the ISR already posted it, it stays suspended (one resume, never two).
-* **Rationale (2026-10-31)**: board probe: one echo per second waited for the 1 s status timer
-  (16 B: 7-11 stalls per 2000; 256 B: 35 per 2000, each ending on a status tick). The awaiter set
-  `NO_NOTIFY` in `await_resume`, `poll()` left it set when nothing was pending, and it was
-  cleared only in `await_suspend` *after* `await_ready` had checked the ring: a message posted
-  in that window got no kick and no check.
-* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`, `sim/test_e906_rpmsg_flow_control.cpp`: post in the window, awaiter does not sleep), board bench (`bench_e906_runtime.py` echo max < 5 ms)
-* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/src/platform.cpp`
+* **Rationale (2026-11-01)**: Stalls in `bench_e906_runtime.py` occurred when `poll()` set
+  `VRING_USED_F_NO_NOTIFY` on `t.rx` while draining. If Linux posted buffer $N+1$ concurrently,
+  Linux inspected `used->flags`, suppressed the hardware kick, and if E906 exited `poll()` before
+  observing the descriptor update, E906 entered `wfi` until the 1 s status timer fired.
+  Keeping `t.rx.used->flags == 0` permanently and capping idle sleep to 5 ms eliminates all stalls.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`, `sim/test_e906_rpmsg_flow_control.cpp`), board bench (`bench_e906_runtime.py` echo max < 5 ms)
+* **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/include/hal/idle_policy.hpp`
 
 ### `[SPEC-E906-IRQ-05]` Runtime Status: Cycle Clock, Idle Time and Per-Line ISR Time
 * **Requirement**: the cycle clock for [SPEC-TRACE-08] is `mcycle` (200 MHz, low 32 bits).
@@ -658,10 +657,10 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   streams. FIFO transfers use the widest access the register allows (SPI: 32-bit, 4 bytes per
   access) and never busy-wait. Replaces the unmeasured thresholds (SPI 4 B, the 32 B draft).
 * **Requirement**: the E906 owns DMAC channels 8..15 at `0x03002000`; the E906 overlay limits
-  Linux's `sun6i-dma` to channels 0..7 (`dma-channels = <8>`). Note on hardware reservation (measured on silicon 2026-10-24):
-  channels 9 and 10 are hardware-firewalled/reserved on Allwinner T527 (OP-TEE / TrustZone / DSP firewall; hardware
-  ignores LLI descriptor fetches and leaves CFG=0). Available E906 channels are 8, 11, 12, 13, 14, 15.
-  `DmaController::allocate_channel()` skips channels 9 and 10.
+  Linux's `sun6i-dma` to channels 0..7 (`dma-channels = <8>`). Note on hardware reservation (measured on silicon 2026-10-24 and 2026-11-01):
+  channels 8, 9, and 10 are hardware-firewalled/reserved on Allwinner T527 (OP-TEE / TrustZone / DSP firewall; hardware
+  ignores LLI descriptor fetches and leaves CFG=0). Available E906 channels are 11, 12, 13, 14, 15.
+  `DmaController::allocate_channel()` skips channels 8, 9, and 10.
   Interrupt routing (T527 manual
   §2.8.6.8-9; reset value of both is `0xFFFF`, measured on the board 2026-10-22, and Linux never
   writes them): the E906 sets `DMAC_IRQ_MCU_EN_REG` (+0x38) = `0xFF00` and clears bits 8..15 of
@@ -820,8 +819,9 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   although it is below `DMA_THRESHOLD`: a FIFO transfer would keep the handler busy for the whole
   burst (~12 µs at 10 MHz). It is the one stated exception to [SPEC-E906-HAL-01].
 * **Requirement**: TX and RX buffers are members of the auto-channel object in SRAM (DMA-reachable,
-  never the stack). If SPI1 is still busy when an edge arrives, the edge is counted as an overrun
-  and dropped; it is never queued or retried, so a late read cannot be mistaken for a new sample.
+  never the stack). If SPI1 is busy with another channel's transfer when an edge arrives, the channel
+  is marked pending in `IoEngine` with its edge timestamp and retried when the bus is released. An edge
+  arriving while that channel's own read is still in flight is counted as an overrun and dropped.
 * **Requirement**: each sample is one `IoEngine` stream TLP whose `timestamp_ns` is the edge time
   (`hal::Timer::get_time_ns()`, 24 MHz `mtime`, taken in the edge handler). `hal::auto_dma::stats()`
   keeps, in `mcycle`: edges, busy drops, completed and failed transfers, handler entry -> DMA
@@ -883,7 +883,10 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
      NACK, `0x38` arbitration lost, anything else bus error.
   5. A synchronous transfer waits through a replaceable wait hook (default: `arm_wake` +
      `platform_idle_wait`) with a 20 ms deadline; on timeout it sends STOP, counts it and returns
-     `Timeout`. A transfer still busy when the next one starts is aborted first.
+     `Timeout`. A transfer still busy when the next one starts is aborted first. Before starting a
+     transfer, in-flight STOP (`kMStp`) is awaited (bounded by 200 µs); if unreleased, bus recovery
+     is triggered, otherwise a 5 µs `tBUF` gap ensures START timing compliance and avoids bus
+     collisions during back-to-back address probes (e.g. `i2c_scan`).
   6. No TWI DMA until its threshold is measured ([SPEC-E906-HAL-01]): register reads fit the FIFO.
   7. `capabilities()`: up to 2 messages (write, read, or write then read with repeated START),
      address-only probe.

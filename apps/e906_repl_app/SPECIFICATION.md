@@ -218,7 +218,7 @@ flowchart TD
   * `abstractx.i2c_scan()`: Probes I2C1 (TWI1, Pins 3 & 5, `0x02502400`) and returns list of responding 7-bit addresses.
   * `abstractx.i2c_read(addr, reg, len)`: Reads `len` bytes from register `reg` on I2C device `addr`.
   * `abstractx.i2c_read_into(addr, reg, buf)`: Zero-allocation read from register `reg` on I2C device `addr` directly into a writable buffer, returning bytes read (`0` on NACK/timeout).
-  * Also present and part of the contract: `peek_hex`, `uart_init([baud])`, `uart_status()`,
+  * Also present and part of the contract: `peek_hex`, `uart_init([baud])`, `uart_stop()`, `uart_status()`,
     `i2c_init([hz])`, `i2c_write(addr, reg, data)`, `sleep_ms(ms)`, `ticks_ms()`,
     `console_read([n])`, `console_read_into(buf)` ([SPEC-E906-REPL-14]),
     `tlp_send(buf)`, `tlp_push(buf)`, `tlp_poll_into(buf)`, `tlp_dropped()`

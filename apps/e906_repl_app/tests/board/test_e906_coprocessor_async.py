@@ -79,6 +79,12 @@ def require_e906_board():
     state = open(RPROC + "/state").read().strip()
     if state != "running":
         board_common.skip(f"remoteproc0 not running (state={state})")
+    if not glob.glob("/sys/bus/rpmsg/devices/*abstractx-tlp*"):
+        board_common.skip("abstractx-tlp not announced")
+    if glob.glob("/sys/bus/rpmsg/devices/*abstractx-repl*"):
+        board_common.skip("abstractx-repl active (coprocessor firmware not loaded)")
+    if glob.glob("/sys/bus/rpmsg/devices/*abstractx-bench*"):
+        board_common.skip("abstractx-bench active (coprocessor firmware not loaded)")
 
 
 class AsyncRpmsgLink:

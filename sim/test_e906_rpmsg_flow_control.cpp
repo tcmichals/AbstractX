@@ -192,11 +192,12 @@ void reset_fake_env() {
 static void test_idle_wake_deadline() {
     using hal::idle::wake_deadline_us;
     using hal::idle::kOwedRetryUs;
-    assert(wake_deadline_us(10, 1'000'010, false) == 1'000'010);
+    using hal::idle::kMaxIdleSleepUs;
+    assert(wake_deadline_us(10, 1'000'010, false) == 10 + kMaxIdleSleepUs);
     assert(wake_deadline_us(10, 1'000'010, true) == 10 + kOwedRetryUs);
     assert(wake_deadline_us(10, 30, true) == 30 && "an earlier status deadline still wins");
     assert(wake_deadline_us(10, UINT64_MAX, true) == 10 + kOwedRetryUs);
-    assert(wake_deadline_us(10, UINT64_MAX, false) == UINT64_MAX);
+    assert(wake_deadline_us(10, UINT64_MAX, false) == 10 + kMaxIdleSleepUs);
 }
 
 int main() {
@@ -386,11 +387,11 @@ int main() {
         rpmsg.init(host.rsc());
         assert(rpmsg.is_driver_ready());
 
-        // Default: suppressed (VRING_USED_F_NO_NOTIFY = 1)
-        assert(host.tx().used->flags == 1);
+        // Default: RX unsuppressed (flags = 0); TX suppressed (flags = 1)
+        assert(host.tx().used->flags == 0);
         assert(host.rx().used->flags == 1);
 
-        // AsyncRxAwaiter unsuppresses before sleeping
+        // AsyncRxAwaiter unsuppresses before sleeping (stays 0)
         rpmsg.enable_rx_kick(true);
         assert(host.tx().used->flags == 0);
 
@@ -444,7 +445,7 @@ int main() {
 
         // Check defaults
         assert(host.rx().used->flags == 1);
-        assert(host.tx().used->flags == 1);
+        assert(host.tx().used->flags == 0);
 
         // Lend reply buffer in vring[0] and post a message to LiteMetal in vring[1]
         host.lend(0);
@@ -471,7 +472,8 @@ int main() {
         hal::Rpmsg::set_active_driver(&rpmsg);
         rpmsg.init(host_a.rsc());
         assert(rpmsg.is_driver_ready());
-        assert(host_a.tx().used->flags == 1);
+        assert(host_a.tx().used->flags == 0);
+        host_a.tx().used->flags = 1;
 
         rpmsg.init(host_b.rsc());         // e.g. remoteproc restart with new vrings
         rpmsg.enable_rx_kick(true);       // before anything else touches the driver
@@ -536,7 +538,7 @@ int main() {
         rpmsg.flush_kick();
         assert(hal::g_fake_msgbox_sends[1] == 1 && "owed kick retried");
         assert(!rpmsg.kick_owed());
-        assert(hal::idle::wake_deadline_us(1000, 1'001'000, rpmsg.kick_owed()) == 1'001'000);
+        assert(hal::idle::wake_deadline_us(1000, 1'001'000, rpmsg.kick_owed()) == 1000 + hal::idle::kMaxIdleSleepUs);
         rpmsg.flush_kick();
         assert(hal::g_fake_msgbox_sends[1] == 1 && "and only once");
         std::cout << "  -> FullMailboxNeverHangsAndTheKickIsRetried: PASS\n";

@@ -254,7 +254,7 @@ bool ready(Transport &t) {
             const bool rx_ok = setup_vq(t.rx, rsc->vdev.vring[1].da, rsc->vdev.vring[1].num, rsc->vdev.vring[1].align);
             if (tx_ok && rx_ok) {
                 t.tx.used->flags = VRING_USED_F_NO_NOTIFY;
-                t.rx.used->flags = VRING_USED_F_NO_NOTIFY;
+                t.rx.used->flags = 0;  // Host kicks never suppressed on RX ([SPEC-E906-IRQ-04])
                 std::atomic_thread_fence(std::memory_order_release);
                 t.ready = true;
             } else {
@@ -462,8 +462,10 @@ bool poll(Transport &t) {
         return false;
     }
 
-    // Suppress redundant host kicks while actively draining
-    set_flags(t.rx, VRING_USED_F_NO_NOTIFY);
+    // Host kicks stay unsuppressed on RX ([SPEC-E906-IRQ-04]): suppressing kicks while draining
+    // causes Linux to skip doorbell kicks on concurrent transmits, resulting in lost wakeups
+    // and 1s stalls if E906 sleeps before Linux's descriptor update is observed.
+    set_flags(t.rx, 0);
 
     bool consumed = false;
     for (;;) {
@@ -500,14 +502,10 @@ bool poll(Transport &t) {
             publish_used(t.rx, desc_idx, 0);  // return the consumed host buffer
         }
 
-        // Re-enable host kicks before the last check: interrupt-driven RX
-        // ([SPEC-E906-IRQ-04]) never wakes if NO_NOTIFY is left set. A buffer
-        // posted between the check and the flag write is caught by re-checking.
-        set_flags(t.rx, 0);
+        // Host kicks remain unsuppressed; check if additional buffers arrived while draining
         if (!avail_pending(t, t.rx, pending) || pending == 0) {
             break;
         }
-        set_flags(t.rx, VRING_USED_F_NO_NOTIFY);
     }
 
     // Tell the host its transmit buffers are back

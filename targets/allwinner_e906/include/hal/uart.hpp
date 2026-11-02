@@ -55,6 +55,7 @@ public:
 
     // Receive by DMA (default) or by interrupt (bring-up); returns whether DMA is active.
     bool set_dma(bool enable) noexcept;
+    void stop() noexcept;
     bool dma_active() const noexcept { return dma_active_; }
     bool attached() const noexcept { return attached_; }
     uint32_t line_status() const noexcept { return reg(kLsr) & 0xFFU; }

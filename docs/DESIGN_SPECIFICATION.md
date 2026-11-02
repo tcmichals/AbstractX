@@ -232,20 +232,24 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
      clamped length). Bridge: SPI `tx, rx <= 36`, I2C `tx <= 32`, `rx <= 36`. GPIO pin `>= 32` is
      answered with an error status, never shifted. The tx and rx buffers of an SPI transfer are the
      same length (tx zero-padded), because SPI clocks both.
-  4. **Concurrency**: each auto channel owns its tx/rx buffers, a config snapshot and an atomic busy
-     flag. A trigger only starts channels whose `trigger_pin` matches. A trigger while that channel's
-     transfer is still in flight is counted (`auto_overruns()`) and dropped; it never restarts the
-     transfer or reuses its buffers. `configure()` fails (`false`) if `backend_.init_channel(ch)`
-     fails for any channel. Config writes (`DMA_CFG`, `set_auto_mode`) and the trigger's
-     snapshot are taken under `InterruptGuard`. `ASP_DMA_CMD_SETUP` matches the channel by
+  4. **Concurrency & Shared Bus Arbitration**: each auto channel owns its tx/rx buffers, a config snapshot,
+     and atomic flags (`busy`, `pending`, `in_flight`). A trigger only starts channels whose `trigger_pin`
+     matches. An edge while a channel's own read is in flight is counted (`auto_overruns()`) and dropped;
+     it never restarts the transfer. If a channel's trigger arrives while another engine transfer (auto or bridge)
+     holds that bus (`is_bus_in_flight()`), the channel remains `busy` and enters `pending` state, preserving its
+     edge `timestamp_ns`. A new edge arriving while a channel is already `pending` supersedes it (updates `timestamp_ns`
+     to newest edge and counts an overrun). Pending channels on that bus are retried in FIFO order from
+     `auto_done()` and `bridge_done()` (after releasing the bus, before `emit()`), on every `on_trigger()`,
+     and in `step()`. If nothing of the engine's is in flight on that bus and `start_transfer()` is refused,
+     the transfer is dropped without sticking (`busy` cleared). Config writes (`DMA_CFG`, `set_auto_mode`)
+     and the trigger's snapshot are taken under `InterruptGuard`. `ASP_DMA_CMD_SETUP` matches the channel by
      `channel_id`, refuses with `ASP_STATUS_DMA_ERROR` while that channel is `busy`, updates its
      config, and calls `backend_.init_channel()` so a changed trigger pin or edge is re-armed in the
      back end. Bridge transfers use a fixed slot pool; a full pool
      answers `ASP_STATUS_QUEUE_FULL`. Each completion is matched to the slot or channel that started it.
      A completed auto read is copied into its TLP, then the channel is released (busy cleared), and only
      then is the TLP published (`emit`, which wakes the consumer): a consumer on another thread or core
-     that reacts to the sample must find the channel free for the next edge (2026-10-30: publishing
-     first made `sim/test_linux_drdy_auto` count the next edge as an overrun under ASan timing).
+     that reacts to the sample must find the channel free for the next edge.
   5. **No blocking**: the engine never waits for a transfer. A back end whose bus only has a
      synchronous primitive may complete inside `start_transfer()`; that gap is listed in the target
      spec, not hidden.

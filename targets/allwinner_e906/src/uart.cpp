@@ -177,6 +177,16 @@ void E906Uart::stop_rx_dma() noexcept {
     dma_active_ = false;
 }
 
+void E906Uart::stop() noexcept {
+    abstractx::InterruptGuard guard;
+    reg(kIer) = 0x00U;
+    stop_rx_dma();
+    if (attached_) {
+        const uint32_t line = ::hal::clic::line_for_gic(port_.gic);
+        ::hal::clic::disable(line);
+    }
+}
+
 bool E906Uart::set_dma(bool enable) noexcept {
     abstractx::InterruptGuard guard;
     dma_want_ = enable;

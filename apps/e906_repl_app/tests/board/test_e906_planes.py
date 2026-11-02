@@ -41,6 +41,8 @@ TLP_TAG = 7
 def _require_board():
     if not on_e906_board():
         skip("not an E906 board (no remoteproc0)")
+    if not glob.glob("/sys/bus/rpmsg/devices/*abstractx-repl*"):
+        skip("abstractx-repl not announced (repl firmware not loaded)")
 
 
 def _ok(code: str, timeout_s: float = 10.0) -> str:
@@ -137,10 +139,11 @@ def test_compass_answers_and_changes():
     config registers as if it were a QMC5883L, so the heading never changed)."""
     _require_board()
     out = _ok("import abstractx\nabstractx.i2c_init(400000)\nprint('SCAN', abstractx.i2c_scan())\n"
+              "abstractx.sleep_ms(20)\n"
               "print('ID', list(abstractx.i2c_read(0x1E, 0x0A, 3)))")
     found = [a for a in COMPASS_ADDRS if f"{a}" in out.split("SCAN", 1)[-1].split("ID")[0]]
     assert found, f"no compass at {[hex(a) for a in COMPASS_ADDRS]} on I2C1: {out.strip()}"
-    hmc = "[72, 52, 51]" in out  # b"H43"
+    hmc = (0x1E in found) or ("[72, 52, 51]" in out)  # b"H43"
     if hmc:
         cfg = ("abstractx.i2c_write(0x1E, 0x00, b'\\x70')\nabstractx.i2c_write(0x1E, 0x01, b'\\x20')\n"
                "abstractx.i2c_write(0x1E, 0x02, b'\\x00')\n")

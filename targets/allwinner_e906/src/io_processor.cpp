@@ -43,7 +43,8 @@ public:
             drdy_bound_ = true;
         }
         if (ch.bus_type == hal::BusType::Spi) {
-            fc::hal::Spi0::init(ch.bus_speed_hz ? ch.bus_speed_hz : 20'000'000);
+            fc::hal::Spi1::init(ch.bus_speed_hz ? ch.bus_speed_hz : 10'000'000);
+            spi_ready_ = true;
         } else if (ch.bus_type == hal::BusType::I2c) {
             hal::I2cConfig cfg{};
             cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 400'000;
@@ -61,6 +62,10 @@ public:
     // @impl [SPEC-ARCH-14] docs/DESIGN_SPECIFICATION.md
     bool start_transfer(const hal::IoTransfer& x) noexcept override {
         if (x.bus == hal::BusType::Spi) {
+            if (!spi_ready_) {
+                fc::hal::Spi1::init(10'000'000);
+                spi_ready_ = true;
+            }
             if (fc::hal::Spi1::is_busy()) {                // one DMA at a time on SPI1: drop
                 if (in_edge_) ++stats_.busy_drops;
                 return false;
@@ -214,6 +219,7 @@ private:
 
     hal::IoEngine* engine_{nullptr};
     bool dma_ready_{false};
+    bool spi_ready_{false};
     bool i2c_ready_[2]{false, false};
     bool uart_ready_{false};
     bool drdy_bound_{false};

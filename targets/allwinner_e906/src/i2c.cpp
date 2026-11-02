@@ -257,10 +257,15 @@ I2cStatus E906I2c::transfer_sync(uint8_t addr, std::span<const uint8_t> tx,
         recover_bus();
         reset_controller();
     }
-    if (reg(kCntr) & kMStp) {
-        // previous STOP still on the bus: one short sleep; START queues behind it anyway
-        ::hal::driver_wait(::hal::Timer::get_ticks() + 50ULL * ::hal::Timer::TICKS_PER_US);
+    const uint64_t stop_deadline = ::hal::Timer::get_ticks() + 200ULL * ::hal::Timer::TICKS_PER_US;
+    while (((reg(kCntr) & kMStp) || (reg(kStat) & 0xFFU) != 0xF8U) && ::hal::Timer::get_ticks() < stop_deadline) {
+        ::hal::Timer::delay_us(1);
     }
+    if ((reg(kCntr) & kMStp) || (reg(kStat) & 0xFFU) != 0xF8U) {
+        recover_bus();
+        reset_controller();
+    }
+    ::hal::Timer::delay_us(5);
     start(addr, tx, rx);
 
     const uint64_t deadline = ::hal::Timer::get_ticks() + kTimeoutMs * ::hal::Timer::TICKS_PER_MS;
@@ -273,6 +278,11 @@ I2cStatus E906I2c::transfer_sync(uint8_t addr, std::span<const uint8_t> tx,
         }
         ::hal::driver_wait(deadline);
     }
+    const uint64_t stop_deadline_end = ::hal::Timer::get_ticks() + 200ULL * ::hal::Timer::TICKS_PER_US;
+    while ((reg(kCntr) & kMStp) && ::hal::Timer::get_ticks() < stop_deadline_end) {
+        ::hal::Timer::delay_us(1);
+    }
+    ::hal::Timer::delay_us(5);
     return status_;
 }
 

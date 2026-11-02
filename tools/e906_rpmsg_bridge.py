@@ -255,6 +255,8 @@ def main() -> int:
                     help="use legacy synchronous select() polling loop instead of asyncio")
     args = ap.parse_args()
 
+    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+
     if args.exit_on_stdin_eof:
         def _watch_stdin():
             sys.stdin.buffer.read()
