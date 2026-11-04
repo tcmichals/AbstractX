@@ -1,0 +1,5 @@
+#!/bin/sh
+# @impl [SPEC-AUDIT-17] docs/SPECTRACE.md (gate before push)
+# Opt in once per clone: git config core.hooksPath tools/git-hooks
+# Plain host build + ctest; a build error fails the push. Bypass once: git push --no-verify
+exec bash "$(git rev-parse --show-toplevel)/tools/gate.sh" --quick

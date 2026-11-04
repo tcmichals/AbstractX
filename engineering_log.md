@@ -3610,3 +3610,14 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Fix**: tests above; AGENTS §10.2 and the `thread-sanitizer` skill run TSan as `setarch -R ctest`.
 * **Evidence**: `test_e906_dma_irq` and `test_e906_rpmsg_flow_control` aborted / did not compile before and exit 0 after. ctest build_host, build_asan, build_tsan (`setarch -R`): 89/90 each; the one failure is `py_test_spectrace_matrix`, caused only by the untracked `sim/cocotb/test_asp_pio_rtfc_cocotb.py` (it passes with that file and `pio_sdk.py` moved aside).
 * **Not verified**: whether channel 8 is really firewalled (no TRM check, only the board result in 936d023); board idle latency without the cap.
+
+---
+
+### 2026-11-04: Full audit skill and gate script; core review step 1 documented
+* **Category**: `process-gap`
+* **What was missing**: no single command ran the AGENTS §10.2 gate, so `936d023` was committed without it; nothing measured test strength; no check asked how AbstractX is hosted on other OSes (the Boost.Asio mixing rule was missed); no check listed blocking vendor calls in drivers.
+* **Spec update**: `[SPEC-AUDIT-17]` in `docs/SPECTRACE.md` (gate, full audit with PASS / FAIL / REPORT / SKIPPED / MANUAL, findings become tests, other operating systems). AGENTS §10.2 points at `tools/gate.sh`; new §10.10.
+* **Implementation**: `tools/gate.sh` (build error stops before ctest; TSan under `setarch -R`; `GATE_BUILD_PREFIX`), `tools/full_audit.py` (gate, trace, static, coverage, mutation, fuzz, e906, ci, hosts, drivers; manual: review, concurrency, buses, gui, board, platforms), `tools/git-hooks/pre-push` (opt-in, `gate.sh --quick`), skill `.agents/skills/full-audit/`.
+* **Regression test**: `tests/test_full_audit.py` (a failing stage fails the audit, a timeout is never a pass, a missing tool is SKIPPED, a build error stops the gate before ctest via a fake cmake/ctest). While writing it: (1) the first version ran the fake build inside the real `build_host` and overwrote `gate_build.log` while the real gate ran (fixed with `GATE_BUILD_PREFIX`); (2) `gate.sh` exited silently when the build dir did not exist yet (fixed: `mkdir -p`); (3) an edit script of mine truncated `tools/full_audit.py` to 0 bytes (opened for write before reading); caught by the test, file rewritten.
+* **Review**: `docs/reviews/2026-11-04-core-review.md` with probe programs in `docs/reviews/2026-11-04-probes/`: 9 High, 14 Med, 11 Low findings. Every [V] item re-run a second time after the review passes, same results (e.g. three concurrent 10 ms sleeps wake at 10423 / 20594 / 30599 us).
+* **Not verified**: coverage and static stages not run in this pass; mutation and fuzz SKIPPED (no Mull, no targets); CI status unknown (`gh` not logged in).

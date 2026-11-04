@@ -187,7 +187,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 `audit_specs.py` only proves that tags exist. It found nothing wrong while four runtime bugs were present (see `engineering_log.md`, 2026-10-13). The following gates are mandatory in addition to Section 9:
 
 1. **No unverified claims.** Never write "100% passing", "N/N tests", "verified", "formally verified", cycle counts, byte counts or footprint numbers into any Markdown unless the same change ran the command that produced them. Quote the command and its output in the commit message. If you did not run it, say "not verified".
-2. **Run the real suite: plain, ASan/UBSan and TSan.** Before any commit touching `include/`, `src/`, `targets/linux/`, `tests/` or `sim/`:
+2. **Run the real suite: plain, ASan/UBSan and TSan.** Before any commit touching `include/`, `src/`, `targets/linux/`, `tests/` or `sim/`, run `tools/gate.sh` (all three; a build error stops it before ctest, so a stale binary cannot pass; `--quick` = plain only, used by the opt-in pre-push hook). It runs these commands:
    ```bash
    cmake -S . -B build_host -DABSTRACTX_TARGET=host && cmake --build build_host -j && ctest --test-dir build_host
    cmake -S . -B build_asan -DABSTRACTX_TARGET=host -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
@@ -203,7 +203,8 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 7. **Rules must match the code.** If a rule in this file contradicts existing code, fix one of them in the same change and record which in `engineering_log.md`. Never leave a known contradiction in place.
 8. **Requirements, skills, evidence (`docs/SPECTRACE.md` Stage 2b).** Requirements (what/why) live in `*SPECIFICATION.md`; how things are checked lives in `.agents/skills/<name>/SKILL.md` (Claude Code reads the same files through the `.claude/skills` symlink; `python3 tools/spectrace_matrix.py --check-skills` checks the layout). Every requirement names its skills in a `* **Verified by**:` line. Before committing, run `python3 tools/spectrace_matrix.py --changes` (add `--prompt` for the review bundle; the opt-in hook `git config core.hooksPath tools/git-hooks` runs it on staged changes): every changed hunk must map to a requirement, and the listed skills must be re-run. "Complete" means `VERIFIED` in `python3 tools/spectrace_matrix.py --matrix`, never tag presence alone.
 9. **Review layers ([SPEC-AUDIT-15], `docs/SPECTRACE.md`).** Besides tests and sanitizers: first-party C++ builds with `-Wall -Wextra -Wshadow -Wconversion -Wsign-conversion` (`-DABSTRACTX_WERROR=ON` to fail on them); run `static-analysis` (`tools/run_static_analysis.py`), `boundary-race-review` (`tools/boundary_review.py --check`, plus its checklist for every ISR, cross-core or cross-processor change), `ipc-transport-audit` for transports, and `spectrace_matrix.py --check-verifies` so no test claims a requirement it never exercises.
-10. **Report what you did not check.** End every agent summary with a short list of what was *not* built or tested (e.g. cross-compiled targets, RTL, hardware).
+10. **Full audit ([SPEC-AUDIT-17]).** Periodically, before a release, and after any miss no check caught: run the `full-audit` skill (`python3 tools/full_audit.py`). It includes hosting on and comparison with FreeRTOS, Zephyr, ChibiOS and Linux. A stage that did not run is reported SKIPPED, never PASS.
+11. **Report what you did not check.** End every agent summary with a short list of what was *not* built or tested (e.g. cross-compiled targets, RTL, hardware).
 
 
 ---

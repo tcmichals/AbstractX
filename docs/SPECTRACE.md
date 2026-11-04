@@ -384,6 +384,38 @@ python3 tools/run_adversarial_audit.py --all
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`), `static-analysis`, `boundary-race-review`, `ipc-transport-audit`
 * **Implementation Target**: `.github/workflows/spectrace_dashboard.yml`, `CMakeLists.txt`, `cmake/toolchains/arm-none-eabi.cmake`, `.clang-tidy`, `tools/run_static_analysis.py`, `tools/boundary_review.py`, `tools/spectrace_matrix.py`
 
+### `[SPEC-AUDIT-17]` Full Audit: One Gate That Cannot Be Skipped, Measured Tests, Findings Become Tests
+* **Requirement (gate)**: `tools/gate.sh` builds and runs the host suite plain, with ASan/UBSan
+  (`-fno-sanitize-recover=all`) and with TSan (under `setarch -R`). A build error stops it before any
+  ctest runs, so a stale binary can never pass for a test that no longer compiles. `--quick` runs the
+  plain build only. It is the command behind AGENTS §10.2 and the pre-push hook.
+* **Requirement (full audit)**: `tools/full_audit.py` runs every automatic stage (gate, traceability
+  and contract audits, static analysis, coverage, mutation, fuzzing, E906 cross-build and layout, CI
+  status) and writes one report with a status per stage: `PASS`, `FAIL`, `REPORT` (a measurement with
+  no threshold yet), `SKIPPED` (with the reason: tool not installed, no targets yet, no access) or
+  `MANUAL` (a checklist the reviewer must answer). A stage that did not run is never `PASS`; the
+  script exits 1 on any `FAIL`.
+* **Requirement (other operating systems)**: the audit covers the OSes AbstractX is meant to run on
+  and compete with (FreeRTOS, Zephyr, ChibiOS, Linux with Boost.Asio, bare metal). Automatic: which
+  hosts exist (`hosts/<os>`). Manual, per OS: its native event loop and async model, how the host
+  contract (`step()` deadline + wake, `[SPEC-ARCH-15]`) maps onto it, which of its coroutine or async
+  runtimes must never mix with AbstractX coroutines, where driver completions enter, who owns timers
+  and interrupt priorities, and per service (timeouts on every wait, multi-object waits, priorities,
+  work queues, init order, power, tracing, latency) whether AbstractX is better, equivalent, missing
+  it, or does not need it. The Boost.Asio mixing rule was missed until 2026-11-04 because no check
+  asked this question.
+* **Requirement (findings)**: a finding from a manual or LLM review is a candidate until it is a
+  failing test, a lint rule or a recorded hardware fact; only then does it go into the report as
+  confirmed. LLM reviewers are given the code or the diff and the requirements, not the reviewer's
+  suspicions.
+* **Rationale (2026-11-04)**: `936d023` was committed without the host suite; one test aborted, one
+  no longer compiled, and ctest kept running the old binary of the second, so it looked green. The
+  spec claimed a 5 ms idle cap that was never coded, and the GUI tests only render frames. Each was
+  a check that existed but was not run, or a test that could not fail.
+* **Verified by**: `full-audit` (`.agents/skills/full-audit/SKILL.md`), `host-tests`
+  (`tests/test_full_audit.py`)
+* **Implementation Target**: `tools/gate.sh`, `tools/full_audit.py`, `tools/git-hooks/pre-push`
+
 ### `[SPEC-AUDIT-16]` Block Diagrams Are SVG, Generated From a Source File
 * **Requirement**: a block diagram (boxes joined by arrows or nesting: architecture, dataflow,
   topology, memory layout, pipeline) in any tracked Markdown file is an SVG image, not ASCII or
