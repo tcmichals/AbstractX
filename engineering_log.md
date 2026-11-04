@@ -3687,3 +3687,14 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `sim/test_executor.cpp` (a custom executor receives `step_async`, timer and `Event::set` posts and an ISR post; a refused post returns false; `{}` restores the ring). First version set the Event before the coroutine waited on it (2 posts, not 3): test fixed, not the code. `sim/test_wake_on_enqueue.cpp` and the conformance checks now post through `abstractx::post()` (direct `Dispatcher::post` no longer wakes, by design).
 * **Evidence**: `tools/gate.sh` plain / asan / tsan 95/95 each, `[PASS] gate`; E906 5 images layout ok, SRAM_FAST down again (`e906_repl_app` 188.8 -> 187.7 KB, 97.8%; `gps_imu_app` 135.2 KB); FreeRTOS XTIMER / TICK_HOOK build; Pico 2 W builds (`gps_imu_app.elf` text 402376).
 * **Not verified**: no board run; the E906 FreeRTOS interrupt handler still calls `wake_from_isr()` itself (now redundant with the executor, harmless); E906 `in_isr()`.
+
+---
+
+### 2026-11-04: Drivers that reported success for work they did not do (review Q-1, Q-2, Q-12, Q-8)
+* **Category**: `product-bug`
+* **Bugs**: (Q-1) the Linux I2C worker handled only "one message" and "write then read": `write_regs_async` (two writes, `NoStart`), three or more messages and a zero-length probe issued no ioctl and returned `Ok`. (Q-2) a `CoroutineIoEngine` read / write / transaction whose submit failed (no tag, TX ring full) returned the stored response of an earlier transaction on that tag, with no error. (Q-12) tags skipped 255. (Q-8) Linux UART `write_async` reported `Ok` when the kernel accepted fewer bytes or none (`EAGAIN`).
+* **Which check should have caught it**: `host-tests`; no test sent a message shape other than the two handled, filled the TX ring, or wrote to a full UART buffer.
+* **Spec update**: `[SPEC-HAL-09]` never Ok without a transfer (whole message list to one `I2C_RDWR`, flags and `errno` mapped); `[SPEC-ARCH-09]` a refused TLP request is an error completion (`ASP_STATUS_QUEUE_FULL`), tags 1..255, stored response cleared on allocation; `[SPEC-HAL-10]` a short UART write is `QueueFull` with the count. Also `linux_uart_open()` / `linux_uart_close()` (`targets/linux/include/linux_uart.hpp`): until now no code outside `hal_uart.cpp` could point the Linux UART at a device, so its real-device path was unused.
+* **Regression tests** (each fails on the old code, passes on the new): `sim/test_linux_i2c_no_false_ok.cpp` (driver on `/dev/null`: four shapes now `NotSupported`, were `Ok`); `sim/test_tlp_refused_request.cpp` (255 reads use 255 tags; refused read returns flags 1, status `0x04`, tag 0); `sim/test_linux_uart_short_write.cpp` (full FIFO: `QueueFull`, 0 bytes; room again: `Ok`, 100 bytes).
+* **Evidence**: `tools/gate.sh` plain / asan / tsan 98/98 each, `[PASS] gate`.
+* **Not verified**: a real I2C bus (only `/dev/null`); a real tty; the planned Linux UART TX worker that writes the whole buffer.

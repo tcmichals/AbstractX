@@ -7,6 +7,7 @@
  */
 
 #include "abstractx/hal/uart.hpp"
+#include "linux_uart.hpp"
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/trace/tracer.hpp"
 #include <fcntl.h>
@@ -129,7 +130,11 @@ protected:
         UartResult result{};
         result.status = UartStatus::Ok;
         if (!req.data.empty()) {
+            // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md (never Ok for bytes not sent)
             result.bytes_transferred = write(req.data);
+            if (result.bytes_transferred < req.data.size()) {
+                result.status = UartStatus::QueueFull;  // kernel TX buffer full (short write / EAGAIN)
+            }
         }
         uint64_t t1 = get_timer_driver().get_time_us();
         trace::g_tracer.trace_hal(1 /* UART */, static_cast<uint16_t>(req.data.size()),
@@ -229,5 +234,11 @@ static LinuxUartDriver g_linux_uart;
 IUart& get_uart_driver() noexcept {
     return g_linux_uart;
 }
+
+bool linux_uart_open(const char* device_path, uint32_t baudrate) noexcept {
+    return g_linux_uart.open(device_path, baudrate);
+}
+
+void linux_uart_close() noexcept { g_linux_uart.close(); }
 
 } // namespace abstractx::hal

@@ -23,6 +23,7 @@
 #include <unistd.h>
 #include <chrono>
 #include <cstring>
+#include <cerrno>
 
 namespace abstractx::target {
 
@@ -106,6 +107,58 @@ public:
     bool is_hardware_active() const noexcept { return fd_ >= 0; }
 
 private:
+    static hal::I2cStatus status_from_errno(int e) noexcept {
+        switch (e) {
+            case ENXIO: case EREMOTEIO: return hal::I2cStatus::NackAddress;
+            case ETIMEDOUT:             return hal::I2cStatus::Timeout;
+            case EAGAIN:                return hal::I2cStatus::ArbitrationLost;
+            case ENOTTY: case EOPNOTSUPP: return hal::I2cStatus::NotSupported;
+            case EINVAL:                return hal::I2cStatus::InvalidArgument;
+            default:                    return hal::I2cStatus::BusError;
+        }
+    }
+
+    // @impl [SPEC-HAL-09] docs/DESIGN_SPECIFICATION.md (message list -> one I2C_RDWR)
+    hal::I2cResult transfer_msgs(const hal::I2cRequest& req) noexcept {
+        hal::I2cResult res{};
+        constexpr size_t kMaxMsgs = 42;  // I2C_RDWR_IOCTL_MAX_MSGS
+        if (req.msgs.size() > kMaxMsgs) {
+            res.status = hal::I2cStatus::NotSupported;
+            return res;
+        }
+        const bool ten_bit = (req.address & hal::kI2cTenBit) != 0;
+        const uint16_t addr = static_cast<uint16_t>(req.address & (ten_bit ? 0x3FFU : 0x7FU));
+        struct i2c_msg msgs[kMaxMsgs]{};
+        size_t bytes = 0;
+        for (size_t i = 0; i < req.msgs.size(); ++i) {
+            const hal::I2cMsg& m = req.msgs[i];
+            uint16_t f = 0;
+            if (m.is_read())                        f |= I2C_M_RD;
+            if (m.flags & hal::I2cFlag::NoStart)    f |= I2C_M_NOSTART;
+            if (m.flags & hal::I2cFlag::Stop)       f |= I2C_M_STOP;
+            if (m.flags & hal::I2cFlag::IgnoreNack) f |= I2C_M_IGNORE_NAK;
+            if (m.flags & hal::I2cFlag::RecvLen)    f |= I2C_M_RECV_LEN;
+            if (ten_bit)                            f |= I2C_M_TEN;
+            msgs[i].addr = addr;
+            msgs[i].flags = f;
+            msgs[i].len = static_cast<uint16_t>(m.size());
+            msgs[i].buf = m.is_read() ? m.rx.data() : const_cast<uint8_t*>(m.tx.data());
+            bytes += m.size();
+        }
+        struct i2c_rdwr_ioctl_data rdwr{};
+        rdwr.msgs = msgs;
+        rdwr.nmsgs = static_cast<uint32_t>(req.msgs.size());
+        const int ret = ::ioctl(fd_, I2C_RDWR, &rdwr);
+        if (ret < 0) {
+            res.status = status_from_errno(errno);
+            return res;
+        }
+        res.msgs_done = static_cast<uint8_t>(ret);
+        res.transferred_bytes = bytes;
+        res.status = (static_cast<size_t>(ret) == req.msgs.size()) ? hal::I2cStatus::Ok : hal::I2cStatus::NackData;
+        return res;
+    }
+
     void worker_loop() noexcept {
         while (running_.load(std::memory_order_acquire)) {
             wakeup_eventfd_.wait_blocking();
@@ -115,6 +168,16 @@ private:
             while (queue_.pop(req)) {
                 hal::I2cResult res{};
                 res.status = hal::I2cStatus::Ok;
+
+                // @impl [SPEC-HAL-09] docs/DESIGN_SPECIFICATION.md (never Ok without a transfer)
+                // A message list goes to the kernel as-is: one I2C_RDWR, every shape.
+                if (!req.msgs.empty() && fd_ >= 0) {
+                    res = transfer_msgs(req);
+                    res.timestamp_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count());
+                    complete(req, res);
+                    continue;
+                }
 
                 // Normalize [SPEC-HAL-09] req.msgs into req.slave_addr / tx_data / rx_data when present
                 if (!req.msgs.empty()) {
@@ -184,6 +247,20 @@ private:
                         } else {
                             res.transferred_bytes = req.tx_data.size();
                         }
+                    } else if (req.rx_data.empty()) {
+                        // Zero-length write: the address probe ([SPEC-HAL-09])
+                        struct i2c_msg msg{};
+                        msg.addr = req.slave_addr;
+                        msg.flags = 0;
+                        msg.len = 0;
+                        msg.buf = nullptr;
+                        struct i2c_rdwr_ioctl_data rdwr{};
+                        rdwr.msgs = &msg;
+                        rdwr.nmsgs = 1;
+                        if (::ioctl(fd_, I2C_RDWR, &rdwr) < 0) {
+                            res.status = status_from_errno(errno);
+                        }
+                        res.transferred_bytes = 0;
                     } else if (!req.rx_data.empty()) {
                         // Master Read Burst
                         struct i2c_msg msg{};

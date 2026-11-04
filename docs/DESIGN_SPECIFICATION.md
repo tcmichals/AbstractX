@@ -355,6 +355,11 @@ sequenceDiagram
 * **Requirement**: `Task<T>` MUST NOT store or propagate exceptions. An exception that escapes a coroutine body is a firmware bug: `unhandled_exception()` MUST report it through `abstractx::coro::set_unhandled_exception_hook()` (if set) and then stop with `__builtin_trap()`, so the target's trap handler records it (E906: `[SPEC-E906-CRASH-01]`, trace0). Errors that are expected at run time are returned as values (`Result`, status codes), not thrown.
 * **Completion callbacks** (used by `when_all` / `when_any`) MUST be a plain function pointer plus context pointer, not `std::function`.
 * **Frame pool exhausted**: when the static frame pool is full, a coroutine factory returns an empty `Task` (`get_return_object_on_allocation_failure`). Awaiting an empty `Task`, reading its result, or passing it to `when_all` / `when_any` MUST report through `abstractx::coro::set_pool_exhausted_hook()` (if set) and then stop with `__builtin_trap()`. It MUST NOT dereference the null handle, and a `Task<void>` MUST NOT silently "complete" without running. Code that can recover checks `task.handle()` before awaiting.
+* **Requirement (a refused TLP request is an error, never stale data, 2026-11-04)**: when a
+  `CoroutineIoEngine` request cannot be sent (no free tag, or the TX ring is full), the awaiter returns
+  an error completion (`TlpType::Completion`, `flags` bit 0 set, `payload[0] = ASP_STATUS_QUEUE_FULL`,
+  tag 0), never the response stored for that tag by an earlier transaction. A tag's stored response is
+  cleared when the tag is handed out. Tags use the whole range 1..255. (Review 2026-11-04 Q-2, Q-12.)
 * **Rationale (2026-10-28)**: a leak in `when_any` filled the pool after ~470 calls; the next `co_await` dereferenced the empty task's null handle (segfault), so the real cause (pool exhaustion) was invisible.
 * **Verified by**: `host-tests` (`sim/test_coro_failures.cpp`), `memory-footprint` (no `_Unwind_*` / `__cxa_rethrow` symbols in the E906 and Pico 2 W ELFs)
 * **Implementation Target**: `include/asp_coro.hpp`
@@ -735,6 +740,16 @@ sequenceDiagram
   with `read_regs16_async` / `write_regs16_async`) also accept `const I2cDevice&` (applying
   `dev.max_hz`), and `read_reg_async(dev, reg, out_byte)` / `write_reg_async(dev, reg, val_byte)`
   and `probe_async(addr | dev)` return the full `I2cResult`.
+* **Requirement (never Ok without a transfer, 2026-11-04)**: a driver reports `Ok` only for messages it
+  actually put on the bus. Linux passes the whole message list to one `I2C_RDWR` ioctl (flags mapped:
+  `Read` to `I2C_M_RD`, `NoStart` to `I2C_M_NOSTART`, `Stop` to `I2C_M_STOP`, `IgnoreNack` to
+  `I2C_M_IGNORE_NAK`, `RecvLen` to `I2C_M_RECV_LEN`, 10-bit to `I2C_M_TEN`; at most 42 messages, the
+  kernel limit), maps `errno` to the distinct errors (`ENXIO` / `EREMOTEIO` -> `NackAddress`,
+  `ETIMEDOUT` -> `Timeout`, `EAGAIN` -> `ArbitrationLost`, `ENOTTY` / `EOPNOTSUPP` -> `NotSupported`,
+  `EINVAL` -> `InvalidArgument`, else `BusError`), and sends a zero-length probe as a zero-length write.
+  Rationale: the Linux worker handled only "one message" and "write then read"; `write_regs_async`
+  (two writes with `NoStart`), three or more messages and a zero-length probe issued no ioctl and
+  returned `Ok` (review 2026-11-04 Q-1).
 * **Requirement (recovery)**: `co_await i2c.recover_bus_async()` clocks SCL until the slave releases
   SDA (up to 9 pulses) and sends STOP; `Ok` when SDA is high afterwards, `BusError` otherwise,
   `NotSupported` when the driver cannot drive the pins.
@@ -820,6 +835,11 @@ sequenceDiagram
   `std::atomic_thread_fence(std::memory_order_seq_cst)` between the two. Release/acquire alone lets
   the load pass the store (x86 store buffer, Arm, RISC-V, a second core): both sides miss and the
   reader is never woken. TSan does not report it (no data race, only too weak an order).
+* **Requirement (UART write never reports Ok for bytes not sent, 2026-11-04)**: `write_async` reports
+  `bytes_transferred` as the bytes the driver actually handed to the hardware or the kernel; a short
+  write (Linux non-blocking `write()` accepting fewer bytes, or `EAGAIN`) completes as `QueueFull`
+  with the count, never `Ok`; a write error is `NotSupported` (bad fd) or `QueueFull`. Planned: a
+  Linux TX worker that writes the whole buffer, like the SPI / I2C workers. (Review 2026-11-04 Q-8.)
 * **Verified by**: `host-tests` (`sim/test_uart_rx_ring.cpp`: wrap, partial frame, timeout, cancel,
   overrun, 1000-frame steady state, a producer thread for TSan; `sim/test_wake_handshake.cpp`:
   300,000 lockstep rounds against a producer thread, a lost wake fails on a watchdog; `sim/test_bus_protocols.cpp`: line

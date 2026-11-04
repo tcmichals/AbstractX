@@ -777,14 +777,32 @@ public:
     // Allocate a unique Tag for split-transaction matching
     uint8_t allocate_tag() noexcept {
         for (size_t i = 1; i < MAX_PENDING_TAGS; ++i) {
-            uint8_t tag = static_cast<uint8_t>((next_tag_ + i) % 254 + 1);
+            // @impl [SPEC-ARCH-09] docs/DESIGN_SPECIFICATION.md (tags 1..255; no stale response)
+            uint8_t tag = static_cast<uint8_t>((next_tag_ + i) % 255 + 1);
             if (!pending_requests_[tag].active) {
                 next_tag_ = tag;
                 pending_requests_[tag].active = true;
+                pending_requests_[tag].response_tlp = Tlp64{};
                 return tag;
             }
         }
         return 0; // Out of tags
+    }
+
+    // @impl [SPEC-ARCH-09] docs/DESIGN_SPECIFICATION.md (a refused request is an error, never stale data)
+    static Tlp64 refused_completion() noexcept {
+        Tlp64 t{};
+        t.wire.type = static_cast<uint8_t>(TlpType::Completion);
+        t.wire.flags = 1;
+        t.wire.tag = 0;
+        t.wire.length_dw = 1;
+        t.wire.payload[0] = ASP_STATUS_QUEUE_FULL;
+        return t;
+    }
+
+    void release_tag(uint8_t tag) noexcept {
+        pending_requests_[tag].active = false;
+        pending_requests_[tag].awaiting_coro = nullptr;
     }
 
     void register_awaiter(uint8_t tag, uint32_t addr, std::coroutine_handle<> coro) noexcept {
@@ -852,6 +870,7 @@ public:
         CoroutineIoEngine& engine;
         uint32_t address;
         uint8_t tag{0};
+        bool refused{false};  // [SPEC-ARCH-09] submit failed: await_resume returns an error
         bool sent{false};
 
         MemReadAwaiter(CoroutineIoEngine& eng, uint32_t addr) : engine(eng), address(addr) {}
@@ -860,20 +879,22 @@ public:
 
         bool await_suspend(std::coroutine_handle<> coro) {
             tag = engine.allocate_tag();
-            if (tag == 0) return false; // Tag allocation failure, don't suspend
+            if (tag == 0) { refused = true; return false; }  // no free tag: don't suspend
 
             engine.register_awaiter(tag, address, coro);
 
             // Construct and enqueue MemRd 64-byte TLP into TX ring
             Tlp64 req = Tlp64::make_mem_read(address, tag);
             if (!engine.push_tx(req)) {
-                engine.pending_requests_[tag].active = false;
+                engine.release_tag(tag);
+                refused = true;
                 return false;
             }
             return true;
         }
 
         Tlp64 await_resume() noexcept {
+            if (refused) return CoroutineIoEngine::refused_completion();
             return engine.pending_requests_[tag].response_tlp;
         }
     };
@@ -884,6 +905,7 @@ public:
         uint32_t address;
         uint32_t value;
         uint8_t tag{0};
+        bool refused{false};  // [SPEC-ARCH-09] submit failed: await_resume returns an error
 
         MemWriteAwaiter(CoroutineIoEngine& eng, uint32_t addr, uint32_t val)
             : engine(eng), address(addr), value(val) {}
@@ -892,18 +914,20 @@ public:
 
         bool await_suspend(std::coroutine_handle<> coro) {
             tag = engine.allocate_tag();
-            if (tag == 0) return false;
+            if (tag == 0) { refused = true; return false; }
 
             engine.register_awaiter(tag, address, coro);
             Tlp64 req = Tlp64::make_mem_write(address, value, tag);
             if (!engine.push_tx(req)) {
-                engine.pending_requests_[tag].active = false;
+                engine.release_tag(tag);
+                refused = true;
                 return false;
             }
             return true;
         }
 
         Tlp64 await_resume() noexcept {
+            if (refused) return CoroutineIoEngine::refused_completion();
             return engine.pending_requests_[tag].response_tlp;
         }
     };
@@ -980,6 +1004,7 @@ public:
         CoroutineIoEngine& engine;
         Tlp64 req;
         uint8_t tag{0};
+        bool refused{false};  // [SPEC-ARCH-09] submit failed: await_resume returns an error
 
         TransactAwaiter(CoroutineIoEngine& eng, const Tlp64& r) noexcept : engine(eng), req(r) {}
 
@@ -987,17 +1012,19 @@ public:
 
         bool await_suspend(std::coroutine_handle<> coro) noexcept {
             tag = engine.allocate_tag();
-            if (tag == 0) return false;
+            if (tag == 0) { refused = true; return false; }
             req.wire.tag = tag;
             engine.register_awaiter(tag, req.wire.target_address, coro);
             if (!engine.push_tx(req)) {
-                engine.pending_requests_[tag].active = false;
+                engine.release_tag(tag);
+                refused = true;
                 return false;
             }
             return true;
         }
 
         Tlp64 await_resume() noexcept {
+            if (refused) return CoroutineIoEngine::refused_completion();
             return engine.pending_requests_[tag].response_tlp;
         }
     };
