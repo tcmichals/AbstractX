@@ -172,6 +172,16 @@ void Timer::use_external_tick() noexcept { g_external_tick = true; }
 
 bool Timer::tick_from_isr() noexcept { return post_due_waiters(get_ticks()); }
 
+bool Timer::service_due() noexcept {
+    abstractx::InterruptGuard guard;
+    return post_due_waiters(get_ticks());
+}
+
+uint64_t Timer::next_deadline_ticks() noexcept {
+    abstractx::InterruptGuard guard;  // 64-bit read on RV32
+    return g_coro_target;
+}
+
 // Line 7 is level while mtime >= mtimecmp: always leave the comparator in the future or parked.
 void Timer::handle_irq() noexcept {
     const uint64_t now = get_ticks();

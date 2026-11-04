@@ -37,6 +37,11 @@ public:
     static void use_external_tick() noexcept;
     // From the RTOS tick hook (ISR): post due waiters; true if any was posted.
     static bool tick_from_isr() noexcept;
+    // @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
+    // Task context (masks interrupts): post due waiters; true if any was posted.
+    static bool service_due() noexcept;
+    // Earliest pending sleep deadline in ticks, or UINT64_MAX when none.
+    static uint64_t next_deadline_ticks() noexcept;
 
     // ------------------------------------------------------------------------
     // Non-Blocking Coroutine Sleep Awaiters (ZERO POLLING / ZERO HARD LOOPS)

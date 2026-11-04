@@ -3576,3 +3576,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Spec update**: new `[SPEC-ARCH-15]` in `docs/DESIGN_SPECIFICATION.md`; AGENTS.md §3 item 3. The `step()`-returns-deadline / `set_wake()` change is recorded there as planned, not implemented.
 * **Check**: `tools/audit_coro_contracts.py` check 7 (`CORO-MIX-VIOLATION`). Shown to fail on a file using `asio::awaitable` + `use_awaitable` (exit 1) and to pass on the repository (exit 0); `tests/test_coro_contracts.py` covers both cases and comments.
 * **Not verified**: no C++ changed, so no host, sanitizer or cross build was run for this entry.
+
+---
+
+### 2026-11-04: FreeRTOS E906: AbstractX timers no longer take the application's tick hook
+* **Category**: `process-gap`
+* **What was wrong** (`apps/e906_freertos_app`): AbstractX sleeps were served from `vApplicationTickHook`, a single global symbol that belongs to the application, and the hook walked the AbstractX timer list in interrupt context on every tick. Cost was not the issue; ownership and context were.
+* **Spec update**: `[SPEC-E906-RTOS-03]` (build option `ABX_FREERTOS_TIMER` = `WAIT` default / `XTIMER` / `TICK_HOOK` opt-in) and `[SPEC-E906-RTOS-05]` (loop calls `hal::Timer::service_due()` before `step()`); follows `[SPEC-ARCH-15]` (the host drives AbstractX).
+* **Hardware/kernel fact** (FreeRTOS V11.1.0 source): `xTaskDelayUntil` and auto-reload timers are drift-free (next = expected + period, `tasks.c:2363`, `timers.c:706`), but an auto-reload timer that falls behind calls its callback once per missed period back to back (`prvReloadTimer`). AbstractX deadlines are absolute 24 MHz ticks, so an early, late or coalesced wake neither drifts nor loses a sleep.
+* **Build**: all three modes cross-build (`riscv-none-elf-gcc 15.2.0`, Release); `check_e906_layout.py` ok for each; `nm -u` shows no malloc/free. WAIT: SRAM_FAST 139.2 / 192 KB (72.5%), DRAM 0.00 MB. XTIMER adds `timers.c` (+3.9 KB text).
+* **Not verified**: no board run; `bench_e906_runtime.py --cyclic` and `e906-board-selftest` not run for any mode; sleep latency of WAIT vs TICK_HOOK not measured.

@@ -64,17 +64,35 @@ flowchart LR
   the scheduler starts.
 * **Requirement (one owner of `mtimecmp`, 2026-10-31)**: the kernel owns the comparator.
   `main()` calls `hal::Timer::use_external_tick()` before `abstractx::init()`; from then on
-  `hal::Timer` never writes `mtimecmp`. AbstractX sleeps (`sleep_*_async`) are served from the
-  tick: `vApplicationTickHook` (`configUSE_TICK_HOOK = 1`) calls `hal::Timer::tick_from_isr()`,
-  which posts due waiters to `IsrDispatcher` and returns true if it posted; the hook then calls
-  `vTaskNotifyGiveFromISR(s_ax_task, nullptr)` (the kernel switches at the end of the tick).
-  Sleep resolution is therefore one tick (1 ms). The profiler sample timer and `Timer::arm_wake`
-  are not available under FreeRTOS.
+  `hal::Timer` never writes `mtimecmp`. Sleep resolution is one tick (1 ms). The profiler sample
+  timer and `Timer::arm_wake` are not available under FreeRTOS.
+* **Requirement (how AbstractX timers are served, 2026-11-04)**: chosen at build time with the
+  CMake cache option `ABX_FREERTOS_TIMER` (`[SPEC-ARCH-15]`: the host drives AbstractX):
+  * `WAIT` (default): no timer object and no hook. The AbstractX task waits in
+    `ulTaskNotifyTake` with a timeout of `ceil((Timer::next_deadline_ticks() - now) / ticks per
+    kernel tick)` (`portMAX_DELAY` when no sleep is pending). `configUSE_TICK_HOOK = 0`,
+    `configUSE_TIMERS = 0`.
+  * `XTIMER`: one static one-shot FreeRTOS software timer. After `step()`, the AbstractX task
+    re-arms it with `xTimerChangePeriod(..., 0)` when the next deadline changed or the timer is not
+    active, and stops it when no sleep is pending; a failed command is counted
+    (`timer_cmd_failures`), never ignored. The callback (timer service task,
+    `configTIMER_TASK_PRIORITY = configMAX_PRIORITIES - 1`) only calls `xTaskNotifyGive`.
+    `configUSE_TIMERS = 1`, `configUSE_TICK_HOOK = 0`.
+  * `TICK_HOOK` (opt-in fallback): `vApplicationTickHook` calls `hal::Timer::tick_from_isr()` and
+    notifies the task when it posted a waiter. Use only when the application gives AbstractX its
+    tick hook.
+  In `WAIT` and `XTIMER` the AbstractX task calls `hal::Timer::service_due()` (task context,
+  interrupts masked) before `step()`: due waiters are found by `now >= deadline`, so an early,
+  late or coalesced wake never loses or double-runs a sleep; an early wake just waits again.
+* **Rationale (2026-11-04)**: `vApplicationTickHook` is one global symbol that belongs to the
+  application, and the hook walked the AbstractX timer list in interrupt context on every tick.
+  A timeout or a kernel software timer is the documented FreeRTOS way to wait for time. Cost was
+  not the reason (servicing a 1 kHz timer is negligible).
 * **Rationale (2026-10-31)**: `hal::Timer::reprogram()` wrote the same `mtimecmp` as the kernel
   tick, so AbstractX overwrote the tick deadline, and no AbstractX timer interrupt ever ran:
   coroutine sleeps never woke (`C` cyclic bench returned no report).
 * **Verified by**: `e906-disassembly-check`, `e906-board-selftest`, board bench (`bench_e906_runtime.py --cyclic` on `e906_freertos_app` completes)
-* **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`, `apps/e906_freertos_app/FreeRTOSConfig.h`, `targets/allwinner_e906/src/timer.cpp`
+* **Implementation Target**: `apps/e906_freertos_app/src/main.cpp`, `apps/e906_freertos_app/FreeRTOSConfig.h`, `apps/e906_freertos_app/CMakeLists.txt`, `targets/allwinner_e906/src/timer.cpp`
 
 ### `[SPEC-E906-RTOS-04]` Message Box Interrupt Feeds the AbstractX Dispatcher
 * **Requirement**: the message box line is level triggered and stays asserted while the
@@ -101,8 +119,9 @@ flowchart LR
 
 ### `[SPEC-E906-RTOS-05]` AbstractX Runs in One Task
 * **Requirement**: exactly one FreeRTOS task (`abstractx`, highest application priority)
-  calls AbstractX APIs. It loops: `abstractx::step()`; if `Dispatcher::has_pending_resumes()`
-  is false, block in `ulTaskNotifyTake(pdTRUE, portMAX_DELAY)`. ISRs only post to
+  calls AbstractX APIs. It loops: `hal::Timer::service_due()` (not in `TICK_HOOK` mode),
+  `abstractx::step()`; if `Dispatcher::has_pending_resumes()` is false, block in
+  `ulTaskNotifyTake` with the timeout `[SPEC-E906-RTOS-03]` gives for the selected mode. ISRs only post to
   `IsrDispatcher` and notify this task. No other task touches the dispatcher, RPMsg or the
   tracer.
 * **Requirement**: the idle task sleeps in `wfi` (idle hook) and counts wake-ups and idle

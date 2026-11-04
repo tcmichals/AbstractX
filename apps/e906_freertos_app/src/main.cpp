@@ -18,6 +18,7 @@
 extern "C" {
 #include "FreeRTOS.h"
 #include "task.h"
+#include "timers.h"
 extern "C" {
 extern uint64_t ullNextTime;                    // FreeRTOS RISC-V port.c: next tick compare value
 extern const size_t uxTimerIncrementsForOneTick;  // port.c: mtime ticks per kernel tick
@@ -100,14 +101,68 @@ abstractx::coro::Task<void> bench_main() {
     co_await e906_bench::worker_task(abstractx::hal::g_rpmsg);
 }
 
+// @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md (how sleeps are served)
+constexpr uint64_t kNoDeadline = UINT64_MAX;
+
+// Kernel ticks until the deadline, rounded up; 0 when due, portMAX_DELAY when none.
+[[maybe_unused]] TickType_t ticks_until(uint64_t deadline) noexcept {
+    if (deadline == kNoDeadline) return portMAX_DELAY;
+    const uint64_t now = hal::Timer::get_ticks();
+    if (deadline <= now) return 0;
+    const uint64_t per = uxTimerIncrementsForOneTick;
+    const uint64_t n = (deadline - now + per - 1u) / per;
+    return n >= portMAX_DELAY ? portMAX_DELAY - 1u : static_cast<TickType_t>(n);
+}
+
+#if ABX_FREERTOS_TIMER_MODE == 1
+// shared: AbstractX task arms/stops it, timer service task runs the callback; kernel-owned
+StaticTimer_t s_ax_timer_buf;
+TimerHandle_t s_ax_timer = nullptr;
+uint64_t s_armed_deadline = kNoDeadline;  // AbstractX task only
+volatile uint32_t s_timer_cmd_failures = 0;  // shared: AbstractX task writes; debugger reads
+
+void ax_timer_cb(TimerHandle_t) { xTaskNotifyGive(s_ax_task); }
+
+void arm_ax_timer(uint64_t deadline) noexcept {
+    if (deadline == kNoDeadline) {
+        if (s_armed_deadline != kNoDeadline && xTimerStop(s_ax_timer, 0) != pdPASS) {
+            s_timer_cmd_failures = s_timer_cmd_failures + 1u;
+        }
+        s_armed_deadline = kNoDeadline;
+        return;
+    }
+    if (deadline == s_armed_deadline && xTimerIsTimerActive(s_ax_timer) != pdFALSE) return;
+    TickType_t n = ticks_until(deadline);
+    if (n == 0) n = 1;  // due now: the loop runs again before it can sleep
+    if (xTimerChangePeriod(s_ax_timer, n, 0) == pdPASS) {
+        s_armed_deadline = deadline;
+    } else {
+        s_timer_cmd_failures = s_timer_cmd_failures + 1u;
+        s_armed_deadline = kNoDeadline;  // retry next pass
+    }
+}
+#endif
+
 // [SPEC-E906-RTOS-05] the only context that calls AbstractX
 void abstractx_task(void *) {
     abstractx::spawn(bench_main());
     for (;;) {
+#if ABX_FREERTOS_TIMER_MODE != 2
+        (void)hal::Timer::service_due();  // due by now >= deadline: late or coalesced wakes lose nothing
+#endif
         abstractx::step();
-        if (!abstractx::Dispatcher::has_pending_resumes()) {
-            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        }
+        if (abstractx::Dispatcher::has_pending_resumes()) continue;
+#if ABX_FREERTOS_TIMER_MODE == 0
+        const TickType_t wait = ticks_until(hal::Timer::next_deadline_ticks());
+        if (wait != 0) ulTaskNotifyTake(pdTRUE, wait);
+#elif ABX_FREERTOS_TIMER_MODE == 1
+        const uint64_t deadline = hal::Timer::next_deadline_ticks();
+        if (ticks_until(deadline) == 0) continue;
+        arm_ax_timer(deadline);
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+#else
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+#endif
     }
 }
 
@@ -198,12 +253,14 @@ void freertos_risc_v_application_exception_handler(uint32_t mcause) {
     }
 }
 
-// @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
+#if ABX_FREERTOS_TIMER_MODE == 2
+// @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md (opt-in TICK_HOOK mode)
 void vApplicationTickHook(void) {
     if (hal::Timer::tick_from_isr() && s_ax_task) {
         vTaskNotifyGiveFromISR(s_ax_task, nullptr);  // nullptr: the kernel switches at tick end
     }
 }
+#endif
 
 void vApplicationIdleHook(void) {
     const uint64_t t0 = abx_bench_mcycle();
@@ -243,6 +300,9 @@ int main() {
                                    s_cyc_stack, &s_cyc_tcb);  // [SPEC-E906-BENCH-06]
     s_ax_task = xTaskCreateStatic(abstractx_task, "abstractx", kAbstractxStackWords, nullptr,
                                   configMAX_PRIORITIES - 1, s_ax_stack, &s_ax_tcb);
+#if ABX_FREERTOS_TIMER_MODE == 1
+    s_ax_timer = xTimerCreateStatic("abx", 1, pdFALSE, nullptr, ax_timer_cb, &s_ax_timer_buf);
+#endif
     vTaskStartScheduler();
     for (;;) {
         __asm__ volatile("wfi");

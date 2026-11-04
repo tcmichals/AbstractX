@@ -40,8 +40,15 @@
 #define configUSE_MALLOC_FAILED_HOOK            0
 /* [SPEC-E906-RTOS-05] idle task sleeps in wfi and counts idle time */
 #define configUSE_IDLE_HOOK                     1
-#define configUSE_TICK_HOOK                     1  /* [SPEC-E906-RTOS-03] serves hal::Timer sleeps */
-#define configUSE_TIMERS                        0
+/* [SPEC-E906-RTOS-03] how AbstractX sleeps are served: 0 WAIT (default), 1 XTIMER, 2 TICK_HOOK
+ * (set by CMake from ABX_FREERTOS_TIMER) */
+#ifndef ABX_FREERTOS_TIMER_MODE
+#define ABX_FREERTOS_TIMER_MODE                 0
+#endif
+#define configUSE_TICK_HOOK                     ( ABX_FREERTOS_TIMER_MODE == 2 )
+#define configUSE_TIMERS                        ( ABX_FREERTOS_TIMER_MODE == 1 )
+#define configTIMER_TASK_PRIORITY               ( configMAX_PRIORITIES - 1 )
+#define configTIMER_QUEUE_LENGTH                4
 #define configTIMER_TASK_STACK_DEPTH            configMINIMAL_STACK_SIZE /* V11.1.0 references it even with timers off */
 
 /* [SPEC-E906-RTOS-03] E906 CLINT timer (measured; 0x14004000 does not count) */
