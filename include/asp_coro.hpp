@@ -669,27 +669,53 @@ private:
     AcquireAwaiter* waiters_tail_{nullptr};
 };
 
-// Cooperative Lock-Free SPSC Queue (replaces raw circular buffers)
-// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
+// Cooperative queue between coroutines on the AbstractX thread (replaces raw circular buffers).
+// Not thread-safe: another thread or an ISR hands data over with a ring plus post() ([SPEC-ARCH-16]).
+// @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (AsyncQueue: waiter lists, hand-off, counted rejects)
 template <typename T, size_t Capacity = 16>
 class AsyncQueue {
-    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two");
+    static_assert(Capacity > 0 && (Capacity & (Capacity - 1)) == 0, "Capacity must be a power of two");
     static constexpr size_t kMask = Capacity - 1;
 
 public:
+    struct PopAwaiter {
+        AsyncQueue& q_;
+        T item_{};
+        std::coroutine_handle<> h_{};
+        PopAwaiter* next_{nullptr};
+        bool linked_{false};
+
+        explicit PopAwaiter(AsyncQueue& q) noexcept : q_(q) {}
+        PopAwaiter(const PopAwaiter&) = delete;
+        PopAwaiter& operator=(const PopAwaiter&) = delete;
+        ~PopAwaiter() { if (linked_) q_.unlink(q_.poppers_, q_.poppers_tail_, this); }
+
+        bool await_ready() noexcept { return q_.try_pop(item_); }
+        void await_suspend(std::coroutine_handle<> h) noexcept {
+            h_ = h;
+            q_.append(q_.poppers_, q_.poppers_tail_, this);
+        }
+        T await_resume() noexcept { return std::move(item_); }  // filled by the hand-off
+    };
+
     struct PushAwaiter {
         AsyncQueue& q_;
         T item_;
-        bool await_ready() const noexcept { return !q_.is_full(); }
-        void await_suspend(std::coroutine_handle<> h) noexcept { q_.push_waiter_ = h; }
-        void await_resume() noexcept { q_.try_push(std::move(item_)); }
-    };
+        std::coroutine_handle<> h_{};
+        PushAwaiter* next_{nullptr};
+        bool linked_{false};
 
-    struct PopAwaiter {
-        AsyncQueue& q_;
-        bool await_ready() const noexcept { return !q_.is_empty(); }
-        void await_suspend(std::coroutine_handle<> h) noexcept { q_.pop_waiter_ = h; }
-        T await_resume() noexcept { return q_.try_pop(); }
+        PushAwaiter(AsyncQueue& q, T v) noexcept : q_(q), item_(std::move(v)) {}
+        PushAwaiter(const PushAwaiter&) = delete;
+        PushAwaiter& operator=(const PushAwaiter&) = delete;
+        ~PushAwaiter() { if (linked_) q_.unlink(q_.pushers_, q_.pushers_tail_, this); }
+
+        bool await_ready() noexcept { return q_.push_or_hand_off(item_); }
+        void await_suspend(std::coroutine_handle<> h) noexcept {
+            h_ = h;
+            q_.append(q_.pushers_, q_.pushers_tail_, this);
+        }
+        void await_resume() noexcept {}  // a woken producer's item was moved in by the pop
     };
 
     PushAwaiter push(T val) noexcept { return PushAwaiter{*this, std::move(val)}; }
@@ -700,40 +726,30 @@ public:
     bool empty() const noexcept { return is_empty(); }
     bool full() const noexcept { return is_full(); }
     size_t size() const noexcept { return head_ - tail_; }
+    uint32_t rejected() const noexcept { return rejected_; }  // try_push on a full queue
 
     bool try_push(T val) noexcept {
-        if (is_full()) return false;
-        buffer_[head_ & kMask] = std::move(val);
-        ++head_;
-        if (pop_waiter_) {
-            auto h = pop_waiter_;
-            pop_waiter_ = nullptr;
-            abstractx::post(h);  // [SPEC-ARCH-10]: never inline
-        }
-        return true;
+        if (push_or_hand_off(val)) return true;
+        ++rejected_;
+        return false;
     }
 
     bool try_pop(T& out) noexcept {
         if (is_empty()) return false;
         out = std::move(buffer_[tail_ & kMask]);
         ++tail_;
-        if (push_waiter_) {
-            auto h = push_waiter_;
-            push_waiter_ = nullptr;
-            abstractx::post(h);  // [SPEC-ARCH-10]: never inline
+        if (PushAwaiter* p = pushers_) {  // a slot is free: the first waiting producer's item goes in
+            unlink(pushers_, pushers_tail_, p);
+            buffer_[head_ & kMask] = std::move(p->item_);
+            ++head_;
+            abstractx::post(p->h_);  // [SPEC-ARCH-10]: never inline
         }
         return true;
     }
 
     T try_pop() noexcept {
-        if (is_empty()) return T{};
-        T item = std::move(buffer_[tail_ & kMask]);
-        ++tail_;
-        if (push_waiter_) {
-            auto h = push_waiter_;
-            push_waiter_ = nullptr;
-            abstractx::post(h);  // [SPEC-ARCH-10]: never inline
-        }
+        T item{};
+        (void)try_pop(item);
         return item;
     }
 
@@ -744,11 +760,49 @@ public:
     }
 
 private:
+    // Store val, or hand it straight to the first waiting consumer. False (val untouched) when full.
+    bool push_or_hand_off(T& val) noexcept {
+        if (PopAwaiter* c = poppers_) {
+            unlink(poppers_, poppers_tail_, c);
+            c->item_ = std::move(val);
+            abstractx::post(c->h_);  // [SPEC-ARCH-10]: never inline
+            return true;
+        }
+        if (is_full()) return false;
+        buffer_[head_ & kMask] = std::move(val);
+        ++head_;
+        return true;
+    }
+
+    template <typename W>
+    static void append(W*& head, W*& tail, W* w) noexcept {
+        w->next_ = nullptr;
+        w->linked_ = true;
+        if (tail) tail->next_ = w; else head = w;
+        tail = w;
+    }
+
+    template <typename W>
+    static void unlink(W*& head, W*& tail, W* w) noexcept {
+        W* prev = nullptr;
+        for (W* p = head; p != nullptr; prev = p, p = p->next_) {
+            if (p != w) continue;
+            if (prev) prev->next_ = p->next_; else head = p->next_;
+            if (tail == p) tail = prev;
+            break;
+        }
+        w->next_ = nullptr;
+        w->linked_ = false;
+    }
+
     std::array<T, Capacity> buffer_{};
     size_t head_{0};
     size_t tail_{0};
-    std::coroutine_handle<> push_waiter_{nullptr};
-    std::coroutine_handle<> pop_waiter_{nullptr};
+    uint32_t rejected_{0};
+    PopAwaiter* poppers_{nullptr};
+    PopAwaiter* poppers_tail_{nullptr};
+    PushAwaiter* pushers_{nullptr};
+    PushAwaiter* pushers_tail_{nullptr};
 };
 
 

@@ -3708,3 +3708,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `sim/test_io_engine_trigger_race.cpp` (review probe made a test): 200000 edges from the main thread, completions on a worker thread; every emitted timestamp is one of the edges; emitted + overruns + failed + dropped = 200000. The probe on the old code gave TSan `data race io_engine.hpp:199 / :362` (review). First version of the test was short by one edge: it stopped the worker while the last transfer was still in flight (test fixed).
 * **Evidence**: plain 5 runs, TSan 3 runs rc 0 (e.g. emitted 49029, overruns 150971, failed 0); `tools/gate.sh` plain / asan / tsan 99/99 each, `[PASS] gate`; E906 and Pico 2 W build.
 * **Not verified**: the E906 / Pico interrupt paths on a board (there trigger and completion are both interrupts; nesting not checked).
+
+---
+
+### 2026-11-04: AsyncQueue lost waiters and drops (review Q-4)
+* **Category**: `product-bug`
+* **Bug**: one waiter slot per side (a second consumer overwrote the first, which never woke); a woken consumer re-read the queue (another could have emptied it); `PushAwaiter` ignored the `try_push` result; no counter for a full queue; commented "lock-free SPSC" though it is not thread-safe.
+* **Spec update**: `[SPEC-ARCH-10]` "AsyncQueue": AbstractX thread only (other threads: ring + `post()`); FIFO waiter lists on both sides; push hands the item to the first waiting consumer, pop moves the first waiting producer's item in; a destroyed waiter leaves its list; `try_push` on a full queue counted in `rejected()`.
+* **Regression test**: `sim/test_async_queue_waiters.cpp`: two consumers each get their item (the review probe on the old code: `woken=1 got0=-1`); three waiting producers enter in order; a destroyed waiting consumer leaves the list; rejects counted; 1000 rounds with no pool growth and no dropped resumes.
+* **Evidence**: `tools/gate.sh` plain / asan / tsan 100/100 each, `[PASS] gate`; E906 5 images ok; Pico 2 W builds. Cost: `e906_repl_app` SRAM_FAST 187.7 -> 188.2 KB (98.0%).
+* **Not verified**: board runs of the REPL console and `gps_imu_app`, which use `AsyncQueue`.

@@ -436,6 +436,15 @@ sequenceDiagram
   `AsyncDelayAwaiter` that only writes a comparator) are example code in
   `examples/hand_clocked.hpp`, not core API. The unused ETL `TimerService` / `abstractx::sleep_ms`
   (dropped the handle when its 32 slots were full or registration failed, then hung) is removed.
+* **Requirement (`AsyncQueue`, 2026-11-04)**: `AsyncQueue<T, N>` is used on the AbstractX thread only
+  (coroutines and code they call); another thread or an ISR hands data over with a ring plus
+  `post()` (`[SPEC-ARCH-16]`). Any number of coroutines may wait to push or to pop, in FIFO lists. A
+  push with a consumer waiting hands the item directly to the first consumer; a pop with a producer
+  waiting moves the first producer's item into the queue; a woken waiter therefore never finds the
+  queue empty or full again. A waiter whose frame is destroyed leaves its list. `try_push` on a full
+  queue returns false and is counted (`rejected()`), never silent. (Review 2026-11-04 Q-4: one waiter
+  slot per side lost the second consumer, the push result was ignored, there was no counter, and the
+  class was commented "lock-free SPSC" though it is not thread-safe.)
 * **Rationale**: on 2026-10-21 the E906 RPMsg RX callback pushed a character into the REPL queue and
   `try_push` resumed the REPL inline, so a MicroPython script ran inside `Rpmsg::poll()`: the vring
   buffer was never returned, host kicks stayed disabled and Ctrl-C could not arrive. AGENTS §3 already
