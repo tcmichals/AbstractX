@@ -46,9 +46,11 @@ target_compile_definitions(freertos_e906 PUBLIC ABX_FREERTOS_TIMER_MODE=${ABX_FR
 
 add_executable(e906_freertos_app
     src/main.cpp
+    ${PROJECT_SOURCE_DIR}/hosts/freertos/src/freertos_host.cpp  # [SPEC-ARCH-15] shared FreeRTOS host
     ${CMAKE_CURRENT_SOURCE_DIR}/../e906_bench/bench.cpp
 )
-target_include_directories(e906_freertos_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../e906_bench)
+target_include_directories(e906_freertos_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../e906_bench
+                                                     ${PROJECT_SOURCE_DIR}/hosts/freertos/include)
 target_link_libraries(e906_freertos_app PRIVATE freertos_e906 abstractx_core abstractx_applib abstractx_target_e906 etl)
 target_link_options(e906_freertos_app PRIVATE
     "-T${E906_LDSCRIPT}"

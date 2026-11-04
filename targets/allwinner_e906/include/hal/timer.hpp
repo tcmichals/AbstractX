@@ -35,8 +35,7 @@ public:
     static void handle_irq() noexcept;
     // An RTOS owns mtimecmp ([SPEC-E906-RTOS-03]): never write it; serve waiters from its tick.
     static void use_external_tick() noexcept;
-    // From the RTOS tick hook (ISR): post due waiters; true if any was posted.
-    static bool tick_from_isr() noexcept;
+    static bool uses_external_tick() noexcept;
     // @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
     // Task context (masks interrupts): post due waiters; true if any was posted.
     static bool service_due() noexcept;

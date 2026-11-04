@@ -127,7 +127,7 @@ All bare-metal cross-compilation environments in AbstractX MUST adhere to the st
 On targets where AbstractX executes alongside or hosted by an RTOS kernel (e.g. FreeRTOS on the XuanTie E906), the hardware core timer comparator (e.g. RISC-V `mtimecmp` at `0xE0004000`) has strictly **one owner**: the RTOS kernel.
 * **AbstractX MUST NOT reprogram `mtimecmp` directly when running under an RTOS.** Writing to `mtimecmp` from both the kernel and AbstractX corrupts the OS tick schedule and starves coroutine timers.
 * Call `hal::Timer::use_external_tick()` before `abstractx::init()` to disable all hardware comparator writes by AbstractX.
-* AbstractX coroutine sleeps are dispatched cooperatively via `hal::Timer::tick_from_isr()` inside the RTOS tick hook (e.g. `vApplicationTickHook` with `configUSE_TICK_HOOK = 1`), yielding 1 ms tick resolution. This is expected architectural behavior, not a timer defect.
+* AbstractX coroutine sleeps are served in the AbstractX task: `step()` returns the next deadline and the shared FreeRTOS host (`hosts/freertos/`) waits until it ([SPEC-ARCH-15]); AbstractX does not take the application's tick hook by default. Resolution is 1 ms (one kernel tick). This is expected architectural behavior, not a timer defect.
 * Finer sub-millisecond sleeps or sampling profilers on such dual-runtime targets MUST use dedicated auxiliary MCU hardware timers (e.g. Allwinner htimers 9–14 at `0x07123000`, CLIC IRQs 25–27/41–43), never the primary kernel comparator.
 
 ---

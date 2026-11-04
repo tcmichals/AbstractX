@@ -119,13 +119,43 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   equivalent of an ISR); applications see only AbstractX awaiters. Rationale: an application that
   `co_await`s an Asio awaitable is resumed by Asio, not by `step()`, which breaks `[SPEC-ARCH-10]`
   (only the Dispatcher resumes) and cannot build on the MCU targets (0 application `#ifdef`s).
-* **Planned (not implemented)**: `step()` returns the next timer deadline (`kNow` / deadline /
-  `kNever`) and `set_wake(fn)` registers the host's wake, so the host can sleep exactly until the
-  next event; due timers are handled in `step()`, not in the tick ISR. Until then the existing
-  `run()` / `platform_idle_wait()` path (`[SPEC-ARCH-06]`) stays.
+* **Requirement (step tells the host when to call again, 2026-11-04)**: `uint64_t abstractx::step()`
+  returns `abstractx::kNow` (0) when a coroutine is ready, otherwise the earliest deadline in
+  microseconds of `hal::get_timer_driver().get_time_us()` (a pending sleep, or the next runtime status
+  report), or `abstractx::kNever`. The host blocks until that deadline or a wake, never longer and
+  never on a fixed polling interval. Callers that ignore the value (the existing `run()` loops) keep
+  working.
+* **Requirement (timer drivers the host must poll)**: `ITimer::service_due_us()` posts every sleep
+  whose deadline has passed (`now >= deadline`, task context) and returns the next pending deadline
+  in microseconds. The default returns `kNever`, meaning the driver wakes the loop itself (its own
+  interrupt or thread). `step()` calls it once per pass. A late, early or coalesced wake therefore
+  never loses a sleep or runs it twice.
+* **Requirement (one wake route)**: the host registers `abstractx::set_wake({task_fn, isr_fn})`.
+  Every event source that publishes work for AbstractX from another context (an ISR, a DMA
+  completion, another task or thread) publishes first (posts the handle, pushes the ring) and then
+  calls `abstractx::wake_from_isr()` from interrupt context or `abstractx::wake()` from a task or
+  thread. Both are no-ops until a host registers hooks (bare metal: the interrupt itself ends `wfi`).
+  The host decides how to wake (task notification, `asio::post`).
+* **Requirement (periodic schedules, no drift, no burst)**: periodic work computes its next deadline
+  with `abstractx::next_period(previous, period, now, overruns)`: `previous + period`; when that is
+  already in the past, it skips to the latest slot that is not in the future and adds the skipped
+  slots to `overruns`. It never runs once per missed period back to back (FreeRTOS auto-reload
+  timers do, `prvReloadTimer`).
+* **Requirement (FreeRTOS host, one copy)**: FreeRTOS targets (E906 now, ESP32-P4 next) use the
+  shared host in `hosts/freertos/` (`abstractx::freertos_host::run()`), not their own loop. It
+  registers the wake hooks for the AbstractX task and turns the deadline from `step()` into the wait:
+  `WAIT` (default: `ulTaskNotifyTake` timeout), `XTIMER` (one static one-shot software timer) or
+  `TICK_HOOK` (opt-in: the application's `vApplicationTickHook` calls `freertos_host::tick_from_isr()`,
+  which only compares the tick count with the stored deadline and wakes; it walks no timer list).
+  Build option `ABX_FREERTOS_TIMER`; details per target in `[SPEC-E906-RTOS-03]`.
+* **Not covered yet**: the Linux host (Boost.Asio pump, `LinuxTimerDriver` still uses one thread
+  per sleep and `run()` still sleeps 100 us) and the ESP32-P4 FreeRTOS loop.
 * **Verified by**: `coro-contract-lint` (`tools/audit_coro_contracts.py` check 7: no foreign
-  coroutine runtime; `tests/test_coro_contracts.py`)
-* **Implementation Target**: `tools/audit_coro_contracts.py`
+  coroutine runtime; `tests/test_coro_contracts.py`), `host-tests` (`sim/test_host_drive.cpp`:
+  step return values, wake routing from another thread 1000x, `next_period`), `thread-sanitizer`,
+  `e906-build-layout` (`e906_freertos_app` in each `ABX_FREERTOS_TIMER` mode)
+* **Implementation Target**: `tools/audit_coro_contracts.py`, `include/abstractx/abstractx.hpp`,
+  `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`
 
 ### `[SPEC-ARCH-07]` Platform Topology Table & Studio Multi-Window Observability
 * **Requirement**: AbstractX runtimes must encode and announce a standardized `PlatformTopologyTable` describing the exact silicon execution topology (e.g. `Linux_Standard_SITL`, `Linux_Host_E906`, `Linux_Host_E906_FPGA`, `RP2350_DualCore_Pico2W`, `ESP32P4_FreeRTOS`), active cores, interconnects, and hardware accelerators. The Observability Studio must render:
@@ -219,6 +249,8 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   (CMake target `abstractx_drivers`, headers under `drivers/include/abstractx/drivers/<kind>/`, so
   the include path `abstractx/drivers/...` is unchanged); application logic (fusion, control) lives
   in its app under `apps/`. Only targets that use a driver link `abstractx_drivers`.
+  Hosts that drive AbstractX from an OS or event loop live in `hosts/<os>/` (`[SPEC-ARCH-15]`):
+  target-independent glue for one OS, built into the application that uses that OS.
 * **Requirement**: `drivers/` follows the same freestanding rules as `include/` (AGENTS.md §2).
 * **Rationale (2026-10-23)**: the repository audit (`docs/design/repo-file-audit.md`) found the
   u-blox GPS, ICM-42688-P and QMC5883L drivers and the gps_imu_app attitude filter inside the

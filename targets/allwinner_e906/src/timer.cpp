@@ -170,7 +170,7 @@ static bool post_due_waiters(uint64_t now) noexcept {
 // @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
 void Timer::use_external_tick() noexcept { g_external_tick = true; }
 
-bool Timer::tick_from_isr() noexcept { return post_due_waiters(get_ticks()); }
+bool Timer::uses_external_tick() noexcept { return g_external_tick; }
 
 bool Timer::service_due() noexcept {
     abstractx::InterruptGuard guard;

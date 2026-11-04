@@ -98,6 +98,16 @@ public:
         return static_cast<uint32_t>(::hal::Timer::get_time_ns() / 1'000'000ULL);
     }
 
+    // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (host-polled timer under an RTOS)
+    // Bare metal: the line-7 interrupt posts due sleeps, so the host need not poll (kNever).
+    uint64_t service_due_us() noexcept override {
+        if (!::hal::Timer::uses_external_tick()) return kNever;
+        (void)::hal::Timer::service_due();
+        const uint64_t t = ::hal::Timer::next_deadline_ticks();
+        if (t == UINT64_MAX) return kNever;
+        return (t + ::hal::Timer::TICKS_PER_US - 1u) / ::hal::Timer::TICKS_PER_US;  // round up
+    }
+
 protected:
     // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
     void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {

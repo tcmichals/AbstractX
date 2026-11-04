@@ -491,8 +491,9 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Requirement (FreeRTOS / external scheduler coexistence, [SPEC-E906-RTOS-03])**: when running
   under FreeRTOS or another kernel owning the core timer, `hal::Timer::use_external_tick()` is
   called before `abstractx::init()`. This permanently disables `mtimecmp` writes by `hal::Timer`.
-  FreeRTOS owns `mtimecmp` exclusively, and AbstractX coroutine sleeps are evaluated via
-  `hal::Timer::tick_from_isr()` inside `vApplicationTickHook` at 1 ms tick resolution.
+  FreeRTOS owns `mtimecmp` exclusively, and AbstractX coroutine sleeps are served in the AbstractX
+  task by `E906TimerDriver::service_due_us()` (`hal::Timer::service_due()`), which `step()` calls;
+  the FreeRTOS host waits until the deadline it returns (`[SPEC-ARCH-15]`), 1 ms tick resolution.
 * **Requirement**: `hal::Timer::SleepAwaiter` inherits `etl::bidirectional_link<0>` and nodes form a
   deadline-sorted `etl::intrusive_list<SleepAwaiter, etl::bidirectional_link<0>>` so any number of
   coroutines and `E906TimerDriver` (`ITimer`) requests may sleep concurrently without overwriting

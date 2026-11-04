@@ -16,6 +16,7 @@
 #include <coroutine>
 
 #include "abstractx/hal/async_driver.hpp"
+#include "abstractx/deadline.hpp"
 
 namespace abstractx::hal {
 
@@ -46,6 +47,11 @@ public:
     // High-resolution monotonic timestamp queries
     virtual uint64_t get_time_us() const = 0;
     virtual uint32_t get_time_ms() const = 0;
+
+    // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md
+    // Post every sleep whose deadline has passed (task context) and return the next pending
+    // deadline in us. kNever: this driver wakes the loop itself (its own interrupt or thread).
+    virtual uint64_t service_due_us() noexcept { return kNever; }
 
     // Synchronous busy-wait delays (strictly for boot-time / hardware reset only)
     virtual void delay_us(uint32_t us) = 0;

@@ -19,6 +19,7 @@
 #define ABSTRACTX_ABSTRACTX_HPP
 
 #include "abstractx/coro.hpp"
+#include "abstractx/deadline.hpp"
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/trace/tracer.hpp"
 #include "abstractx/trace/sink.hpp"
@@ -101,8 +102,25 @@ void notify_work(uint32_t flags) noexcept;
 /*
  * 3. Cooperative Step in Synchronous Loops:
  *    Pumps the Dispatcher, drains ready coroutines, and services AbstractX I/O.
+ *    Returns when the host must call again: kNow, a deadline in us of
+ *    hal::get_timer_driver().get_time_us(), or kNever (only on a wake).
  */
-void step() noexcept;
+// @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md
+uint64_t step() noexcept;
+
+/*
+ * 3a. Wake route ([SPEC-ARCH-15]): the host registers how to wake the thread that
+ *     calls step(); an event source publishes first, then calls wake() (task/thread)
+ *     or wake_from_isr() (interrupt). Both are no-ops until a host registers hooks.
+ */
+using WakeFn = void (*)() noexcept;
+struct WakeHooks {
+    WakeFn task{nullptr};
+    WakeFn isr{nullptr};
+};
+void set_wake(const WakeHooks& hooks) noexcept;
+void wake() noexcept;
+void wake_from_isr() noexcept;
 
 /*
  * 4. Cooperative Step in Coroutine Loops:
