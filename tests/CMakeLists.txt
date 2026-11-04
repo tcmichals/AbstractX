@@ -155,11 +155,8 @@ if(Python3_Interpreter_FOUND)
         add_test(NAME py_test_visualizer_sdk
                  COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_sdk.py
                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-        add_test(NAME py_test_visualizer_async_bridge
-                 COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_async_bridge.py
-                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     else()
-        message(STATUS "py_test_visualizer_sdk / async_bridge skipped: pytest or imgui_bundle not installed")
+        message(STATUS "py_test_visualizer_sdk skipped: pytest or imgui_bundle not installed")
     endif()
     # [SPEC-AUDIT-01..05] Adversarial invariant auditor checks
     add_test(NAME py_test_adversarial_invariants

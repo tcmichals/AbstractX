@@ -873,3 +873,47 @@ class DummyTestPlugin(AbstractXStudioPlugin):
     assert inst.version == "1.5"
     inst.render_ui(0.016, None)
     assert inst.rendered is True
+
+
+def _tlp(tag: int, seq: int, payload: bytes, addr: int = 0) -> bytes:
+    import struct
+    hdr = struct.pack("<BBBBIHHQ", 0x10, 0, tag, 2, addr, len(payload), seq, 1000 + seq)
+    return hdr + payload.ljust(40, b"\0") + b"\0" * 4
+
+
+def test_studio_udp_receiver_ingests_live_datagrams():
+    """[SPEC-STUDIO-08]: Studio's own background receiver (udp_receiver_thread, the code Studio runs)
+    takes a batched TLP datagram and a CTF datagram over UDP and updates TelemetryState under its lock."""
+    # @verifies [SPEC-STUDIO-08] tools/visualizer/SPECIFICATION.md
+    import socket
+    import struct
+    import threading
+    import time
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+
+    state = studio.TelemetryState()
+    studio.g_state = state
+    threading.Thread(target=studio.udp_receiver_thread, args=(port, False), daemon=True).start()
+
+    gps = _tlp(2, 7, struct.pack("<i5i2B", 0, 300_000_000, -900_000_000, 12_000, 1_500, 0, 9, 3))
+    ahrs = _tlp(4, 8, struct.pack("<2hHiH4H", 1234, -567, 9000, 5_000, 250, 500, 500, 500, 500))
+    tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    deadline = time.time() + 5.0
+    # The receiver may not be bound yet: resend until both datagrams have landed.
+    while time.time() < deadline and (state.runtime_reports == 0 or state._gps_count == 0):
+        tx.sendto(gps + ahrs, ("127.0.0.1", port))  # two 64-byte TLPs in one datagram
+        tx.sendto(_status_packet(1_000_000, 0, 0, 0, 0, 0), ("127.0.0.1", port))
+        time.sleep(0.05)
+    tx.close()
+
+    with state.lock:
+        assert state.connected and state.packet_count >= 2
+        assert state.runtime_reports >= 1, "a CTF datagram goes to ingest_ctf, not the TLP table"
+        assert abs(state.gps_lat - 30.0) < 1e-6 and abs(state.gps_lon + 90.0) < 1e-6 and state.gps_sats == 9
+        assert abs(state.roll_deg - 12.34) < 1e-6 and abs(state.pitch_deg + 5.67) < 1e-6
+        tags = {p["tag"] for p in state.recent_tlp_packets}
+        assert tags == {2, 4}, f"both TLPs of a batched datagram, and nothing else, reach the TLP debugger: {tags}"

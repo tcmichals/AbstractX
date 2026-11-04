@@ -69,5 +69,3 @@ tools/audit_ipc_invariants.py: SPEC-AUDIT-15
 # 2026-11-04: moved here when the checker learned to bind an indented @impl tag to the member below it;
 # the test reaches the tagged init_channel / open_pin_interrupt through IoEngine::configure().
 sim/test_linux_drdy_auto.cpp: SPEC-LINUX-GPIO-01
-tests/test_visualizer_async_bridge.py: SPEC-STUDIO-04
-tests/test_visualizer_async_bridge.py: SPEC-STUDIO-08

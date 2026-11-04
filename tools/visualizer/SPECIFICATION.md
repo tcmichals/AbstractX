@@ -238,6 +238,8 @@ The visualizer MUST be able to load CTF 1.8 / barectf YAML and JSON schemas (`tr
 
 ### `[SPEC-STUDIO-08]` Multi-Rate Telemetry Ingestion & Thread Safety
 The visualizer MUST ingest 64-byte `asp_tlp64_t` frames and CTF packets asynchronously via a dedicated background receiver thread over UDP (port 9870), synchronizing state with the UI thread through `TelemetryState.lock`.
+* **One receiver**: `udp_receiver_thread` in `abstractx_studio.py` is the only UDP receiver. A datagram may carry several 64-byte TLPs; a CTF packet goes to `ingest_ctf` and is never sliced into TLPs. (A second, asyncio receiver, `async_bridge.py`, was never wired into Studio and was retired on 2026-11-04: its tests passed while proving nothing about what Studio runs.)
+* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py::test_studio_udp_receiver_ingests_live_datagrams`)
 
 ### `[SPEC-STUDIO-09]` Standalone Synthetic Flight Simulation Engine
 The visualizer MUST support a standalone `--sim` mode generating realistic multi-rate synthetic telemetry (8 kHz IMU, 50 Hz Magnetometer, 10 Hz GPS, and 100 Hz AHRS state packets) for full offline visual testing without connected hardware. Synthetic data exists only in this mode ([SPEC-STUDIO-14]).

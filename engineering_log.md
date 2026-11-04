@@ -3800,3 +3800,15 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Left open, on purpose**: (G-7) `tools/visualizer/async_bridge.py` is itself tagged `@impl [SPEC-STUDIO-08] [SPEC-STUDIO-04]` but Studio does not use it: the spec points at the wrong code, which needs a decision (retire `async_bridge.py`, or tag and test Studio's own receiver). (G-8) `sim/sitl_coro_sim.cpp` has no asserts: it needs asserts or to leave the tested set. Removing their claims alone left the files governed by no requirement (the pre-commit hook refused), so both stay as they were.
 * **Evidence**: `--check-verifies`: baseline 69 -> 68; `tests/test_e906_rpmsg_bridge.py`: `[PASS] (4 tests)`; `--check-drift`: 0; `tools/gate.sh` plain / asan / tsan 104/104, `[PASS] gate`.
 * **Not done**: `--check-drift` does not yet check that spec paths exist.
+
+---
+
+### 2026-11-04: Studio's tested UDP receiver was not the one Studio runs (review G-7)
+* **Category**: `process-gap`
+* **What was found**: `tools/visualizer/async_bridge.py` (asyncio UDP receiver, SSH bridge controller, background loop) was added in `d409513` (2026-10-25) with its own tests and tagged `@impl [SPEC-STUDIO-08] [SPEC-STUDIO-04]`, but nothing ever imported it: `git log -S` finds no `StudioAsyncEngine` / `async_bridge` in `abstractx_studio.py` or `flight_plugin.py` in any commit. That commit only gave Studio's real receiver (`udp_receiver_thread`) a 2 MB receive buffer. The module had fallen behind the real code (no sensor decoding, no `--sim`, a bridge launcher without the board-file copy or the C++ runtime mode), and `[SPEC-STUDIO-04]` is a UI window it does not draw. Its tests passed while saying nothing about what Studio runs; the real receiver had no test.
+* **Which check should have caught it**: `--check-verifies` only asks whether a claimed test reaches tagged code; the tag sat on dead code, so the claim looked backed. A check for modules nothing imports (outside tests) would have caught it; not added yet.
+* **Decision (user, 2026-11-04)**: retire it. Deleted `async_bridge.py` and `tests/test_visualizer_async_bridge.py`, its ctest entry and its two baseline lines.
+* **Spec update**: `[SPEC-STUDIO-08]`: one receiver (`udp_receiver_thread`); a datagram may carry several TLPs; a CTF packet goes to `ingest_ctf`, never sliced; `Verified by` line added.
+* **Regression test**: `tests/test_visualizer_sdk.py::test_studio_udp_receiver_ingests_live_datagrams` runs the real receiver thread on a free port and sends a two-TLP datagram (GPS tag 2, AHRS tag 4) and a CTF status packet: GPS and attitude decoded, both TLPs in the debugger table, the CTF packet counted as a status report and not sliced. With the CTF branch removed from the receiver it fails (`assert state.runtime_reports >= 1`); restored, it passes.
+* **Evidence**: see the commit message (gate, `--check-verifies`).
+* **Not verified**: Studio against a board.
