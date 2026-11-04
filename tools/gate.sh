@@ -37,11 +37,12 @@ run_suite() {
 
 run_suite plain "${B}_host" ""
 if [ "$QUICK" = 0 ]; then
-    run_suite asan "${B}_asan" "" \
+    # RTL suites (label rtl) run in the plain build only: sanitizer flags do not reach Verilator.
+    run_suite asan "${B}_asan" "" -DABSTRACTX_RTL_TESTS=OFF \
         -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
         -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
     # ASLR off: else TSan may abort at start ("unexpected memory mapping"), which is not a race
-    run_suite tsan "${B}_tsan" "setarch -R" \
+    run_suite tsan "${B}_tsan" "setarch -R" -DABSTRACTX_RTL_TESTS=OFF \
         -DCMAKE_CXX_FLAGS="-fsanitize=thread -O1 -g" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
 fi
 echo "[PASS] gate$([ "$QUICK" = 1 ] && echo ' (quick: plain only)')"

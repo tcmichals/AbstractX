@@ -276,6 +276,15 @@ where its evidence goes. SpecTrace connects them: requirement → code
   CMakeLists has a line `# not-in-ctest: <path> <reason>`. Only files git tracks count
   (2026-11-04): an untracked work-in-progress test is not part of the repository, CI never sees
   it, and it made the local gate and pre-push hook fail for every push.
+* **Requirement** (2026-11-04, review G-11): a cocotb suite counts as run only when it is an
+  argument of an `add_cocotb_test(...)` call (not a comment, not an `add_custom_target`) and
+  the `add_cocotb_test` macro registers an `add_test`. Each suite is a ctest named
+  `rtl_<target>` with label `rtl`, its own build directory under the CMake build tree (suites
+  never share `sim_build`, so `ctest -j` is safe), on by default (`ABSTRACTX_RTL_TESTS=ON`).
+  When `verilator` or `cocotb-config` is missing, or a suite's RTL comes from a submodule that
+  is not checked out, the test still exists and exits 77 with the reason (a visible skip, never
+  a pass, [SPEC-AUDIT-17]). `tools/gate.sh` runs the RTL suites in the plain build only: the
+  sanitizer flags do not reach Verilator, so running them three times proves nothing more.
 * **Rationale**: on 2026-10-20 `audit_specs.py` printed "100% verified" while 38 of 159
   requirements were verified; the spec promised `tlp_poll_into`, `tlp_send_nav`,
   `serial_tlp_*` that never existed; and six test files never ran, one of them already failing.

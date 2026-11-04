@@ -3812,3 +3812,14 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `tests/test_visualizer_sdk.py::test_studio_udp_receiver_ingests_live_datagrams` runs the real receiver thread on a free port and sends a two-TLP datagram (GPS tag 2, AHRS tag 4) and a CTF status packet: GPS and attitude decoded, both TLPs in the debugger table, the CTF packet counted as a status report and not sliced. With the CTF branch removed from the receiver it fails (`assert state.runtime_reports >= 1`); restored, it passes.
 * **Evidence**: see the commit message (gate, `--check-verifies`).
 * **Not verified**: Studio against a board.
+
+---
+
+### 2026-11-04: No cocotb suite ran under ctest; the orphan check counted a name anywhere as "run" (review G-11)
+* **Category**: `process-gap` (RTL never in the gate), `tool-bug` (`check_tests`)
+* **What was found**: the 17 cocotb suites were only `make` targets (`sim-test-*`); ctest, the gate and CI never ran them. `check_tests` accepted a cocotb module whose name appeared anywhere in `sim/CMakeLists.txt`, including a comment, so it reported 0 orphans.
+* **Spec update**: `[SPEC-AUDIT-12]`: a suite counts as run only as an argument of `add_cocotb_test(...)` whose macro registers `add_test`; each suite is ctest `rtl_<target>` (label `rtl`, own build dir in the build tree, so `-j` is safe); a missing simulator or an unchecked-out submodule is a visible skip (exit 77); the gate runs them in the plain build only.
+* **Found on the way** (`hardware-fact` for this PC): `rtl/pio` and its nested `third_party/wb2axip` were not checked out here, so `sim-test-tlp64-top` and `sim-test-pio-wrap` could not build (`No rule to make target .../wbm2axilite.v`). Checked out with `git submodule update --init` (and the nested one); both pass. The cocotb Makefile finds the RTL through `$(PWD)`, which a ctest `chdir` does not update: the ctest command sets `PWD` itself.
+* **Regression test**: `tests/test_spectrace_matrix.py`: a commented-out `add_cocotb_test` line and a macro that makes only a custom target are both reported; against the old `check_tests` it fails (`AssertionError: a commented-out suite is not run`), with the new one `[PASS] spectrace_matrix`. A cocotb failure fails `make` (probe test with `assert False`: `make` exit 2).
+* **Evidence**: `ctest -L rtl -j8` in a fresh build: 17/17 rtl suites passed (4.3 s); with `ABX_VERILATOR` unset: `rtl_sim-test-router (Skipped)`; gate in the commit message.
+* **Not verified**: CI (it checks out submodules recursively and installs distro `verilator`, but does not install cocotb, so the rtl tests will be skips there: G-10).

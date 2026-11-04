@@ -393,11 +393,18 @@ def test_orphan_test_check():
         (root / "tests" / "CMakeLists.txt").write_text(
             "add_test(NAME a COMMAND python3 test_a.py)\nadd_x(test_d.cpp)\n"
             "# not-in-ctest: tests/test_c.py needs a board\n# not-in-ctest: tests/board/test_e.py runs on the board\n")
-        (root / "sim" / "CMakeLists.txt").write_text("add_cocotb_test(t mod test_y_cocotb)\n")
+        macro = "macro(add_cocotb_test N TOP MOD)\n  add_custom_target(${N})\n  add_test(NAME rtl_${N} COMMAND make)\nendmacro()\n"
+        (root / "sim" / "CMakeLists.txt").write_text(macro + "add_cocotb_test(t mod test_y_cocotb)\n")
         problems = "\n".join(sm.check_tests(root))
         assert "tests/test_b.py" in problems and "sim/cocotb/test_x_cocotb.py" in problems, problems
         for ok in ("test_a.py", "test_c.py", "test_d.cpp", "test_e.py", "test_y_cocotb"):
             assert ok not in problems, (ok, problems)
+        # Review G-11: a name in a comment, or a macro that only makes a custom target, is not run.
+        (root / "sim" / "CMakeLists.txt").write_text(macro + "# add_cocotb_test(t mod test_y_cocotb)\n")
+        assert "test_y_cocotb" in "\n".join(sm.check_tests(root)), "a commented-out suite is not run"
+        (root / "sim" / "CMakeLists.txt").write_text(
+            "macro(add_cocotb_test N TOP MOD)\n  add_custom_target(${N})\nendmacro()\nadd_cocotb_test(t mod test_y_cocotb)\n")
+        assert "test_y_cocotb" in "\n".join(sm.check_tests(root)), "a make target alone is not a ctest"
 
 
 def test_orphan_check_ignores_untracked_files():

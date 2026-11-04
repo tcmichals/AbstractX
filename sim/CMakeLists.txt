@@ -160,15 +160,44 @@ if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_target.cpp)
     target_link_libraries(test_zynq_target PRIVATE abstractx_core)
     add_test(NAME sim_test_zynq_target COMMAND test_zynq_target)
 endif()
-# Common macro to generate a test target for a specific module
+# Each cocotb suite is a make target (sim-test-*) and a ctest (rtl_sim-test-*, label rtl).
+# @impl [SPEC-AUDIT-12] docs/SPECTRACE.md (cocotb suites run by ctest; visible skips)
+option(ABSTRACTX_RTL_TESTS "Register the cocotb RTL suites with ctest" ON)
+find_program(ABX_VERILATOR verilator)
+find_program(ABX_COCOTB_CONFIG cocotb-config)
+find_program(ABX_MAKE NAMES make gmake)
+set(_cocotb_dir ${CMAKE_CURRENT_SOURCE_DIR}/cocotb)
+set(_pio_rtl ${PROJECT_SOURCE_DIR}/rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v)  # last file the PIO RTL needs
+set(_pio_toplevels asp_top asp_pio_wrap)                                         # suites built from rtl/pio
+
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
     add_custom_target(${TARGET_NAME}
         COMMAND $(MAKE) clean
         COMMAND $(MAKE) TOPLEVEL=${TOPLEVEL_MODULE} MODULE=${TEST_FILE} ${ARGN}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cocotb
+        WORKING_DIRECTORY ${_cocotb_dir}
         COMMENT "Running Cocotb test: ${TEST_FILE} on ${TOPLEVEL_MODULE}"
         VERBATIM
     )
+    if(ABSTRACTX_RTL_TESTS)
+        set(_skip "")
+        if(NOT ABX_VERILATOR OR NOT ABX_COCOTB_CONFIG OR NOT ABX_MAKE)
+            set(_skip "verilator, cocotb-config or make not found")
+        elseif(TOPLEVEL_MODULE IN_LIST _pio_toplevels AND NOT EXISTS ${_pio_rtl})
+            set(_skip "rtl/pio submodule not checked out: git submodule update --init --recursive rtl/pio")
+        endif()
+        if(_skip)
+            add_test(NAME rtl_${TARGET_NAME} COMMAND sh -c "echo 'skip: ${_skip}'; exit 77")
+        else()
+            set(_out ${CMAKE_CURRENT_BINARY_DIR}/cocotb/${TARGET_NAME})
+            # PWD: the cocotb Makefile finds the RTL through $(PWD), which a chdir does not update.
+            add_test(NAME rtl_${TARGET_NAME}
+                     COMMAND ${CMAKE_COMMAND} -E env PWD=${_cocotb_dir}
+                             ${ABX_MAKE} -s TOPLEVEL=${TOPLEVEL_MODULE} MODULE=${TEST_FILE}
+                             SIM_BUILD=${_out} COCOTB_RESULTS_FILE=${_out}/results.xml ${ARGN}
+                     WORKING_DIRECTORY ${_cocotb_dir})
+        endif()
+        set_tests_properties(rtl_${TARGET_NAME} PROPERTIES LABELS rtl SKIP_RETURN_CODE 77 TIMEOUT 900)
+    endif()
 endmacro()
 
 add_cocotb_test(sim-test-reg-bank     asp_spi_reg_bank       test_abstractx_axis_cocotb)

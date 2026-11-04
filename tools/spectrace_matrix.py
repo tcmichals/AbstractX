@@ -171,6 +171,17 @@ def check_drift(root: Path, reqs: dict) -> dict:
     return drift
 
 
+def _cocotb_registered(text: str) -> set[str]:
+    """cocotb modules ctest runs: arguments of add_cocotb_test() calls, when the macro registers
+    an add_test ([SPEC-AUDIT-12], review G-11). A name in a comment or a custom target is not run."""
+    # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
+    code = "\n".join(ln.split("#", 1)[0] for ln in text.splitlines())
+    m = re.search(r"macro\(\s*add_cocotb_test\b.*?endmacro", code, re.S)
+    if not m or "add_test(" not in m.group(0):
+        return set()
+    return set(re.findall(r"^\s*add_cocotb_test\(\s*\S+\s+\S+\s+(\w+)", code, re.M))
+
+
 def check_tests(root: Path) -> list[str]:
     """Test files that ctest never runs ([SPEC-AUDIT-12])."""
     # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
@@ -181,12 +192,19 @@ def check_tests(root: Path) -> list[str]:
                             (root / "sim" / "CMakeLists.txt", ("sim/cocotb/test_*_cocotb.py",))):
         text = cmake.read_text(encoding="utf-8") if cmake.exists() else ""
         excluded = set(re.findall(r"#\s*not-in-ctest:\s*(\S+)", text))
+        cocotb_run = _cocotb_registered(text) if cmake.parent.name == "sim" else set()
         for pattern in patterns:
             for f in sorted(root.glob(pattern)):
                 rel = str(f.relative_to(root))
                 if rel in excluded or (tracked is not None and rel not in tracked):
                     continue  # untracked work in progress is not part of the repository
-                key = f.stem if f.suffix == ".py" and "cocotb" in f.parts else f.name
+                if "cocotb" in f.parts:
+                    if f.stem not in cocotb_run:
+                        problems.append(f"{rel}: not run by ctest (an add_cocotb_test(...) call in "
+                                        f"{cmake.relative_to(root)} whose macro registers add_test, "
+                                        f"or '# not-in-ctest: {rel} <reason>')")
+                    continue
+                key = f.name
                 if not re.search(rf"\b{re.escape(key)}\b", text):
                     problems.append(f"{rel}: not run by ctest (register it in {cmake.relative_to(root)} "
                                     f"or add '# not-in-ctest: {rel} <reason>')")
