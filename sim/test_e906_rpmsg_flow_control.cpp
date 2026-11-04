@@ -192,12 +192,12 @@ void reset_fake_env() {
 static void test_idle_wake_deadline() {
     using hal::idle::wake_deadline_us;
     using hal::idle::kOwedRetryUs;
-    using hal::idle::kMaxIdleSleepUs;
-    assert(wake_deadline_us(10, 1'000'010, false) == 10 + kMaxIdleSleepUs);
+    // [SPEC-E906-IRQ-04] no fixed idle wake: with nothing owed, sleep until the status report
+    assert(wake_deadline_us(10, 1'000'010, false) == 1'000'010);
     assert(wake_deadline_us(10, 1'000'010, true) == 10 + kOwedRetryUs);
     assert(wake_deadline_us(10, 30, true) == 30 && "an earlier status deadline still wins");
     assert(wake_deadline_us(10, UINT64_MAX, true) == 10 + kOwedRetryUs);
-    assert(wake_deadline_us(10, UINT64_MAX, false) == 10 + kMaxIdleSleepUs);
+    assert(wake_deadline_us(10, UINT64_MAX, false) == UINT64_MAX);
 }
 
 int main() {
@@ -538,7 +538,7 @@ int main() {
         rpmsg.flush_kick();
         assert(hal::g_fake_msgbox_sends[1] == 1 && "owed kick retried");
         assert(!rpmsg.kick_owed());
-        assert(hal::idle::wake_deadline_us(1000, 1'001'000, rpmsg.kick_owed()) == 1000 + hal::idle::kMaxIdleSleepUs);
+        assert(hal::idle::wake_deadline_us(1000, 1'001'000, rpmsg.kick_owed()) == 1'001'000);
         rpmsg.flush_kick();
         assert(hal::g_fake_msgbox_sends[1] == 1 && "and only once");
         std::cout << "  -> FullMailboxNeverHangsAndTheKickIsRetried: PASS\n";

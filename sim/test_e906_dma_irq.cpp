@@ -6,7 +6,8 @@
  * Compiles the real targets/allwinner_e906/src/dma.cpp against a fake DMAC register block.
  * The DMAC latches half-package / package-end bits even when only queue-end is enabled; the
  * handler must not complete (or stop) a channel on those bits when another channel's interrupt
- * brought it in. Board case: PEND1 = 0x1007, EN1 = 0x4004 (SPI1 TX ch 8 done, RX ch 11 half).
+ * brought it in. Board case (then on ch 8 / 11): PEND1 = 0x1007, EN1 = 0x4004 (TX done, RX half).
+ * Channels 8, 9 and 10 are firewalled ([SPEC-E906-HAL-01]), so the first two are 11 and 12.
  */
 // @verifies [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
 #undef NDEBUG  // the checks below must run in Release builds too
@@ -52,42 +53,42 @@ int main() {
     DmaController::init();
     const int tx = DmaController::allocate_channel();
     const int rx = DmaController::allocate_channel();
-    assert(tx == 8 && rx == 11);  // 9 and 10 are firewalled
+    assert(tx == 11 && rx == 12);  // 8, 9 and 10 are firewalled
 
     for (int iter = 0; iter < 1000; ++iter) {
         reset_counts();
         // SPI1 DMA: RX carries the callback, TX has none; both enable queue end only.
+        assert(DmaController::start_transfer(12, &g_lli,
+               DmaController::CompletionCallback::create<on_done<12>>()));
         assert(DmaController::start_transfer(11, &g_lli,
                DmaController::CompletionCallback::create<on_done<11>>()));
-        assert(DmaController::start_transfer(8, &g_lli,
-               DmaController::CompletionCallback::create<on_done<8>>()));
-        assert(reg(0x04) == 0x4004U);
+        assert(reg(0x04) == 0x44000U);  // queue end enabled on ch 11 and ch 12
 
-        // 1. TX queue end interrupt while RX has only reached half package (board: 0x1007).
-        reg(0x14) = 0x1007U;
-        DmaController::handle_irq();
-        assert(g_done[8].calls == 1 && g_done[8].ok);
-        assert(g_done[11].calls == 0);           // RX not completed on a disabled bit
-        assert(chan_enable(11) == 1);            // and not stopped
-
-        // 2. RX reaches queue end: now it completes, successfully, exactly once.
-        reg(0x14) = 0x7000U;
+        // 1. TX (ch 11) queue end while RX (ch 12) has only reached half package.
+        reg(0x14) = 0x17000U;
         DmaController::handle_irq();
         assert(g_done[11].calls == 1 && g_done[11].ok);
-        assert(chan_enable(11) == 0);
-        assert(g_done[8].calls == 1);
+        assert(g_done[12].calls == 0);           // RX not completed on a disabled bit
+        assert(chan_enable(12) == 1);            // and not stopped
+
+        // 2. RX reaches queue end: now it completes, successfully, exactly once.
+        reg(0x14) = 0x70000U;
+        DmaController::handle_irq();
+        assert(g_done[12].calls == 1 && g_done[12].ok);
+        assert(chan_enable(12) == 0);
+        assert(g_done[11].calls == 1);
     }
 
     // 3. Cyclic ring with package end enabled still gets every package.
     reset_counts();
-    assert(DmaController::start_transfer(8, &g_lli,
-           DmaController::CompletionCallback::create<on_done<8>>(), hal::DMA_IRQ_PKG, true));
+    assert(DmaController::start_transfer(11, &g_lli,
+           DmaController::CompletionCallback::create<on_done<11>>(), hal::DMA_IRQ_PKG, true));
     for (int i = 0; i < 1000; ++i) {
-        reg(0x14) = 0x3U;  // half + package end
+        reg(0x14) = 0x3000U;  // ch 11: half + package end
         DmaController::handle_irq();
     }
-    assert(g_done[8].calls == 1000 && g_done[8].ok);
-    DmaController::stop_transfer(8);
+    assert(g_done[11].calls == 1000 && g_done[11].ok);
+    DmaController::stop_transfer(11);
 
     std::cout << "test_e906_dma_irq: OK\n";
     return 0;

@@ -513,15 +513,17 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   `used->flags` has `VRING_USED_F_NO_NOTIFY` clear. Therefore:
   1. `NO_NOTIFY` is never set on the RX vring (`s_rx_vq.used->flags == 0` permanently).
      Linux kicks are never suppressed on RX, preventing any missed edge on concurrent host posts.
-  2. Idle wake deadline (`hal::idle::wake_deadline_us`) is bounded by `kMaxIdleSleepUs = 5000` (5 ms),
-     guaranteeing a hard latency ceiling.
+  2. Idle sleeps until the next status report or a real interrupt; there is no fixed idle wake
+     (`[SPEC-ARCH-15]`: no polling interval). A 5 ms cap (`kMaxIdleSleepUs`) was written into this
+     requirement and its test on 2026-11-01 but never implemented; it was removed on 2026-11-04.
   3. An awaiter that withdraws after the re-check releases its wake slot only if the ISR has not
      taken it; if the ISR already posted it, it stays suspended (one resume, never two).
 * **Rationale (2026-11-01)**: Stalls in `bench_e906_runtime.py` occurred when `poll()` set
   `VRING_USED_F_NO_NOTIFY` on `t.rx` while draining. If Linux posted buffer $N+1$ concurrently,
   Linux inspected `used->flags`, suppressed the hardware kick, and if E906 exited `poll()` before
   observing the descriptor update, E906 entered `wfi` until the 1 s status timer fired.
-  Keeping `t.rx.used->flags == 0` permanently and capping idle sleep to 5 ms eliminates all stalls.
+  Keeping `t.rx.used->flags == 0` permanently removes the missed kick (board evidence for this is
+  the bench requirement below, not the removed 5 ms cap).
 * **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`tests/test_adversarial_invariants.py`, `sim/test_e906_rpmsg_flow_control.cpp`), board bench (`bench_e906_runtime.py` echo max < 5 ms)
 * **Implementation Target**: `targets/allwinner_e906/src/rpmsg.cpp`, `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/include/hal/idle_policy.hpp`
 
