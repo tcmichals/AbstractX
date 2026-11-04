@@ -136,6 +136,42 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   calls `abstractx::wake_from_isr()` from interrupt context or `abstractx::wake()` from a task or
   thread. Both are no-ops until a host registers hooks (bare metal: the interrupt itself ends `wfi`).
   The host decides how to wake (task notification, `asio::post`).
+* **How it works (2026-11-04)**: AbstractX is called; it never calls a wait.
+
+  | Who | Does | Never does |
+  | --- | --- | --- |
+  | Host (Boost.Asio `io_context` on Linux, the FreeRTOS task, the bare-metal loop) | waits (Asio timer / handlers, `ulTaskNotifyTake`, `wfi`); calls `step()`; registers `set_wake()` hooks | resumes coroutines itself |
+  | `abstractx::step()` | resumes ready coroutines, expires due sleeps (host-polled timers), returns `kNow`, a deadline in us, or `kNever` | blocks, sleeps, polls on an interval |
+  | Event source (ISR, DMA, Linux worker thread, I/O engine, timer alarm) | stores its result, posts the coroutine (`Dispatcher::post`), then wakes (`wake()` / `wake_from_isr()`) | resumes a coroutine, calls `step()` |
+  | `wake()` / `wake_from_isr()` | calls the host's hook (`asio::post(pump)`, task notification); no-op with no host | waits |
+
+  ```mermaid
+  sequenceDiagram
+      participant H as Host (Boost.Asio io_context)
+      participant A as AbstractX step()
+      participant S as Event source (worker thread / ISR)
+      H->>A: step()
+      A-->>H: next deadline (or kNever)
+      H->>H: wait: steady_timer.expires_at(deadline) / idle in io_context
+      S->>S: store result, Dispatcher::post(coroutine)
+      S->>H: wake() = asio::post(pump)
+      H->>A: step(): resumes the coroutine
+      A-->>H: next deadline
+      Note over H: the deadline expiring calls step() the same way
+  ```
+* **Requirement (AbstractX never waits, 2026-11-04)**: AbstractX is an API library. `step()` does the
+  ready work and returns; `wake()` / `wake_from_isr()` only call the hooks the host registered (no-ops
+  without a host). No AbstractX core or HAL code sleeps, blocks, polls on an interval or owns a wait
+  primitive: the host (Boost.Asio on Linux, the FreeRTOS task, the bare-metal loop) does all waiting.
+  The built-in `run()` with `platform_idle_wait()` is a convenience host for bare metal and simple
+  tests; it is not the Linux host and gets no Linux wait mechanism (planned: move it to `hosts/`).
+* **Requirement (every enqueue from another context wakes the host, 2026-11-04)**: on hosted builds
+  every `Dispatcher::post()` / `push()` calls `abstractx::wake()` after it enqueues, because any thread
+  may be the producer; the Linux I/O engine's `notify_host()` calls it too (results arrive in a ring,
+  not a posted handle). On MCUs the interrupt glue of the host calls `wake_from_isr()` (the FreeRTOS
+  host does this in its interrupt handler). Before this, completions from Linux worker threads (SPI,
+  I2C, GPIO, I/O engine) posted without waking anyone; only the built-in loop's 100 us poll hid it,
+  and a host that sleeps until `step()`'s deadline would sleep through them (review T-5).
 * **Requirement (periodic schedules, no drift, no burst)**: periodic work computes its next deadline
   with `abstractx::next_period(previous, period, now, overruns)`: `previous + period`; when that is
   already in the past, it skips to the latest slot that is not in the future and adds the skipped
@@ -157,11 +193,13 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `TICK_HOOK` (opt-in: the application's `vApplicationTickHook` calls `freertos_host::tick_from_isr()`,
   which only compares the tick count with the stored deadline and wakes; it walks no timer list).
   Build option `ABX_FREERTOS_TIMER`; details per target in `[SPEC-E906-RTOS-03]`.
-* **Not covered yet**: the Linux host (Boost.Asio pump, `LinuxTimerDriver` still uses one thread
-  per sleep and `run()` still sleeps 100 us) and the ESP32-P4 FreeRTOS loop.
+* **Not covered yet**: the Boost.Asio host (`hosts/asio/`, the Linux host) and the ESP32-P4 FreeRTOS
+  loop. The Linux timer is `Polled` since 2026-11-04 (`[SPEC-HAL-05]`): no thread.
 * **Verified by**: `coro-contract-lint` (`tools/audit_coro_contracts.py` check 7: no foreign
   coroutine runtime; `tests/test_coro_contracts.py`), `host-tests` (`sim/test_host_drive.cpp`:
-  step return values, wake routing from another thread 1000x, `next_period`, longest ready run), `thread-sanitizer`,
+  step return values, wake routing from another thread 1000x, `next_period`, longest ready run;
+  `sim/test_wake_on_enqueue.cpp`: a host that blocks only on (deadline, wake) receives completions
+  posted by Linux worker threads and the I/O engine), `thread-sanitizer`,
   `e906-build-layout` (`e906_freertos_app` in each `ABX_FREERTOS_TIMER` mode)
 * **Implementation Target**: `tools/audit_coro_contracts.py`, `include/abstractx/abstractx.hpp`,
   `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`
@@ -841,8 +879,9 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
   (`[SPEC-ARCH-15]`). A sleep whose awaiter is destroyed before it expires (its task destroyed) leaves
   the list in the awaiter's destructor.
 * **Per target**: E906: the driver's one `hal::Timer` node at the earliest deadline (line-7 interrupt on
-  bare metal; `hal::Timer::service_due()` in the AbstractX task under FreeRTOS). Linux: one timer thread
-  waiting on a condition variable until the earliest deadline (no thread per sleep). Pico 2 W: `Polled`,
+  bare metal; `hal::Timer::service_due()` in the AbstractX task under FreeRTOS). Linux: `Polled`, no
+  thread and no OS timer: `step()` expires the sleeps and returns the deadline, and the host (Boost.Asio)
+  waits for it (`[SPEC-ARCH-15]` AbstractX never waits). Pico 2 W: `Polled`,
   with one SDK alarm whose callback only signals (`__sev()`), so expiry runs in `step()`, never in the
   alarm interrupt. ESP32-P4: `Unsupported` until it has an alarm driver (`[SPEC-ESP32P4-HAL-00]`).
 * **Rationale (2026-11-04)**: sleeps went through `AsyncDriverBase<TimerRequest>`, which runs one request

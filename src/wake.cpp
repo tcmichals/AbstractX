@@ -6,7 +6,7 @@
  * do not pull the whole runtime into programs that only use them.
  */
 #include <atomic>
-#include "abstractx/abstractx.hpp"
+#include "abstractx/wake.hpp"
 
 namespace abstractx {
 

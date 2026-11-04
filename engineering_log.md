@@ -3646,3 +3646,14 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `sim/test_host_drive.cpp` `test_longest_ready_run`: a coroutine that yields 500 times gives a run of 499 (`spawn()` runs the first iteration inline); idle keeps the max; after a reset an idle loop reads 0. The old code has no such counter (the test does not compile there).
 * **Evidence**: `tools/gate.sh` plain / asan / tsan 92/92 each, `[PASS] gate`; `e906_freertos_app` WAIT / XTIMER / TICK_HOOK build, layout `[ok]`.
 * **Not verified**: the yield on a board; the counter is not yet in the runtime status report (wire format `[SPEC-TRACE-08]` unchanged).
+
+---
+
+### 2026-11-04: AbstractX never waits; every enqueue wakes the host (T-5); Linux timer has no thread
+* **Category**: `product-bug` (T-5), `process-gap` (design drift caught by the project owner)
+* **What was wrong**: completions from Linux worker threads (SPI, I2C, GPIO) and the I/O engine's ring posted the coroutine but woke nobody; only the built-in `run()` loop's 100 us poll hid it, so a host that blocks until `step()`'s deadline (Boost.Asio) would sleep through them. While fixing it I first planned a Linux condition-variable idle wait inside AbstractX, and the timer fix (`583637b`) had added a Linux timer thread: both make AbstractX wait, which the design forbids. The owner restated it: AbstractX is an API library; `step()` returns; every OS loop (Asio, FreeRTOS, Zephyr) waits outside it.
+* **Spec update**: `[SPEC-ARCH-15]`: "How it works" table and sequence diagram (host waits and calls `step()`; `step()` returns a deadline; event sources post then wake; `wake()` only calls the host's hook), "AbstractX never waits", "every enqueue from another context wakes the host". `[SPEC-HAL-05]`: Linux timer is `Polled` (no thread, no OS timer).
+* **Implementation**: `Dispatcher::record()` calls `abstractx::wake()` after an enqueue on hosted builds; Linux `notify_host()` wakes; `LinuxTimerDriver::arm_alarm` returns `Polled` (timer thread removed); the wake API moved to `include/abstractx/wake.hpp` (including `abstractx.hpp` from `src/wake.cpp` pulled runtime symbols into every Dispatcher user: 10 sim tests and examples failed to link).
+* **Regression test**: `sim/test_wake_on_enqueue.cpp`: a host that blocks only on (deadline, wake). Older code: `Assertion "host slept through a completion" failed`. New: Linux I2C worker completion woke the host (blocked once); 1000 posts from a thread with no explicit wake; a 20 ms sleep woke after 20 ms with 2 blocks (no polling).
+* **Evidence**: `tools/gate.sh` plain / asan / tsan 93/93 each, `[PASS] gate`; E906 5 images layout ok; FreeRTOS XTIMER and TICK_HOOK build; Pico 2 W builds.
+* **Not verified**: a real Boost.Asio host (not written); MCU interrupt glue other than the E906 FreeRTOS host still has to call `wake_from_isr()` itself (no host for Pico / Zephyr / ChibiOS yet).

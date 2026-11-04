@@ -121,6 +121,8 @@ public:
     void notify_host() noexcept override {
         rx_doorbell_.notify(1);
         wake_eventfd_.notify(1);
+        // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (results are in a ring, not a posted handle)
+        abstractx::wake();
     }
 
     int poll_events(int timeout_ms) noexcept override {

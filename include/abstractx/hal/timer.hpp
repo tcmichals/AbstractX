@@ -17,11 +17,7 @@
 #include "abstractx/interrupt_lock.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/deadline.hpp"
-
-namespace abstractx {
-void wake() noexcept;           // [SPEC-ARCH-15] src/runtime.cpp
-void wake_from_isr() noexcept;
-}
+#include "abstractx/wake.hpp"
 
 namespace abstractx::hal {
 

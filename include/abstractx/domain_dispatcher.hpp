@@ -27,6 +27,7 @@
 #include <etl/queue_spsc_isr.h>
 
 #include "abstractx/interrupt_lock.hpp"
+#include "abstractx/wake.hpp"
 #include "abstractx/trace/runtime_stats.hpp"
 
 namespace abstractx {
@@ -132,6 +133,12 @@ private:
         if (!pushed) {
             dropped_.fetch_add(1, std::memory_order_relaxed);
         }
+#if ABSTRACTX_HOSTED
+        // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (every enqueue from another context wakes the host)
+        // Hosted: any thread may be the producer, so publish (above), then wake. On MCUs the host's
+        // interrupt glue calls wake_from_isr().
+        if (pushed) abstractx::wake();
+#endif
         return pushed;
     }
 

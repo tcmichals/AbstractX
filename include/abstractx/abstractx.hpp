@@ -20,6 +20,7 @@
 
 #include "abstractx/coro.hpp"
 #include "abstractx/deadline.hpp"
+#include "abstractx/wake.hpp"
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/trace/tracer.hpp"
 #include "abstractx/trace/sink.hpp"
@@ -117,14 +118,7 @@ uint32_t longest_ready_run(bool reset = false) noexcept;
  *     calls step(); an event source publishes first, then calls wake() (task/thread)
  *     or wake_from_isr() (interrupt). Both are no-ops until a host registers hooks.
  */
-using WakeFn = void (*)() noexcept;
-struct WakeHooks {
-    WakeFn task{nullptr};
-    WakeFn isr{nullptr};
-};
-void set_wake(const WakeHooks& hooks) noexcept;
-void wake() noexcept;
-void wake_from_isr() noexcept;
+// (declared in abstractx/wake.hpp: WakeHooks, set_wake, wake, wake_from_isr)
 
 /*
  * 4. Cooperative Step in Coroutine Loops:

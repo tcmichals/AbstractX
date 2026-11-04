@@ -12,22 +12,12 @@
 #include <chrono>
 #include <thread>
 // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md#spec-hal-05
-#include <condition_variable>
-#include <mutex>
 
 namespace abstractx::hal {
 
 class LinuxTimerDriver : public ITimer {
 public:
     LinuxTimerDriver() = default;
-    ~LinuxTimerDriver() override {
-        {
-            std::lock_guard<std::mutex> l(m_);
-            stop_ = true;
-        }
-        cv_.notify_one();
-        if (thread_.joinable()) thread_.join();
-    }
 
     void delay_us(uint32_t us) override {
         struct timespec req{};
@@ -52,49 +42,11 @@ public:
     }
 
 protected:
-    // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md (Linux: one timer thread for every sleep)
-    // Called with the process-wide InterruptGuard held; the timer thread never takes that lock
-    // while holding m_, so the order guard -> m_ cannot deadlock.
-    Alarm arm_alarm(uint64_t deadline_us) noexcept override {
-        std::call_once(started_, [this] { thread_ = std::thread([this] { run(); }); });
-        {
-            std::lock_guard<std::mutex> l(m_);
-            armed_us_ = deadline_us;
-        }
-        cv_.notify_one();
-        return Alarm::Armed;
-    }
-
-    void disarm_alarm() noexcept override {
-        std::lock_guard<std::mutex> l(m_);
-        armed_us_ = kNever;
-    }
-
-private:
-    void run() {
-        std::unique_lock<std::mutex> l(m_);
-        while (!stop_) {
-            if (armed_us_ == kNever) {
-                cv_.wait(l);
-                continue;
-            }
-            // CLOCK_MONOTONIC is steady_clock on Linux, so the same microseconds.
-            const auto due = std::chrono::steady_clock::time_point(std::chrono::microseconds(armed_us_));
-            cv_.wait_until(l, due);
-            if (stop_ || armed_us_ == kNever || get_time_us() < armed_us_) continue;
-            armed_us_ = kNever;  // expire_sleeps re-arms for the next deadline
-            l.unlock();
-            (void)expire_sleeps(get_time_us(), false);
-            l.lock();
-        }
-    }
-
-    std::mutex              m_;
-    std::condition_variable cv_;
-    uint64_t                armed_us_{kNever};  // shared: arm/disarm (any thread) and run(); m_
-    bool                    stop_{false};       // shared: destructor and run(); m_
-    std::once_flag          started_;
-    std::thread             thread_;
+    // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md (Linux: Polled, no thread)
+    // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (AbstractX never waits)
+    // No thread and no OS timer: step() expires due sleeps and returns the next deadline; the host
+    // (Boost.Asio steady_timer, or the built-in run() loop) waits for it.
+    Alarm arm_alarm(uint64_t) noexcept override { return Alarm::Polled; }
 };
 
 static LinuxTimerDriver g_linux_timer;
