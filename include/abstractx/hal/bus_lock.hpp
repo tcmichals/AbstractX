@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/executor.hpp"
 
 namespace abstractx::hal {
 
@@ -64,7 +65,7 @@ public:
             if (w->run == nullptr) {
                 owner_ = next_token();
                 w->granted = owner_;
-                (void)Dispatcher::push(w->handle);
+                (void)abstractx::post(w->handle);
                 return;
             }
             w->run(w, false);
@@ -76,7 +77,7 @@ public:
         while (Waiter* w = pop()) {
             if (w->run == nullptr) {
                 w->granted = 0;
-                (void)Dispatcher::push(w->handle);
+                (void)abstractx::post(w->handle);
             } else {
                 w->run(w, true);
             }

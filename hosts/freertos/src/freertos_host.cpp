@@ -25,7 +25,8 @@ namespace {
 TaskHandle_t s_task = nullptr;  // shared: run() writes before set_wake(); wake hooks read after
 
 void wake_task() noexcept {
-    if (s_task) xTaskNotifyGive(s_task);
+    // A post from the AbstractX task itself needs no notification: step() sees it.
+    if (s_task && xTaskGetCurrentTaskHandle() != s_task) xTaskNotifyGive(s_task);
 }
 
 void wake_isr() noexcept {

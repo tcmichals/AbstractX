@@ -19,6 +19,7 @@
 #include <span>
 
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/executor.hpp"
 #include "uart_status.hpp"
 
 namespace abstractx::hal {
@@ -346,9 +347,9 @@ private:
         reason_.store(reason, std::memory_order_relaxed);
         const auto handle = std::coroutine_handle<>::from_address(h);
         if (from_isr) {
-            (void)Dispatcher::post(handle);
+            (void)abstractx::post_from_isr(handle);
         } else {
-            (void)Dispatcher::push(handle);
+            (void)abstractx::post(handle);
         }
     }
 

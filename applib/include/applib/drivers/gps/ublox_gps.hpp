@@ -13,6 +13,7 @@
 #define APPLIB_DRIVERS_GPS_UBLOX_GPS_HPP
 
 #include <cstdint>
+#include "abstractx/executor.hpp"
 #include <cstddef>
 #include <span>
 #include <coroutine>
@@ -200,7 +201,7 @@ public:
             if (feed_byte(ch, fix)) {
                 last_fix_ = fix;
                 if (pending_handle_ && !pending_handle_.done()) {
-                    IsrDispatcher::post(pending_handle_);
+                    (void)abstractx::post_from_isr(pending_handle_);  // UART RX interrupt
                     pending_handle_ = nullptr;
                 }
             }

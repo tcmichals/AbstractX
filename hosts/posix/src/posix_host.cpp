@@ -23,8 +23,10 @@ namespace {
 std::atomic<int> s_efd{-1};
 std::atomic<bool> s_stop{false};     // shared: stop() from any thread; run() reads
 std::atomic<uint32_t> s_waits{0};    // shared: run() counts; anyone reads
+thread_local bool t_is_host = false; // the thread running loop(): it is awake, so no self-wake
 
 void wake_hook() noexcept {
+    if (t_is_host) return;  // a post from the AbstractX thread itself: step() sees it
     const int fd = s_efd.load(std::memory_order_acquire);
     if (fd >= 0) {
         const uint64_t one = 1;
@@ -66,6 +68,7 @@ bool loop(DoneFn done, void* ctx, uint64_t limit_us) noexcept {
     const int fd = the_eventfd();
     if (fd < 0) return false;
     set_wake({&wake_hook, &wake_hook});
+    t_is_host = true;
     bool ok = false;
     for (;;) {
         const uint64_t next = step();
@@ -75,6 +78,7 @@ bool loop(DoneFn done, void* ctx, uint64_t limit_us) noexcept {
         if (next == kNow) continue;  // the OS preempts this thread for others; no spin to hide
         wait_for(fd, next, limit_us);
     }
+    t_is_host = false;
     set_wake({});  // a wake() after this only increments the counter; the next run clears it
     return ok;
 }
@@ -89,7 +93,11 @@ void run() noexcept { (void)loop(nullptr, nullptr, kNever); }
 
 void stop() noexcept {
     s_stop.store(true, std::memory_order_release);
-    wake_hook();
+    const int fd = s_efd.load(std::memory_order_acquire);
+    if (fd >= 0) {
+        const uint64_t one = 1;
+        (void)!::write(fd, &one, sizeof one);
+    }
 }
 
 uint32_t waits(bool reset) noexcept {

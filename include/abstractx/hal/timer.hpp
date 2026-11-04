@@ -17,7 +17,7 @@
 #include "abstractx/interrupt_lock.hpp"
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/deadline.hpp"
-#include "abstractx/wake.hpp"
+#include "abstractx/executor.hpp"
 
 namespace abstractx::hal {
 
@@ -104,7 +104,6 @@ public:
     // next deadline and wake the host. Called by the target's alarm (Armed) or service_due_us().
     // Returns the next deadline, or kNever.
     uint64_t expire_sleeps(uint64_t now_us, bool from_isr) noexcept {
-        bool posted = false;
         uint64_t next = kNever;
         {
             abstractx::InterruptGuard guard;
@@ -113,8 +112,9 @@ public:
                 unlink(*n);
                 n->result.status = TimerStatus::Ok;
                 n->result.timestamp_us = now_us;
-                (void)IsrDispatcher::post(n->handle);  // a drop is counted in dropped_resumes()
-                posted = true;
+                // [SPEC-ARCH-16] the executor posts and wakes the host; a drop is counted
+                if (from_isr) (void)abstractx::post_from_isr(n->handle);
+                else (void)abstractx::post(n->handle);
             }
             if (head_ != nullptr) {
                 next = head_->deadline_us;
@@ -122,10 +122,6 @@ public:
             } else {
                 disarm_alarm();
             }
-        }
-        if (posted) {
-            if (from_isr) abstractx::wake_from_isr();
-            else abstractx::wake();
         }
         return next;
     }

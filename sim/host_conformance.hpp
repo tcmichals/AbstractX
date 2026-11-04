@@ -90,7 +90,7 @@ void thread_post_wakes() {
         auto h = g_box2.take();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));  // the host is asleep by now
         g_box2.posted_at.store(now_us(), std::memory_order_release);
-        assert(Dispatcher::post(h));
+        assert(abstractx::post(h));
     });
     assert(Host::run_until(&flag, &g_got2, 2'000'000));
     producer.join();
@@ -132,7 +132,7 @@ void nothing_lost() {
         for (uint32_t i = 1; i <= 1000; ++i) {
             auto h = g_box4.take();
             g_box4.value = i;
-            assert(Dispatcher::post(h));  // no explicit wake(): the post itself must wake the host
+            assert(abstractx::post(h));  // no explicit wake(): the executor wakes the host
         }
     });
     assert(Host::run_until(&flag, &g_done4, 20'000'000) && "a lost wake leaves the host asleep");
@@ -179,7 +179,7 @@ inline void full_queue_is_counted() {
     }
     uint32_t refused = 0;
     std::thread t([&] {
-        for (auto& task : tasks) if (!Dispatcher::post(task->handle())) ++refused;
+        for (auto& task : tasks) if (!abstractx::post(task->handle())) ++refused;
     });
     t.join();
     const uint32_t counted = Dispatcher::dropped_resumes() - before;

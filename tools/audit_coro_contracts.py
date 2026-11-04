@@ -25,6 +25,8 @@ Verifies AbstractX C++20 coroutine contracts and safety invariants:
    `// resume: <why>` on the line or the line above. Completion paths post to the Dispatcher.
 7. No foreign coroutine runtime ([SPEC-ARCH-15], 2026-11-04): AbstractX coroutines never mix with
    Asio coroutines or Boost.Cobalt. Asio completion handlers (the Linux "ISR") are allowed.
+8. One way to make a coroutine ready ([SPEC-ARCH-16], 2026-11-04): outside the executor and the
+   Dispatcher itself, code calls abstractx::post() / post_from_isr(), never Dispatcher::post/push.
 """
 
 import re
@@ -123,6 +125,19 @@ def foreign_coroutines(text: str) -> list[int]:
     return [i for i, line in enumerate(code.splitlines(), 1) if FOREIGN_CORO.search(line)]
 
 
+# @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (one way to make a coroutine ready)
+DIRECT_DISPATCH = re.compile(r"\b(?:Isr)?Dispatcher::(?:post|push|isr_post_resume)\s*\(")
+DISPATCH_OWNERS = {"executor.cpp", "domain_dispatcher.hpp"}
+
+
+def direct_dispatches(path: Path, text: str) -> list[int]:
+    """Line numbers that enqueue on the Dispatcher directly instead of through the executor."""
+    if path.name in DISPATCH_OWNERS or "tests" in path.parts or "examples" in path.parts:
+        return []
+    code = _blank_comments(text)
+    return [i for i, line in enumerate(code.splitlines(), 1) if DIRECT_DISPATCH.search(line)]
+
+
 def check_coro_file(path: Path) -> list[str]:
     violations = []
     fname = path.name
@@ -205,6 +220,12 @@ def check_coro_file(path: Path) -> list[str]:
                 f"    Fix: register the handle with the Dispatcher, a driver request or a wait list "
                 f"([SPEC-ARCH-10] every suspension has a waker)."
             )
+
+    for ln in direct_dispatches(path, text):
+        violations.append(
+            f"{path}:{ln}: [CORO-POST-VIOLATION] Dispatcher::post/push called directly.\n"
+            f"    Fix: use abstractx::post() (task / coroutine) or post_from_isr() (interrupt) ([SPEC-ARCH-16])."
+        )
 
     for ln in foreign_coroutines(text):
         violations.append(

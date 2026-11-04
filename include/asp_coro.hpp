@@ -18,6 +18,7 @@
 #include "asp_tlp64.hpp"
 #include "tlp_ring.hpp"
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/executor.hpp"
 #include <coroutine>
 #include <cstdint>
 #include <cstddef>
@@ -518,7 +519,7 @@ private:
 struct YieldAwaiter {
     bool await_ready() const noexcept { return false; }
     void await_suspend(std::coroutine_handle<> h) noexcept {
-        abstractx::Dispatcher::push(h);
+        abstractx::post(h);
     }
     void await_resume() noexcept {}
 };
@@ -550,7 +551,7 @@ public:
             waiters_->next_ = nullptr;
             waiters_ = next;
             if (h) {
-                abstractx::Dispatcher::push(h);  // never inline: only step() resumes
+                abstractx::post(h);  // never inline: only step() resumes
             }
         }
     }
@@ -610,7 +611,7 @@ public:
             w->handle_ = nullptr;
             w->next_ = nullptr;
             w->granted_ = true;              // [SPEC-ARCH-10] this permit is the waiter's
-            abstractx::Dispatcher::push(h);
+            abstractx::post(h);
         } else {
             ++count_;
         }
@@ -707,7 +708,7 @@ public:
         if (pop_waiter_) {
             auto h = pop_waiter_;
             pop_waiter_ = nullptr;
-            abstractx::Dispatcher::push(h);  // [SPEC-ARCH-10]: never inline
+            abstractx::post(h);  // [SPEC-ARCH-10]: never inline
         }
         return true;
     }
@@ -719,7 +720,7 @@ public:
         if (push_waiter_) {
             auto h = push_waiter_;
             push_waiter_ = nullptr;
-            abstractx::Dispatcher::push(h);  // [SPEC-ARCH-10]: never inline
+            abstractx::post(h);  // [SPEC-ARCH-10]: never inline
         }
         return true;
     }
@@ -731,7 +732,7 @@ public:
         if (push_waiter_) {
             auto h = push_waiter_;
             push_waiter_ = nullptr;
-            abstractx::Dispatcher::push(h);  // [SPEC-ARCH-10]: never inline
+            abstractx::post(h);  // [SPEC-ARCH-10]: never inline
         }
         return item;
     }
@@ -820,13 +821,13 @@ public:
                             stream_batch_out_[ch] = {};
                             auto coro = stream_awaiters_[ch];
                             stream_awaiters_[ch] = nullptr;
-                            (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
+                            (void)abstractx::post(coro);  // [SPEC-ARCH-10]: never resume inline
                         }
                     } else {
                         latest_stream_tlp_[ch] = tlp;
                         auto coro = stream_awaiters_[ch];
                         stream_awaiters_[ch] = nullptr;
-                        (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
+                        (void)abstractx::post(coro);  // [SPEC-ARCH-10]: never resume inline
                     }
                 }
                 continue;
@@ -839,7 +840,7 @@ public:
                 pending_requests_[tag].active = false;
                 auto coro = pending_requests_[tag].awaiting_coro;
                 pending_requests_[tag].awaiting_coro = nullptr;
-                (void)abstractx::Dispatcher::push(coro);  // [SPEC-ARCH-10]: never resume inline
+                (void)abstractx::post(coro);  // [SPEC-ARCH-10]: never resume inline
             }
         }
 
@@ -1122,7 +1123,7 @@ private:
             auto caller = caller_;
             caller_ = nullptr;
             if (caller) {
-                abstractx::Dispatcher::push(caller);
+                abstractx::post(caller);
             }
         }
     }
@@ -1207,7 +1208,7 @@ private:
                 auto caller = caller_;
                 caller_ = nullptr;
                 if (caller) {
-                    abstractx::Dispatcher::push(caller);
+                    abstractx::post(caller);
                 }
             }
         }

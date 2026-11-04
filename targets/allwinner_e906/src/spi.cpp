@@ -11,6 +11,7 @@
  */
 
 #include "hal/spi.hpp"
+#include "abstractx/executor.hpp"
 #include "hal/pio.hpp"
 #include "hal/dma.hpp"
 #include "hal/ccu.hpp"
@@ -345,7 +346,7 @@ void Spi1::AsyncTransferAwaiter::on_done(bool success) noexcept {
     const auto handle = waiter;
     waiter = {};
     if (handle) {
-        abstractx::IsrDispatcher::post(handle);
+        (void)abstractx::post_from_isr(handle);  // DMA interrupt
     }
 }
 

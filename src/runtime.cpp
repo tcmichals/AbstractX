@@ -400,7 +400,7 @@ uint64_t step() noexcept {
 }
 
 void StepAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
-    Dispatcher::push(h);
+    (void)post(h);  // [SPEC-ARCH-16] coroutine context
 }
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06

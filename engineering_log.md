@@ -3678,3 +3678,12 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Also**: `[SPEC-ARCH-16]` "Not implemented yet" now names `post_from_isr()` and the executor (the drift check flagged the name as spec-only, correctly).
 * **Evidence**: `tools/gate.sh` plain / asan / tsan 94/94 each, `[PASS] gate`; TSan conformance 5 runs rc 0; E906 and Pico 2 W builds unchanged.
 * **Not verified**: FreeRTOS (POSIX port) and Asio runs of the conformance test; bare metal on boards. The Linux apps still use the built-in `run()`; moving them to the POSIX host is a later step.
+
+---
+
+### 2026-11-04: [SPEC-ARCH-16] step 2: one executor; every ready coroutine goes through post() / post_from_isr()
+* **Category**: `process-gap` (one scheme instead of several)
+* **What was done**: `include/abstractx/executor.hpp` / `src/executor.cpp`: `post()`, `post_from_isr()`, `set_executor()`; the default executor is the AbstractX ring (Dispatcher) plus the host's wake, so the hosted-only wake in `Dispatcher::record()` moved there and now applies on every target. All 30 call sites moved (asp_coro primitives, `step_async`, bus lock, SPI / I2C helpers, bus trigger, UART RX, driver completion, timer expiry, E906 SPI / RPMsg / timer, u-blox GPS, E906 bench). Debug builds check the context with `hal::in_isr()` (Pico: `IPSR`; E906 not yet: check skipped). Hosts skip the wake when the AbstractX thread posts to itself (POSIX: thread-local flag; FreeRTOS: current task). `tools/audit_coro_contracts.py` check 8 rejects `Dispatcher::post/push` outside the executor (finds all 11 direct calls in the old `asp_coro.hpp`).
+* **Regression test**: `sim/test_executor.cpp` (a custom executor receives `step_async`, timer and `Event::set` posts and an ISR post; a refused post returns false; `{}` restores the ring). First version set the Event before the coroutine waited on it (2 posts, not 3): test fixed, not the code. `sim/test_wake_on_enqueue.cpp` and the conformance checks now post through `abstractx::post()` (direct `Dispatcher::post` no longer wakes, by design).
+* **Evidence**: `tools/gate.sh` plain / asan / tsan 95/95 each, `[PASS] gate`; E906 5 images layout ok, SRAM_FAST down again (`e906_repl_app` 188.8 -> 187.7 KB, 97.8%; `gps_imu_app` 135.2 KB); FreeRTOS XTIMER / TICK_HOOK build; Pico 2 W builds (`gps_imu_app.elf` text 402376).
+* **Not verified**: no board run; the E906 FreeRTOS interrupt handler still calls `wake_from_isr()` itself (now redundant with the executor, harmless); E906 `in_isr()`.

@@ -26,6 +26,17 @@
 
 namespace abstractx::hal {
 
+// @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (debug check of post() / post_from_isr())
+int in_isr() noexcept {
+#ifdef PICO_ON_DEVICE
+    uint32_t ipsr = 0;
+    __asm volatile("mrs %0, ipsr" : "=r"(ipsr));  // Cortex-M: active exception number, 0 = thread
+    return (ipsr & 0x1FFu) != 0u ? 1 : 0;
+#else
+    return -1;
+#endif
+}
+
 static PicoSpi   g_pico_spi;
 static PicoUart  g_pico_uart;
 static PicoTimer g_pico_timer;

@@ -206,10 +206,12 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`
 
 ### `[SPEC-ARCH-16]` Completions, Streams and Executors (Standard RTOS / Linux Practice)
-* **Not implemented yet**: requirements 3 to 9 (`post_from_isr()`, the executor interface) and the
-  FreeRTOS / Asio / bare-metal runs of 10. Design
-  approved by the project owner 2026-11-04. Done: the host conformance test (`sim/host_conformance.hpp`)
-  and the POSIX host (`hosts/posix/`), which passes it. Next: executor with the bare-metal ring as default.
+* **Not implemented yet**: requirements 3, 4, 6 to 9; the E906 `in_isr()` (the debug context check is
+  skipped there); the FreeRTOS / Asio / bare-metal runs of 10. Design approved by the project owner
+  2026-11-04. Done: requirement 5 (`include/abstractx/executor.hpp`: `post()` / `post_from_isr()` /
+  `set_executor()`, the AbstractX ring as default executor, every call site moved, `Dispatcher::post`
+  / `push` outside the executor rejected by `tools/audit_coro_contracts.py` check 8; Pico `in_isr()`
+  from `IPSR`); the host conformance test and the POSIX host.
 
 Nothing here is new: the
 interrupt hand-off is FreeRTOS `...FromISR` / ChibiOS I-class / Zephyr / Linux top half; requests and
@@ -295,7 +297,8 @@ sequenceDiagram
   timer / wake model rewritten five times in five days because it was designed one change at a time.
   This requirement fixes the whole model first; implementation follows it.
 * **Verified by**: `host-tests` (`sim/test_host_conformance_posix.cpp`: the six conformance checks on the
-  POSIX host; planned: per-driver request / stream / cancel / drop tests), `thread-sanitizer`,
+  POSIX host; `sim/test_executor.cpp`: a custom executor receives every post, a refused post is
+  reported; `tests/test_coro_contracts.py`: no direct Dispatcher post; planned: per-driver request / stream / cancel / drop tests), `thread-sanitizer`,
   `board-bringup` (planned: E906, Pico 2 W)
 * **Implementation Target** (planned): `include/abstractx/`, `src/`, `hosts/`, every target's drivers
 

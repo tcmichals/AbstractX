@@ -382,7 +382,7 @@ public:
             auto* a = static_cast<AsyncMsgAwaiter*>(w->self);
             if (cancel || !a->driver.submit_request(a->request)) {
                 a->result.status = cancel ? I2cStatus::Cancelled : I2cStatus::QueueFull;
-                (void)Dispatcher::push(a->request.coro_handle);
+                (void)abstractx::post(a->request.coro_handle);
             }
         }
     };

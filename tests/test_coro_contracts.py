@@ -127,7 +127,18 @@ def test_repository_mixes_no_coroutine_runtime():
     assert bad == [], "\n".join(bad)
 
 
+def test_direct_dispatch_is_found():
+    """[SPEC-ARCH-16] only the executor and the Dispatcher enqueue directly."""
+    from pathlib import Path as P
+    bad = "void f(std::coroutine_handle<> h) { abstractx::IsrDispatcher::post(h); Dispatcher::push(h); }\n"
+    ok = "void f(std::coroutine_handle<> h) { abstractx::post(h); } // Dispatcher::post(h) in a comment\n"
+    assert acc.direct_dispatches(P("include/x.hpp"), bad) == [1]
+    assert acc.direct_dispatches(P("include/x.hpp"), ok) == []
+    assert acc.direct_dispatches(P("src/executor.cpp"), bad) == []
+
+
 if __name__ == "__main__":
+    test_direct_dispatch_is_found()
     test_dropped_handles_are_found()
     test_registered_or_waived_handles_pass()
     test_comment_mentioning_the_name_does_not_count()

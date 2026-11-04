@@ -1,4 +1,5 @@
 #include "timer.hpp"
+#include "abstractx/executor.hpp"
 #include "hal/clic.hpp"
 #include "abstractx/isr_dispatcher.hpp"
 #include "abstractx/trace/event_trace.hpp"
@@ -160,7 +161,9 @@ static bool post_due_waiters(uint64_t now) noexcept {
             cb(c);
         }
         if (h) {
-            abstractx::IsrDispatcher::post(h);
+            // line-7 interrupt on bare metal; the AbstractX task under an RTOS (service_due)
+            if (g_external_tick) (void)abstractx::post(h);
+            else (void)abstractx::post_from_isr(h);
         }
     }
     g_coro_target = !g_waiters.empty() ? g_waiters.front().target_ticks : kNever;

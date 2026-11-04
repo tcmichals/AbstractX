@@ -104,7 +104,7 @@ void test_thread_posts_wake() {
             std::coroutine_handle<> h;
             while (!(h = g_box.waiter.exchange(nullptr, std::memory_order_acq_rel))) std::this_thread::yield();
             g_box.value = i;
-            assert(Dispatcher::post(h));  // no explicit wake(): post() must wake on hosted builds
+            assert(abstractx::post(h));  // [SPEC-ARCH-16] the executor posts and wakes; no explicit wake()
         }
     });
     host_until([] { return g_mail_done; }, std::chrono::seconds(20));

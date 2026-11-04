@@ -46,6 +46,8 @@ add_abstractx_sim(test_timer_concurrency   test_timer_concurrency.cpp)
 add_abstractx_sim(test_wake_on_enqueue     test_wake_on_enqueue.cpp)
 # [SPEC-ARCH-16] host conformance checks, POSIX host
 add_abstractx_sim(test_host_conformance_posix test_host_conformance_posix.cpp)
+# [SPEC-ARCH-16] requirement 5: every post goes through the host's executor
+add_abstractx_sim(test_executor            test_executor.cpp)
 target_link_libraries(test_host_conformance_posix PRIVATE abstractx_host_posix)
 target_include_directories(test_wake_on_enqueue PRIVATE ${CMAKE_SOURCE_DIR}/targets/linux/include)
 add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)

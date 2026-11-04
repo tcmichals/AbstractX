@@ -98,7 +98,7 @@ void rx_callback(const ::hal::RpmsgMessage &msg, void *) noexcept {
     if (s_worker) {
         auto h = s_worker;
         s_worker = {};
-        Dispatcher::push(h);  // resumed by the runtime loop, not inline
+        (void)abstractx::post(h);  // resumed by the runtime loop, not inline
     }
 }
 
@@ -207,17 +207,20 @@ std::coroutine_handle<> s_imu_waiter{};              // shared: collector sets, 
 volatile bool s_imu_timeout = false;                 // shared: timeout coroutine sets, collector reads; same hart
 uint32_t s_imu_run = 0;                              // coroutine domain only: run id for the timeout coroutine
 
-void imu_wake() noexcept {   // ISR or coroutine context; never resumes inline
+void imu_wake(bool from_isr) noexcept {   // never resumes inline
     std::coroutine_handle<> h{};
     {
         abstractx::InterruptGuard guard;
         h = s_imu_waiter;
         s_imu_waiter = {};
     }
-    if (h) abstractx::IsrDispatcher::post(h);
+    if (h) {
+        if (from_isr) (void)abstractx::post_from_isr(h);
+        else (void)abstractx::post(h);
+    }
 }
 
-void on_imu_pushed() noexcept { imu_wake(); }
+void on_imu_pushed() noexcept { imu_wake(true); }  // I/O engine emit: interrupt context
 
 struct ImuSampleAwaiter {
     bool await_ready() const noexcept { return !s_imu_ring.empty() || s_imu_timeout; }
@@ -241,7 +244,7 @@ abstractx::coro::Task<void> imu_timeout_task(uint32_t run, uint32_t first_ms, ui
     }
     if (run == s_imu_run) {
         s_imu_timeout = true;
-        imu_wake();
+        imu_wake(false);
     }
 }
 
@@ -568,6 +571,6 @@ extern "C" void abx_bench_soft_isr(void) {
     if (s_soft_waiter) {
         auto h = s_soft_waiter;
         s_soft_waiter = {};
-        abstractx::IsrDispatcher::post(h);
+        (void)abstractx::post_from_isr(h);  // soft interrupt
     }
 }

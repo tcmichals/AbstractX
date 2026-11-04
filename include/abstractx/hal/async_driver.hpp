@@ -24,6 +24,7 @@
 
 #include "abstractx/interrupt_lock.hpp"
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/executor.hpp"
 #include "io_status.hpp"
 
 namespace abstractx::hal {
@@ -50,7 +51,7 @@ struct AsyncTransactionMeta {
             callback(result);
         }
         if (coro_handle && !coro_handle.done()) {
-            IsrDispatcher::post(coro_handle);
+            (void)abstractx::post_from_isr(coro_handle);  // [SPEC-ARCH-16] completion context
         }
     }
 };

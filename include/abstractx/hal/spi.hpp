@@ -375,7 +375,7 @@ public:
             auto* a = static_cast<AsyncTransactionAwaiter*>(w->self);
             if (cancel || !a->driver.submit_request(a->request)) {
                 a->result.status = cancel ? SpiStatus::Cancelled : SpiStatus::QueueFull;
-                (void)Dispatcher::push(a->request.coro_handle);
+                (void)abstractx::post(a->request.coro_handle);
             }
         }
     };

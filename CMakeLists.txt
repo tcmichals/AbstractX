@@ -53,6 +53,7 @@ add_compile_options(
 add_library(abstractx_core STATIC
     src/runtime.cpp
     src/wake.cpp
+    src/executor.cpp
 )
 target_include_directories(abstractx_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

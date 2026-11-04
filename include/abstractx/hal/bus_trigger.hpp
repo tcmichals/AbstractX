@@ -18,6 +18,7 @@
 #include <span>
 
 #include "abstractx/domain_dispatcher.hpp"
+#include "abstractx/executor.hpp"
 #include "io_status.hpp"
 
 namespace abstractx::hal {
@@ -149,7 +150,7 @@ public:
         void* h = waiter_.exchange(nullptr, std::memory_order_acq_rel);
         if (h != nullptr) {
             reason_.store(kReasonCancel, std::memory_order_relaxed);
-            (void)Dispatcher::push(std::coroutine_handle<>::from_address(h));
+            (void)abstractx::post(std::coroutine_handle<>::from_address(h));
         }
     }
 
@@ -203,7 +204,7 @@ private:
             }
         }
         reason_.store(available() ? kReasonData : kReasonCancel, std::memory_order_relaxed);
-        (void)Dispatcher::post(std::coroutine_handle<>::from_address(h));
+        (void)abstractx::post_from_isr(std::coroutine_handle<>::from_address(h));
     }
 
     std::span<uint8_t>         storage_;

@@ -1,4 +1,5 @@
 #include "hal/rpmsg.hpp"
+#include "abstractx/executor.hpp"
 #include "hal/msgbox.hpp"
 #include "hal/pmp.hpp"
 #include "hal/clic.hpp"
@@ -761,6 +762,6 @@ void fc_msgbox_doorbell_isr() noexcept {
 
     // Post the handle; abstractx::step() resumes it from the cooperative context.
     if (void *h = hal::s_rpmsg_waiter.exchange(nullptr, std::memory_order_acq_rel)) {
-        abstractx::IsrDispatcher::post(std::coroutine_handle<>::from_address(h));
+        (void)abstractx::post_from_isr(std::coroutine_handle<>::from_address(h));  // doorbell interrupt
     }
 }
