@@ -157,6 +157,16 @@ public:
         size_t          min_bytes{1};
         uint32_t        timeout_us{0};
         UartStatus      refused{UartStatus::Ok};
+        void*           mine{nullptr};   // [SPEC-ARCH-16] 8: the handle this awaiter published
+
+        // [SPEC-ARCH-16] 8: destroyed while waiting: withdraw from the ring (a handle the producer
+        // already took is in the ready ring, and the task's destruction removes it there).
+        ~ReadAwaiter() {
+            if (mine != nullptr && ring != nullptr) {
+                void* expected = mine;
+                (void)ring->waiter_.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+            }
+        }
 
         bool await_ready() noexcept {
             if (ring == nullptr) {
@@ -181,6 +191,7 @@ public:
         bool await_suspend(std::coroutine_handle<> h) noexcept {
             ring->reason_.store(kReasonNone, std::memory_order_relaxed);
             const uint32_t token = ring->gen_.fetch_add(1, std::memory_order_acq_rel) + 1U;
+            mine = h.address();
             ring->waiter_.store(h.address(), std::memory_order_release);
             // Re-check after publishing: data or cancel that arrived in between must not be missed.
             // The fence keeps the re-check after the store ([SPEC-HAL-10] wake handshake).

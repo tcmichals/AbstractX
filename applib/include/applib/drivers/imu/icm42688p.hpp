@@ -218,7 +218,10 @@ public:
             request.rx_data = rx_buf;
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver.spi_);
             if (!driver.spi_.submit_request(request)) {
+                req_state.disarm();
                 result.status = hal::SpiStatus::QueueFull;
                 return false;
             }
@@ -243,6 +246,7 @@ public:
             );
             return sample;
         }
+        hal::RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     AsyncSampleAwaiter sample_awaiter() noexcept {

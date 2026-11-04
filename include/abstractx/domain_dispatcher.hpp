@@ -129,6 +129,21 @@ public:
         return queue_.size();
     }
 
+    // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (8: a destroyed task is never resumed)
+    // Remove every copy of `handle` from the ring (its frame is being destroyed). Returns how many.
+    static inline size_t purge(value_type handle) noexcept {
+        if (!handle) return 0;
+        InterruptGuard guard;
+        size_t removed = 0;
+        const size_t n = queue_.size();
+        value_type h{};
+        for (size_t i = 0; i < n && queue_.pop_from_isr(h); ++i) {
+            if (h.address() == handle.address()) { ++removed; continue; }
+            (void)queue_.push_from_isr(h);  // re-queue in order; the ring had room for it
+        }
+        return removed;
+    }
+
     // Deepest the ring has been since start (or the last reset).
     static inline uint32_t high_water(bool reset = false) noexcept {
         return reset ? high_water_.exchange(0, std::memory_order_relaxed)

@@ -28,16 +28,24 @@ using abstractx::coro::when_any;
 
 namespace {
 
-// A completion the test delivers by hand, through the Dispatcher (like a driver interrupt).
+// A completion the test delivers by hand, through the executor (like a driver interrupt).
+// Its awaiter follows [SPEC-ARCH-16] 8: if the waiting frame is destroyed (a cancelled when_any
+// loser), the awaiter's destructor drops the handle, so open() never posts a freed frame.
 struct Gate {
     std::coroutine_handle<> h{};
     bool opened{false};
-    bool await_ready() const noexcept { return opened; }
-    void await_suspend(std::coroutine_handle<> hh) noexcept { h = hh; }
-    void await_resume() const noexcept {}
+    struct Awaiter {
+        Gate& g;
+        std::coroutine_handle<> mine{};
+        bool await_ready() const noexcept { return g.opened; }
+        void await_suspend(std::coroutine_handle<> hh) noexcept { g.h = mine = hh; }
+        void await_resume() const noexcept {}
+        ~Awaiter() { if (mine && g.h == mine) g.h = {}; }
+    };
+    Awaiter operator co_await() noexcept { return Awaiter{*this}; }
     void open() {
         opened = true;
-        if (h) (void)Dispatcher::push(std::exchange(h, {}));
+        if (h) (void)abstractx::post(std::exchange(h, {}));
     }
 };
 
@@ -117,8 +125,8 @@ int main() {
         g2.open();
         pump();
         assert(t.done() && resumes == 1 && winner == 1 && value == 9);
-        // The loser (still waiting on g1) must not resume the caller or touch freed memory
-        // when its completion arrives later (ASan checks the memory side).
+        // The loser (waiting on g1) was cancelled ([SPEC-ARCH-11]): its completion arriving later
+        // finds nothing to resume (ASan checks the memory side).
         g1.open();
         pump();
         assert(resumes == 1);
@@ -153,8 +161,8 @@ int main() {
         assert(Dispatcher::queue_depth() == 0);
     }
 
-    // 5. Steady state for when_any: each loser is detached and frees its own frame when its
-    //    completion arrives, so 1000 races leave the pool flat (no leak, no use after free).
+    // 5. Steady state for when_any: each loser is cancelled and its frame freed at once, so 1000
+    //    races leave the pool flat (no leak, no use after free).
     {
         {
             Gate a, b;
@@ -180,7 +188,7 @@ int main() {
             first.open();
             pump();
             assert(t.done() && resumes == 1 && winner == ((i & 1) ? 0 : 1));
-            second.open();                 // the detached loser finishes and frees itself
+            second.open();                 // the loser was cancelled: nothing to resume
             pump();
             assert(resumes == 1);
         }
@@ -227,6 +235,6 @@ int main() {
         pump();
     }
 
-    std::printf("[PASS] when_all / when_any / with_timeout: out-of-order completion, single caller resume, loser detached and freed, unstarted loser freed, 1000 rounds each flat\n");
+    std::printf("[PASS] when_all / when_any / with_timeout: out-of-order completion, single caller resume, loser cancelled and freed, unstarted loser freed, 1000 rounds each flat\n");
     return 0;
 }

@@ -71,8 +71,19 @@ public:
     bool write_sync(uint8_t, std::span<const uint8_t>) override { return false; }
     bool read_sync(uint8_t, std::span<uint8_t>) override { return false; }
 
+    // Finish the in-flight transfer, as the hardware eventually does ([SPEC-ARCH-16] 8: a driver
+    // that accepted a request completes or aborts it; it never just forgets it).
+    void complete_one() {
+        I2cResult r{};
+        push_completion_from_isr(active_, r);
+        set_hardware_idle_from_isr();
+    }
+
 protected:
-    void start_hardware_transfer_from_isr(const I2cRequest&) noexcept override {}  // never completes
+    void start_hardware_transfer_from_isr(const I2cRequest& req) noexcept override { active_ = req; }
+
+private:
+    I2cRequest active_{};
 };
 
 class FakeUart : public IUart {
@@ -85,8 +96,17 @@ public:
     size_t read(std::span<uint8_t>) override { return 0; }
     void flush() override {}
 
+    void complete_one() {
+        UartResult r{};
+        push_completion_from_isr(active_, r);
+        set_hardware_idle_from_isr();
+    }
+
 protected:
-    void start_hardware_transfer_from_isr(const UartTxRequest&) noexcept override {}  // never completes
+    void start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept override { active_ = req; }
+
+private:
+    UartTxRequest active_{};
 };
 
 const std::array<uint8_t, 4> kTx{1, 2, 3, 4};
@@ -165,7 +185,10 @@ int main() {
         drain();
         assert(t[1]->done() && r[1].status == I2cStatus::Cancelled);
         assert(t[2]->done() && r[2].status == I2cStatus::Cancelled && !t[0]->done());
-        // t[0] is "in flight" on a fake that keeps no pointer to it, so destroying it here is safe.
+        // t[0] is in flight: the hardware finishes it before its task goes out of scope.
+        i2c.complete_one();
+        drain();
+        assert(t[0]->done());
         FakeUart u;
         std::array<UartResult, 2> ur{};
         std::array<std::optional<Task<void>>, 2> ut{};
@@ -173,6 +196,9 @@ int main() {
         u.reset_queues();
         drain();
         assert(ut[1]->done() && ur[1].status == UartStatus::Cancelled);
+        u.complete_one();
+        drain();
+        assert(ut[0]->done());
     }
 
     // 4. Steady state: 1000 cancel cycles on each driver kind.

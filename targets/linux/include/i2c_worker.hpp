@@ -166,6 +166,10 @@ private:
 
             hal::I2cRequest req;
             while (queue_.pop(req)) {
+                if (req.abandoned()) {  // [SPEC-ARCH-16] 8: its awaiter is gone; do not touch its buffers
+                    complete(req, hal::I2cResult{});
+                    continue;
+                }
                 hal::I2cResult res{};
                 res.status = hal::I2cStatus::Ok;
 
@@ -323,10 +327,7 @@ private:
             sink_(req, res);
             return;
         }
-        if (req.result_slot) {
-            *req.result_slot = res;
-        }
-        req.notify_completion(res);
+        req.complete(res);  // [SPEC-ARCH-16] 8: result, post and Done in one place (skips if abandoned)
     }
 
     CompletionSink       sink_{};

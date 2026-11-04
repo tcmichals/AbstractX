@@ -949,9 +949,10 @@ int main() {
 
         // SpiRequest and I2cRequest single-callback size check ([SPEC-HAL-01]):
         // each request carries only one etl::delegate in AsyncTransactionMeta, and SpiRequest
-        // removed deprecated link_b spans (120 bytes on 64-bit host, down from 184 bytes).
-        static_assert(sizeof(SpiRequest) <= 120, "SpiRequest must not carry duplicate delegates or link_b spans");
-        static_assert(sizeof(I2cRequest) <= 128, "I2cRequest must not carry duplicate delegates");
+        // removed deprecated link_b spans (120 bytes on 64-bit host, down from 184 bytes), plus the
+        // 8-byte request-state pointer of [SPEC-ARCH-16] 8 (2026-11-04).
+        static_assert(sizeof(SpiRequest) <= 128, "SpiRequest must not carry duplicate delegates or link_b spans");
+        static_assert(sizeof(I2cRequest) <= 136, "I2cRequest must not carry duplicate delegates");
 
         // UartRxView split-span helpers ([SPEC-HAL-10]):
         {

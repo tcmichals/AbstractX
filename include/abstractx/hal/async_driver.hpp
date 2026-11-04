@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
 #include <coroutine>
 #include <etl/queue_spsc_isr.h>
 #include <etl/delegate.h>
@@ -28,6 +29,53 @@
 #include "io_status.hpp"
 
 namespace abstractx::hal {
+
+// @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (8: request state, abort else wait)
+// Code that runs only when a task is destroyed during a transfer. E906: placed in .text_cold
+// (SRAM Space 1), not the fast SRAM ([SPEC-E906-MEM-01]).
+#ifndef ABSTRACTX_COLD
+#define ABSTRACTX_COLD __attribute__((cold, noinline, section(".text.abx_cold")))
+#endif
+
+// Request state, owned by the awaiter (in the coroutine frame): Pending -> Done, or
+// Pending -> Abandoned -> Done. A completion that finds Abandoned writes and posts nothing.
+inline constexpr uint8_t kReqIdle = 0, kReqPending = 1, kReqAbandoned = 2, kReqDone = 3;
+using RequestStateWord = std::atomic<uint8_t>;
+
+// A driver that can withdraw a request: removes it if not started, aborts it if it can. True when
+// the request is now Done; false when the caller must wait for the driver to finish it.
+class ICancellable {
+public:
+    virtual bool cancel_request(RequestStateWord* state) noexcept = 0;
+
+protected:
+    ~ICancellable() = default;
+};
+
+// Mark the request Abandoned, ask the driver to withdraw it, and wait (bounded) until it is Done.
+// src/executor.cpp. Traps if the driver never finishes it (a hung transfer is a firmware fault).
+ABSTRACTX_COLD void abandon_request(ICancellable& driver, RequestStateWord& state) noexcept;
+
+// An awaiter member, declared LAST so it is destroyed first: while it waits, the awaiter's buffers
+// (which the hardware may still be writing) are alive. Copies start idle.
+struct RequestState {
+    RequestStateWord word{kReqIdle};
+    ICancellable*    driver{nullptr};
+
+    RequestState() = default;
+    RequestState(const RequestState&) noexcept {}
+    RequestState& operator=(const RequestState&) noexcept { return *this; }
+    ~RequestState() { if (driver) abandon_request(*driver, word); }
+
+    void arm(ICancellable& d) noexcept {
+        driver = &d;
+        word.store(kReqPending, std::memory_order_release);
+    }
+    void disarm() noexcept {
+        driver = nullptr;
+        word.store(kReqIdle, std::memory_order_release);
+    }
+};
 
 /*
  * Generic Request Header with Callback & Coroutine Handle
@@ -42,18 +90,35 @@ struct AsyncTransactionMeta {
     // instead of the shared output queue, so concurrent awaiters on one driver
     // each receive their own result.
     TResult*               result_slot{nullptr};
+    RequestStateWord*      state{nullptr};      // [SPEC-ARCH-16] 8: the awaiter's request state
     void*                  user_context{nullptr};
     uint64_t               submit_timestamp_us{0};
     uint64_t               start_timestamp_us{0};
 
-    void notify_completion(const TResult& result) const noexcept {
-        if (callback.is_valid()) {
+    bool abandoned() const noexcept {
+        return state != nullptr && state->load(std::memory_order_acquire) == kReqAbandoned;
+    }
+
+    // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (8: the one completion path)
+    // Write the result, post the coroutine, mark Done: all under one guard, so an abandon cannot
+    // interleave. An abandoned request only becomes Done (its frame is going away).
+    void complete(const TResult& result) const noexcept {
+        if (!abandoned() && callback.is_valid()) {
             callback(result);
         }
+        InterruptGuard guard;
+        if (abandoned()) {
+            state->store(kReqDone, std::memory_order_release);
+            return;
+        }
+        if (result_slot) *result_slot = result;
         if (coro_handle && !coro_handle.done()) {
             (void)abstractx::post_from_isr(coro_handle);  // [SPEC-ARCH-16] completion context
         }
+        if (state) state->store(kReqDone, std::memory_order_release);
     }
+
+    void notify_completion(const TResult& result) const noexcept { complete(result); }
 };
 
 /*
@@ -66,7 +131,7 @@ struct AsyncTransactionMeta {
 // @impl [SPEC-ARCH-01] [SPEC-HAL-01] docs/DESIGN_SPECIFICATION.md#spec-hal-01
 // @status Complete
 template <typename TRequest, typename TResult, size_t QueueDepth = 16>
-class AsyncDriverBase {
+class AsyncDriverBase : public ICancellable {
 public:
     static constexpr size_t CAPACITY = QueueDepth;
 
@@ -74,6 +139,29 @@ public:
     using ResultQueue  = etl::queue_spsc_isr<TResult,  QueueDepth, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>;
 
     virtual ~AsyncDriverBase() = default;
+
+    // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (8: withdraw one request)
+    ABSTRACTX_COLD bool cancel_request(RequestStateWord* st) noexcept override {
+        InterruptGuard guard;
+        // Not started: take it out of the queue; nothing was written, nothing is posted.
+        bool removed = false;
+        const size_t n = input_queue_.size();
+        TRequest r;
+        for (size_t i = 0; i < n && input_queue_.pop_from_isr(r); ++i) {
+            if (!removed && r.state == st) { removed = true; continue; }
+            (void)input_queue_.push_from_isr(r);
+        }
+        if (removed) {
+            st->store(kReqDone, std::memory_order_release);
+            return true;
+        }
+        // Running: abort it if the driver can (its completion then finds Abandoned).
+        if (hardware_busy_ && active_state_ == st && abort_active_from_isr()) {
+            start_next_from_isr();
+            return st->load(std::memory_order_acquire) == kReqDone;
+        }
+        return false;  // the caller waits for the driver to finish it
+    }
 
     /*
      * Main / Coroutine Domain: Submit a request to the input queue.
@@ -85,6 +173,7 @@ public:
             InterruptGuard guard;
             if (!hardware_busy_ && input_queue_.empty()) {
                 hardware_busy_ = true;
+                active_state_ = request.state;
                 start_hardware_transfer_from_isr(request);
                 return true;
             }
@@ -144,7 +233,7 @@ public:
             return false;
         }
         if (abort_active_from_isr()) {
-            hardware_busy_ = false;
+            start_next_from_isr();  // [SPEC-HAL-07] queued requests do not stall (review Q-9)
             return true;
         }
         return false;
@@ -177,16 +266,14 @@ protected:
     // @impl [SPEC-HAL-01] docs/DESIGN_SPECIFICATION.md#spec-hal-01
     bool push_completion_from_isr(const TRequest& completed_req, const TResult& result) noexcept {
         bool pushed = true;
-        if (completed_req.result_slot) {
-            *completed_req.result_slot = result;
-        } else {
+        if (!completed_req.result_slot && !completed_req.abandoned()) {
 #if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
             pushed = output_queue_.push(result); // hosted: "ISR" is a worker thread
 #else
             pushed = output_queue_.push_from_isr(result);
 #endif
         }
-        completed_req.notify_completion(result);
+        completed_req.complete(result);  // [SPEC-ARCH-16] 8: result slot, post and Done in one place
         return pushed;
     }
 
@@ -207,11 +294,17 @@ protected:
 
     void set_hardware_idle_from_isr() noexcept {
         InterruptGuard guard;
+        start_next_from_isr();
+    }
+
+    // Hardware is free: start the next queued request, if any (called with interrupts masked).
+    void start_next_from_isr() noexcept {
         hardware_busy_ = false;
-        // Check if more requests arrived while we were finishing
+        active_state_ = nullptr;
         TRequest next_req;
         if (pop_next_request_from_isr(next_req)) {
             hardware_busy_ = true;
+            active_state_ = next_req.state;
             start_hardware_transfer_from_isr(next_req);
         }
     }
@@ -223,6 +316,7 @@ private:
             TRequest next_req;
             if (input_queue_.pop_from_isr(next_req)) {
                 hardware_busy_ = true;
+                active_state_ = next_req.state;
                 start_hardware_transfer_from_isr(next_req);
             }
         }
@@ -231,6 +325,7 @@ private:
     RequestQueue input_queue_{};
     ResultQueue  output_queue_{};
     volatile bool hardware_busy_{false};
+    RequestStateWord* active_state_{nullptr};  // shared: under InterruptGuard; the running request
 };
 
 } // namespace abstractx::hal

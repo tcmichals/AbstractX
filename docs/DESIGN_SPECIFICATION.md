@@ -266,6 +266,19 @@ completions are Zephyr RTIO / Linux io_uring; DMA streams are serial DMA (V4L2 /
 * **Requirement (8, cancellation)**: a request can be cancelled (RTIO / io_uring style); the driver
   completes it as `Cancelled` exactly once. Destroying a waiting task cancels its outstanding requests,
   so no completion is ever written to a destroyed frame.
+  **Mechanism (decided 2026-11-04: abort, else wait)**: every driver request carries a pointer to a
+  state word owned by its awaiter (in the coroutine frame, like `result_slot`): `Pending -> Done`, or
+  `Pending -> Abandoned -> Done`. An awaiter destroyed while its request is `Pending` sets
+  `Abandoned`, then: a request not started yet is skipped by the driver when it reaches it (no
+  transfer, nothing written); a running request is aborted if the driver can (`abort_active_from_isr`);
+  otherwise (a Linux `ioctl` in progress) the destructor waits until the driver marks it `Done`,
+  bounded by `kCancelWaitUs` (then it traps: a hung transfer is a firmware fault, reported). A
+  completion that finds `Abandoned` writes no result and posts no handle; DMA and kernel buffers in
+  the frame are therefore never written after the frame is freed. A handle already in the ready ring
+  when its task is destroyed is removed from the ring (`Dispatcher::purge`), so `step()` never resumes
+  a destroyed frame (this also covers `Event`, timers and every other waker). `when_any` destroys its
+  loser (cancelling its requests) instead of detaching it; `with_timeout` therefore cancels the
+  operation that lost. (Review 2026-11-04 T-3, Q-5, Q-6, Q-7, Q-9.)
 * **Requirement (9, remote consumers and unmapped data)**: an IoProcessor only pushes: it sends each
   completion or stream packet out on its channel, fire-and-forget, like serial. The receiving
   processor delivers only to a consumer explicitly mapped to that channel (endpoint, subscription or
@@ -371,15 +384,15 @@ sequenceDiagram
 * **Verified by**: `host-tests` (`sim/test_coro_failures.cpp`), `memory-footprint` (no `_Unwind_*` / `__cxa_rethrow` symbols in the E906 and Pico 2 W ELFs)
 * **Implementation Target**: `include/asp_coro.hpp`
 
-### `[SPEC-ARCH-11]` Combinators: when_all Joins, when_any Detaches the Loser
+### `[SPEC-ARCH-11]` Combinators: when_all Joins, when_any Cancels the Loser
 * **Requirement (when_all)**: `co_await when_all(t...)` starts every task, resumes the caller exactly
   once after the last one completes, in any completion order, and returns their results as a tuple.
 * **Requirement (when_any)**: `co_await when_any(a, b)` resumes the caller exactly once, when the first
-  task completes, with that task's result. The other task is **detached**: it keeps its frame, runs on
-  to its own end when its pending completion arrives (a timer fires, data arrives), and then frees its
-  frame itself; its result is discarded and it never resumes the caller. A loser that waits on
-  something that never happens keeps its frame (and any request it has pending) until it does: to
-  stop it early, cancel its I/O (`[SPEC-HAL-07]`).
+  task completes, with that task's result. The other task is **cancelled** (2026-11-04): it is
+  destroyed, which cancels every request it has pending (`[SPEC-ARCH-16]` requirement 8: skipped if not
+  started, aborted if running, else waited for) and removes it from the ready ring; its frame is free
+  when the caller resumes. (Until 2026-11-04 the loser was detached and kept its frame until its
+  completion arrived, forever for a loser waiting on something that never happens: review Q-6.)
 * **Requirement (never-started tasks)**: a task that never ran (still at its initial suspend) holds
   nothing and nobody will ever resume it, so `Task::detach()` MUST destroy it at once instead of
   detaching it. This covers the `when_any` loser when the first task finishes inside
@@ -387,7 +400,8 @@ sequenceDiagram
 * **Requirement (with_timeout)**: `with_timeout(Task<T>&& task, Task<U>&& timeout_task)` (and
   `hal::with_timeout(Task<T>&& task, uint32_t timeout_us)` in `include/abstractx/hal/timer.hpp`)
   races `task` against `timeout_task` using `when_any`, returning the `std::variant<T, U>` (or
-  `std::variant<T, TimerResult>`) outcome and detaching the loser under the same lifetime rules.
+  `std::variant<T, TimerResult>`) outcome and cancelling the loser under the same rules: a timeout
+  cancels the operation; a finished operation cancels its timer.
 * **Rationale (2026-10-28)**: `when_any(ready(), waits())` detached the unstarted `waits()` frame on
   every call; it was never freed and the pool ran out after ~470 calls. The 1000-round test only
   raced two tasks that had both started.

@@ -93,6 +93,14 @@ public:
     struct PopAwaiter {
         TriggerRingBase* ring{nullptr};
         bool             busy{false};
+        void*            mine{nullptr};   // [SPEC-ARCH-16] 8: the handle this awaiter published
+
+        ~PopAwaiter() {  // [SPEC-ARCH-16] 8: destroyed while waiting: withdraw
+            if (mine != nullptr) {
+                void* expected = mine;
+                (void)ring->waiter_.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
+            }
+        }
 
         bool await_ready() noexcept {
             if (ring->waiter_.load(std::memory_order_acquire) != nullptr || ring->holding_) {
@@ -109,6 +117,7 @@ public:
 
         bool await_suspend(std::coroutine_handle<> h) noexcept {
             ring->reason_.store(kReasonNone, std::memory_order_relaxed);
+            mine = h.address();
             ring->waiter_.store(h.address(), std::memory_order_release);
             std::atomic_thread_fence(std::memory_order_seq_cst);
             if (ring->available()) {          // re-check after publishing: never miss a commit

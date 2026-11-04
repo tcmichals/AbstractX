@@ -33,7 +33,7 @@ fails on the old code and passes on the new.
 | --- | --- | --- | --- |
 | T-1 | High | **Fixed in `583637b`.** Concurrent `ITimer` sleeps run one after another: three 10 ms sleeps wake at 10, 20 and 30 ms (E906, Linux and Pico share the path) | [V] |
 | T-2 | High | **Fixed in `583637b`.** `with_timeout` leaves its timeout sleep holding the timer. Later sleeps are delayed by the whole timeout, and after 16 of them every `with_timeout` fails at once | [V] |
-| T-3 / Q-7 | High | Destroying a suspended task leaves its handle and result pointer in driver requests and wait slots. The completion writes into the freed frame and resumes whatever reused it | [V] |
+| T-3 / Q-7 | High | **Fixed 2026-11-04.** Destroying a suspended task leaves its handle and result pointer in driver requests and wait slots. The completion writes into the freed frame and resumes whatever reused it | [V] |
 | Q-1 | High | **Fixed 2026-11-04.** Linux I2C reports `Ok` for transfers it never sends: 2-write `write_regs`, 3 or more messages, zero-length probe | [V] |
 | Q-2 | High | **Fixed 2026-11-04.** A TLP read/write/transaction whose submit fails returns an earlier response as if it were fresh | [V] |
 | Q-3 | High | **Fixed 2026-11-04.** `IoEngine` auto-channel data race: a new edge overwrites the snapshot, timestamp and length while the previous completion still reads them | [V] TSan |
@@ -44,8 +44,8 @@ fails on the old code and passes on the new.
 | T-5 | Med | **Fixed 2026-11-04** (hosted: every enqueue wakes; Linux timer Polled). Driver completions post the handle but never call `wake()`, so a host that waits on `step()`'s deadline sleeps through them (Linux) | [R] |
 | T-6 | Med | **Fixed 2026-11-04 (not run on a board).** Pico idle is a bare `wfe` with no masked re-check; the SDK alarm can fire on core 0 while AbstractX sleeps on core 1 | [I] |
 | Q-4 | Med | **Fixed 2026-11-04.** `AsyncQueue`: one waiter slot per side (a second consumer is never woken), push result ignored, no drop counter, not thread-safe despite the "lock-free" comment | [V] |
-| Q-5 | Med | Linux SPI/I2C: in-flight requests cannot be cancelled, so `when_any` / `with_timeout` cannot cancel the loser's I/O | [V] |
-| Q-6 | Med | A `when_any` loser that never completes keeps its frame: 200 races leak 25,600 B of pool (E906 pool is 4 KB) | [V] |
+| Q-5 | Med | **Fixed 2026-11-04** (abandon: skipped by the worker, else waited for). Linux SPI/I2C: in-flight requests cannot be cancelled, so `when_any` / `with_timeout` cannot cancel the loser's I/O | [V] |
+| Q-6 | Med | **Fixed 2026-11-04** (loser cancelled). A `when_any` loser that never completes keeps its frame: 200 races leak 25,600 B of pool (E906 pool is 4 KB) | [V] |
 | Q-8 | Med | **Fixed 2026-11-04.** Linux UART `write_async` reports `Ok` on a short write or `EAGAIN` | [V] |
 | G-4 … G-11, G-14 | Med | Test-claim and test-strength gaps (section 3) | [V]/[R] |
 | T-7, T-8, Q-9 … Q-12, G-12, G-13, G-15, G-16, G-18 | Low | Section 1 to 3 | [R] |

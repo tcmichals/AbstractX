@@ -70,7 +70,10 @@ public:
         bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = MailboxStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -80,6 +83,7 @@ public:
         MailboxResult await_resume() noexcept {
             return result;
         }
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     AsyncDoorbellAwaiter notify_async(uint32_t channel, uint32_t message) noexcept {

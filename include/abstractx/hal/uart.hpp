@@ -186,7 +186,10 @@ public:
         bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = UartStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -196,6 +199,7 @@ public:
         UartResult await_resume() noexcept {
             return result;
         }
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     AsyncWriteAwaiter write_async(std::span<const uint8_t> buffer) noexcept {
@@ -225,7 +229,10 @@ public:
             request.data = std::span<const uint8_t>(&byte_val, 1);
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = UartStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -235,6 +242,7 @@ public:
         UartResult await_resume() noexcept {
             return result;
         }
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     AsyncByteWriteAwaiter write_byte_async(uint8_t b) noexcept {
@@ -267,7 +275,10 @@ public:
             request.break_us = us;
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = UartStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -275,6 +286,7 @@ public:
         }
 
         UartResult await_resume() noexcept { return result; }
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     AsyncBreakAwaiter send_break_async(uint32_t us) noexcept { return AsyncBreakAwaiter{*this, us}; }

@@ -362,13 +362,16 @@ public:
             request.hz = hz;
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
             if (driver.bus_lock_.blocks(lock_token)) {   // someone else holds the bus: wait in line
                 lock_node.run = &submit_after_lock;
                 lock_node.self = this;
                 driver.bus_lock_.wait(&lock_node);
                 return true;
             }
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = I2cStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -380,11 +383,17 @@ public:
         // The lock was released (or its waiters cancelled): submit now, or complete.
         static void submit_after_lock(BusLock::Waiter* w, bool cancel) noexcept {
             auto* a = static_cast<AsyncMsgAwaiter*>(w->self);
+            if (!cancel) a->req_state.arm(a->driver);
             if (cancel || !a->driver.submit_request(a->request)) {
+                a->req_state.disarm();
                 a->result.status = cancel ? I2cStatus::Cancelled : I2cStatus::QueueFull;
                 (void)abstractx::post(a->request.coro_handle);
             }
         }
+        // [SPEC-ARCH-16] 8: destroyed while waiting for the bus lock: leave the wait list
+        ~AsyncMsgAwaiter() { if (lock_node.run) (void)driver.bus_lock_.remove(&lock_node); }
+
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     // One bus transaction of messages to `address` (7-bit, or i2c_addr10(a)).
@@ -543,7 +552,10 @@ public:
         bool await_suspend(std::coroutine_handle<> handle) noexcept {
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = I2cStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -553,6 +565,7 @@ public:
         I2cResult await_resume() noexcept {
             return result;
         }
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     // @impl [SPEC-HAL-11] docs/DESIGN_SPECIFICATION.md
@@ -590,7 +603,10 @@ public:
             request.rx_data = std::span<uint8_t>(&rx_byte, 1);
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = I2cStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -600,6 +616,7 @@ public:
         uint8_t await_resume() noexcept {
             return rx_byte;
         }
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     /*
@@ -627,7 +644,10 @@ public:
             request.rx_data = {};
             request.coro_handle = handle;
             request.result_slot = &result;
+            request.state = &req_state.word;  // [SPEC-ARCH-16] 8
+            req_state.arm(driver);
             if (!driver.submit_request(request)) {
+                req_state.disarm();
                 result.status = I2cStatus::QueueFull;
                 return false; // resume immediately; never resume inline
             }
@@ -637,6 +657,7 @@ public:
         I2cResult await_resume() noexcept {
             return result;
         }
+        RequestState req_state{};  // [SPEC-ARCH-16] 8: last member, destroyed first (abort, else wait)
     };
 
     // Deprecated [SPEC-HAL-11]: returns only the byte (status lost); use read_regs_async.

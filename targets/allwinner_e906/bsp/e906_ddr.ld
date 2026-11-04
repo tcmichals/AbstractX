@@ -95,6 +95,7 @@ SECTIONS
         *py/parsenum.c.obj(.text .text.* .rodata .rodata.*)
         *py/parsenumbase.c.obj(.text .text.*)
         *py/mpz.c.obj(.text .text.* .rodata .rodata.*)
+        *(.text.abx_cold .text.abx_cold.*)   /* [SPEC-ARCH-16] 8 cancellation path, ABSTRACTX_COLD */
         __text_cold_end = .;
     } > SRAM_A3_2
 

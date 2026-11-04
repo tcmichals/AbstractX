@@ -74,7 +74,7 @@ sequenceDiagram
   | :--- | :--- | :--- | :--- | :--- |
   | SRAM Space 0 | `0x3FFC0000` | `0x07280000` | 256 KB | vectors, code, data, stack (linker `SRAM_FAST`, first 192 KB) |
   | Space 0 shared tail | `0x3FFF0000` | `0x072B0000` | 64 KB | host IPC: ping channel `+0x0000`, DRAM-SPSC control `+0x2000`, crash dump `+0xFF00` |
-  | SRAM Space 1, lower half | `0x40000000` | `0x072C0000` | 128 KB | resource table, trace0, firmware IPC state, cold code (`.text_cold`) and profiler/timeline rings (`.sram_c`) (`REMAP_CTRL_REG[1]=1`, set by remoteproc) |
+  | SRAM Space 1, lower half | `0x40000000` | `0x072C0000` | 128 KB | resource table, trace0, firmware IPC state, cold code (`.text_cold`: the MicroPython compiler, and since 2026-11-04 the request-cancellation path of `[SPEC-ARCH-16]` 8, marked `ABSTRACTX_COLD`, which runs only when a task is destroyed during a transfer) and profiler/timeline rings (`.sram_c`) (`REMAP_CTRL_REG[1]=1`, set by remoteproc) |
   | SRAM Space 1, upper half | `0x40020000` | `0x072E0000` | 128 KB | Linux RPMsg DMA pool: vrings + RPMsg buffers (`[SPEC-E906-IPC-04]`); firmware places nothing here |
   | DDR RPMsg pool | `0x48000000` | `0x48000000` | 1 MB | Linux RPMsg DMA pool (`vdev@48000000`, `shared-dma-pool`) of the board's flight-stack overlay (`apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso`): Linux allocates vrings and buffers here instead of in Space 1. The firmware only reads and writes it through `translate_buf()` (`[SPEC-E906-IPC-02]`); no firmware section is placed in DDR |
   | DRAM carveout | `0x48100000` | `0x48100000` | 1 MB | not used by AbstractX (SRAM-only rule, `[SPEC-E906-CACHE-02]`); allowed by the layout check for legacy images |

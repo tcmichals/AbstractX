@@ -268,19 +268,32 @@ public:
 
     Task& operator=(Task&& other) noexcept {
         if (this != &other) {
-            if (handle_) handle_.destroy();
+            destroy_frame();
             handle_ = other.handle_;
             other.handle_ = nullptr;
         }
         return *this;
     }
 
+    // [SPEC-ARCH-11] Cancel a task that has not finished (or free a finished one): its frame is
+    // destroyed now, which cancels its pending requests ([SPEC-ARCH-16] 8).
+    void cancel() noexcept { destroy_frame(); }
+
+    // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (8: destroying a task cancels and un-queues it)
+    // Destroying the frame runs its awaiters' destructors (they cancel their requests); then any
+    // copy of the handle still in the ready ring is removed, so step() never resumes a freed frame.
+    void destroy_frame() noexcept {
+        if (!handle_) return;
+        const std::coroutine_handle<> h = handle_;
+        handle_.destroy();
+        handle_ = nullptr;
+        (void)abstractx::Dispatcher::purge(h);
+    }
+
     Task(const Task&) = delete;
     Task& operator=(const Task&) = delete;
 
-    ~Task() {
-        if (handle_) handle_.destroy();
-    }
+    ~Task() { destroy_frame(); }
 
     // [SPEC-ARCH-11] Give up ownership of a task that has not finished: it runs on to its end
     // and frees its own frame; nobody is resumed and its result is discarded. A finished task
@@ -289,7 +302,7 @@ public:
     void detach() noexcept {
         if (!handle_) return;
         if (handle_.done() || !handle_.promise().started_) {   // nobody will ever resume it
-            handle_.destroy();
+            destroy_frame();
         } else {
             handle_.promise().detached_ = true;
             handle_.promise().on_complete_ = {};
@@ -432,19 +445,32 @@ public:
 
     Task& operator=(Task&& other) noexcept {
         if (this != &other) {
-            if (handle_) handle_.destroy();
+            destroy_frame();
             handle_ = other.handle_;
             other.handle_ = nullptr;
         }
         return *this;
     }
 
+    // [SPEC-ARCH-11] Cancel a task that has not finished (or free a finished one): its frame is
+    // destroyed now, which cancels its pending requests ([SPEC-ARCH-16] 8).
+    void cancel() noexcept { destroy_frame(); }
+
+    // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (8: destroying a task cancels and un-queues it)
+    // Destroying the frame runs its awaiters' destructors (they cancel their requests); then any
+    // copy of the handle still in the ready ring is removed, so step() never resumes a freed frame.
+    void destroy_frame() noexcept {
+        if (!handle_) return;
+        const std::coroutine_handle<> h = handle_;
+        handle_.destroy();
+        handle_ = nullptr;
+        (void)abstractx::Dispatcher::purge(h);
+    }
+
     Task(const Task&) = delete;
     Task& operator=(const Task&) = delete;
 
-    ~Task() {
-        if (handle_) handle_.destroy();
-    }
+    ~Task() { destroy_frame(); }
 
     // [SPEC-ARCH-11] Give up ownership of a task that has not finished: it runs on to its end
     // and frees its own frame; nobody is resumed and its result is discarded. A finished task
@@ -453,7 +479,7 @@ public:
     void detach() noexcept {
         if (!handle_) return;
         if (handle_.done() || !handle_.promise().started_) {   // nobody will ever resume it
-            handle_.destroy();
+            destroy_frame();
         } else {
             handle_.promise().detached_ = true;
             handle_.promise().on_complete_ = {};
@@ -907,12 +933,13 @@ public:
 
             // Otherwise, match based on PCIe Tag for split transaction (MemRd / MemWr completion)
             uint8_t tag = tlp.wire.tag;
-            if (pending_requests_[tag].active && pending_requests_[tag].awaiting_coro) {
+            if (pending_requests_[tag].active) {
+                // [SPEC-ARCH-16] 8: the tag is freed even when its awaiter is gone (no coroutine)
                 pending_requests_[tag].response_tlp = tlp;
                 pending_requests_[tag].active = false;
                 auto coro = pending_requests_[tag].awaiting_coro;
                 pending_requests_[tag].awaiting_coro = nullptr;
-                (void)abstractx::post(coro);  // [SPEC-ARCH-10]: never resume inline
+                if (coro) (void)abstractx::post(coro);  // [SPEC-ARCH-10]: never resume inline
             }
         }
 
@@ -925,6 +952,10 @@ public:
         uint32_t address;
         uint8_t tag{0};
         bool refused{false};  // [SPEC-ARCH-09] submit failed: await_resume returns an error
+        // [SPEC-ARCH-16] 8: destroyed while waiting: the response will find no coroutine to resume.
+        ~MemReadAwaiter() {
+            if (tag != 0 && !refused) engine.pending_requests_[tag].awaiting_coro = nullptr;
+        }
         bool sent{false};
 
         MemReadAwaiter(CoroutineIoEngine& eng, uint32_t addr) : engine(eng), address(addr) {}
@@ -960,6 +991,10 @@ public:
         uint32_t value;
         uint8_t tag{0};
         bool refused{false};  // [SPEC-ARCH-09] submit failed: await_resume returns an error
+        // [SPEC-ARCH-16] 8: destroyed while waiting: the response will find no coroutine to resume.
+        ~MemWriteAwaiter() {
+            if (tag != 0 && !refused) engine.pending_requests_[tag].awaiting_coro = nullptr;
+        }
 
         MemWriteAwaiter(CoroutineIoEngine& eng, uint32_t addr, uint32_t val)
             : engine(eng), address(addr), value(val) {}
@@ -997,6 +1032,12 @@ public:
 
         bool refused{false};
 
+        std::coroutine_handle<> mine_{};
+        ~StreamAwaiter() {  // [SPEC-ARCH-16] 8: destroyed while waiting: withdraw
+            const auto ch = static_cast<uint8_t>(channel);
+            if (mine_ && ch < 8 && engine.stream_awaiters_[ch] == mine_) engine.stream_awaiters_[ch] = nullptr;
+        }
+
         // One waiter per channel: a second one is refused (empty TLP) instead of overwriting the first.
         bool await_suspend(std::coroutine_handle<> coro) {
             const auto ch = static_cast<uint8_t>(channel);
@@ -1006,6 +1047,7 @@ public:
             }
             engine.stream_batch_out_[ch] = {};
             engine.register_stream_awaiter(ch, coro);
+            mine_ = coro;
             return true;
         }
 
@@ -1059,6 +1101,10 @@ public:
         Tlp64 req;
         uint8_t tag{0};
         bool refused{false};  // [SPEC-ARCH-09] submit failed: await_resume returns an error
+        // [SPEC-ARCH-16] 8: destroyed while waiting: the response will find no coroutine to resume.
+        ~TransactAwaiter() {
+            if (tag != 0 && !refused) engine.pending_requests_[tag].awaiting_coro = nullptr;
+        }
 
         TransactAwaiter(CoroutineIoEngine& eng, const Tlp64& r) noexcept : engine(eng), req(r) {}
 
@@ -1272,11 +1318,11 @@ public:
         int idx = ready_index_.load(std::memory_order_acquire);
         if (idx == 0 || (idx == -1 && t1_.done())) {
             std::variant<T1, T2> r{std::in_place_index<0>, t1_.await_resume()};
-            t2_.detach();   // the loser runs on and frees itself (freed now if it never started)
+            t2_.cancel();   // [SPEC-ARCH-11] the loser is cancelled: its requests too, its frame is free
             return r;
         }
         std::variant<T1, T2> r{std::in_place_index<1>, t2_.await_resume()};
-        t1_.detach();
+        t1_.cancel();
         return r;
     }
 
