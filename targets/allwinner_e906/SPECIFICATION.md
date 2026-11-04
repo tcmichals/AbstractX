@@ -497,9 +497,16 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Requirement**: `hal::Timer::SleepAwaiter` inherits `etl::bidirectional_link<0>` and nodes form a
   deadline-sorted `etl::intrusive_list<SleepAwaiter, etl::bidirectional_link<0>>` so any number of
   coroutines and `E906TimerDriver` (`ITimer`) requests may sleep concurrently without overwriting
-  each other, `cancel_waiter()` unlinks in $O(1)$ without scanning the list, and expired nodes are
-  posted to `IsrDispatcher` from the line-7 handler.
-* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests`
+  each other, `cancel_waiter()` unlinks in $O(1)$ without scanning the list.
+* **Requirement (the alarm only wakes, 2026-11-04, `[SPEC-ARCH-16]` 3)**: the line-7 handler does
+  not walk the list or post anything: when the earliest sleep is due it marks the sleeps due, takes
+  the sleep deadline out of the comparator (so the level interrupt does not fire again) and wakes
+  the core. `step()` expires them: `E906TimerDriver::service_due_us()` calls `hal::Timer::service_due()`
+  (posts every due node, puts the next deadline back in the comparator) on bare metal as under an RTOS.
+  The profiler sample and `arm_wake` stay in the handler. `mtime` / `mtimecmp` addresses are
+  `E906_MTIME_BASE` / `E906_MTIMECMP_BASE`, overridable so `sim/test_e906_timer_irq.cpp` compiles the
+  real `timer.cpp` against fake registers.
+* **Verified by**: `e906-board-selftest` (`tests/board/test_e906_irq.py`), `host-tests` (`sim/test_e906_timer_irq.cpp`)
 * **Implementation Target**: `targets/allwinner_e906/src/timer.cpp`, `targets/allwinner_e906/include/hal/timer.hpp`, `targets/allwinner_e906/src/platform.cpp`
 
 ### `[SPEC-E906-IRQ-04]` RPMsg Doorbell Interrupt (No Polling)

@@ -98,10 +98,9 @@ public:
         return static_cast<uint32_t>(::hal::Timer::get_time_ns() / 1'000'000ULL);
     }
 
-    // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (host-polled timer under an RTOS)
-    // Bare metal: the line-7 interrupt posts due sleeps, so the host need not poll (kNever).
+    // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (step() expires sleeps)
+    // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md (bare metal too: the alarm only wakes)
     uint64_t service_due_us() noexcept override {
-        if (!::hal::Timer::uses_external_tick()) return kNever;
         (void)::hal::Timer::service_due();
         const uint64_t t = ::hal::Timer::next_deadline_ticks();
         if (t == UINT64_MAX) return kNever;
@@ -127,7 +126,7 @@ protected:
 private:
     static void on_alarm(void* ctx) noexcept {
         auto* self = static_cast<E906TimerDriver*>(ctx);
-        (void)self->expire_sleeps(self->get_time_us(), !::hal::Timer::uses_external_tick());
+        (void)self->expire_sleeps(self->get_time_us(), false);  // from service_due(): step() context
     }
 
     ::hal::Timer::SleepAwaiter alarm_{};

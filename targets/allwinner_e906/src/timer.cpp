@@ -14,8 +14,13 @@ namespace hal {
 
 // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
 // T-Head core timer (measured): mtime 0xE000BFF8, mtimecmp 0xE0004000, 24 MHz.
-static constexpr uintptr_t MTIMECMP_BASE = 0xE0004000U;
-static constexpr uintptr_t MTIME_BASE    = 0xE000BFF8U;
+// Overridable so a host test can compile this file against fake registers ([SPEC-E906-IRQ-03]).
+#ifndef E906_MTIMECMP_BASE
+#define E906_MTIMECMP_BASE 0xE0004000U
+#endif
+#ifndef E906_MTIME_BASE
+#define E906_MTIME_BASE 0xE000BFF8U
+#endif
 static constexpr uint64_t  kNever        = ~0ULL;
 
 using WaiterList = etl::intrusive_list<Timer::SleepAwaiter, etl::bidirectional_link<0>>;
@@ -23,6 +28,9 @@ static WaiterList g_waiters{};
 // Two deadlines share one comparator: sleeping coroutines (always the front of g_waiters) and a
 // synchronous wake.
 static volatile uint64_t g_coro_target{kNever};  // shared: main under InterruptGuard, timer ISR (IRQs masked); single hart, 64-bit never read unguarded
+// @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md (the alarm only wakes)
+// shared: the handler sets it, service_due() (step) clears it, both with IRQs masked; single hart
+static volatile bool g_coro_due{false};
 static volatile uint64_t g_wake_target{kNever};  // shared: arm_wake under InterruptGuard, timer ISR clears; single hart
 // Third deadline: profiler samples ([SPEC-E906-IRQ-06], [SPEC-TRACE-09]).
 static volatile uint64_t g_sample_target{kNever};  // shared: set_sample_period under InterruptGuard, timer ISR advances; single hart
@@ -33,8 +41,8 @@ static volatile bool g_external_tick{false};  // [SPEC-E906-RTOS-03] an RTOS own
 
 static void program_compare(uint64_t target) noexcept {
     if (g_external_tick) return;  // @impl [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
-    auto *cmp_lo = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE);
-    auto *cmp_hi = reinterpret_cast<volatile uint32_t *>(MTIMECMP_BASE + 4);
+    auto *cmp_lo = reinterpret_cast<volatile uint32_t *>(E906_MTIMECMP_BASE);
+    auto *cmp_hi = reinterpret_cast<volatile uint32_t *>(E906_MTIMECMP_BASE + 4);
     // High word first to all-ones so the split write never matches early
     *cmp_hi = 0xFFFFFFFFUL;
     if (target == kNever) return;
@@ -43,7 +51,7 @@ static void program_compare(uint64_t target) noexcept {
 }
 
 static void reprogram() noexcept {
-    const uint64_t a = g_coro_target;
+    const uint64_t a = g_coro_due ? kNever : g_coro_target;  // due: step() has it now
     const uint64_t b = g_wake_target;
     const uint64_t c = g_sample_target;
     const uint64_t ab = a < b ? a : b;
@@ -70,8 +78,8 @@ void Timer::init() noexcept {
 }
 
 uint64_t Timer::get_ticks() noexcept {
-    auto *lo_reg = reinterpret_cast<volatile uint32_t *>(MTIME_BASE);
-    auto *hi_reg = reinterpret_cast<volatile uint32_t *>(MTIME_BASE + 4);
+    auto *lo_reg = reinterpret_cast<volatile uint32_t *>(E906_MTIME_BASE);
+    auto *hi_reg = reinterpret_cast<volatile uint32_t *>(E906_MTIME_BASE + 4);
     uint32_t hi0 = 0, lo = 0, hi1 = 0;
     do {
         hi0 = *hi_reg;
@@ -161,9 +169,7 @@ static bool post_due_waiters(uint64_t now) noexcept {
             cb(c);
         }
         if (h) {
-            // line-7 interrupt on bare metal; the AbstractX task under an RTOS (service_due)
-            if (g_external_tick) (void)abstractx::post(h);
-            else (void)abstractx::post_from_isr(h);
+            (void)abstractx::post(h);  // step() context, bare metal and RTOS alike ([SPEC-E906-IRQ-03])
         }
     }
     g_coro_target = !g_waiters.empty() ? g_waiters.front().target_ticks : kNever;
@@ -177,7 +183,10 @@ bool Timer::uses_external_tick() noexcept { return g_external_tick; }
 
 bool Timer::service_due() noexcept {
     abstractx::InterruptGuard guard;
-    return post_due_waiters(get_ticks());
+    g_coro_due = false;
+    const bool any = post_due_waiters(get_ticks());
+    reprogram();  // the next sleep deadline goes back into the comparator
+    return any;
 }
 
 uint64_t Timer::next_deadline_ticks() noexcept {
@@ -195,7 +204,9 @@ void Timer::handle_irq() noexcept {
         const uint64_t next = g_sample_target + g_sample_period;
         g_sample_target = next > now ? next : now + g_sample_period;  // fell behind: skip
     }
-    if (post_due_waiters(now)) {
+    // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md (mark due and wake; step() posts)
+    if (!g_coro_due && now >= g_coro_target) {
+        g_coro_due = true;
         other = true;
     }
     if (now >= g_wake_target) {

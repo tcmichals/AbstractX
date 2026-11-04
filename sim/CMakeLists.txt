@@ -109,6 +109,13 @@ target_include_directories(test_e906_twi PRIVATE ${E906_DIR}/include)
 target_link_libraries(test_e906_twi PRIVATE abstractx_core)
 add_test(NAME sim_test_e906_twi COMMAND test_e906_twi)
 
+# E906 timer: the line-7 handler only wakes; step() posts ([SPEC-E906-IRQ-03], [SPEC-ARCH-16] 3)
+add_executable(test_e906_timer_irq test_e906_timer_irq.cpp ${E906_DIR}/src/timer.cpp)
+target_include_directories(test_e906_timer_irq BEFORE PRIVATE ${E906_DIR}/include ${E906_DIR}/include/hal)
+target_compile_options(test_e906_timer_irq PRIVATE -include ${CMAKE_CURRENT_SOURCE_DIR}/e906_shim/fake_mtime.h)
+target_link_libraries(test_e906_timer_irq PRIVATE abstractx_core)
+add_test(NAME sim_test_e906_timer_irq COMMAND test_e906_timer_irq)
+
 # E906 UART driver against a register model of the 8250 and a fake DMAC ([SPEC-E906-HAL-04])
 add_executable(test_e906_uart
     test_e906_uart.cpp
