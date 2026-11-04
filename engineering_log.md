@@ -3526,3 +3526,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Board run** (SWD flash `** Verified OK **`, console on UART1 over 4 SWD resets): `Joined after 1 attempt(s). IP: 192.168.1.14` on 4 of 4 boots; boot banner now prints before the join completes. UDP :9870: 1613 packets in 5 s. IMU about 440 updates/s while joined (10076–10427 by AHRS #23), versus about 650/s not joined, on a sensor configured for 8 kHz: the single Core 0 loop is the limit, not only Wi-Fi.
 * **Host suite**: `ctest --test-dir build_host`: 86 of 87 pass; the failure is `sim_test_e906_dma_irq` (`test_e906_dma_irq.cpp:55: Assertion 'tx == 8 && rx == 11' failed`), which fails identically with this change stashed (pre-existing, not investigated here).
 * **Not verified**: LED by eye; the retry and link-loss paths on hardware; Release preset.
+
+---
+
+### 2026-11-03: Cortex-M33 builds ran all float math in software (no -mfloat-abi)
+* **Category**: `product-bug`
+* **Mistake / bug observed** (`cmake/toolchains/arm-none-eabi.cmake`): the flags had `-march=armv8-m.main+fp+dsp` but no `-mfloat-abi`, so GCC used its `soft` default and called `__aeabi_fadd` / `__mulsf3` for every float operation. The pico-sdk's own toolchain file sets `-mfloat-abi=softfp`; ours replaced it.
+* **Which check should have caught it**: `memory-footprint` / `tests/test_toolchain_files.py` checked only toolchain discovery, never the code-generation flags. Fixed: `test_arm_float_abi` fails on the old file (`CMAKE_C_FLAGS_INIT has no -mfloat-abi=softfp`) and passes on the new one.
+* **Spec update**: `[SPEC-BUILD-02]` in `docs/DESIGN_SPECIFICATION.md`.
+* **Board run** (Pico 2 W, Release `-O3`, fresh configure, PC sampled over SWD via `DWT_PCSR`, 4000 samples): `AttitudeFilter::update_imu` now has 81 `vmul/vadd/vfma.f32`; soft-float helpers 14.6% -> 0.0% of samples. IMU updates/s (AHRS #4..#23): Wi-Fi off 2991 -> 3933; Wi-Fi joined 1418 -> 1818. With Wi-Fi joined, the CYW43 driver + PIO bus + lwIP took about 39% of Core 0 samples (before this fix); `cyw43_spi_transfer` waits on each bus DMA with `dma_channel_wait_for_finish_blocking()` (pico-sdk `cyw43_bus_pio_spi.c`).
+* **Not verified**: Debug preset rebuilt from scratch; E906 and other targets are unaffected (separate toolchain files).

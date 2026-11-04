@@ -40,9 +40,10 @@ set(CMAKE_C_COMPILER   "${ARM_TOOLCHAIN_PREFIX}gcc")
 set(CMAKE_CXX_COMPILER "${ARM_TOOLCHAIN_PREFIX}g++")
 set(CMAKE_ASM_COMPILER "${ARM_TOOLCHAIN_PREFIX}gcc")
 
-set(CMAKE_C_FLAGS_INIT   "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_INIT "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -Wall -Wextra -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit")
-set(CMAKE_ASM_FLAGS_INIT "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp")
+# @impl [SPEC-BUILD-02] docs/DESIGN_SPECIFICATION.md (softfp: FPU instructions, SDK-compatible ABI)
+set(CMAKE_C_FLAGS_INIT   "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mfloat-abi=softfp -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_INIT "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mfloat-abi=softfp -Wall -Wextra -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit")
+set(CMAKE_ASM_FLAGS_INIT "-mcpu=cortex-m33 -mthumb -march=armv8-m.main+fp+dsp -mfloat-abi=softfp")
 # Note: --specs=nano.specs is added by Pico SDK (pico_set_clib) or per-target linker flags
 # to avoid interfering with standalone assembly bootloaders like bs2_default.elf.
 

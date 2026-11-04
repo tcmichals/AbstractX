@@ -127,6 +127,20 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`tests/test_toolchain_files.py`)
 * **Implementation Target**: `third_party/CMakeLists.txt`, `apps/e906_repl_app/CMakeLists.txt`, `cmake/toolchains/arm-none-eabi.cmake`, `cmake/toolchains/riscv-none-elf.cmake`, `cmake/toolchains/xtensa-esp-elf.cmake`
 
+### `[SPEC-BUILD-02]` Cortex-M33 Float Math Uses the FPU
+* **Requirement**: `cmake/toolchains/arm-none-eabi.cmake` MUST pass `-mfloat-abi=softfp`
+  together with `-march=armv8-m.main+fp+dsp` in the C, C++ and ASM init flags, the same as the
+  pico-sdk's own `pico_arm_cortex_m33_gcc.cmake`. Without a float ABI GCC defaults to `soft` and
+  emits library calls (`__aeabi_fadd`, `__mulsf3`) for every float operation even though the
+  M33 has a single-precision FPU. `softfp` emits FPU instructions and stays link-compatible
+  with the SDK's objects and newlib-nano.
+* **Rationale (2026-11-03)**: PC sampling over SWD of the Pico 2 W Release `gps_imu_app`
+  (Wi-Fi off) put 14.6% of Core 0 samples in `__aeabi_fadd` + `__mulsf3`; the fusion loop
+  ran entirely on software float.
+* **Verified by**: `host-tests` (`tests/test_toolchain_files.py::test_arm_float_abi`),
+  `board-bringup` (PC sampling shows no software float helpers in the fusion path)
+* **Implementation Target**: `cmake/toolchains/arm-none-eabi.cmake`
+
 ### `[SPEC-ARCH-09]` Coroutine Failures Without C++ Exceptions
 * **Goal**: small, deterministic firmware. Storing and rethrowing exceptions (`std::exception_ptr`, `std::current_exception`, `std::rethrow_exception`) and type-erased callbacks (`std::function`) pull the C++ unwinder and RTTI support into every image (measured ~15.6 KB of libgcc unwinder on the E906, out of 192 KB SRAM).
 * **Requirement**: `Task<T>` MUST NOT store or propagate exceptions. An exception that escapes a coroutine body is a firmware bug: `unhandled_exception()` MUST report it through `abstractx::coro::set_unhandled_exception_hook()` (if set) and then stop with `__builtin_trap()`, so the target's trap handler records it (E906: `[SPEC-E906-CRASH-01]`, trace0). Errors that are expected at run time are returned as values (`Result`, status codes), not thrown.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# @verifies [SPEC-BUILD-01] docs/DESIGN_SPECIFICATION.md
+# @verifies [SPEC-BUILD-01] [SPEC-BUILD-02] docs/DESIGN_SPECIFICATION.md
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Toolchain files find the compiler on any PC: -D value, env, newest ~/.tools dir, PATH."""
@@ -70,10 +70,22 @@ def test_search_order():
             assert _prefix(TC / name, var, home, env_value="/env/p-", define="/def/p-") == "/def/p-", name
 
 
+def test_arm_float_abi():
+    """[SPEC-BUILD-02]: every ARM init flag set that enables +fp also selects softfp."""
+    text = (TC / "arm-none-eabi.cmake").read_text(encoding="utf-8")
+    for lang in ("C", "CXX", "ASM"):
+        m = re.search(rf'set\(CMAKE_{lang}_FLAGS_INIT\s+"([^"]*)"', text)
+        assert m, f"CMAKE_{lang}_FLAGS_INIT missing"
+        flags = m.group(1).split()
+        assert "-march=armv8-m.main+fp+dsp" in flags, lang
+        assert "-mfloat-abi=softfp" in flags, f"CMAKE_{lang}_FLAGS_INIT has no -mfloat-abi=softfp (GCC defaults to soft float)"
+
+
 if __name__ == "__main__":
     if shutil.which("cmake") is None:
         print("SKIP: cmake not on PATH")
         sys.exit(0)
     test_no_absolute_home_paths()
     test_search_order()
+    test_arm_float_abi()
     print("toolchain file tests passed")
