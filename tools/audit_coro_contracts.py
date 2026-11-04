@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
-# @impl [SPEC-ARCH-10] [SPEC-ARCH-11] docs/DESIGN_SPECIFICATION.md
+# @impl [SPEC-ARCH-10] [SPEC-ARCH-11] [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md
 """
 audit_coro_contracts.py - C++20 Coroutine Contract & Concurrency Linter
 =======================================================================
@@ -23,6 +23,8 @@ Verifies AbstractX C++20 coroutine contracts and safety invariants:
 6. Who may resume ([SPEC-ARCH-10], 2026-10-29): in include/ and src/, every `.resume()` call is
    either Dispatcher::process() or the start of a task that has never run, and says so with
    `// resume: <why>` on the line or the line above. Completion paths post to the Dispatcher.
+7. No foreign coroutine runtime ([SPEC-ARCH-15], 2026-11-04): AbstractX coroutines never mix with
+   Asio coroutines or Boost.Cobalt. Asio completion handlers (the Linux "ISR") are allowed.
 """
 
 import re
@@ -109,6 +111,18 @@ def dropped_handles(text: str) -> list[int]:
     return out
 
 
+# @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (coroutine runtimes never mix)
+FOREIGN_CORO = re.compile(
+    r"\bawaitable\s*<|\buse_awaitable\b|\bco_spawn\b|\bexperimental::coro\b"
+    r"|asio/awaitable\.hpp|asio/co_spawn\.hpp|\bcobalt::|boost/cobalt")
+
+
+def foreign_coroutines(text: str) -> list[int]:
+    """Line numbers that use another library's coroutine runtime (Asio awaitables, Cobalt)."""
+    code = _blank_comments(text)
+    return [i for i, line in enumerate(code.splitlines(), 1) if FOREIGN_CORO.search(line)]
+
+
 def check_coro_file(path: Path) -> list[str]:
     violations = []
     fname = path.name
@@ -191,6 +205,13 @@ def check_coro_file(path: Path) -> list[str]:
                 f"    Fix: register the handle with the Dispatcher, a driver request or a wait list "
                 f"([SPEC-ARCH-10] every suspension has a waker)."
             )
+
+    for ln in foreign_coroutines(text):
+        violations.append(
+            f"{path}:{ln}: [CORO-MIX-VIOLATION] another coroutine runtime (Asio awaitable / co_spawn / Cobalt).\n"
+            f"    Fix: never mix with AbstractX coroutines; use an Asio completion handler that posts to the "
+            f"Dispatcher ([SPEC-ARCH-15])."
+        )
 
     return violations
 

@@ -105,6 +105,28 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Verified by**: `host-tests` (`sim/test_abstractx_runtime.cpp`: idle policy, spawn capacity)
 * **Implementation Target**: `include/abstractx/abstractx.hpp`, `src/runtime.cpp`
 
+### `[SPEC-ARCH-15]` The Host Drives AbstractX; Coroutine Runtimes Never Mix
+* **Requirement (framework, not owner, 2026-11-04)**: AbstractX owns no event loop, thread, OS
+  timer or wait primitive. The host (Boost.Asio `io_context` on Linux, a FreeRTOS task blocked on
+  its queue, the bare-metal `wfi` loop) owns the loop and calls `abstractx::step()` when an event
+  arrives or a deadline is reached. Every event source (ISR, DMA completion, Asio completion
+  handler, FreeRTOS producer) does the same three things: store its result in the request, post the
+  waiting handle to the Dispatcher, and ask the host to wake.
+* **Requirement (no mixing)**: AbstractX coroutines (`coro::Task`) and another library's coroutine
+  runtime never meet. C++ code in this repository MUST NOT use `asio::awaitable`,
+  `asio::use_awaitable`, `asio::co_spawn`, `asio::experimental::coro` or Boost.Cobalt. On Linux,
+  Asio appears only as the host pump and as completion handlers inside driver awaiters (the Linux
+  equivalent of an ISR); applications see only AbstractX awaiters. Rationale: an application that
+  `co_await`s an Asio awaitable is resumed by Asio, not by `step()`, which breaks `[SPEC-ARCH-10]`
+  (only the Dispatcher resumes) and cannot build on the MCU targets (0 application `#ifdef`s).
+* **Planned (not implemented)**: `step()` returns the next timer deadline (`kNow` / deadline /
+  `kNever`) and `set_wake(fn)` registers the host's wake, so the host can sleep exactly until the
+  next event; due timers are handled in `step()`, not in the tick ISR. Until then the existing
+  `run()` / `platform_idle_wait()` path (`[SPEC-ARCH-06]`) stays.
+* **Verified by**: `coro-contract-lint` (`tools/audit_coro_contracts.py` check 7: no foreign
+  coroutine runtime; `tests/test_coro_contracts.py`)
+* **Implementation Target**: `tools/audit_coro_contracts.py`
+
 ### `[SPEC-ARCH-07]` Platform Topology Table & Studio Multi-Window Observability
 * **Requirement**: AbstractX runtimes must encode and announce a standardized `PlatformTopologyTable` describing the exact silicon execution topology (e.g. `Linux_Standard_SITL`, `Linux_Host_E906`, `Linux_Host_E906_FPGA`, `RP2350_DualCore_Pico2W`, `ESP32P4_FreeRTOS`), active cores, interconnects, and hardware accelerators. The Observability Studio must render:
   1. **Window 1: Platform Topology & Interconnect Fabric** (Auto-detected silicon graph and SPSC ring saturations).

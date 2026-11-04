@@ -72,7 +72,10 @@ The AbstractX execution model is grounded in two software basics and a symmetric
 2. **Completely Event-Driven Driver API (Zero Blocking, ISR / DMA)**:
    - Drivers dispatch transactions directly to hardware (DMA, ISR, PIO, DIO pin triggers) and yield execution.
    - **NEVER calls `.resume()` directly from ISRs or DMA workers.** Communicates exclusively by pushing completions/packets into lock-free SPSC rings and signaling doorbells.
-3. **Symmetrical Hardware FPGA X-Fabric**:
+3. **The host drives AbstractX; coroutine runtimes never mix** `[SPEC-ARCH-15]`:
+   - AbstractX owns no loop, thread or OS timer. The host (Boost.Asio on Linux, a FreeRTOS task, the bare-metal `wfi` loop) calls `abstractx::step()` on an event or a deadline.
+   - **Never mix Asio (or any other coroutine library) with AbstractX coroutines.** No `asio::awaitable`, `use_awaitable`, `co_spawn`, `asio::experimental::coro` or Boost.Cobalt anywhere. On Linux, Asio is only the host pump and the completion handlers inside driver awaiters (the Linux "ISR"). Checked by `tools/audit_coro_contracts.py`.
+4. **Symmetrical Hardware FPGA X-Fabric**:
    - Synthesizable full-crossbar switch fabric (`asp_router.sv`) routing 64-byte TLPs to and from the bus, with hardware DMA and ISRs on physical DIO lines.
 
 ---

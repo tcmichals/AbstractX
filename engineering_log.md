@@ -3566,3 +3566,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Board facts (SWD)**: `IMU=OK` (WHO_AM_I 0x47, all writes read back, including INT_CONFIG1 0x60). GP20: FUNCSEL 5 (SIO), pad IE=1, `PROC1_INTE` rising edge set, `PROC0_INTE` 0; 3000 samples all low; rising-edge latch never set, both before and after fix 3. GPIO scan: only GP24/25/29 (CYW43 bus) toggle. Console after the fixes: `IMU: 0` (auto mode on, no polling).
 * **Open**: whether INT1 is wired to GP20, or the IMU does not assert INT1. See TODO.md.
 * **Not verified**: host tests do not cover the Pico back end; no Debug build; DRDY rate.
+
+---
+
+### 2026-11-04: Rule: the host drives AbstractX, and coroutine runtimes never mix
+* **Category**: `process-gap`
+* **What was missing**: no requirement said who owns the event loop, and nothing stopped Asio coroutines (`asio::awaitable`, `co_spawn`) from being mixed with `coro::Task` once a Linux host uses Boost.Asio. A coroutine resumed by Asio bypasses `step()` ([SPEC-ARCH-10]) and cannot build on the MCU targets.
+* **Decision (project owner)**: AbstractX is a framework that owns no loop, thread or OS timer; the host (Asio, a FreeRTOS task, the `wfi` loop) calls `step()`. Asio and AbstractX coroutines never mix; on Linux, Asio is only the pump and the completion handlers inside driver awaiters.
+* **Spec update**: new `[SPEC-ARCH-15]` in `docs/DESIGN_SPECIFICATION.md`; AGENTS.md §3 item 3. The `step()`-returns-deadline / `set_wake()` change is recorded there as planned, not implemented.
+* **Check**: `tools/audit_coro_contracts.py` check 7 (`CORO-MIX-VIOLATION`). Shown to fail on a file using `asio::awaitable` + `use_awaitable` (exit 1) and to pass on the repository (exit 0); `tests/test_coro_contracts.py` covers both cases and comments.
+* **Not verified**: no C++ changed, so no host, sanitizer or cross build was run for this entry.

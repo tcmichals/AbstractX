@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# @verifies [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md
+# @verifies [SPEC-ARCH-10] [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
@@ -94,6 +94,39 @@ def test_public_headers_have_no_dropped_handle():
     assert hits == [], hits
 
 
+# [SPEC-ARCH-15] coroutine runtimes never mix (2026-11-04)
+MIXES = """
+#include <boost/asio/awaitable.hpp>
+asio::awaitable<void> reader(asio::serial_port& p) {
+    co_await p.async_read_some(buf, asio::use_awaitable);
+}
+void start() { asio::co_spawn(io, reader(port), asio::detached); }
+boost::cobalt::task<int> t();
+"""
+HANDLER_ONLY = """
+// asio::awaitable is not used here; a comment mentioning co_spawn does not count
+void await_suspend(std::coroutine_handle<> h) {
+    port_.async_read_some(asio::buffer(buf_), [this, h](auto ec, size_t n) {
+        result_ = ec ? -1 : int(n);
+        abstractx::Dispatcher::push(h);
+    });
+}
+"""
+
+
+def test_foreign_coroutines_are_found():
+    assert acc.foreign_coroutines(MIXES) == [2, 3, 4, 6, 7]
+
+
+def test_asio_completion_handler_passes():
+    assert acc.foreign_coroutines(HANDLER_ONLY) == []
+
+
+def test_repository_mixes_no_coroutine_runtime():
+    bad = [v for v in acc.scan_tree(Path(__file__).resolve().parent.parent) if "CORO-MIX" in v]
+    assert bad == [], "\n".join(bad)
+
+
 if __name__ == "__main__":
     test_dropped_handles_are_found()
     test_registered_or_waived_handles_pass()
@@ -101,4 +134,7 @@ if __name__ == "__main__":
     test_public_headers_have_no_dropped_handle()
     test_unannotated_resumes_are_found()
     test_core_has_no_unannotated_resume()
-    print("[PASS] audit_coro_contracts dropped handle")
+    test_foreign_coroutines_are_found()
+    test_asio_completion_handler_passes()
+    test_repository_mixes_no_coroutine_runtime()
+    print("[PASS] audit_coro_contracts dropped handle, resumes, no coroutine-runtime mixing")

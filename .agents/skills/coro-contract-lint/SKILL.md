@@ -1,7 +1,7 @@
 ---
 name: coro-contract-lint
 runs_on: host
-verifies: "C++20 coroutine contracts and concurrency invariants ([SPEC-ARCH-10], [SPEC-ARCH-11]): zero direct resumes outside Dispatcher/step, atomic state in race combinators, and RAII destructors for intrusive awaiters."
+verifies: "C++20 coroutine contracts and concurrency invariants ([SPEC-ARCH-10], [SPEC-ARCH-11], [SPEC-ARCH-15]): no foreign coroutine runtime (Asio awaitables, co_spawn, Cobalt), zero direct resumes outside Dispatcher/step, atomic state in race combinators, and RAII destructors for intrusive awaiters."
 description: "Check skill. Verifies C++20 coroutine contracts: no direct .resume() calls inside awaiters or combinators, multi-task combinators use std::atomic state counters, and intrusive awaiters unlink cleanly upon coroutine cancellation. Run when a requirement names this skill in its Verified by line or when modifying coroutine primitives."
 ---
 
@@ -10,6 +10,7 @@ description: "Check skill. Verifies C++20 coroutine contracts: no direct .resume
 **What it verifies**: C++20 coroutine contracts and concurrency invariants ([SPEC-ARCH-10], [SPEC-ARCH-11]):
 - All coroutine resumptions must be enqueued via `abstractx::Dispatcher::push()` or `abstractx::IsrDispatcher::post()`. Only `abstractx::step()` (the event loop) or unit test runners may call `.resume()`.
 - Race combinators (`WhenAllAwaiter`, `WhenAnyAwaiter`) must use `std::atomic` counters (`remaining_`, `ready_index_`) to guard against multi-core or ISR completion races.
+- No other coroutine runtime is mixed with AbstractX coroutines ([SPEC-ARCH-15]): `asio::awaitable`, `use_awaitable`, `co_spawn`, `asio::experimental::coro` and Boost.Cobalt are rejected anywhere; Asio completion handlers that post to the Dispatcher are allowed.
 - Intrusive awaiters (inheriting from `etl::bidirectional_link` or holding waiter nodes) must implement RAII destructors to unlink their nodes upon early coroutine destruction/cancellation.
 
 ## How to run
