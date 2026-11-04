@@ -12,68 +12,35 @@ This document is the **authoritative hardware and BSP specification** for the **
 * **Flash**: 4 MB QSPI Flash
 
 ```mermaid
-graph TD
-    subgraph Core0["Core 0: Dedicated ioProcessor Domain (PicoIoProcessor)"]
-        Core0_BSP["Pico SDK BSP Init"]
-        Core0_IOPROC["<b>ioProcessor Message Processing Loop</b><br/>(PicoIoProcessor : IIoProcessor)"]
-        Core0_DMA["SPI1 Full-Duplex DMA Master"]
-        Core0_I2C["I2C0 Hardware Master"]
-        Core0_UART["UART0 DMA / Non-blocking FIFO"]
-        Core0_WiFi["CYW43439 Wi-Fi Service (cyw43_arch_poll)"]
-        Core0_Doorbell["SIO Doorbell IRQ Handler"]
-        Core0_IOPROC --> Core0_DMA
-        Core0_IOPROC --> Core0_I2C
-        Core0_IOPROC --> Core0_UART
-        Core0_IOPROC --> Core0_WiFi
+graph LR
+    subgraph Core1["Core 1: all of AbstractX"]
+        C1_App["app main(), coroutines, dispatcher (abstractx::step)"]
+        C1_IO["PicoIoProcessor + HAL drivers<br/>SPI1 DMA, I2C0, UART0, GPIO DRDY (IRQs on Core 1)"]
+        C1_App --> C1_IO
     end
-
-    subgraph Core1["Core 1: Coroutine Flight Domain"]
-        Core1_Sched["C++20 Coroutine Dispatcher"]
-        Core1_Tasks["gps_imu_app Coroutines<br/>(imu_task, gps_task, EKF)"]
+    subgraph Core0["Core 0: Wi-Fi only"]
+        C0_Net["CYW43 poll, WifiJoinMachine, lwIP, UDP :9870"]
     end
-
-    subgraph SRAM["Shared SRAM (520 KB Banked)"]
-        TxRing["g_tx_ring (SpscTlpRing&lt;64&gt;)<br/>Core 1 -> Core 0 (Requests / IOCTL)"]
-        RxRing["g_rx_ring (SpscTlpRing&lt;64&gt;)<br/>Core 0 -> Core 1 (Completions & Auto DMA_Stream)"]
-        TelemRing["g_telemetry_ring (SpscTlpRing&lt;64&gt;)<br/>Core 1 -> Core 0 (Telemetry TLPs)"]
-    end
-
-    subgraph SIO["RP2350 SIO Hardware"]
-        DoorbellFIFO["Hardware SIO FIFO (sio_hw->fifo_wr)"]
-    end
-
-    Core1_Tasks -->|Pushes Requests| TxRing
-    TxRing -->|Pops Requests| Core0_IOPROC
-    Core0_DMA -->|Posts Completions & Streams| RxRing
-    Core0_I2C -->|Posts Completions| RxRing
-    Core0_UART -->|Posts Completions| RxRing
-    RxRing -->|Pops TLPs| Core1_Sched
-    Core1_Tasks -->|Pushes Telemetry TLPs| TelemRing
-    TelemRing -->|Pops & Broadcasts| Core0_WiFi
-    Core0_Doorbell <--> DoorbellFIFO
-    DoorbellFIFO <--> Core1_Sched
-
-    classDef c0 fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
-    classDef c1 fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
-    classDef sram fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#ffffff;
-    classDef sio fill:#7c2d12,stroke:#f97316,stroke-width:2px,color:#ffffff;
-
-    class Core0_BSP,Core0_IOPROC,Core0_DMA,Core0_I2C,Core0_UART,Core0_WiFi,Core0_Doorbell c0;
-    class Core1_Sched,Core1_Tasks c1;
-    class TxRing,RxRing,TelemRing sram;
-    class DoorbellFIFO sio;
+    C1_App -->|"g_trace_ring (FrameRing 8 x 1 KB)"| C0_Net
+    C1_App -->|"g_telemetry_ring_out (FrameRing 32 x 128 B)"| C0_Net
 ```
 
-### 1.1 The Unified `ioProcessor` IP on Core 0 (Replacing `isr_dispatcher`)
+The core split is `[SPEC-PICO-CORE-01]` (section 4) and `[SPEC-ARCH-05]`
+(`docs/DESIGN_SPECIFICATION.md`). Until 2026-11-03 this section described Core 0 as the I/O
+processor with request/completion rings and an SIO FIFO doorbell to Core 1; that design was never
+running (Core 1 was not launched) and is superseded.
 
-Just like the Linux and Allwinner E906 targets, the Raspberry Pi Pico 2 W target adheres to the **exact same `ioProcessor` architecture** (`abstractx::hal::IIoProcessor`).
+### 1.1 The `ioProcessor` on Core 1
 
-1. **Rejection of `isr_dispatcher`**: Top-half hardware ISRs on Core 0 (SPI DMA, UART, GPIO DRDY, Timer) **NEVER resume coroutine handles directly**. They do not touch C++20 coroutine state.
-2. **Dedicated Message Processing Loop**: Core 0 runs `PicoIoProcessor::run()` or `step()`. It pulls 64-byte request TLPs from `g_tx_ring`, calls into the non-blocking HAL drivers (`hal_spi`, `hal_uart`, `hal_i2c`), and services the CYW43 Wi-Fi stack.
-3. **Drivers Post Messages Back**: When drivers complete their asynchronous transfers, they format 64-byte completion TLPs (`CplD`, `Cpl`, or `DMA_Stream`), push them directly into `g_rx_ring`, and write to `sio_hw->fifo_wr = 1` to signal Core 1.
-4. **Autonomous Sensor HW Fusion**: In Auto-DMA mode, Pin 3 / GP20 DRDY interrupts directly trigger SPI1 DMA bursts without CPU intervention. Once complete, the DMA ISR pushes the 64-byte `DMA_Stream` TLP and rings the SIO doorbell.
-5. **Bus Lockout Invariant**: When Auto-DMA is active, manual coroutine requests to SPI1 are rejected with `ASP_STATUS_BUS_LOCKED` (0x05).
-6. **Zero Busy-Waiting**: When idle, Core 0 executes `__wfe()` to save power until the next hardware interrupt arrives.
+1. **ISRs never resume coroutines**: SPI DMA, UART, GPIO DRDY and I2C interrupts (all on Core 1)
+   push completions into queues; only `abstractx::step()` resumes handles.
+2. **Same core, no doorbell**: the I/O processor and the dispatcher share Core 1, so completions do
+   not cross cores and `notify_host()` does nothing; the interrupt wakes `__wfe()`.
+3. **Autonomous Sensor HW Fusion**: in Auto-DMA mode the GP20 DRDY interrupt starts the SPI1 DMA
+   burst; the DMA ISR pushes the 64-byte `DMA_Stream` TLP. (Not delivering samples on 2026-11-03:
+   all IMU samples took the polled path; see TODO.md.)
+4. **Bus Lockout Invariant**: while Auto-DMA is active, manual SPI1 requests are rejected with
+   `ASP_STATUS_BUS_LOCKED` (0x05).
 
 ---
 
@@ -249,9 +216,10 @@ between the trace engine and the Wi-Fi driver.
 * **Pool sizing**: `PBUF_POOL_SIZE` (24 today) is shared with RX; reserve at
   least 2 for trace so a full pool drops trace, not network RX. Trace never
   blocks: on acquire failure events are counted as discarded.
-* **Context**: `acquire`/`commit` run only on the core that owns lwIP and
-  `cyw43_arch_poll()` (`pico_cyw43_arch_lwip_poll` is not thread-safe). Today
-  everything runs on Core 0 (Core 1 is not launched yet, see TODO.md).
+* **Context**: lwIP calls (`pbuf_alloc`, `udp_sendto`) run only on Core 0, which owns lwIP and
+  `cyw43_arch_poll()` (`pico_cyw43_arch_lwip_poll` is not thread-safe). Since 2026-11-03 trace
+  frames are produced on Core 1 into a frame ring and sent by Core 0 (`[SPEC-PICO-CORE-01]`);
+  `PicoUdpTraceTransport` is kept for a single-core build and its host test.
 * **Static Pool Elision**: When `platform_trace_transport()` provides this native
   zero-copy transport, `ABSTRACTX_STATIC_TRACE_PACKETS = 0` elides the fallback
   static trace pool on Pico 2 W (`[SPEC-TRACE-07]`).
@@ -333,8 +301,8 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   once, `link fail` once), so one failed join left the board offline until reset and
   boot stalled for 15 s. The on-board LED (CYW43 `WL_GPIO0`, not RP2350 GPIO 25)
   was never driven, so link state was invisible without a console.
-* **Requirement**: `platform_init()` starts the join with `cyw43_arch_wifi_connect_async()`
-  and returns. `platform_poll_network()` (from `abstractx::step()`) feeds
+* **Requirement**: the Core 0 Wi-Fi loop starts the join with `cyw43_arch_wifi_connect_async()`
+  and returns. The Core 0 Wi-Fi loop (`[SPEC-PICO-CORE-01]`) feeds
   `cyw43_tcpip_link_status()` to `WifiJoinMachine` (`include/hal/wifi_join.hpp`, no
   pico-sdk dependency) at most every 100 ms and applies its actions:
   * a negative status (`FAIL`, `NONET`, `BADAUTH`), or no `UP` within 20 s of starting an
@@ -352,6 +320,42 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   `board-bringup` (console over UART1 across repeated SWD resets; LED observed)
 * **Implementation Target**: `targets/pico2w_rp2350/include/hal/wifi_join.hpp`,
   `targets/pico2w_rp2350/src/hal_platform.cpp`
+
+### [SPEC-PICO-CORE-01] Core 1 Runs AbstractX, Core 0 Runs Only Wi-Fi
+* **Why**: see `[SPEC-ARCH-05]` (`docs/DESIGN_SPECIFICATION.md`).
+* **Boot**: the target links with `-Wl,--wrap=main`. The SDK starts `__wrap_main` on Core 0, which
+  calls `stdio_init_all()` (UART1 console, both cores print through the SDK stdout mutex), starts
+  Core 1 with `multicore_launch_core1_with_stack()` on a 16 KB static stack, then runs the Wi-Fi
+  loop and never returns. Core 1 calls the application's `main()` (`__real_main`), so the
+  application, `abstractx::init()` and every driver `init` run on Core 1 and their interrupts are
+  enabled on Core 1. Applications are unchanged (no `#ifdef`).
+* **Core 0 loop**: `cyw43_arch_init()`, STA mode, `WifiJoinMachine` (`[SPEC-PICO-NET-01]`), drain
+  the frame rings, `cyw43_arch_wait_for_work_until()` (at most 1 ms). Nothing else.
+* **Crossing** (`include/hal/frame_ring.hpp`, `FrameRing<SlotBytes, Slots>`): single producer
+  (Core 1, thread context only, never an ISR), single consumer (Core 0). The producer writes a
+  slot in place (`acquire` / `commit`); `commit` publishes with a release store of `head` and
+  `__sev()` wakes Core 0; the consumer reads with an acquire load, sends, then releases the slot
+  with a release store of `tail`. A full ring drops the frame and counts it; it never blocks
+  Core 1. Two rings, because the tracer holds its buffer across many events while telemetry
+  sends one frame at a time:
+  * trace: 8 slots x 1024 B (`platform_trace_transport()`), filled in place by the tracer;
+  * telemetry: 32 slots x 128 B (`platform_send_telemetry()`, one frame per slot; the caller's
+    buffer is copied into the slot, the same one copy the old pbuf path made).
+* **Zero copy on Core 0** (`[SPEC-ARCH-08]`): Core 0 wraps the slot in a `PBUF_REF` pbuf (no
+  copy) and calls `udp_sendto()` to 255.255.255.255:9870; the slot is released after
+  `udp_sendto()` returns (lwIP copies `PBUF_REF` data if it has to queue it). Frames produced
+  before the link is up are dropped and released, so the rings never stall.
+* **Doorbell**: the I/O processor's `notify_host()` no longer writes the SIO FIFO (its reader was
+  Core 1 under the old plan); completions and the dispatcher are on the same core, so the
+  interrupt itself wakes `wfe`.
+* **Method**: `Test`
+* **Verified by**: `host-tests` (`sim/test_pico_frame_ring.cpp`: two threads, order and content,
+  full-ring drops, wraparound, 100000 frames), `thread-sanitizer` (same test under TSan),
+  `boundary-race-review` (ring indices), `board-bringup` (both cores' PCs sampled over SWD: Core 0
+  only in CYW43/lwIP/loop code, Core 1 in AbstractX; IMU rate with Wi-Fi joined; UDP :9870 count)
+* **Implementation Target**: `targets/pico2w_rp2350/src/hal_platform.cpp`,
+  `targets/pico2w_rp2350/include/hal/frame_ring.hpp`, `targets/pico2w_rp2350/CMakeLists.txt`,
+  `targets/pico2w_rp2350/src/io_processor.cpp`
 
 ### 4.1 IMU Auto-Sample Pipeline
 1. **ICM-42688-P asserts `DRDY` (GP20 / Pin 3)**:

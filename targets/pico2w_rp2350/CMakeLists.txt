@@ -50,6 +50,9 @@ if(COMMAND pico_sdk_init)
         ABSTRACTX_STATIC_TRACE_PACKETS=0
     )
 
+    # @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md (__wrap_main: Wi-Fi on Core 0, app on Core 1)
+    target_link_options(abstractx_target_pico2w PUBLIC -Wl,--wrap=main)
+
     # @impl [SPEC-PICO-HAL-03] targets/pico2w_rp2350/SPECIFICATION.md (console on UART1; GPS owns UART0)
     target_compile_definitions(abstractx_target_pico2w PUBLIC
         PICO_DEFAULT_UART=1

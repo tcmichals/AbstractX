@@ -106,6 +106,13 @@ add_executable(test_pico_wifi_join test_pico_wifi_join.cpp)
 target_include_directories(test_pico_wifi_join PRIVATE ${PICO_DIR}/include)
 add_test(NAME sim_test_pico_wifi_join COMMAND test_pico_wifi_join)
 
+# Pico 2 W Core 1 -> Core 0 frame ring, two host threads ([SPEC-PICO-CORE-01])
+find_package(Threads REQUIRED)
+add_executable(test_pico_frame_ring test_pico_frame_ring.cpp)
+target_include_directories(test_pico_frame_ring PRIVATE ${PICO_DIR}/include)
+target_link_libraries(test_pico_frame_ring PRIVATE Threads::Threads)
+add_test(NAME sim_test_pico_frame_ring COMMAND test_pico_frame_ring)
+
 # Zynq-7000 UIO Bridge & Target IoProcessor data plane test ([SPEC-ZYNQ-01..03])
 if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_target.cpp)
     set(ZYNQ_DIR ${PROJECT_SOURCE_DIR}/targets/zynq7000)

@@ -3536,3 +3536,21 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Spec update**: `[SPEC-BUILD-02]` in `docs/DESIGN_SPECIFICATION.md`.
 * **Board run** (Pico 2 W, Release `-O3`, fresh configure, PC sampled over SWD via `DWT_PCSR`, 4000 samples): `AttitudeFilter::update_imu` now has 81 `vmul/vadd/vfma.f32`; soft-float helpers 14.6% -> 0.0% of samples. IMU updates/s (AHRS #4..#23): Wi-Fi off 2991 -> 3933; Wi-Fi joined 1418 -> 1818. With Wi-Fi joined, the CYW43 driver + PIO bus + lwIP took about 39% of Core 0 samples (before this fix); `cyw43_spi_transfer` waits on each bus DMA with `dma_channel_wait_for_finish_blocking()` (pico-sdk `cyw43_bus_pio_spi.c`).
 * **Not verified**: Debug preset rebuilt from scratch; E906 and other targets are unaffected (separate toolchain files).
+
+---
+
+### 2026-11-03: Pico 2 W core split: Core 1 runs AbstractX, Core 0 runs only Wi-Fi
+* **Category**: `product-bug` (Core 1 never launched; spec described a split that did not run), `hardware-fact`, `tool-bug` (OpenOCD reset)
+* **Mistake / bug observed** (`targets/pico2w_rp2350`): `platform_launch_processing_domain()` had no callers, so AbstractX, the I/O processor and Wi-Fi all shared Core 0. The SDK CYW43 driver waits on every bus DMA (`dma_channel_wait_for_finish_blocking`, `cyw43_bus_pio_spi.c`); with Wi-Fi joined it took about 41% of Core 0 samples and the IMU fell from 3933 to 1818 updates/s. The spec's diagrams and `[SPEC-ARCH-05]` described a different split (Core 0 = I/O + Wi-Fi with per-operation rings and an SIO doorbell) that never ran.
+* **Which check should have caught it**: `board-bringup` was never run on a Pico 2 W; `audit_specs.py` passed because tags existed for a design that was not running (the gap AGENTS.md §10 warns about).
+* **Spec update** (decided by the project owner): `[SPEC-ARCH-05]` rewritten (Wi-Fi alone on Core 0, all of AbstractX on Core 1); new `[SPEC-PICO-CORE-01]` (boot via `-Wl,--wrap=main`, Core 0 loop, two `FrameRing`s, `PBUF_REF` send); `[SPEC-ARCH-14]` Pico row, `[SPEC-PICO-TRACE-01]` context and `[SPEC-PICO-NET-01]` updated; the Pico spec diagram and HOWTO §1 replaced.
+* **Implementation**: `targets/pico2w_rp2350/src/hal_platform.cpp` (`__wrap_main`, `network_core_loop`, ring transports), `include/hal/frame_ring.hpp`, `CMakeLists.txt` (`--wrap=main`), `io_processor.cpp` (`notify_host` no longer writes the SIO FIFO).
+* **Regression test**: `sim/test_pico_frame_ring.cpp` (two threads, 100000 frames per ring shape, order + content + drop accounting, index wraparound): passes in `build_host`, `build_asan`, `build_tsan` (0 ThreadSanitizer reports).
+* **Board run** (Release, softfp, Wi-Fi joined, UART1 console, `DWT_PCSR` sampled per core, 4000 samples each):
+  - console: `[Pico 2 W] AbstractX on core 1; Wi-Fi on core 0.`, `Hardware Status: IMU=OK, GPS=OK, MAG=FAIL`, `Joined after 1 attempt(s). IP: 192.168.1.14`.
+  - Core 0: Wi-Fi/network 84.7%, AbstractX 0.0% (`cyw43_spi_transfer` 23.5%, idle `best_effort_wfe_or_timeout` 12.8%). Core 1: AbstractX 86.8%, Wi-Fi 0.0%.
+  - IMU updates/s (AHRS #4..#28): **2878** with Wi-Fi joined (was 1818 on one shared core; 3933 with no Wi-Fi on one core). Why core 1 is still slower than the no-Wi-Fi run is not known; suspected XIP flash cache or bus contention, not tested.
+  - UDP :9870: 1601 packets in 5 s (64 B 1179, 67 B 310, 496 B 112), same wire format as before.
+* **Tool fact**: on this firmware OpenOCD `reset run` (and a watchdog reboot while OpenOCD is attached) leaves Core 1 at boot-ROM PC `0xda`; `reset halt` then `resume` starts both cores. Under GDB, hardware breakpoints confirmed Core 1 reaches `core1_entry` and `main` on the 16 KB stack (`msp 0x2001bae0`). Not checked: a plain power-on boot without the debugger.
+* **Host suite**: 88 of 89 pass in all three builds; `sim_test_e906_dma_irq` fails as before (pre-existing). `boundary_review.py --check` fails only on `g_stop` in `e906_rpmsg_studio_bridge.cpp` (pre-existing, last changed in af609a3).
+* **Not verified**: power-on boot without a debugger; Debug preset; DRDY auto-DMA; LED by eye.

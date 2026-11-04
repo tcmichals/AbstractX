@@ -4,69 +4,30 @@ This guide provides a comprehensive, practical walkthrough for setting up, build
 
 ---
 
-## 1. Architectural Role: Dual-Core ioProcessor Model
+## 1. Architectural Role: Core 1 = AbstractX, Core 0 = Wi-Fi Only
 
-On the Raspberry Pi Pico 2 W, AbstractX leverages the dual ARM Cortex-M33 cores with strict role separation:
+Requirement: `[SPEC-ARCH-05]` (`docs/DESIGN_SPECIFICATION.md`) and `[SPEC-PICO-CORE-01]` (`SPECIFICATION.md`).
 
 ```mermaid
-graph TD
-    subgraph Core0["Core 0: Dedicated ioProcessor (PicoIoProcessor)"]
-        C0_Loop["Event Loop: PicoIoProcessor::run() / step()"]
-        C0_SPI["SPI1 Master + Full-Duplex DMA (ICM-42688-P IMU)"]
-        C0_I2C["I2C0 Master (Magnetometer / Barometer)"]
-        C0_UART["UART0 Driver (GPS Module)"]
-        C0_WiFi["CYW43439 Wi-Fi Service (cyw43_arch_poll)"]
-        C0_Doorbell["SIO Doorbell IRQ Handler"]
-        C0_Loop --> C0_SPI
-        C0_Loop --> C0_I2C
-        C0_Loop --> C0_UART
-        C0_Loop --> C0_WiFi
-        C0_Doorbell --> C0_Loop
+graph LR
+    subgraph Core1["Core 1: all of AbstractX"]
+        App["app main(), coroutines, dispatcher"]
+        Drv["SPI1 + DMA, I2C0, UART0, GPIO DRDY (IRQs on Core 1)"]
+        App --> Drv
     end
-
-    subgraph Core1["Core 1: Coroutine Flight Domain"]
-        C1_Dispatcher["C++20 Coroutine Dispatcher (abstractx::step())"]
-        C1_App["gps_imu_app Coroutines<br/>(imu_task @ 8 kHz, gps_task, EKF/Mahony)"]
-        C1_Dispatcher --> C1_App
+    subgraph Core0["Core 0: Wi-Fi only"]
+        Net["CYW43 poll, join retry, lwIP, UDP :9870"]
     end
-
-    subgraph SRAM["Banked Shared SRAM (520 KB)"]
-        TxRing["g_tx_ring (SpscTlpRing&lt;64&gt;)<br/>Core 1 -> Core 0 (Requests / IOCTL)"]
-        RxRing["g_rx_ring (SpscTlpRing&lt;64&gt;)<br/>Core 0 -> Core 1 (Completions & Auto DMA_Stream)"]
-        TelemRing["g_telemetry_ring (SpscTlpRing&lt;64&gt;)<br/>Core 1 -> Core 0 (Telemetry TLPs)"]
-    end
-
-    subgraph Hardware["RP2350 Hardware"]
-        SIOFIFO["SIO Hardware Doorbell FIFO (sio_hw->fifo_wr)"]
-        IMU_DRDY["GP20 / Pin 3: IMU DRDY Interrupt"]
-    end
-
-    C1_App -->|Pushes Requests| TxRing
-    TxRing -->|Pops Requests| C0_Loop
-    C0_SPI -->|Pushes Completions & Stream TLPs| RxRing
-    C0_I2C -->|Pushes Completions| RxRing
-    C0_UART -->|Pushes Completions| RxRing
-    RxRing -->|Pops TLPs & Resumes Coroutines| C1_Dispatcher
-
-    C1_App -->|Pushes Telemetry TLPs| TelemRing
-    TelemRing -->|Pops & Broadcasts UDP :9870| C0_WiFi
-    C0_Loop -->|SIO FIFO Signal| SIOFIFO
-    SIOFIFO -->|Wakes via __wfe()| C1_Dispatcher
-    IMU_DRDY -->|Triggers DMA Burst| C0_SPI
-
-    classDef c0 fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
-    classDef c1 fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#ffffff;
-    classDef sram fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#ffffff;
-    classDef hw fill:#7c2d12,stroke:#f97316,stroke-width:2px,color:#ffffff;
-
-    class C0_Loop,C0_SPI,C0_I2C,C0_UART,C0_WiFi,C0_Doorbell c0;
-    class C1_Dispatcher,C1_App c1;
-    class TxRing,RxRing,TelemRing sram;
-    class SIOFIFO,IMU_DRDY hw;
+    App -->|"trace ring (8 x 1 KB)"| Net
+    App -->|"telemetry ring (32 x 128 B)"| Net
 ```
 
-* **Core 0 (`PicoIoProcessor`)**: Runs the dedicated non-blocking I/O event loop. Never blocks; manages DMA transfers for SPI1, I2C0, UART0, services the CYW43 Wi-Fi stack, formats 64-byte completion TLPs, and rings SIO doorbells.
-* **Core 1 (`gps_imu_app`)**: Runs the cooperative C++20 coroutine scheduler (`abstractx::step()`). Coroutines yield via `co_await` and resume only when completions arrive from `g_rx_ring`.
+* **Boot**: the target links with `-Wl,--wrap=main`. Core 0 starts in `__wrap_main`, starts Core 1
+  on the application's `main()`, then runs the Wi-Fi loop. Applications are unchanged.
+* **Why**: the SDK CYW43 driver waits on every bus DMA. Sharing one core with Wi-Fi joined, the IMU
+  ran at 1818 updates/s; with the split it runs at 2878/s (Release, 2026-11-03).
+* **Debugging**: OpenOCD `reset run` leaves Core 1 in the boot ROM on this firmware. Reset with
+  `reset halt` and then `resume` (or `monitor reset halt` + `continue` in GDB).
 
 ---
 

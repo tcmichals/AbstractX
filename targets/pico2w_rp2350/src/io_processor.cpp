@@ -146,11 +146,9 @@ public:
         if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) hal::get_gpio().write_pin(25, value != 0);
     }
 
-    void notify_host() noexcept override {
-#ifdef PICO_ON_DEVICE
-        if (sio_hw->fifo_st & SIO_FIFO_ST_RDY_BITS) sio_hw->fifo_wr = 0x01;   // Core 1 doorbell
-#endif
-    }
+    // Completions and the dispatcher share Core 1; the interrupt itself wakes wfe.
+    // @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
+    void notify_host() noexcept override {}
 
     void idle_wait() noexcept override {
 #ifdef PICO_ON_DEVICE

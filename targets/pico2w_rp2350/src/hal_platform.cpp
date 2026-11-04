@@ -4,14 +4,13 @@
  *
  * AbstractX Raspberry Pi Pico 2 W (RP2350) Platform Hooks & Factories
  * --------------------------------------------------------------------
- * Encapsulates RP2350 and CYW43439 hardware lifecycle, power states,
- * multicore launch, and universal HAL driver instances.
+ * Core 1 runs AbstractX; Core 0 runs only Wi-Fi ([SPEC-PICO-CORE-01]).
  */
 
 #include "abstractx/hal/platform.hpp"
+#include "abstractx/trace/tracer.hpp"
 #include "abstractx_pico.hpp"
-// @impl [SPEC-PICO-TRACE-01] targets/pico2w_rp2350/SPECIFICATION.md
-#include "hal/pico_trace_transport.hpp"
+#include "hal/frame_ring.hpp"
 #include "hal/wifi_join.hpp"
 
 #ifdef PICO_ON_DEVICE
@@ -21,6 +20,8 @@
 #include "hardware/sync.h"
 #include "lwip/netif.h"
 #include "lwip/ip4_addr.h"
+#include "lwip/udp.h"
+#include "lwip/pbuf.h"
 #endif
 
 namespace abstractx::hal {
@@ -41,79 +42,69 @@ ITimer& get_timer_driver() noexcept {
     return g_pico_timer;
 }
 
-#ifdef PICO_ON_DEVICE
-// @impl [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
-// shared: Core 0 only (platform_init and abstractx::step()); no ISR access.
-static pico::WifiJoinMachine g_wifi_join;
-static bool g_wifi_running = false;
+// ---------------------------------------------------------------------------
+// Core 1 -> Core 0 frame rings ([SPEC-PICO-CORE-01])
+// ---------------------------------------------------------------------------
+// @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
+// shared: produced on Core 1 (thread context), consumed on Core 0; FrameRing release/acquire.
+static pico::FrameRing<1024, 8> g_trace_ring;
+static pico::FrameRing<128, 32> g_telemetry_ring_out;
 
-static uint32_t wifi_now_ms() noexcept {
-    return to_ms_since_boot(get_absolute_time());
+static void wake_network_core() noexcept {
+#ifdef PICO_ON_DEVICE
+    __sev();
+#endif
 }
 
-static void wifi_apply(const pico::WifiJoinAction& a) noexcept {
-    if (a.led_changed) {
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, a.led_on);
+// Tracer fills a trace ring slot in place; Core 0 sends it ([SPEC-PICO-CORE-01], [SPEC-ARCH-08]).
+// @impl [SPEC-PICO-CORE-01] [SPEC-TRACE-07] [SPEC-ARCH-08] targets/pico2w_rp2350/SPECIFICATION.md
+class RingTraceTransport final : public trace::ITraceTransport {
+public:
+    std::span<uint8_t> acquire(size_t max_bytes) noexcept override {
+        std::span<uint8_t> slot = g_trace_ring.acquire();
+        if (slot.empty()) {
+            g_trace_ring.note_drop();
+            return {};
+        }
+        return slot.first(max_bytes < slot.size() ? max_bytes : slot.size());
     }
-    if (a.log_joined) {
-        printf("[Pico 2 W Wi-Fi] Joined after %u attempt(s). IP: %s\n",
-               static_cast<unsigned>(g_wifi_join.attempts()),
-               ip4addr_ntoa(netif_ip4_addr(netif_default)));
-    }
-    if (a.log_failed) {
-        printf("[Pico 2 W Wi-Fi] Attempt %u failed (link status %d); retrying in %u ms.\n",
-               static_cast<unsigned>(g_wifi_join.attempts()), a.failed_status,
-               static_cast<unsigned>(pico::WifiJoinMachine::kRetryDelayMs));
-    }
-    if (a.log_lost) {
-        printf("[Pico 2 W Wi-Fi] Link lost (status %d); rejoining.\n", a.failed_status);
-    }
-    if (a.leave) {
-        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
-    }
-#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
-    if (a.start_join) {
-        if (cyw43_arch_wifi_connect_async(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK) != 0) {
-            printf("[Pico 2 W Wi-Fi] connect_async refused; will retry.\n");
+    void commit(std::span<uint8_t> buffer, size_t used_bytes) noexcept override {
+        if (g_trace_ring.commit(buffer, used_bytes)) {
+            wake_network_core();
         }
     }
+};
+
+static RingTraceTransport g_ring_trace_transport;
+
+// @impl [SPEC-PICO-CORE-01] [SPEC-TRACE-07] targets/pico2w_rp2350/SPECIFICATION.md
+trace::ITraceTransport* platform_trace_transport() noexcept {
+#ifdef PICO_ON_DEVICE
+    return &g_ring_trace_transport;
+#else
+    return nullptr;
 #endif
 }
-#endif
 
-// @impl [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
+// One telemetry frame per slot; Core 0 sends it ([SPEC-PICO-CORE-01]).
+// @impl [SPEC-PICO-CORE-01] [SPEC-ARCH-08] targets/pico2w_rp2350/SPECIFICATION.md
+void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
+    if (g_telemetry_ring_out.push(data, len)) {
+        wake_network_core();
+    }
+}
+
+// Core 1: everything Wi-Fi related happens on Core 0 ([SPEC-PICO-CORE-01]).
+// @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
 void platform_init() noexcept {
 #ifdef PICO_ON_DEVICE
-    stdio_init_all();
-    if (cyw43_arch_init() == 0) {
-        cyw43_arch_enable_sta_mode();
-#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
-        printf("[Pico 2 W Wi-Fi] Joining SSID '%s' in the background...\n", WIFI_SSID);
-        g_wifi_running = true;
-        wifi_apply(g_wifi_join.start(wifi_now_ms()));
-#else
-        printf("[Pico 2 W Wi-Fi] STA mode ready (WIFI_SSID/WIFI_PASSWORD not set at compile time).\n");
-#endif
-    } else {
-        printf("[Pico 2 W Wi-Fi] ERROR: cyw43_arch_init failed.\n");
-    }
+    printf("[Pico 2 W] AbstractX on core %u; Wi-Fi on core 0.\n", get_core_num());
 #endif
 }
 
-} // namespace abstractx::hal  (reopened below)
-
-namespace abstractx {
-// @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md (cross-core lock: core index for InterruptLock)
-uint32_t abstractx_core_id() noexcept {
-#ifdef PICO_ON_DEVICE
-    return get_core_num();
-#else
-    return 0U;
-#endif
-}
-} // namespace abstractx
-
-namespace abstractx::hal {
+// Core 1: no network work here; Core 0 polls CYW43 ([SPEC-PICO-CORE-01]).
+// @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
+void platform_poll_network() noexcept {}
 
 void platform_launch_processing_domain(void (*entry)()) noexcept {
 #ifdef PICO_ON_DEVICE
@@ -131,67 +122,143 @@ void platform_idle_wait() noexcept {
 #endif
 }
 
-// @impl [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
-void platform_poll_network() noexcept {
-#ifdef PICO_ON_DEVICE
-    cyw43_arch_poll();
-    if (g_wifi_running) {
-        wifi_apply(g_wifi_join.step(wifi_now_ms(),
-                                    cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA)));
-    }
-#endif
-}
+} // namespace abstractx::hal
 
+namespace abstractx {
+// @impl [SPEC-ARCH-01] docs/DESIGN_SPECIFICATION.md (cross-core lock: core index for InterruptLock)
+uint32_t abstractx_core_id() noexcept {
 #ifdef PICO_ON_DEVICE
-#include "lwip/udp.h"
-#include "lwip/pbuf.h"
-
-// @impl [SPEC-PICO-TRACE-01] targets/pico2w_rp2350/SPECIFICATION.md
-static struct udp_pcb *g_pico_udp_pcb = nullptr;
-static ip_addr_t g_pico_dest_ip{};
-static bool g_pico_udp_ready = false;
-static PicoUdpTraceTransport g_pico_trace_transport;
-#endif
-
-// Zero-copy UDP trace transport over lwIP PBUF_POOL
-// @impl [SPEC-PICO-TRACE-01] [SPEC-TRACE-07] targets/pico2w_rp2350/SPECIFICATION.md#37-zero-copy-trace--telemetry-over-udp-spec-pico-trace-01
-trace::ITraceTransport* platform_trace_transport() noexcept {
-#ifdef PICO_ON_DEVICE
-    if (!g_pico_udp_ready) {
-        g_pico_udp_pcb = udp_new();
-        ip4addr_aton("255.255.255.255", &g_pico_dest_ip);
-        g_pico_trace_transport.init(g_pico_udp_pcb, g_pico_dest_ip, 9870);
-        g_pico_udp_ready = true;
-    }
-    return &g_pico_trace_transport;
+    return get_core_num();
 #else
-    return nullptr;
+    return 0U;
 #endif
 }
+} // namespace abstractx
 
-// Emits telemetry packets using static memp PBUF_POOL (0 B heap, no PBUF_RAM)
-// @impl [SPEC-PICO-TRACE-01] [SPEC-ARCH-08] targets/pico2w_rp2350/SPECIFICATION.md#37-zero-copy-trace--telemetry-over-udp-spec-pico-trace-01
-void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
 #ifdef PICO_ON_DEVICE
-    if (!g_pico_udp_ready) {
-        g_pico_udp_pcb = udp_new();
-        ip4addr_aton("255.255.255.255", &g_pico_dest_ip);
-        g_pico_trace_transport.init(g_pico_udp_pcb, g_pico_dest_ip, 9870);
-        g_pico_udp_ready = true;
+extern "C" int __real_main();  // the application's main(), run on Core 1 (-Wl,--wrap=main)
+
+// ---------------------------------------------------------------------------
+// Core 0: Wi-Fi only ([SPEC-PICO-CORE-01], [SPEC-PICO-NET-01])
+// ---------------------------------------------------------------------------
+namespace {
+
+using abstractx::hal::pico::WifiJoinAction;
+using abstractx::hal::pico::WifiJoinMachine;
+
+// shared: Core 0 only.
+WifiJoinMachine g_wifi_join;
+udp_pcb*        g_udp_pcb = nullptr;
+ip_addr_t       g_dest_ip{};
+constexpr uint16_t kTelemetryPort = 9870;
+
+// shared: Core 1 stack; used only by Core 1 after launch.
+alignas(8) uint32_t g_core1_stack[16 * 1024 / sizeof(uint32_t)];
+
+uint32_t wifi_now_ms() noexcept {
+    return to_ms_since_boot(get_absolute_time());
+}
+
+// @impl [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
+void wifi_apply(const WifiJoinAction& a) noexcept {
+    if (a.led_changed) {
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, a.led_on);
     }
-    if (g_pico_udp_pcb && data && len > 0) {
-        struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, static_cast<uint16_t>(len), PBUF_POOL);
-        if (p) {
-            std::memcpy(p->payload, data, len);
-            pbuf_realloc(p, static_cast<uint16_t>(len));
-            udp_sendto(g_pico_udp_pcb, p, &g_pico_dest_ip, 9870);
-            pbuf_free(p);
+    if (a.log_joined) {
+        printf("[Pico 2 W Wi-Fi] Joined after %u attempt(s). IP: %s\n",
+               static_cast<unsigned>(g_wifi_join.attempts()),
+               ip4addr_ntoa(netif_ip4_addr(netif_default)));
+    }
+    if (a.log_failed) {
+        printf("[Pico 2 W Wi-Fi] Attempt %u failed (link status %d); retrying in %u ms.\n",
+               static_cast<unsigned>(g_wifi_join.attempts()), a.failed_status,
+               static_cast<unsigned>(WifiJoinMachine::kRetryDelayMs));
+    }
+    if (a.log_lost) {
+        printf("[Pico 2 W Wi-Fi] Link lost (status %d); rejoining.\n", a.failed_status);
+    }
+    if (a.leave) {
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    }
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+    if (a.start_join) {
+        if (cyw43_arch_wifi_connect_async(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK) != 0) {
+            printf("[Pico 2 W Wi-Fi] connect_async refused; will retry.\n");
         }
     }
-#else
-    (void)data;
-    (void)len;
 #endif
 }
 
-} // namespace abstractx::hal
+// Send every published frame of one ring as a PBUF_REF pbuf (no copy), then free the slot.
+// @impl [SPEC-PICO-CORE-01] [SPEC-ARCH-08] targets/pico2w_rp2350/SPECIFICATION.md
+template <typename Ring>
+void drain_ring(Ring& ring, bool link_up) noexcept {
+    for (std::span<const uint8_t> f = ring.peek(); !f.empty(); f = ring.peek()) {
+        if (link_up && g_udp_pcb != nullptr) {
+            pbuf* p = pbuf_alloc_reference(const_cast<uint8_t*>(f.data()),
+                                           static_cast<u16_t>(f.size()), PBUF_REF);
+            if (p != nullptr) {
+                udp_sendto(g_udp_pcb, p, &g_dest_ip, kTelemetryPort);
+                pbuf_free(p);
+            }
+        }
+        ring.release();  // after udp_sendto returns: lwIP copies PBUF_REF data it queues
+    }
+}
+
+void core1_entry() {
+    (void)__real_main();
+    while (true) {
+        __wfe();
+    }
+}
+
+// @impl [SPEC-PICO-CORE-01] [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
+[[noreturn]] void network_core_loop() noexcept {
+    bool wifi_ok = false;
+    if (cyw43_arch_init() == 0) {
+        cyw43_arch_enable_sta_mode();
+        g_udp_pcb = udp_new();
+        ip4addr_aton("255.255.255.255", &g_dest_ip);
+        wifi_ok = true;
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+        printf("[Pico 2 W Wi-Fi] Core %u: joining SSID '%s' in the background...\n",
+               get_core_num(), WIFI_SSID);
+        wifi_apply(g_wifi_join.start(wifi_now_ms()));
+#else
+        printf("[Pico 2 W Wi-Fi] STA mode ready (WIFI_SSID/WIFI_PASSWORD not set at compile time).\n");
+#endif
+    } else {
+        printf("[Pico 2 W Wi-Fi] ERROR: cyw43_arch_init failed.\n");
+    }
+
+    while (true) {
+        bool link_up = false;
+        if (wifi_ok) {
+            cyw43_arch_poll();
+            const int status = cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA);
+            link_up = (status == CYW43_LINK_UP);
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+            wifi_apply(g_wifi_join.step(wifi_now_ms(), status));
+#endif
+        }
+        drain_ring(abstractx::hal::g_trace_ring, link_up);
+        drain_ring(abstractx::hal::g_telemetry_ring_out, link_up);
+        if (wifi_ok) {
+            cyw43_arch_wait_for_work_until(make_timeout_time_ms(1));
+        } else {
+            best_effort_wfe_or_timeout(make_timeout_time_ms(1));
+        }
+    }
+}
+
+} // namespace
+
+// The SDK starts this on Core 0 in place of the application's main ([SPEC-PICO-CORE-01]).
+// @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
+extern "C" int __wrap_main() {
+    stdio_init_all();
+    multicore_launch_core1_with_stack(core1_entry, g_core1_stack, sizeof(g_core1_stack));
+    network_core_loop();
+}
+#endif

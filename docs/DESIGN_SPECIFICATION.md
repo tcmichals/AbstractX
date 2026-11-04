@@ -46,12 +46,24 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Correction (2026-10-23)**: this requirement used to name `MpscIsrQueue` in `include/mpsc_isr_queue.hpp`; no code ever used it (repository audit, `docs/design/repo-file-audit.md`), and the header was removed.
 * **Implementation Target**: `targets/allwinner_e906/`, `include/abstractx/domain_dispatcher.hpp`, `apps/gps_imu_app/`
 
-### `[SPEC-ARCH-05]` Dual-Core Asymmetric Multiprocessing (Pico 2 W / RP2350)
-* **Requirement**: RP2350 separates I/O & wireless networking from flight coroutines across dual Cortex-M33 cores:
-  - **Core 0**: Dedicated I/O, DMA, CYW43439 Wi-Fi/networking master, and SIO doorbell bridge.
-  - **Core 1**: Dedicated real-time coroutine flight engine running 8 kHz attitude estimation and EKF.
-* **Mechanism**: Dual lock-free `SpscTlpRing<64>` and RP2350 hardware SIO FIFOs (`pico/multicore.h`).
-* **Implementation Target**: `apps/gps_imu_app/src/main.cpp`, `targets/pico2w_rp2350/`
+### `[SPEC-ARCH-05]` Dual-Core Split on Pico 2 W / RP2350: Wi-Fi Alone on Core 0
+* **Requirement** (decided by the project owner 2026-11-03, from board measurements):
+  - **Core 0**: only Wi-Fi. CYW43439 init and polling, the join state machine, lwIP and the UDP
+    send of telemetry and trace. Nothing from AbstractX runs there.
+  - **Core 1**: all of AbstractX. The application's `main()`, coroutines, dispatcher, I/O processor,
+    SPI/I2C/UART/GPIO drivers, their DMA and their interrupts (enabled from Core 1, so they fire on
+    Core 1).
+  - **One crossing**: Core 1 to Core 0 frame rings for telemetry and trace (`[SPEC-PICO-CORE-01]`).
+    No bus request or completion crosses cores.
+* **Why**: the pico-sdk CYW43 driver waits on every bus DMA (`dma_channel_wait_for_finish_blocking`
+  in `cyw43_bus_pio_spi.c`). With Wi-Fi joined it took about 41% of the shared core, and the IMU
+  rate fell from 3933 to 1818 updates/s (Release, `-mfloat-abi=softfp`). On its own core that wait
+  costs nothing else.
+* **Superseded**: the earlier plan (Core 0 = I/O + DMA + Wi-Fi, Core 1 = coroutines, request and
+  completion rings plus an SIO FIFO doorbell per bus operation) was never implemented: Core 1 was
+  never launched.
+* **Mechanism and verification**: `targets/pico2w_rp2350/SPECIFICATION.md` `[SPEC-PICO-CORE-01]`.
+* **Implementation Target**: `targets/pico2w_rp2350/src/hal_platform.cpp`, `targets/pico2w_rp2350/include/hal/frame_ring.hpp`
 
 ### `[SPEC-ARCH-14]` Accelerators Run the Buses; Linux Sees Results
 * **Goal (project owner, 2026-10-30)**: bypass Linux's slow `spidev` / `i2c-dev` path entirely. Every
@@ -62,7 +74,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 
   | Platform | I/O accelerator (owns the buses, DMA, the fast loop) | Results to |
   | :--- | :--- | :--- |
-  | Pico 2 W (RP2350) | Core 0 + PIO + DMA (`[SPEC-ARCH-05]`) | Core 1 coroutines, Wi-Fi |
+  | Pico 2 W (RP2350) | Core 1 drivers + DMA + IRQs, beside the coroutines (`[SPEC-ARCH-05]`) | Core 1 coroutines; Wi-Fi alone on Core 0 |
   | ESP32-P4 | one HP core dedicated to I/O + GDMA | the other core |
   | Cubie A5E | XuanTie E906 (`[SPEC-E906-HAL-05]`) | Linux over RPMsg |
   | Zynq-7000 | pio2 in the PL (100% PIO, `[SPEC-ZYNQ-07]`); an RT A9 core polls the IMU ring | Linux over UIO rings |
