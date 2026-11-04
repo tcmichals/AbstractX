@@ -3513,3 +3513,16 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - Wi-Fi (NETGEAR69, 2.4 GHz): joined on 1 of 3 boots (`CYW43_LINK_BADAUTH` once, `link fail` once); `platform_init` tries once with a 15 s timeout and no retry. When joined: IP 192.168.1.14, ping 0 % loss, 3196 UDP :9870 packets in 10 s (64 B, 67 B, 496 B frames).
   - The board LED stays off: on the Pico 2 W it is CYW43 `WL_GPIO0`, not GPIO 25 as `io_processor.cpp` assumes, and nothing turns it on.
 * **Not verified**: host tests and sanitizers (no C++ changed); Release preset; console RX input; Studio decoding of the UDP stream.
+
+---
+
+### 2026-11-03: Pico 2 W Wi-Fi join: one blocking attempt replaced by a non-blocking retry machine
+* **Category**: `product-bug`
+* **Mistake / bug observed** (`targets/pico2w_rp2350/src/hal_platform.cpp`): `platform_init()` made one blocking 15 s `cyw43_arch_wifi_connect_timeout_ms()` call and never retried. On the bench (NETGEAR69, WPA2, correct password) it joined on 1 of 3 boots (`CYW43_LINK_BADAUTH` once, `link fail` once). A failed join left the board offline until reset, and boot stalled up to 15 s. The LED (CYW43 `WL_GPIO0`) was never driven.
+* **Which check should have caught it**: `board-bringup` had never been run on a Pico 2 W; no host test covered the join path because it called the SDK directly.
+* **Spec update**: `[SPEC-PICO-NET-01]` (`targets/pico2w_rp2350/SPECIFICATION.md`).
+* **Implementation**: `WifiJoinMachine` (`targets/pico2w_rp2350/include/hal/wifi_join.hpp`, no SDK dependency) driven from `platform_poll_network()`; `cyw43_arch_wifi_connect_async()`; leave + retry after 2 s on a negative status, a 20 s attempt timeout or link loss; LED on when UP, 500 ms blink while joining.
+* **Regression test**: `sim/test_pico_wifi_join.cpp` (`sim_test_pico_wifi_join`): passes in `build_host`, `build_asan` (ASan/UBSan, `-fno-sanitize-recover=all`) and `build_tsan`. It cannot fail on the old code (the old code had no testable unit); the retry path was not exercised on the board because every boot joined first time.
+* **Board run** (SWD flash `** Verified OK **`, console on UART1 over 4 SWD resets): `Joined after 1 attempt(s). IP: 192.168.1.14` on 4 of 4 boots; boot banner now prints before the join completes. UDP :9870: 1613 packets in 5 s. IMU about 440 updates/s while joined (10076–10427 by AHRS #23), versus about 650/s not joined, on a sensor configured for 8 kHz: the single Core 0 loop is the limit, not only Wi-Fi.
+* **Host suite**: `ctest --test-dir build_host`: 86 of 87 pass; the failure is `sim_test_e906_dma_irq` (`test_e906_dma_irq.cpp:55: Assertion 'tx == 8 && rx == 11' failed`), which fails identically with this change stashed (pre-existing, not investigated here).
+* **Not verified**: LED by eye; the retry and link-loss paths on hardware; Release preset.

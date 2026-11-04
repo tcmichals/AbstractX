@@ -101,6 +101,11 @@ target_include_directories(test_pico_zero_copy_trace PRIVATE ${PICO_DIR}/include
 target_link_libraries(test_pico_zero_copy_trace PRIVATE abstractx_core)
 add_test(NAME sim_test_pico_zero_copy_trace COMMAND test_pico_zero_copy_trace)
 
+# Pico 2 W non-blocking Wi-Fi join state machine, pure C++ on host ([SPEC-PICO-NET-01])
+add_executable(test_pico_wifi_join test_pico_wifi_join.cpp)
+target_include_directories(test_pico_wifi_join PRIVATE ${PICO_DIR}/include)
+add_test(NAME sim_test_pico_wifi_join COMMAND test_pico_wifi_join)
+
 # Zynq-7000 UIO Bridge & Target IoProcessor data plane test ([SPEC-ZYNQ-01..03])
 if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_target.cpp)
     set(ZYNQ_DIR ${PROJECT_SOURCE_DIR}/targets/zynq7000)

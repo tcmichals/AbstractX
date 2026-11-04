@@ -12,6 +12,7 @@
 #include "abstractx_pico.hpp"
 // @impl [SPEC-PICO-TRACE-01] targets/pico2w_rp2350/SPECIFICATION.md
 #include "hal/pico_trace_transport.hpp"
+#include "hal/wifi_join.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
@@ -40,19 +41,56 @@ ITimer& get_timer_driver() noexcept {
     return g_pico_timer;
 }
 
+#ifdef PICO_ON_DEVICE
+// @impl [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
+// shared: Core 0 only (platform_init and abstractx::step()); no ISR access.
+static pico::WifiJoinMachine g_wifi_join;
+static bool g_wifi_running = false;
+
+static uint32_t wifi_now_ms() noexcept {
+    return to_ms_since_boot(get_absolute_time());
+}
+
+static void wifi_apply(const pico::WifiJoinAction& a) noexcept {
+    if (a.led_changed) {
+        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, a.led_on);
+    }
+    if (a.log_joined) {
+        printf("[Pico 2 W Wi-Fi] Joined after %u attempt(s). IP: %s\n",
+               static_cast<unsigned>(g_wifi_join.attempts()),
+               ip4addr_ntoa(netif_ip4_addr(netif_default)));
+    }
+    if (a.log_failed) {
+        printf("[Pico 2 W Wi-Fi] Attempt %u failed (link status %d); retrying in %u ms.\n",
+               static_cast<unsigned>(g_wifi_join.attempts()), a.failed_status,
+               static_cast<unsigned>(pico::WifiJoinMachine::kRetryDelayMs));
+    }
+    if (a.log_lost) {
+        printf("[Pico 2 W Wi-Fi] Link lost (status %d); rejoining.\n", a.failed_status);
+    }
+    if (a.leave) {
+        cyw43_wifi_leave(&cyw43_state, CYW43_ITF_STA);
+    }
+#if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
+    if (a.start_join) {
+        if (cyw43_arch_wifi_connect_async(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK) != 0) {
+            printf("[Pico 2 W Wi-Fi] connect_async refused; will retry.\n");
+        }
+    }
+#endif
+}
+#endif
+
+// @impl [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
 void platform_init() noexcept {
 #ifdef PICO_ON_DEVICE
     stdio_init_all();
     if (cyw43_arch_init() == 0) {
         cyw43_arch_enable_sta_mode();
 #if defined(WIFI_SSID) && defined(WIFI_PASSWORD)
-        printf("[Pico 2 W Wi-Fi] Connecting to SSID '%s'...\n", WIFI_SSID);
-        if (cyw43_arch_wifi_connect_timeout_ms(WIFI_SSID, WIFI_PASSWORD, CYW43_AUTH_WPA2_AES_PSK, 15000) != 0) {
-            printf("[Pico 2 W Wi-Fi] WARNING: Failed to connect to Wi-Fi within 15s timeout.\n");
-        } else {
-            printf("[Pico 2 W Wi-Fi] Successfully connected! IP: %s\n",
-                   ip4addr_ntoa(netif_ip4_addr(netif_default)));
-        }
+        printf("[Pico 2 W Wi-Fi] Joining SSID '%s' in the background...\n", WIFI_SSID);
+        g_wifi_running = true;
+        wifi_apply(g_wifi_join.start(wifi_now_ms()));
 #else
         printf("[Pico 2 W Wi-Fi] STA mode ready (WIFI_SSID/WIFI_PASSWORD not set at compile time).\n");
 #endif
@@ -93,9 +131,14 @@ void platform_idle_wait() noexcept {
 #endif
 }
 
+// @impl [SPEC-PICO-NET-01] targets/pico2w_rp2350/SPECIFICATION.md
 void platform_poll_network() noexcept {
 #ifdef PICO_ON_DEVICE
     cyw43_arch_poll();
+    if (g_wifi_running) {
+        wifi_apply(g_wifi_join.step(wifi_now_ms(),
+                                    cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA)));
+    }
 #endif
 }
 

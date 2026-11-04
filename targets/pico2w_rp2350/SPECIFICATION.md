@@ -326,6 +326,33 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   UART0 transmits no console text)
 * **Implementation Target**: `targets/pico2w_rp2350/CMakeLists.txt`
 
+### [SPEC-PICO-NET-01] Non-Blocking Wi-Fi Join with Retry; LED Shows Link State
+* **Why**: until 2026-11-03 `platform_init()` made one blocking 15 s
+  `cyw43_arch_wifi_connect_timeout_ms()` call and never tried again. On the bench
+  (NETGEAR69, WPA2, correct password) it joined on 1 of 3 boots (`CYW43_LINK_BADAUTH`
+  once, `link fail` once), so one failed join left the board offline until reset and
+  boot stalled for 15 s. The on-board LED (CYW43 `WL_GPIO0`, not RP2350 GPIO 25)
+  was never driven, so link state was invisible without a console.
+* **Requirement**: `platform_init()` starts the join with `cyw43_arch_wifi_connect_async()`
+  and returns. `platform_poll_network()` (from `abstractx::step()`) feeds
+  `cyw43_tcpip_link_status()` to `WifiJoinMachine` (`include/hal/wifi_join.hpp`, no
+  pico-sdk dependency) at most every 100 ms and applies its actions:
+  * a negative status (`FAIL`, `NONET`, `BADAUTH`), or no `UP` within 20 s of starting an
+    attempt, leaves the network (`cyw43_wifi_leave`) and starts a new attempt after 2 s;
+  * a link that drops from `UP` (status `DOWN` or negative) is treated the same way;
+  * attempts never stop while credentials are compiled in.
+* **Requirement**: LED (`cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, ...)`): on while the
+  link is `UP`, toggles every 500 ms while joining or waiting to retry, off when Wi-Fi is
+  not running. The LED is written only when its state changes.
+* **Requirement**: nothing in the join path blocks; log lines (`printf`) are emitted only on
+  state changes (joined, attempt failed, link lost).
+* **Method**: `Test`
+* **Verified by**: `host-tests` (`sim/test_pico_wifi_join.cpp`: join, each failure status,
+  attempt timeout, link loss, poll rate limit, LED blink, `uint32_t` ms wraparound),
+  `board-bringup` (console over UART1 across repeated SWD resets; LED observed)
+* **Implementation Target**: `targets/pico2w_rp2350/include/hal/wifi_join.hpp`,
+  `targets/pico2w_rp2350/src/hal_platform.cpp`
+
 ### 4.1 IMU Auto-Sample Pipeline
 1. **ICM-42688-P asserts `DRDY` (GP20 / Pin 3)**:
    - Hardware triggers GPIO interrupt on Core 0.
