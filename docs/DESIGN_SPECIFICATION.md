@@ -206,8 +206,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`
 
 ### `[SPEC-ARCH-16]` Completions, Streams and Executors (Standard RTOS / Linux Practice)
-* **Not implemented yet**: all of it. Design approved by the project owner 2026-11-04; implementation
-  follows in steps (conformance test, executor with the bare-metal ring as default, then each target).
+* **Not implemented yet**: requirements 3 to 9 (`post_from_isr()`, the executor interface) and the
+  FreeRTOS / Asio / bare-metal runs of 10. Design
+  approved by the project owner 2026-11-04. Done: the host conformance test (`sim/host_conformance.hpp`)
+  and the POSIX host (`hosts/posix/`), which passes it. Next: executor with the bare-metal ring as default.
 
 Nothing here is new: the
 interrupt hand-off is FreeRTOS `...FromISR` / ChibiOS I-class / Zephyr / Linux top half; requests and
@@ -292,8 +294,9 @@ sequenceDiagram
   (T-3, T-4, T-5, T-6, Q-2, Q-3, Q-4, Q-5, and the lost-wake stalls of 10-28 to 10-31), and the
   timer / wake model rewritten five times in five days because it was designed one change at a time.
   This requirement fixes the whole model first; implementation follows it.
-* **Verified by** (planned): `host-tests` (host conformance test; per-driver request / stream / cancel /
-  drop tests), `thread-sanitizer`, `board-bringup` (E906, Pico 2 W)
+* **Verified by**: `host-tests` (`sim/test_host_conformance_posix.cpp`: the six conformance checks on the
+  POSIX host; planned: per-driver request / stream / cancel / drop tests), `thread-sanitizer`,
+  `board-bringup` (planned: E906, Pico 2 W)
 * **Implementation Target** (planned): `include/abstractx/`, `src/`, `hosts/`, every target's drivers
 
 ### `[SPEC-ARCH-07]` Platform Topology Table & Studio Multi-Window Observability

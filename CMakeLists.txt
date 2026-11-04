@@ -71,6 +71,9 @@ endif()
 # 3. Hardware Abstraction Layer & Target BSPs
 add_subdirectory(targets)
 
+# OS loops that drive AbstractX from outside the core ([SPEC-ARCH-15], [SPEC-ARCH-16])
+add_subdirectory(hosts)
+
 # Application Library (reusable peripheral drivers & components outside generic core)
 # @impl [SPEC-ARCH-12] docs/DESIGN_SPECIFICATION.md
 add_subdirectory(applib)

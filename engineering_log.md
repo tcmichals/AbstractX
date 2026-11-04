@@ -3667,3 +3667,14 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Tool fix**: `audit_specs.py` failed any requirement without code, so a spec-first commit could not pass. It now accepts a requirement with no code only when its section has `* **Not implemented yet**:` (the marker `spectrace_matrix.py` already reads) and reports it `PLANNED`; anything else without code still fails (`[SPEC-AUDIT-07]`; `tests/test_spec_traceability.py::test_planned_requirement_needs_the_marker`).
 * **Process lesson**: design questions are answered in discussion, and files change only on an explicit go from the owner.
 * **Not verified**: nothing of `[SPEC-ARCH-16]` is implemented; next steps are the conformance test, then the executor with the bare-metal ring as default.
+
+---
+
+### 2026-11-04: [SPEC-ARCH-16] step 1: host conformance test and the POSIX host
+* **Category**: `product-bug` (found in the new host by TSan before commit)
+* **What was done**: `sim/host_conformance.hpp`: the six checks of `[SPEC-ARCH-16]` requirement 10 written once for any host (idle stays asleep; a thread's post wakes it within a bound; a timer wakes it on time; 1000 posts from a thread, none lost, no explicit wake; an always-ready coroutine does not starve another; a post that does not fit is counted). `hosts/posix/`: the FreeRTOS host's shape on Linux (`ppoll` on an eventfd, timeout = `step()`'s deadline; `wake()` writes the eventfd), outside the core.
+* **Results**: POSIX host: idle 200 ms blocked 1 time; post woke the host in 149 us; 20 ms sleep woke at 20190 us; 1000 posts none lost; longest ready run 1; 16 of 48 posts did not fit, 16 counted. The same checks against the old built-in loop (`step()` + 100 us `platform_idle_wait()`) fail check 1 ("an idle host must not wake on an interval").
+* **Bug found before commit**: TSan: `wake()` on a producer thread wrote to the eventfd while the host closed it at the end of `run_until()`; a reused fd number could have received the write. Fixed: one eventfd for the process, never closed.
+* **Also**: `[SPEC-ARCH-16]` "Not implemented yet" now names `post_from_isr()` and the executor (the drift check flagged the name as spec-only, correctly).
+* **Evidence**: `tools/gate.sh` plain / asan / tsan 94/94 each, `[PASS] gate`; TSan conformance 5 runs rc 0; E906 and Pico 2 W builds unchanged.
+* **Not verified**: FreeRTOS (POSIX port) and Asio runs of the conformance test; bare metal on boards. The Linux apps still use the built-in `run()`; moving them to the POSIX host is a later step.
