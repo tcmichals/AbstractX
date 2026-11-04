@@ -6,7 +6,6 @@ apps/e906_repl_app/tests/board/test_e906_bench.py: SPEC-E906-RTOS-05
 apps/e906_repl_app/tests/board/test_e906_irq.py: SPEC-E906-CORO-02
 apps/e906_repl_app/tests/board/test_e906_irq.py: SPEC-E906-HAL-01
 apps/e906_repl_app/tests/board/test_e906_irq.py: SPEC-E906-HAL-02
-apps/e906_repl_app/tests/board/test_e906_irq.py: SPEC-E906-IRQ-01
 apps/e906_repl_app/tests/board/test_e906_irq.py: SPEC-E906-IRQ-03
 apps/e906_repl_app/tests/board/test_e906_irq.py: SPEC-E906-IRQ-04
 apps/e906_repl_app/tests/board/test_e906_irq.py: SPEC-E906-REPL-06
@@ -32,7 +31,6 @@ sim/cocotb/wb_util.py: SPEC-FPGA-CLK-01
 sim/e906_shim/memory_map.h: SPEC-E906-HAL-03
 sim/test_baremetal_isr_spsc.cpp: SPEC-HAL-01
 sim/test_bus_protocols.cpp: SPEC-HAL-08
-sim/test_bus_protocols.cpp: SPEC-HAL-09
 sim/test_bus_protocols.cpp: SPEC-HAL-14
 sim/test_coro_combinators.cpp: SPEC-APP-01
 sim/test_e906_rpmsg_endpoints.cpp: SPEC-E906-MEM-01
@@ -52,7 +50,6 @@ tests/test_abstractx_coro.py: SPEC-E906-REPL-16
 tests/test_adversarial_invariants.py: SPEC-AUDIT-14
 tests/test_board_target.py: SPEC-AUDIT-13
 tests/test_coro_contracts.py: SPEC-ARCH-15
-tests/test_coro_primitives.cpp: SPEC-ARCH-11
 tests/test_event_streams_decode.py: SPEC-TRACE-09
 tests/test_event_streams_decode.py: SPEC-TRACE-10
 tests/test_live_profile.py: SPEC-STUDIO-11
@@ -72,3 +69,6 @@ tests/test_trac.py: SPEC-AUDIT-09
 tests/test_visualizer_async_bridge.py: SPEC-STUDIO-04
 tests/test_visualizer_async_bridge.py: SPEC-STUDIO-08
 tools/audit_ipc_invariants.py: SPEC-AUDIT-15
+# 2026-11-04: moved here when the checker learned to bind an indented @impl tag to the member below it;
+# the test reaches the tagged init_channel / open_pin_interrupt through IoEngine::configure().
+sim/test_linux_drdy_auto.cpp: SPEC-LINUX-GPIO-01

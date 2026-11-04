@@ -890,6 +890,17 @@ public:
         pending_requests_[tag].awaiting_coro = coro;
     }
 
+    // [SPEC-ARCH-16] 9: stream packets dropped on a channel, by reason. Data for a channel nobody
+    // waits on is dropped (nothing is buffered for the programmer) and counted here.
+    struct StreamDrops {
+        uint32_t no_consumer{0};   // no coroutine was waiting on the channel
+        uint32_t batch_full{0};    // the waiting batch buffer was already full
+    };
+    // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (9: per-channel drop counters)
+    StreamDrops stream_drops(uint8_t channel) const noexcept {
+        return channel < 8 ? stream_drops_[channel] : StreamDrops{};
+    }
+
     // Register an awaiter for autonomous telemetry stream (Channel 2 IMU stream)
     void register_stream_awaiter(uint8_t channel, std::coroutine_handle<> coro) noexcept {
         if (channel < 8) {
@@ -908,12 +919,19 @@ public:
             // Check if this is an autonomous DMA Stream TLP (e.g. IMU Telemetry)
             if (tlp.type() == TlpType::DmaStream) {
                 uint8_t ch = static_cast<uint8_t>(tlp.channel());
+                // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (9: unmapped data dropped and counted per channel)
+                if (ch < 8 && !stream_awaiters_[ch]) {
+                    ++stream_drops_[ch].no_consumer;
+                    continue;
+                }
                 if (ch < 8 && stream_awaiters_[ch]) {
                     if (!stream_batch_out_[ch].empty()) {
                         const size_t idx = stream_batch_count_[ch];
                         if (idx < stream_batch_out_[ch].size()) {
                             stream_batch_out_[ch][idx] = tlp;
                             stream_batch_count_[ch] = idx + 1;
+                        } else {
+                            ++stream_drops_[ch].batch_full;
                         }
                         if (stream_batch_count_[ch] >= stream_batch_min_[ch]) {
                             stream_batch_out_[ch] = {};
@@ -1179,6 +1197,7 @@ private:
     std::array<Tlp64, 8> latest_stream_tlp_{};
     std::array<std::span<Tlp64>, 8> stream_batch_out_{};
     std::array<size_t, 8> stream_batch_min_{};
+    std::array<StreamDrops, 8> stream_drops_{};  // [SPEC-ARCH-16] 9: per channel, by reason
     std::array<size_t, 8> stream_batch_count_{};
 };
 

@@ -60,6 +60,8 @@ add_abstractx_sim(test_io_engine_trigger_race test_io_engine_trigger_race.cpp)
 add_abstractx_sim(test_async_queue_waiters test_async_queue_waiters.cpp)
 # [SPEC-ARCH-16] 8 cancellation: destroyed tasks, when_any losers, driver requests (review T-3, Q-5..Q-9)
 add_abstractx_sim(test_cancellation        test_cancellation.cpp)
+# [SPEC-ARCH-16] 4 and 9: stream sequence numbers; unmapped stream data counted per channel
+add_abstractx_sim(test_stream_accounting   test_stream_accounting.cpp)
 target_include_directories(test_cancellation PRIVATE ${CMAKE_SOURCE_DIR}/targets/linux/include)
 target_include_directories(test_linux_uart_short_write PRIVATE ${CMAKE_SOURCE_DIR}/targets/linux/include)
 target_include_directories(test_linux_i2c_no_false_ok PRIVATE ${CMAKE_SOURCE_DIR}/targets/linux/include)

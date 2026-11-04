@@ -237,6 +237,7 @@ private:
         std::atomic<bool> in_flight{false};
         uint64_t ts_ns{0};
         size_t cmd_len{0};
+        uint16_t seq{0};               // [SPEC-ARCH-16] 4: per channel; the completion owns it while busy
         alignas(4) uint8_t tx[kAutoXferMax]{};
         alignas(4) uint8_t rx[kAutoXferMax]{};
 
@@ -362,7 +363,8 @@ private:
         const size_t got = r.transferred < kAutoXferMax ? r.transferred : kAutoXferMax;
         const size_t off = (a.snap.bus_type == BusType::Spi) ? a.cmd_len : 0;
         const size_t payload = got > off ? got - off : 0;
-        Tlp64 tlp = Tlp64::make_stream_tx(static_cast<Channel>(a.snap.tlp_channel), 0,
+        // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (4: sequence number per channel; a gap = a loss)
+        Tlp64 tlp = Tlp64::make_stream_tx(static_cast<Channel>(a.snap.tlp_channel), a.seq++,
                                           std::span<const uint8_t>(a.rx + off, payload),
                                           a.snap.tlp_tag);
         tlp.wire.timestamp_ns = a.ts_ns;

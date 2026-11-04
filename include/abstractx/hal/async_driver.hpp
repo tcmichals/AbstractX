@@ -81,6 +81,8 @@ template <typename TResult>
 struct AsyncTransactionMeta {
     using Callback = etl::delegate<void(const TResult&)>;
 
+    // [SPEC-ARCH-16] 3: the driver's own hardware work (an I/O processor back end turning a bus
+    // completion into a TLP); never application code. Coroutines complete through complete().
     Callback               callback{};
     std::coroutine_handle<> coro_handle{nullptr};
     // Awaiter-owned result storage. When set, the completion is written here
@@ -133,7 +135,6 @@ public:
     static constexpr size_t CAPACITY = QueueDepth;
 
     using RequestQueue = etl::queue_spsc_isr<TRequest, QueueDepth, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>;
-    using ResultQueue  = etl::queue_spsc_isr<TResult,  QueueDepth, InterruptLock, etl::memory_model::MEMORY_MODEL_SMALL>;
 
     virtual ~AsyncDriverBase() = default;
 
@@ -183,21 +184,10 @@ public:
     }
 
     /*
-     * Main / Coroutine Domain: Pop a finished result from the output queue.
-     */
-    bool pop_completion(TResult& result) noexcept {
-        return output_queue_.pop(result);
-    }
-
-    /*
      * Main Domain Status Queries
      */
     bool has_pending_requests() const noexcept {
         return !input_queue_.empty();
-    }
-
-    bool has_completed_results() const noexcept {
-        return !output_queue_.empty();
     }
 
     // [SPEC-HAL-07] Complete every queued (not yet started) request with its bus's Cancelled
@@ -236,12 +226,11 @@ public:
         return false;
     }
 
-    // [SPEC-HAL-07] Cancel queued requests, try to abort the active one, drop unclaimed results.
+    // [SPEC-HAL-07] Cancel queued requests and try to abort the active one.
     // No request is discarded without its coroutine being resumed.
     void reset_queues() noexcept {
         (void)cancel_pending();
         (void)cancel_active();
-        output_queue_.clear();
     }
 
 protected:
@@ -261,17 +250,10 @@ protected:
      * and trigger callbacks / coroutine resumes.
      */
     // @impl [SPEC-HAL-01] docs/DESIGN_SPECIFICATION.md#spec-hal-01
+    // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (3: one completion path, no shared result queue)
     bool push_completion_from_isr(const TRequest& completed_req, const TResult& result) noexcept {
-        bool pushed = true;
-        if (!completed_req.result_slot && !completed_req.abandoned()) {
-#if ABSTRACTX_LOCKED_ISR_PATHS  // hosted threads or SMP cores: take the lock ([SPEC-ARCH-01])
-            pushed = output_queue_.push(result); // hosted: "ISR" is a worker thread
-#else
-            pushed = output_queue_.push_from_isr(result);
-#endif
-        }
-        completed_req.complete(result);  // [SPEC-ARCH-16] 8: result slot, post and Done in one place
-        return pushed;
+        completed_req.complete(result);  // result slot, post and Done in one place
+        return true;
     }
 
     /*
@@ -320,7 +302,6 @@ private:
     }
 
     RequestQueue input_queue_{};
-    ResultQueue  output_queue_{};
     volatile bool hardware_busy_{false};
     RequestStateWord* active_state_{nullptr};  // shared: under InterruptGuard; the running request
 };

@@ -196,6 +196,8 @@ def check_tests(root: Path) -> list[str]:
 # Names an @impl tag stands for: the enclosing function when the tag is inside a body,
 # else the names defined on the next lines ([SPEC-AUDIT-15]).
 _C_DEF_RE = re.compile(r"^[A-Za-z_][^;]*?\b(\w+)\s*\([^;]*$")
+# An indented definition (a class member): the same shape after leading whitespace (2026-11-04).
+_C_DEF_IND_RE = re.compile(r"^(\s*)[A-Za-z_][^;=]*?\b(\w+)\s*\([^;]*$")
 _PY_DEF_RE = re.compile(r"^\s*(?:async\s+)?(?:def|class)\s+(\w+)")
 _NAME_SKIP = {"if", "for", "while", "switch", "return", "sizeof", "static_cast", "reinterpret_cast",
               "const_cast", "__attribute__", "section", "main", "defined", "extern"}
@@ -206,6 +208,17 @@ def _impl_names(lines: list[str], idx: int, python: bool) -> set[str]:
     names: set[str] = set()
     if line[:1].isspace():
         indent = len(line) - len(line.lstrip())
+        if not python:
+            # @impl [SPEC-AUDIT-15] docs/SPECTRACE.md (an indented tag above a member names that member)
+            for nxt in lines[idx + 1:idx + 5]:
+                st = nxt.strip()
+                if not st or st.startswith(("//", "*", "/*")):
+                    continue
+                m = _C_DEF_IND_RE.match(nxt)
+                if m and len(m.group(1)) == indent and m.group(2) not in _NAME_SKIP:
+                    names.add(m.group(2))
+                    return names
+                break
         for j in range(idx - 1, -1, -1):
             cand = lines[j]
             if python:
@@ -214,9 +227,9 @@ def _impl_names(lines: list[str], idx: int, python: bool) -> set[str]:
                     names.add(m.group(1))
                     break
             else:
-                m = _C_DEF_RE.match(cand)
-                if m and m.group(1) not in _NAME_SKIP:
-                    names.add(m.group(1))
+                m = _C_DEF_IND_RE.match(cand)
+                if m and len(m.group(1)) < indent and m.group(2) not in _NAME_SKIP:
+                    names.add(m.group(2))
                     break
     else:
         for nxt in lines[idx + 1:idx + 5]:

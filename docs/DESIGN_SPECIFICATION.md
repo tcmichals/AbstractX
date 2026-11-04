@@ -206,8 +206,11 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`
 
 ### `[SPEC-ARCH-16]` Completions, Streams and Executors (Standard RTOS / Linux Practice)
-* **Not implemented yet**: requirements 3, 4, 6 to 9; the E906 `in_isr()` (the debug context check is
-  skipped there); the FreeRTOS / Asio / bare-metal runs of 10. Design approved by the project owner
+* **Not implemented yet**: requirement 4's in-place write (stream chunks are still copied from the
+  DMA buffer into the TLP: `make_stream_tx`); requirement 6 (per-consumer completion queues); the
+  E906 `in_isr()` (the debug context check is skipped there); the FreeRTOS / Asio / bare-metal runs
+  of 10. Done since: requirement 3 (coroutine completions only through `complete()`), 4 (sequence
+  numbers), 7, 8, 9 (per-channel drop counters). Design approved by the project owner
   2026-11-04. Done: requirement 5 (`include/abstractx/executor.hpp`: `post()` / `post_from_isr()` /
   `set_executor()`, the AbstractX ring as default executor, every call site moved, `Dispatcher::post`
   / `push` outside the executor rejected by `tools/audit_coro_contracts.py` check 8; Pico `in_isr()`
@@ -226,13 +229,18 @@ completions are Zephyr RTIO / Linux io_uring; DMA streams are serial DMA (V4L2 /
 * **Requirement (3, what an ISR does)**: an interrupt handler does its hardware work (acknowledge,
   re-arm DMA, start the next queued transfer, stop a channel), queues the completion, calls
   `post_from_isr()`, and returns. No callback, no list walk, no other code runs in interrupt context
-  on AbstractX's behalf.
+  on AbstractX's behalf. A coroutine's completion goes only through `AsyncTransactionMeta::complete()`
+  (result into the awaiter's slot, `post_from_isr`). A request's `callback` and the E906 DMA channel and
+  timer-node callbacks are the driver's own hardware work (an I/O processor back end turning a bus
+  completion into a TLP; a timer node marking a sleep due), never application code. Drivers have no
+  shared result queue (`AsyncDriverBase`'s output queue, unused, removed 2026-11-04).
 * **Requirement (4, two I/O models, no others)**:
   * **Request / completion** (RTIO / io_uring): SPI transfer, I2C transaction, UART write, sleep.
     The consumer submits a request; exactly one completion is queued back to it.
   * **DMA stream** (serial DMA): UART RX with DMA, SPI auto-DMA on DRDY (the IMU), later ADC / I2S.
     The consumer starts the stream once; each chunk the DMA fills is one packet (TLP) with length,
-    sequence number and hardware timestamp (taken at the trigger edge), written in place into a
+    sequence number (per channel, incremented for every packet emitted, so a gap shows a loss) and
+    hardware timestamp (taken at the trigger edge), written in place into a
     transport buffer (no copy, `[SPEC-ARCH-08]`), and is one completion. The consumer drains every
     queued packet in one pass (batching happens on draining, never by merging completions).
   Every driver, local or behind an IoProcessor, uses one of these two. The schemes in use before
@@ -286,6 +294,8 @@ completions are Zephyr RTIO / Linux io_uring; DMA streams are serial DMA (V4L2 /
   nothing is buffered for the programmer. Every drop is counted per channel with its reason (no
   consumer mapped, consumer queue full, no buffer), shown in the runtime status and Studio, and the
   first drop on a channel is traced once. The API that maps a consumer says this in its documentation.
+  Implemented (2026-11-04) in `CoroutineIoEngine`: `stream_drops(channel)` = `{no_consumer, batch_full}`;
+  not yet in the runtime status report or Studio, and the first-drop trace is not yet emitted.
 * **Requirement (10, one conformance test)**: every host and executor passes the same host conformance
   test: an idle host stays asleep (no polling); a post from a thread or ISR wakes it within a bound; a
   timer deadline wakes it on time; a post or wake before the wait is not lost; an always-ready
