@@ -12,6 +12,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <optional>
 
 using namespace abstractx;
 using namespace abstractx::coro;
@@ -78,6 +79,23 @@ int main() {
     set_executor({});  // default: the AbstractX ring
     assert(post(u.handle()));
     while (step() == kNow) {}
+
+    // [SPEC-ARCH-16] 5a (review T-4): 40 waiters on one Event all wake; with a ring of 32, 8 were lost.
+    {
+        static Event ev;
+        static int woken = 0;
+        static std::optional<Task<void>> waiters[40];
+        const uint32_t dropped0 = Dispatcher::dropped_resumes();
+        for (auto& w : waiters) {
+            w.emplace([]() -> Task<void> { co_await ev; ++woken; }());
+            w->resume();  // resume: starts the never-run task; it waits on the Event
+        }
+        ev.set();
+        while (step() == kNow) {}
+        std::printf("[+] 40 Event waiters: %d woken, %u dropped, ring %zu, high water %u\n", woken,
+                    Dispatcher::dropped_resumes() - dropped0, Dispatcher::QUEUE_CAPACITY, Dispatcher::high_water());
+        assert(woken == 40 && Dispatcher::dropped_resumes() == dropped0);
+    }
     std::puts("[SUCCESS] executor [SPEC-ARCH-16]");
     return 0;
 }

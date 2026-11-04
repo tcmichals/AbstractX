@@ -40,7 +40,7 @@ fails on the old code and passes on the new.
 | G-1 | High | ctest runs whatever binary exists; a source that no longer compiles still "passes" | [V] |
 | G-2 / G-3 | High | VERIFIED can be permanent (ledger record with commit `HEAD`), and VERIFIED needs no `@verifies` test | [V] |
 | G-17 | High | `936d023` log entry claims "100% pass" while the same commit broke two host tests; its new I2C retry blocks with `delay_us(200)` | [V] |
-| T-4 | Med | Dispatcher holds 32 handles; the 33rd wake is dropped (counted only) and that coroutine hangs forever | [V] |
+| T-4 | Med | **Fixed 2026-11-04** (size per app, high-water mark). Dispatcher holds 32 handles; the 33rd wake is dropped (counted only) and that coroutine hangs forever | [V] |
 | T-5 | Med | **Fixed 2026-11-04** (hosted: every enqueue wakes; Linux timer Polled). Driver completions post the handle but never call `wake()`, so a host that waits on `step()`'s deadline sleeps through them (Linux) | [R] |
 | T-6 | Med | **Fixed 2026-11-04 (not run on a board).** Pico idle is a bare `wfe` with no masked re-check; the SDK alarm can fire on core 0 while AbstractX sleeps on core 1 | [I] |
 | Q-4 | Med | **Fixed 2026-11-04.** `AsyncQueue`: one waiter slot per side (a second consumer is never woken), push result ignored, no drop counter, not thread-safe despite the "lock-free" comment | [V] |

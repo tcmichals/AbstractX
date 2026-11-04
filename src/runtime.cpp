@@ -79,6 +79,7 @@ void emit_status(uint64_t now_us) noexcept {
     hdr.dropped_resumes = Dispatcher::dropped_resumes();
     hdr.queue_depth = static_cast<uint16_t>(Dispatcher::queue_depth());
     hdr.queue_capacity = static_cast<uint16_t>(Dispatcher::QUEUE_CAPACITY);
+    hdr.queue_high_water = static_cast<uint16_t>(Dispatcher::high_water());  // [SPEC-ARCH-16] 5a
     hdr.trace_discarded = static_cast<uint32_t>(trace::g_tracer.get_discarded_count());
 
     const size_t bytes = sizeof(hdr) + hdr.n_tasks * sizeof(stats::TaskStatsRecord) +

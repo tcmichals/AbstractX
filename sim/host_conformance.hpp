@@ -172,7 +172,8 @@ inline Task<void> waiter6() { co_await g_never; }
 inline void full_queue_is_counted() {
     // Fill the ready queue past its capacity from a thread, then check every refused post is counted.
     const uint32_t before = Dispatcher::dropped_resumes();
-    static std::optional<Task<void>> tasks[48];
+    constexpr size_t kTasks = Dispatcher::QUEUE_CAPACITY + 16;  // more than fit ([SPEC-ARCH-16] 5a)
+    static std::optional<Task<void>> tasks[kTasks];
     for (auto& t : tasks) {
         t.emplace(waiter6());
         t->resume();  // resume: starts the never-run task; it waits on an Event nobody sets
@@ -183,7 +184,9 @@ inline void full_queue_is_counted() {
     });
     t.join();
     const uint32_t counted = Dispatcher::dropped_resumes() - before;
-    std::printf("[+] 6 %u of 48 posts did not fit; %u counted\n", refused, counted);
+    std::printf("[+] 6 %u of %zu posts did not fit; %u counted; high water %u\n", refused, kTasks, counted,
+                Dispatcher::high_water());
+    assert(Dispatcher::high_water() == Dispatcher::QUEUE_CAPACITY && "the high-water mark shows the ring was full");
     assert(refused > 0 && counted == refused && "a post that does not fit must be counted");
     while (step() == kNow) {}
 }

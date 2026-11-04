@@ -41,7 +41,8 @@ struct RuntimeStatsHeader {
     uint16_t queue_depth{0};
     uint16_t queue_capacity{0};
     uint32_t trace_discarded{0};
-    uint32_t reserved{0};
+    uint16_t queue_high_water{0};  // [SPEC-ARCH-16] 5a; was part of a u32 reserved (sent as 0)
+    uint16_t reserved{0};
 };
 
 struct TaskStatsRecord {

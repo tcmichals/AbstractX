@@ -18,7 +18,8 @@ import runtime_stats as rs  # noqa: E402
 def report(ts, cycles, idle, task_run, irq_events, irq_cycles, errors=0):
     return {"timestamp_us": ts, "cycle_hz": 200_000_000, "cycles": cycles, "idle_cycles": idle,
             "steps": ts // 1000, "pool_used": 512, "pool_high_water": 1024, "pool_capacity": 8192,
-            "dropped_resumes": 0, "queue_depth": 0, "queue_capacity": 32, "trace_discarded": 0,
+            "dropped_resumes": 0, "queue_depth": 0, "queue_capacity": 64, "trace_discarded": 0,
+            "queue_high_water": 17,
             "tasks": [{"name": "repl_rx", "frame": 0x3FFC1000, "resumes": ts // 100,
                        "run_cycles": task_run, "max_cycles": 2000}],
             "drivers": [{"name": "uart3", "id": 90, "events": irq_events, "cycles": irq_cycles,
@@ -32,6 +33,7 @@ class RuntimeStatsDecode(unittest.TestCase):
         self.assertEqual(d["tasks"][0]["name"], "repl_rx")
         self.assertEqual(d["drivers"][0]["id"], 90)
         self.assertEqual(d["pool_capacity"], 8192)
+        self.assertEqual(d["queue_high_water"], 17)   # [SPEC-ARCH-16] 5a, in the former reserved field
 
     def test_rates_across_u32_wrap(self):
         # 1 s at 200 MHz with the cycle counter wrapping in between.
@@ -67,6 +69,8 @@ class RuntimeStatsDecode(unittest.TestCase):
         runs = {t["name"]: t["run_cycles"] for t in d["tasks"]}
         self.assertEqual(runs["outer"], 60)
         self.assertEqual(runs["inner"], 180)
+        self.assertGreaterEqual(d["queue_high_water"], 1)   # [SPEC-ARCH-16] 5a: the C++ side fills it
+        self.assertEqual(d["queue_capacity"], 255)          # hosted default ABSTRACTX_READY_QUEUE_SIZE
 
 
 if __name__ == "__main__":

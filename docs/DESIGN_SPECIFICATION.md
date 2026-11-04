@@ -252,6 +252,13 @@ completions are Zephyr RTIO / Linux io_uring; DMA streams are serial DMA (V4L2 /
   | Linux, POSIX host | ring + `eventfd_write` | not used (no ISRs) | `ppoll(eventfd, timeout)` |
   | Linux, Boost.Asio host | `asio::post(io_context, ...)` | not used | `io_context.run()` + `steady_timer` |
   | Pico 2 W core 0 to core 1 | as bare metal + `__sev()` | as bare metal + `__sev()` | `wfe` |
+* **Requirement (5a, ready-queue size, decided 2026-11-04)**: the default executor's ring holds
+  `ABSTRACTX_READY_QUEUE_SIZE` handles, set per application at build time (default 64 on MCUs, 255 on
+  hosted builds; at most 255, checked at compile time). A coroutine is in the ring at most once, so an
+  application sizes it to at least the number of coroutines that can be ready at the same time. The
+  deepest the ring has been (`Dispatcher::high_water()`) is in the runtime status report
+  (`queue_high_water`, `[SPEC-TRACE-08]`), next to `dropped_resumes`, so a ring that is too small
+  shows before it drops. (Review T-4: a fixed 32 dropped the 33rd wake and that coroutine hung.)
 * **Requirement (6, completion queues per consumer)**: a driver writes a completion to the queue of the
   consumer that submitted the request (RTIO / io_uring).
 * **Requirement (7, stream overrun)**: when a stream has no free buffer, the new chunk is dropped and
@@ -1160,7 +1167,7 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 
   | Record | Bytes | Fields |
   | :--- | :--- | :--- |
-  | `RuntimeStatsHeader` | 56 | u8 event_id `0x20`, u8 version 1, u8 n_tasks, u8 n_drivers, u64 timestamp_us, u32 cycle_hz, u32 cycles, u32 idle_cycles, u32 steps, u32 pool_used, u32 pool_high_water, u32 pool_capacity, u32 dropped_resumes, u16 queue_depth, u16 queue_capacity, u32 trace_discarded, u32 reserved |
+  | `RuntimeStatsHeader` | 56 | u8 event_id `0x20`, u8 version 1, u8 n_tasks, u8 n_drivers, u64 timestamp_us, u32 cycle_hz, u32 cycles, u32 idle_cycles, u32 steps, u32 pool_used, u32 pool_high_water, u32 pool_capacity, u32 dropped_resumes, u16 queue_depth, u16 queue_capacity, u32 trace_discarded, u16 queue_high_water, u16 reserved (2026-11-04: was u32 reserved; firmware before that sends 0) |
   | `TaskStatsRecord` | 28 | char name[12], u32 frame_addr, u32 resumes, u32 run_cycles, u32 max_cycles |
   | `DriverStatsRecord` | 24 | char name[8], u16 id, u16 reserved, u32 events, u32 cycles, u32 errors |
 

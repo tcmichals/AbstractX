@@ -53,8 +53,19 @@ using IsrSafeCoroutineQueue = etl::queue_spsc_isr<std::coroutine_handle<>,
                                                   InterruptLock,
                                                   etl::memory_model::MEMORY_MODEL_SMALL>;
 
-// Backward-compatible name for the default ISR-safe queue policy.
-using IsrSafeSpscQueue = IsrSafeCoroutineQueue<32>;
+// @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (5a: ready-queue size per application)
+#ifndef ABSTRACTX_READY_QUEUE_SIZE
+#if ABSTRACTX_HOSTED
+#define ABSTRACTX_READY_QUEUE_SIZE 255
+#else
+#define ABSTRACTX_READY_QUEUE_SIZE 64
+#endif
+#endif
+static_assert(ABSTRACTX_READY_QUEUE_SIZE >= 8 && ABSTRACTX_READY_QUEUE_SIZE <= 255,
+              "ABSTRACTX_READY_QUEUE_SIZE: 8..255 (ETL small memory model)");
+
+// The default executor's ready ring.
+using IsrSafeSpscQueue = IsrSafeCoroutineQueue<ABSTRACTX_READY_QUEUE_SIZE>;
 
 // Generic domain bridge: coroutine domain <-> I/O or ISR domain.
 template <typename QueuePolicy>
@@ -118,6 +129,12 @@ public:
         return queue_.size();
     }
 
+    // Deepest the ring has been since start (or the last reset).
+    static inline uint32_t high_water(bool reset = false) noexcept {
+        return reset ? high_water_.exchange(0, std::memory_order_relaxed)
+                     : high_water_.load(std::memory_order_relaxed);
+    }
+
     static inline bool has_pending_resumes() noexcept {
         return !queue_.empty();
     }
@@ -125,12 +142,18 @@ public:
     static inline void reset() noexcept {
         queue_.clear();
         dropped_.store(0, std::memory_order_relaxed);
+        high_water_.store(0, std::memory_order_relaxed);
     }
 
 private:
     static inline bool record(bool pushed) noexcept {
         if (!pushed) {
             dropped_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (5a: high-water mark)
+            const uint32_t depth = static_cast<uint32_t>(queue_.size());
+            uint32_t hw = high_water_.load(std::memory_order_relaxed);
+            while (depth > hw && !high_water_.compare_exchange_weak(hw, depth, std::memory_order_relaxed)) {}
         }
         return pushed;
     }
@@ -141,6 +164,7 @@ private:
 
     static inline QueuePolicy queue_{};
     static inline std::atomic<uint32_t> dropped_{0};
+    static inline std::atomic<uint32_t> high_water_{0};  // shared: any producer (CAS max); readers
 };
 
 // Canonical public API: the dispatcher is domain-oriented, not ISR-only.

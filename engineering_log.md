@@ -3727,3 +3727,14 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Spec update**: `[SPEC-PICO-CORE-01]` "Wake from Core 0": `platform_init()` registers `__sev()` as the default wake hooks, so every `post()` / `post_from_isr()` signals an event (the `[SPEC-ARCH-16]` executor table row "Pico 2 W core 0 to core 1").
 * **Evidence**: Pico 2 W build; disassembly of the hook is `sev; bx lr`.
 * **Not verified**: on the board (no SWD session); the alarm-pool core placement.
+
+---
+
+### 2026-11-04: Ready-queue size per application, with a high-water mark (review T-4)
+* **Category**: `product-bug`
+* **Bug**: the ready ring held a fixed 32 handles; the 33rd wake in one pass was dropped (counted) and that coroutine hung (40 Event waiters: 32 woken, 8 dropped).
+* **Decision (project owner)**: build-time size per application, plus a high-water mark in the status report.
+* **Spec update**: `[SPEC-ARCH-16]` 5a: `ABSTRACTX_READY_QUEUE_SIZE` (default 64 MCU, 255 hosted, 8..255 checked at compile time); `Dispatcher::high_water()`; `[SPEC-TRACE-08]` header: `queue_high_water` (u16) takes half of the former u32 `reserved` (older firmware sends 0, so the format stays version 1).
+* **Tests**: `sim/test_executor.cpp`: 40 Event waiters, 40 woken, 0 dropped, high water 40; conformance check 6 now overfills the configured ring (271 posts, 16 refused and counted, high water 255); `tests/test_runtime_stats_decode.py`: the field round-trips (17) and the C++ report fills it.
+* **Evidence**: `tools/gate.sh` plain / asan / tsan 100/100 each, `[PASS] gate`; E906 5 images ok, cost of 64 entries: `e906_repl_app` 188.2 -> 188.6 KB SRAM_FAST (98.2%); Pico 2 W builds.
+* **Not verified**: Studio does not display `queue_high_water` yet (decoded only); board runs.

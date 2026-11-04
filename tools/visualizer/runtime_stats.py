@@ -13,7 +13,7 @@ CTF_MAGIC = 0xC1FC1FC1
 CTF_HEADER = struct.Struct("<IB3xIIQQII")      # 40 bytes (CtfPacketHeaderWire)
 STREAM_ID = 3
 EVENT_ID = 0x20
-HEADER = struct.Struct("<BBBBQIIIIIIIIHHII")   # 56 bytes (RuntimeStatsHeader)
+HEADER = struct.Struct("<BBBBQIIIIIIIIHHIHH")  # 56 bytes (RuntimeStatsHeader; [SPEC-ARCH-16] 5a q_hw)
 TASK = struct.Struct("<12sIIII")              # 28 bytes (TaskStatsRecord)
 DRIVER = struct.Struct("<8sHHIII")            # 24 bytes (DriverStatsRecord)
 assert (CTF_HEADER.size, HEADER.size, TASK.size, DRIVER.size) == (40, 56, 28, 24)
@@ -41,7 +41,7 @@ def decode(data: bytes):
     if len(data) < off + HEADER.size:
         return None
     (ev, ver, n_tasks, n_drv, ts_us, hz, cycles, idle, steps, pool_used, pool_hw, pool_cap,
-     dropped, q_depth, q_cap, discarded, _r) = HEADER.unpack_from(data, off)
+     dropped, q_depth, q_cap, discarded, q_hw, _r) = HEADER.unpack_from(data, off)
     if ev != EVENT_ID or ver != 1:
         return None
     off += HEADER.size
@@ -62,7 +62,7 @@ def decode(data: bytes):
     return {"timestamp_us": ts_us, "cycle_hz": hz, "cycles": cycles, "idle_cycles": idle,
             "steps": steps, "pool_used": pool_used, "pool_high_water": pool_hw,
             "pool_capacity": pool_cap, "dropped_resumes": dropped, "queue_depth": q_depth,
-            "queue_capacity": q_cap, "trace_discarded": discarded,
+            "queue_capacity": q_cap, "queue_high_water": q_hw, "trace_discarded": discarded,
             "tasks": tasks, "drivers": drivers}
 
 
@@ -114,7 +114,8 @@ def encode(report: dict) -> bytes:
                        report["timestamp_us"], report["cycle_hz"], report["cycles"] % _U32,
                        report["idle_cycles"] % _U32, report["steps"] % _U32, report["pool_used"],
                        report["pool_high_water"], report["pool_capacity"], report["dropped_resumes"],
-                       report["queue_depth"], report["queue_capacity"], report["trace_discarded"], 0)
+                       report["queue_depth"], report["queue_capacity"], report["trace_discarded"],
+                       report.get("queue_high_water", 0), 0)
     for t in report["tasks"]:
         body += TASK.pack(t["name"].encode()[:11], t["frame"], t["resumes"] % _U32,
                           t["run_cycles"] % _U32, t["max_cycles"] % _U32)
