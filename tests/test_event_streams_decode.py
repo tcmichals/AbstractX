@@ -13,6 +13,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import event_streams as es  # noqa: E402
 
 
+# @impl [SPEC-AUDIT-17] docs/SPECTRACE.md (a skip is visible)
+SKIPPED: list = []
+
 def test_round_trip_and_start_unwrap():
     pkt = es.encode_profile([(0x3FFC1234, 0), (0x3FFC5678, 1)], 1000, 3)
     p = es.decode_profile(pkt)
@@ -36,7 +39,7 @@ def test_rejects_other_streams_and_truncation():
 def test_decodes_the_cpp_packets():
     exe = os.environ.get("EVENT_TRACE_EXE")
     if not exe:
-        print("SKIP: EVENT_TRACE_EXE not set (run through ctest)")
+        SKIPPED.append("EVENT_TRACE_EXE not set (run through ctest)")
         return
     with tempfile.TemporaryDirectory() as d:
         tl, pr = os.path.join(d, "tl.bin"), os.path.join(d, "pr.bin")
@@ -55,3 +58,6 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("PASS", name)
+    if SKIPPED:  # [SPEC-AUDIT-17] a skip is visible: ctest SKIP_RETURN_CODE 77
+        print("SKIPPED:", "; ".join(SKIPPED))
+        sys.exit(77)

@@ -31,11 +31,13 @@ std::atomic<PostFn> s_post{&ring_post};
 std::atomic<PostFn> s_post_isr{&ring_post_from_isr};
 } // namespace
 
+// @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (5: the host chooses where posts go)
 void set_executor(const Executor& e) noexcept {
     s_post.store(e.post ? e.post : &ring_post, std::memory_order_release);
     s_post_isr.store(e.post_from_isr ? e.post_from_isr : &ring_post_from_isr, std::memory_order_release);
 }
 
+// @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (5: the one way a coroutine becomes ready)
 bool post(std::coroutine_handle<> h) noexcept {
 #if !defined(NDEBUG) && !ABSTRACTX_HOSTED
     assert(hal::in_isr() != 1 && "post() from an interrupt: use post_from_isr()");

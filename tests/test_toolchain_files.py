@@ -84,7 +84,7 @@ def test_arm_float_abi():
 if __name__ == "__main__":
     if shutil.which("cmake") is None:
         print("SKIP: cmake not on PATH")
-        sys.exit(0)
+        sys.exit(77)  # [SPEC-AUDIT-17] a skip is visible: ctest SKIP_RETURN_CODE 77
     test_no_absolute_home_paths()
     test_search_order()
     test_arm_float_abi()

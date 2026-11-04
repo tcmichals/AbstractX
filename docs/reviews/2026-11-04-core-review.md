@@ -37,7 +37,7 @@ fails on the old code and passes on the new.
 | Q-1 | High | **Fixed 2026-11-04.** Linux I2C reports `Ok` for transfers it never sends: 2-write `write_regs`, 3 or more messages, zero-length probe | [V] |
 | Q-2 | High | **Fixed 2026-11-04.** A TLP read/write/transaction whose submit fails returns an earlier response as if it were fresh | [V] |
 | Q-3 | High | **Fixed 2026-11-04.** `IoEngine` auto-channel data race: a new edge overwrites the snapshot, timestamp and length while the previous completion still reads them | [V] TSan |
-| G-1 | High | ctest runs whatever binary exists; a source that no longer compiles still "passes" | [V] |
+| G-1 | High | **Fixed 2026-11-04.** ctest runs whatever binary exists; a source that no longer compiles still "passes" | [V] |
 | G-2 / G-3 | High | VERIFIED can be permanent (ledger record with commit `HEAD`), and VERIFIED needs no `@verifies` test | [V] |
 | G-17 | High | `936d023` log entry claims "100% pass" while the same commit broke two host tests; its new I2C retry blocks with `delay_us(200)` | [V] |
 | T-4 | Med | **Fixed 2026-11-04** (size per app, high-water mark). Dispatcher holds 32 handles; the 33rd wake is dropped (counted only) and that coroutine hangs forever | [V] |
@@ -97,14 +97,14 @@ temporary; no heap or forbidden headers in `include/` or `src/`.
 | id | Sev | Where | Defect | Evidence | Suggested fix |
 | --- | --- | --- | --- | --- | --- |
 | G-1 | High | `tests/CMakeLists.txt:35`, `sim/CMakeLists.txt:10`, `tools/trac.py:111-115`, `host-tests` skill | ctest runs the binary already in the build dir; `trac.py --ctest` records a pass without building. | [V] syntax error added to a test: build `rc=2`, then `ctest -R sim_test_host_drive`: `100% tests passed` | `tools/gate.sh` (done today); also a ctest build fixture and `trac.py` builds first |
-| G-2 | High | `docs/verification/evidence/2026-10/hp.jsonl:75`; `tools/spectrace_matrix.py:463-470,501-503` | A ledger record with commit `HEAD` (dirty) never goes stale; SPEC-STUDIO-01, SPEC-USER-PLUGIN-01/06 stay VERIFIED after 27 commits to their code. | [V] `--matrix` | reject non-hex or dirty commits |
-| G-3 | High | `tools/spectrace_matrix.py:476-516` | VERIFIED needs a passing skill run but no `@verifies` test (SPEC-USER-PLUGIN-01/06, SPEC-ZYNQ-IMU-POC-07 have none). Only 8 of 238 requirements are VERIFIED (163 STALE). | [V] | require at least one ctest-registered `@verifies` test |
+| G-2 | High | **Fixed 2026-11-04.** `docs/verification/evidence/2026-10/hp.jsonl:75`; `tools/spectrace_matrix.py:463-470,501-503` | A ledger record with commit `HEAD` (dirty) never goes stale; SPEC-STUDIO-01, SPEC-USER-PLUGIN-01/06 stay VERIFIED after 27 commits to their code. | [V] `--matrix` | reject non-hex or dirty commits |
+| G-3 | High | **Fixed 2026-11-04.** `tools/spectrace_matrix.py:476-516` | VERIFIED needs a passing skill run but no `@verifies` test (SPEC-USER-PLUGIN-01/06, SPEC-ZYNQ-IMU-POC-07 have none). Only 8 of 238 requirements are VERIFIED (163 STALE). | [V] | require at least one ctest-registered `@verifies` test |
 | G-4 | Med | `tests/test_zynq_buildroot_config.py:21,67,119,134` | `@impl` tags for ZYNQ-PLATFORM-07/08/10/11 are in the test, so editing the real defconfigs never makes them stale. | [V] | move tags to the defconfigs |
-| G-5 | Med | `spectrace_matrix.py --check-verifies` | 68 unbacked `@verifies` claims, enforced by no test. | [V] `Unbacked @verifies claims: 68` | shrink-only baseline in `test_repo_is_honest` |
+| G-5 | Med | **Fixed 2026-11-04.** `spectrace_matrix.py --check-verifies` | 68 unbacked `@verifies` claims, enforced by no test. | [V] `Unbacked @verifies claims: 68` | shrink-only baseline in `test_repo_is_honest` |
 | G-6 | Med | `tests/test_ring_wraparound.cpp:1` | Claims SPEC-TLP-02 (virtual BAR addressing); tests only ring wraparound. | [R] | drop the claim |
 | G-7 | Med | `tests/test_visualizer_async_bridge.py:5` | Claims SPEC-STUDIO-08/04 but tests an async engine Studio does not use. | [V] | test `udp_receiver_thread` or wire the engine in |
 | G-8 | Med | `sim/sitl_coro_sim.cpp`; 9 `examples/*.cpp` | No asserts, always exit 0, yet `sim_sitl_coro_sim` claims SPEC-ARCH-01. | [V] | add asserts or call them smoke tests |
-| G-9 | Med | `tests/test_live_profile.py:51`, `test_event_streams_decode.py:39`, `test_toolchain_files.py:86` | Skips print and return, so ctest shows Passed. | [V] `75: skip: E906 ELF ... not present`, Passed | exit 77 + `SKIP_RETURN_CODE 77` |
+| G-9 | Med | **Fixed 2026-11-04.** `tests/test_live_profile.py:51`, `test_event_streams_decode.py:39`, `test_toolchain_files.py:86` | Skips print and return, so ctest shows Passed. | [V] `75: skip: E906 ELF ... not present`, Passed | exit 77 + `SKIP_RETURN_CODE 77` |
 | G-10 | Med | `tests/CMakeLists.txt:123,151-160`; `.github/workflows/spectrace_dashboard.yml:28` | GUI tests registered only when `imgui_bundle` is importable; CI does not install it, so CI runs no Studio test; CI runs no cocotb. | [R] | install it in CI; missing dependency fatal under a CI option |
 | G-11 | Med | `sim/CMakeLists.txt:139-163`; `spectrace_matrix.py:176-187` | None of the 17 cocotb suites is in ctest; `check_tests` counts a name anywhere in the CMake text as "run". | [R] | `add_test` per suite; `check_tests` requires `add_test` |
 | G-12 | Low | `tests/test_e906_rpmsg_bridge.py:74` | One test function is never called from `__main__`. | [V] | auto-discover tests |

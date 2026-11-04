@@ -18,6 +18,9 @@ TABLE = {0x100: ("mp_execute_bytecode", "/repo/third_party/micropython/py/vm.c:2
          0x300: ("??", "??:0")}
 
 
+# @impl [SPEC-AUDIT-17] docs/SPECTRACE.md (a skip is visible)
+SKIPPED: list = []
+
 def fake_runner(pcs):
     return [TABLE[pc] for pc in pcs]
 
@@ -48,12 +51,12 @@ def test_real_elf_idle_sample_is_platform_idle_wait():
         repo, "build_e906_irq", "apps", "e906_repl_app", "e906_repl_app")
     tool = lp.find_addr2line()
     if not tool or not os.path.exists(elf):
-        print("skip: E906 ELF or riscv-none-elf-addr2line not present")
+        SKIPPED.append("E906 ELF or riscv-none-elf-addr2line not present")
         return
     import subprocess
     nm = tool.replace("addr2line", "nm")
     if not os.path.exists(nm):
-        print("skip: nm not present")
+        SKIPPED.append("nm not present")
         return
     sym = lp.Symbolizer(elf, repo, addr2line=tool)
     # e906_idle_wfi labels the idle wfi (the profiler's wfi + 4 check uses the same symbol).
@@ -68,7 +71,7 @@ def test_real_elf_idle_sample_is_platform_idle_wait():
     assert sym.wait_idle()
     if os.path.isabs(sym.lookup(idle_wfi)[1]):
         # Built in another checkout (e.g. the other PC): its DWARF paths are not under this repo.
-        print("skip: E906 ELF debug paths are not under this checkout")
+        SKIPPED.append("E906 ELF debug paths are not under this checkout")
         return
     for pc in (idle_wfi, idle_wfi + 4):
         func, path, line = sym.lookup(pc)
@@ -119,3 +122,6 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("PASS", name)
+    if SKIPPED:  # [SPEC-AUDIT-17] a skip is visible: ctest SKIP_RETURN_CODE 77
+        print("SKIPPED:", "; ".join(SKIPPED))
+        sys.exit(77)

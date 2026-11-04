@@ -96,6 +96,13 @@ if(ABSTRACTX_TARGET STREQUAL "host")
     add_subdirectory(sim)
     add_subdirectory(examples)
     add_subdirectory(tests)
+
+    # [SPEC-AUDIT-17] ctest builds first: no test runs a stale binary (review G-1)
+    # @impl [SPEC-AUDIT-17] docs/SPECTRACE.md (ctest builds first)
+    add_test(NAME build_tree COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --parallel)
+    set_tests_properties(build_tree PROPERTIES FIXTURES_SETUP abx_build)
+    # sim/, examples/ and tests/ mark their own tests FIXTURES_REQUIRED abx_build (a directory may
+    # only set properties on its own tests before CMake 3.28).
 endif()
 
 # Custom helper to describe our targets

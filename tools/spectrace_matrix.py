@@ -103,6 +103,8 @@ class Requirement:
             return "PARTIAL"
         if not self.skills:
             return "IMPLEMENTED"
+        if not self.tests:
+            return "IMPLEMENTED"  # [SPEC-AUDIT-07]: no @verifies test, never VERIFIED
         if self.evidence:
             if self.evidence.get("failing"):
                 return "FAILING"
@@ -504,6 +506,10 @@ def evaluate_evidence(root: Path, reqs: dict[str, Requirement], records: list[di
                     failing = True
                 elif candidate.get("result") == "pass":
                     cmt = candidate.get("commit", "")
+                    # @impl [SPEC-AUDIT-07] docs/SPECTRACE.md (a real commit, a clean tree)
+                    if not re.fullmatch(r"[0-9a-f]{7,40}", str(cmt)) or candidate.get("dirty"):
+                        stale = True
+                        continue
                     changed = get_changed_since(cmt)
                     if any(gf in changed or gf in dirty_files for gf in governed_files):
                         stale = True
@@ -979,11 +985,22 @@ def main() -> int:
             print(f"Host-only checks of target code: {len(placed)} (report only)")
         return int(rc)
     if args.check_verifies:
+        # @impl [SPEC-AUDIT-15] docs/SPECTRACE.md (shrink-only baseline of known unbacked claims)
         problems = check_verifies(root)
-        for p in problems:
-            print(f"[VERIFIES] {p}")
-        print(f"Unbacked @verifies claims: {len(problems)}")
-        return 1 if problems else 0
+        base_file = root / "tools" / "verifies_baseline.txt"
+        base = set()
+        if base_file.exists():
+            base = {ln.strip() for ln in base_file.read_text().splitlines() if ln.strip() and not ln.startswith("#")}
+        now = {re.sub(r":\d+: claims (\S+) but.*", r": \1", x): x for x in problems}
+        new = [now[k] for k in sorted(set(now) - base)]
+        fixed = sorted(base - set(now))
+        for p in new:
+            print(f"[VERIFIES] NEW {p}")
+        for k in fixed:
+            print(f"[VERIFIES] fixed, delete from {base_file.name}: {k}")
+        print(f"Unbacked @verifies claims: {len(problems)} ({len(base)} known in {base_file.name}, "
+              f"{len(new)} new, {len(fixed)} fixed)")
+        return 1 if (new or fixed) else 0
     if args.check_skills:
         problems = check_skills(root)
         for p in problems:

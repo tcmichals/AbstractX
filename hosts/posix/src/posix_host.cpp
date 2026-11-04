@@ -85,6 +85,7 @@ bool loop(DoneFn done, void* ctx, uint64_t limit_us) noexcept {
 
 } // namespace
 
+// @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (10: the host that passes the conformance checks)
 bool run_until(DoneFn done, void* ctx, uint64_t give_up_us) noexcept {
     return loop(done, ctx, now_us() + give_up_us);
 }

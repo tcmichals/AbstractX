@@ -185,3 +185,16 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME py_test_boundary_enforcement
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/audit_boundaries.py)
 endif()
+
+# [SPEC-AUDIT-17] every test here needs the build_tree fixture: ctest builds first (review G-1)
+get_property(_abx_tests DIRECTORY PROPERTY TESTS)
+if(_abx_tests)
+    set_tests_properties(${_abx_tests} PROPERTIES FIXTURES_REQUIRED abx_build)
+endif()
+
+# [SPEC-AUDIT-17] a skip is visible: these tests exit 77 when part of them cannot run (review G-9)
+foreach(_abx_skippable py_test_event_streams_decode py_test_live_profile py_test_toolchain_files)
+    if(TEST ${_abx_skippable})
+        set_tests_properties(${_abx_skippable} PROPERTIES SKIP_RETURN_CODE 77)
+    endif()
+endforeach()

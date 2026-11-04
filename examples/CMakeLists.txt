@@ -28,3 +28,8 @@ add_abstractx_example(dual_processor_io_and_processing     dual_processor_io_and
 add_abstractx_example(gps_imu_flight_node                  gps_imu_flight_node.cpp)
 target_link_libraries(gps_imu_flight_node PRIVATE abstractx_drivers)
 
+# [SPEC-AUDIT-17] every test here needs the build_tree fixture: ctest builds first (review G-1)
+get_property(_abx_tests DIRECTORY PROPERTY TESTS)
+if(_abx_tests)
+    set_tests_properties(${_abx_tests} PROPERTIES FIXTURES_REQUIRED abx_build)
+endif()

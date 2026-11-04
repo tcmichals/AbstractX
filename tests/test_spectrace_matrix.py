@@ -71,6 +71,7 @@ def make_repo(root: Path) -> None:
     (root / "src" / "a.cpp").write_text(A_CPP)
     (root / "src" / "b.cpp").write_text(B_CPP)
     (root / "src" / "t_test.cpp").write_text("// @" + "verifies [SPEC-FIX-04]\nint t() { return 0; }\n")
+    (root / "src" / "t1_test.cpp").write_text("// @" + "verifies [SPEC-FIX-01]\nint t1() { return one(); }\n")
     run(["git", "init", "-q"], root)
     run(["git", "add", "-A"], root)
     run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "fixture"], root)
@@ -175,6 +176,35 @@ def test_stale_and_failing_verdicts():
         run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "modify a.cpp"], root)
         reqs, skills, _ = sm.build_matrix(root)
         assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "STALE", "governed code change after test marks requirement STALE"
+
+
+def test_verified_needs_a_real_commit_and_a_test():
+    """[SPEC-AUDIT-07] 2026-11-04 (review G-2, G-3)."""
+    from trac_lib import ledger
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        base = {"check": "ctest:debug", "family": "test", "host": "h", "metrics": {"failed": 0},
+                "requirements": ["SPEC-FIX-01"], "result": "pass"}
+        ledger.append(root, dict(base, commit="HEAD", dirty=False, time="2026-11-04T00:00:00Z"))
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "STALE", "commit HEAD never verifies"
+        commit = subprocess.check_output(["git", "rev-parse", "--short=12", "HEAD"], cwd=root, text=True).strip()
+        ledger.append(root, dict(base, commit=commit, dirty=True, time="2026-11-04T00:01:00Z"))
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "STALE", "a dirty tree never verifies"
+        ledger.append(root, dict(base, commit=commit, dirty=False, time="2026-11-04T00:02:00Z"))
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "VERIFIED"
+        # the same evidence without a @verifies test is at most IMPLEMENTED
+        (root / "src" / "t1_test.cpp").unlink()
+        run(["git", "add", "-A"], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "drop test"], root)
+        ledger.append(root, dict(base, commit=subprocess.check_output(
+            ["git", "rev-parse", "--short=12", "HEAD"], cwd=root, text=True).strip(), dirty=False,
+            time="2026-11-04T00:03:00Z"))
+        reqs, skills, _ = sm.build_matrix(root)
+        assert reqs["SPEC-FIX-01"].verdict(set(skills)) == "IMPLEMENTED", "no @verifies test, never VERIFIED"
 
 
 def test_device_tree_and_yaml_traceability():
@@ -453,6 +483,13 @@ def test_repo_is_honest():
     reqs, _, _ = sm.build_matrix(repo)
     assert sm.check_drift(repo, reqs) == {}, sm.check_drift(repo, reqs)
     assert sm.check_tests(repo) == [], sm.check_tests(repo)
+    # [SPEC-AUDIT-15] @verifies claims: shrink-only baseline (review G-5)
+    import re
+    now = {re.sub(r":\d+: claims (\S+) but.*", r": \1", x) for x in sm.check_verifies(repo)}
+    base_file = repo / "tools" / "verifies_baseline.txt"
+    base = {ln.strip() for ln in base_file.read_text().splitlines() if ln.strip() and not ln.startswith("#")}
+    assert not (now - base), f"new unbacked @verifies claims: {sorted(now - base)}"
+    assert not (base - now), f"fixed claims still in {base_file.name} (delete them): {sorted(base - now)}"
 
 
 if __name__ == "__main__":

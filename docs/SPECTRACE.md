@@ -148,6 +148,13 @@ where its evidence goes. SpecTrace connects them: requirement → code
   not exist).
 * **Requirement**: "100%" means every requirement is `VERIFIED`. Tag presence alone
   (`audit_specs.py`) is never reported as completion.
+* **Requirement (VERIFIED means tested at a real commit, 2026-11-04)**: a requirement is `VERIFIED` only
+  when it has at least one `@verifies` test (without one, a passing skill run gives at most
+  `IMPLEMENTED`), and its evidence records name a full or abbreviated commit hash (7 to 40 hex digits)
+  and were taken on a clean tree (`dirty: false`). A record with commit `HEAD`, `unknown` or
+  `dirty: true` never verifies anything (it is `STALE`). Rationale (review 2026-11-04 G-2, G-3): a
+  record with commit `HEAD` never went stale (`git diff HEAD HEAD` is empty), so three requirements
+  stayed `VERIFIED` after 27 commits to their code; three others were `VERIFIED` with no test at all.
 * **Requirement (spec before code, 2026-11-04)**: `audit_specs.py` exits 1 for a requirement with no
   `@impl` tag, except one whose section has a `* **Not implemented yet**: <what>` line (the marker
   `spectrace_matrix.py` already reads). Such a requirement is reported `PLANNED`, never `TAGGED`,
@@ -364,7 +371,10 @@ python3 tools/run_adversarial_audit.py --all
   file tagged `@verifies [SPEC-X]` names none of the functions or globals that carry an
   `@impl [SPEC-X]` tag. A tag inside a function body counts as that function; a tag at file level
   counts as the names defined on the next lines. Requirements whose `@impl` sites define no names
-  are skipped.
+  are skipped. Known unbacked claims are listed in `tools/verifies_baseline.txt` (`<test file>:
+  <requirement>`); `tests/test_spectrace_matrix.py::test_repo_is_honest` fails on a claim not in the
+  list and on a list entry that no longer occurs, so the list only shrinks (2026-11-04, review G-5:
+  68 unbacked claims were enforced by nothing).
 * **Requirement (boundaries)**: `tools/boundary_review.py` lists the state shared across execution
   contexts in MCU and transport code: globals written in `*_isr` functions, `volatile` globals, and
   names handed to `IsrDispatcher::post` or `Dispatcher::post`. For each item it requires an
@@ -397,6 +407,14 @@ python3 tools/run_adversarial_audit.py --all
   (`-fno-sanitize-recover=all`) and with TSan (under `setarch -R`). A build error stops it before any
   ctest runs, so a stale binary can never pass for a test that no longer compiles. `--quick` runs the
   plain build only. It is the command behind AGENTS §10.2 and the pre-push hook.
+* **Requirement (ctest builds first, 2026-11-04)**: in the host build, ctest's first test
+  (`build_tree`) runs `cmake --build` on the tree, and every other test requires it (CTest fixture
+  `abx_build`); when the build fails, every test is reported Not Run and ctest fails. A plain
+  `ctest` can therefore never pass with a binary whose source no longer compiles (review G-1).
+* **Requirement (a skip is visible, 2026-11-04)**: a test that cannot run part of itself (a tool or
+  build output missing) still runs the rest, then exits 77; ctest registers 77 as `SKIP_RETURN_CODE`
+  and reports the test Skipped, never Passed (review G-9: three Python tests printed "skip" and
+  returned, so ctest showed Passed).
 * **Requirement (full audit)**: `tools/full_audit.py` runs every automatic stage (gate, traceability
   and contract audits, static analysis, coverage, mutation, fuzzing, E906 cross-build and layout, CI
   status) and writes one report with a status per stage: `PASS`, `FAIL`, `REPORT` (a measurement with
