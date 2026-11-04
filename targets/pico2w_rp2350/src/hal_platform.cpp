@@ -8,6 +8,7 @@
  */
 
 #include "abstractx/hal/platform.hpp"
+#include "abstractx/wake.hpp"
 #include "abstractx/trace/tracer.hpp"
 #include "abstractx_pico.hpp"
 #include "hal/frame_ring.hpp"
@@ -112,7 +113,15 @@ void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
 
 // Core 1: everything Wi-Fi related happens on Core 0 ([SPEC-PICO-CORE-01]).
 // @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
+// @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md (wake from Core 0: __sev on every post)
+static void pico_sev_wake() noexcept {
+#ifdef PICO_ON_DEVICE
+    __sev();
+#endif
+}
+
 void platform_init() noexcept {
+    abstractx::set_wake({&pico_sev_wake, &pico_sev_wake});
 #ifdef PICO_ON_DEVICE
     printf("[Pico 2 W] AbstractX on core %u; Wi-Fi on core 0.\n", get_core_num());
 #endif

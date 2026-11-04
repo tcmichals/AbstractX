@@ -357,7 +357,12 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   before the link is up are dropped and released, so the rings never stall.
 * **Doorbell**: the I/O processor's `notify_host()` no longer writes the SIO FIFO (its reader was
   Core 1 under the old plan); completions and the dispatcher are on the same core, so the
-  interrupt itself wakes `wfe`.
+  interrupt itself wakes `wfe` (Armv8-M sets the event register when an interrupt is taken).
+* **Wake from Core 0 (2026-11-04)**: a post from Core 0 sets no event on Core 1, so a Core 1 `wfe`
+  could sleep through it (review 2026-11-04 T-6). `platform_init()` registers `__sev()` as the
+  default wake hooks (`set_wake`), so every `post()` / `post_from_isr()` signals an event; a `wfe`
+  after any post, on either core, returns at once. One instruction per post. A host that registers its
+  own hooks replaces this. Not measured on the board.
 * **Method**: `Test`
 * **Verified by**: `host-tests` (`sim/test_pico_frame_ring.cpp`: two threads, order and content,
   full-ring drops, wraparound, 100000 frames), `thread-sanitizer` (same test under TSan),

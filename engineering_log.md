@@ -3718,3 +3718,12 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `sim/test_async_queue_waiters.cpp`: two consumers each get their item (the review probe on the old code: `woken=1 got0=-1`); three waiting producers enter in order; a destroyed waiting consumer leaves the list; rejects counted; 1000 rounds with no pool growth and no dropped resumes.
 * **Evidence**: `tools/gate.sh` plain / asan / tsan 100/100 each, `[PASS] gate`; E906 5 images ok; Pico 2 W builds. Cost: `e906_repl_app` SRAM_FAST 187.7 -> 188.2 KB (98.0%).
 * **Not verified**: board runs of the REPL console and `gps_imu_app`, which use `AsyncQueue`.
+
+---
+
+### 2026-11-04: Pico 2 W: a post from Core 0 could be slept through on Core 1 (review T-6)
+* **Category**: `product-bug` (inferred; not reproduced on hardware)
+* **What was wrong**: Core 1 idles in a bare `wfe`. An interrupt taken on Core 1 sets the event register (Armv8-M), so same-core completions were safe, as the spec said; a post from Core 0 sets no event on Core 1, so Core 1 could sleep through it.
+* **Spec update**: `[SPEC-PICO-CORE-01]` "Wake from Core 0": `platform_init()` registers `__sev()` as the default wake hooks, so every `post()` / `post_from_isr()` signals an event (the `[SPEC-ARCH-16]` executor table row "Pico 2 W core 0 to core 1").
+* **Evidence**: Pico 2 W build; disassembly of the hook is `sev; bx lr`.
+* **Not verified**: on the board (no SWD session); the alarm-pool core placement.
