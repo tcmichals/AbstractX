@@ -54,7 +54,6 @@ tests/test_event_streams_decode.py: SPEC-TRACE-09
 tests/test_event_streams_decode.py: SPEC-TRACE-10
 tests/test_live_profile.py: SPEC-STUDIO-11
 tests/test_live_profile.py: SPEC-STUDIO-17
-tests/test_ring_wraparound.cpp: SPEC-TLP-02
 tests/test_runtime_stats_decode.py: SPEC-STUDIO-15
 tests/test_runtime_stats_decode.py: SPEC-TRACE-08
 tests/test_sitl_fusion.cpp: SPEC-APP-10
@@ -66,9 +65,9 @@ tests/test_sitl_serial_loopback.cpp: SPEC-LOOP-09
 tests/test_spec_traceability.py: SPEC-AUDIT-12
 tests/test_spectrace_matrix.py: SPEC-AUDIT-07
 tests/test_trac.py: SPEC-AUDIT-09
-tests/test_visualizer_async_bridge.py: SPEC-STUDIO-04
-tests/test_visualizer_async_bridge.py: SPEC-STUDIO-08
 tools/audit_ipc_invariants.py: SPEC-AUDIT-15
 # 2026-11-04: moved here when the checker learned to bind an indented @impl tag to the member below it;
 # the test reaches the tagged init_channel / open_pin_interrupt through IoEngine::configure().
 sim/test_linux_drdy_auto.cpp: SPEC-LINUX-GPIO-01
+tests/test_visualizer_async_bridge.py: SPEC-STUDIO-04
+tests/test_visualizer_async_bridge.py: SPEC-STUDIO-08

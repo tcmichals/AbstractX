@@ -105,7 +105,10 @@ def test_async_bridge_event_driven_dispatch():
 
 
 if __name__ == "__main__":
-    test_ioctl_encoding_matches_linux()
-    test_trace_messages_become_udp_datagrams()
-    test_tlp_bridge_both_ways_and_validation()
-    print("[PASS] e906_rpmsg_bridge")
+    # every test_ function runs (2026-11-04, review G-12: one was never called)
+    ran = 0
+    for _name, _fn in list(globals().items()):
+        if _name.startswith("test_") and callable(_fn):
+            _fn()
+            ran += 1
+    print(f"[PASS] e906_rpmsg_bridge ({ran} tests)")

@@ -1,4 +1,5 @@
-// @verifies [SPEC-TLP-02] [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md
+// @verifies [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md
+// (2026-11-04: no longer claims [SPEC-TLP-02] virtual BAR addressing; this test only checks ring wraparound)
 /*
  * Copyright (C) 2026 Tim Michals
  * SPDX-License-Identifier: GPL-3.0-or-later

@@ -1071,12 +1071,12 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 * **DRDY interrupt**: `init_async()` checks WHO_AM_I = `0x47` and fails otherwise, then sets `INT_CONFIG` (`0x14`) = `0x03` (INT1 pulsed, push-pull, active high), `INT_CONFIG0` (`0x63`) = `0x20` (DRDY cleared by the sensor data read), `INT_CONFIG1` (`0x64`) = `0x00` below 4 kHz (100 µs pulse, `INT_ASYNC_RESET` = 0) and `0x60` at 4 kHz and above (`INT_TPULSE_DURATION` = 1: 8 µs pulse, `INT_TDEASSERT_DISABLE` = 1; the datasheet requires both for ODR >= 4 kHz, since a 100 µs pulse plus a 100 µs de-assert is longer than the 125 µs period at 8 kHz) and `INT_SOURCE0` (`0x65`) = `0x08` (UI_DRDY to INT1), and returns false if any write fails.
   `0x20` is chosen so the 15-byte burst read (the auto-DMA) clears DRDY and no status read is needed. Measured 2026-10-29 on the Cubie A5E with these settings at 1 kHz: PI8 was high in 15 of 300 Linux `devmem` samples while the E906 read in a loop, and CLIC line 100 pended again after the next sample. The pulse rate and the default (clear-on-status-read) behaviour are not measured yet. 2026-11-03 Pico 2 W at 8 kHz with `0x00`: GP20 never went high (3000 SWD samples, rising-edge latch never set) while register polling worked; whether `0x60` alone fixes it is recorded in `engineering_log.md`.
 * **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_imu_auto_dma_cocotb.py`)
-* **Implementation Target**: `drivers/include/abstractx/drivers/imu/icm42688p.hpp`
+* **Implementation Target**: `applib/include/applib/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-IMU-02]` ICM-42688-P Coroutine Awaiter
 * **Requirement**: `co_await imu.next_sample_async()` suspends the calling task with zero CPU polling until the SPI DMA completes.
 * **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `sanitizer-gate`
-* **Implementation Target**: `drivers/include/abstractx/drivers/imu/icm42688p.hpp`
+* **Implementation Target**: `applib/include/applib/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-IMU-03]` Auto-DMA Mode Replaces Polling
 * **Requirement**: while the IMU auto channel is in auto mode (`IIoProcessor::is_auto_mode()`),
@@ -1097,12 +1097,12 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 * **Requirement**: Zero-allocation streaming byte parser for UBX Class `0x01`, ID `0x07` (92-byte payload) with Fletcher-8 checksum verification, emitting a 35-byte CTF `GpsFixPayload` inside `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_GPS, payload)`.
 * **Extracted Fields**: `lat_1e7`, `lon_1e7`, `alt_msl_mm`, `ground_speed_mm_s`, `heading_1e5`, `satellites`, `fix_type`, `itow_ms`.
 * **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `sanitizer-gate`
-* **Implementation Target**: `drivers/include/abstractx/drivers/gps/ublox_gps.hpp`
+* **Implementation Target**: `applib/include/applib/drivers/gps/ublox_gps.hpp`
 
 ### `[SPEC-GPS-02]` U-Blox GPS Coroutine Awaiter & TLP Emission
 * **Requirement**: `co_await gps.next_fix_async()` yields until a verified 3D fix frame is parsed, emitting `Tlp64` containing the full CTF navigation payload.
 * **Verified by**: `host-tests` (`tests/test_sitl_gps.cpp`), `sanitizer-gate`
-* **Implementation Target**: `drivers/include/abstractx/drivers/gps/ublox_gps.hpp`
+* **Implementation Target**: `applib/include/applib/drivers/gps/ublox_gps.hpp`
 
 ---
 

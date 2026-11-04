@@ -234,7 +234,7 @@ The visualizer MUST decouple domain instruments from core framework logic using 
 
 ### `[SPEC-STUDIO-07]` Dynamic CTF 1.8 / barectf Schema Decoding
 The visualizer MUST be able to load CTF 1.8 / barectf YAML and JSON schemas (`trace_schema.json`) into typed Python structures with engineering scales and units (`ctf_schema_loader.py`).
-* **Decision (2026-10-22)**: live decoding does not go through the schema. AbstractX's own CTF streams are decoded by `runtime_stats.py` / `profile_stream.py` / `timeline_stream.py`, which mirror the C++ wire structs and are tested against bytes the C++ code produced; application sensor TLPs are decoded with the application's sensor contract (`apps/*/sensor_contract.py`). A layout lives in exactly one place per side, and a test pins the two sides together. (Earlier text claimed schema-driven decoding; the receiver never did it.)
+* **Decision (2026-10-22)**: live decoding does not go through the schema. AbstractX's own CTF streams are decoded by `runtime_stats.py` / `event_streams.py` (profile and timeline streams; the earlier `profile_stream.py` / `timeline_stream.py` names never existed), which mirror the C++ wire structs and are tested against bytes the C++ code produced; application sensor TLPs are decoded with the application's sensor contract (`apps/*/sensor_contract.py`). A layout lives in exactly one place per side, and a test pins the two sides together. (Earlier text claimed schema-driven decoding; the receiver never did it.)
 
 ### `[SPEC-STUDIO-08]` Multi-Rate Telemetry Ingestion & Thread Safety
 The visualizer MUST ingest 64-byte `asp_tlp64_t` frames and CTF packets asynchronously via a dedicated background receiver thread over UDP (port 9870), synchronizing state with the UI thread through `TelemetryState.lock`.
@@ -341,4 +341,4 @@ The visualizer MUST provide a Flow Integrity & Pacing Eye tab (within `CoreStudi
   axis with pause, zoom and a window length; hovering a span shows its duration, and a table
   below lists the most recent events. `--sim` shows the demo trace.
 * **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
-* **Implementation Target**: `tools/visualizer/abstractx_studio.py`, `tools/visualizer/timeline_stream.py`
+* **Implementation Target**: `tools/visualizer/abstractx_studio.py`, `tools/visualizer/event_streams.py`

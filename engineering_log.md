@@ -3791,3 +3791,12 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `sim/test_stream_accounting.cpp`: 100 edges -> sequence 0..99 (old code passed a literal 0); 3 packets with nobody waiting -> `no_consumer` 3; a waiting consumer still gets its packet. First version emitted 100 packets before draining a smaller ring (test fixed).
 * **Evidence**: `tools/gate.sh` plain / asan / tsan 104/104, `[PASS] gate`; `--check-verifies`: 70 claims, 69 known, 0 new; E906 5 images ok (`e906_repl_app` SRAM_FAST 117.4 KB, 61.2%: the output queues are gone); Pico 2 W builds.
 * **Not verified**: board runs; Studio display of the drop counters.
+
+---
+
+### 2026-11-04: A test that claimed what it does not test; a test never run; spec paths that do not exist (review G-6, G-12, G-16)
+* **Category**: `process-gap`
+* **Fixed**: (G-6) `tests/test_ring_wraparound.cpp` no longer claims `[SPEC-TLP-02]` (virtual BAR addressing; it tests ring wraparound). (G-12) `tests/test_e906_rpmsg_bridge.py` runs every `test_` function (`test_async_bridge_event_driven_dispatch` never ran; it passes). (G-16) Implementation Target paths fixed: the ICM-42688 / u-blox drivers are in `applib/`; the visualizer's decoder is `event_streams.py` (`profile_stream.py` / `timeline_stream.py` never existed).
+* **Left open, on purpose**: (G-7) `tools/visualizer/async_bridge.py` is itself tagged `@impl [SPEC-STUDIO-08] [SPEC-STUDIO-04]` but Studio does not use it: the spec points at the wrong code, which needs a decision (retire `async_bridge.py`, or tag and test Studio's own receiver). (G-8) `sim/sitl_coro_sim.cpp` has no asserts: it needs asserts or to leave the tested set. Removing their claims alone left the files governed by no requirement (the pre-commit hook refused), so both stay as they were.
+* **Evidence**: `--check-verifies`: baseline 69 -> 68; `tests/test_e906_rpmsg_bridge.py`: `[PASS] (4 tests)`; `--check-drift`: 0; `tools/gate.sh` plain / asan / tsan 104/104, `[PASS] gate`.
+* **Not done**: `--check-drift` does not yet check that spec paths exist.
