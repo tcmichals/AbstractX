@@ -166,9 +166,32 @@ def check_drift(root: Path, reqs: dict) -> dict:
         missing = sorted({n for n in CALL_RE.findall(prose)
                           if n not in r.not_implemented and n not in NOT_FUNCTIONS
                           and not re.search(rf"(?<![A-Za-z0-9]){re.escape(n)}\b", corpus)})
+        missing += missing_paths(root, r)
         if missing:
             drift[tag] = missing
     return drift
+
+
+_PATH_TOKEN_RE = re.compile(r"`([^`\s]+)`")
+
+
+def missing_paths(root: Path, r) -> list[str]:
+    """Paths on a requirement's Implementation Target / Verified by lines that do not exist, from
+    the repo root or the spec's folder ([SPEC-AUDIT-12], review G-16). '(was ...)' is history."""
+    # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
+    base = (root / r.spec).parent
+    out = []
+    for line in r.body:
+        if not (TARGET_LINE_RE.match(line) or VERIFIED_RE.match(line)):
+            continue
+        for tok in _PATH_TOKEN_RE.findall(re.sub(r"\(was [^)]*\)", "", line)):
+            path = tok.split("::")[0].split("#")[0]
+            if ("/" not in path or not re.search(r"\.\w+$|/$", path)
+                    or any(c in path for c in "*<>{}$")):
+                continue  # not a concrete repository path (a glob, a placeholder, a skill name)
+            if not (root / path).exists() and not (base / path).exists() and f"path {path}" not in out:
+                out.append(f"path {path}")
+    return out
 
 
 def _cocotb_registered(text: str) -> set[str]:
@@ -998,8 +1021,14 @@ def main() -> int:
         if args.check_drift:
             drift = check_drift(root, reqs)
             for tag, names in sorted(drift.items()):
-                print(f"[DRIFT] {tag} ({reqs[tag].spec}:{reqs[tag].line}) names {', '.join(names)}: "
-                      f"in no code file of the repo; implement it or list it under 'Not implemented yet'")
+                fns = [n for n in names if not n.startswith("path ")]
+                paths = [n[5:] for n in names if n.startswith("path ")]
+                if fns:
+                    print(f"[DRIFT] {tag} ({reqs[tag].spec}:{reqs[tag].line}) names {', '.join(fns)}: "
+                          f"in no code file of the repo; implement it or list it under 'Not implemented yet'")
+                if paths:
+                    print(f"[DRIFT] {tag} ({reqs[tag].spec}:{reqs[tag].line}) points at {', '.join(paths)}: "
+                          f"no such file; fix the path")
             print(f"Drift: {len(drift)} requirements")
             rc |= bool(drift)
         if args.check_tests:

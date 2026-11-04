@@ -337,7 +337,7 @@ sequenceDiagram
   1. **Window 1: Platform Topology & Interconnect Fabric** (Auto-detected silicon graph and SPSC ring saturations).
   2. **Window 2: Dual-Plane Timeline & Source Code Scanner** (Separation of I/O driver context from C++20 coroutines, with interactive source jumping to `__FILE__`: `__LINE__`).
   3. **Window 3: Per-Processor SPU/CPU & OS Process Utilization** (Tracking host Linux CPU% and external daemons, XuanTie E906 active vs WFI cycles, and FPGA logic LUT / DMA bandwidth).
-* **Implementation Target**: `include/abstractx/platform_topology.hpp`, `docs/ABSTRACTX_PLATFORM_TOPOLOGY_AND_METRICS_SPEC.md`, `tools/visualizer/abstractx_studio.py`
+* **Implementation Target**: `include/abstractx/platform_topology.hpp`, `docs/tier2_contracts/observability/ABSTRACTX_PLATFORM_TOPOLOGY_AND_METRICS_SPEC.md`, `tools/visualizer/abstractx_studio.py`
 * **Source Compatibility**: Legacy `Linux_Host_E907` and `Linux_Host_E907_FPGA` enum names MUST remain deprecated aliases of the corresponding E906 values; topology display strings MUST use the canonical E906 names.
 
 ### `[SPEC-ARCH-08]` Zero-Copy Data Plane (No Memory Copies)
@@ -426,20 +426,20 @@ sequenceDiagram
 
 ### `[SPEC-ARCH-12]` Repository Layout: Generic Core, Device Drivers, Applications
 * **Requirement**: `include/abstractx/` holds only target- and device-independent framework code
-  (coroutines, dispatcher, HAL interfaces, trace). Drivers for specific chips live in `drivers/`
-  (CMake target `abstractx_drivers`, headers under `drivers/include/abstractx/drivers/<kind>/`, so
-  the include path `abstractx/drivers/...` is unchanged); application logic (fusion, control) lives
-  in its app under `apps/`. Only targets that use a driver link `abstractx_drivers`.
+  (coroutines, dispatcher, HAL interfaces, trace). Drivers for specific chips live in `applib/`
+  (CMake target `abstractx_applib`, alias `abstractx_drivers`; headers under
+  `applib/include/applib/drivers/<kind>/`, AGENTS.md §14); application logic (fusion, control)
+  lives in its app under `apps/`. Only targets that use a driver link `abstractx_applib`.
   Hosts that drive AbstractX from an OS or event loop live in `hosts/<os>/` (`[SPEC-ARCH-15]`):
   target-independent glue for one OS, built into the application that uses that OS.
-* **Requirement**: `drivers/` follows the same freestanding rules as `include/` (AGENTS.md §2).
+* **Requirement**: `applib/` follows the same freestanding rules as `include/` (AGENTS.md §2).
 * **Rationale (2026-10-23)**: the repository audit (`docs/design/repo-file-audit.md`) found the
   u-blox GPS, ICM-42688-P and QMC5883L drivers and the gps_imu_app attitude filter inside the
   generic core, so every user of the framework compiled against specific sensors.
 * **Verified by**: `host-tests` (the drivers' users still build and pass: `tests/test_sitl_imu.cpp`,
   `tests/test_sitl_gps.cpp`, `tests/test_sitl_fusion.cpp`, `sim/test_tlp_msg.cpp`,
   `sim/test_gps_imu_coro_pool.cpp`, `examples/gps_imu_flight_node.cpp`), `spec-change-review`
-* **Implementation Target**: `drivers/CMakeLists.txt`, `CMakeLists.txt`
+* **Implementation Target**: `applib/CMakeLists.txt`, `CMakeLists.txt`
 
 ### `[SPEC-ARCH-10]` Wake Primitives Never Resume Inline
 * **Requirement**: `AsyncQueue::try_push` / `try_pop`, `Event::set` and `Semaphore::release` MUST NOT call
@@ -1140,7 +1140,7 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 ### `[SPEC-TRACE-06]` 1 KB Ping-Pong Buffer Architecture & Profile Configuration
 * **Requirement**: The trace engine MUST support a dual-buffer (ping-pong) topology (producer fills buffer A while consumer transmits buffer B) with a standard 1,024-byte (1 KB) packet size. The memory profile MUST be configurable via `enum class BufferProfile` (`PingPong_1K_x2`, `Ring_1K_x4`, `Compact_512B_x2`, `Large_2K_x4`) to support ultra-constrained co-processors (Allwinner E906 / RP2350) and high-throughput SITL logging with 0 dynamic heap allocations.
 * **Verified by**: `host-tests` (`sim/test_abstractx_runtime.cpp`, `sim/test_trace_zero_copy.cpp`: ping-pong swap)
-* **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `include/abstractx/abstractx.hpp`, `docs/HOW_TO_CTF_PING_PONG_TRACING.md`
+* **Implementation Target**: `include/abstractx/trace/tracer.hpp`, `include/abstractx/abstractx.hpp`, `docs/tier2_contracts/observability/HOW_TO_CTF_PING_PONG_TRACING.md`
 
 ### `[SPEC-TRACE-07]` Zero-Copy Trace Buffers: the Trace Buffer Is the Transport Buffer
 * **Goal**: fast, low-jitter tracing with no memcpy between the trace engine and the transport.

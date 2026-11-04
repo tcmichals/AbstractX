@@ -370,12 +370,20 @@ def test_drift_check_and_not_implemented_line():
                                             "void do_thing(int) {}\n")
         (root / "tests").mkdir(exist_ok=True)
         (root / "tests" / "t.py").write_text("missing_fn()  # a test mentioning it does not count\n")
+        (root / "sim").mkdir(exist_ok=True)
+        (root / "sim" / "x.cpp").write_text("")  # named on SPEC-FIX-01's Verified by line
         run(["git", "add", "-A"], root)
         reqs, _, _ = sm.build_matrix(root)
         drift = sm.check_drift(root, reqs)
         assert drift == {"SPEC-DRIFT-01": ["missing_fn"]}, drift
 
+        # Review G-16: a target path that does not exist is drift; a '(was ...)' mention is history.
         spec = root / "docs" / "DRIFT_SPECIFICATION.md"
+        spec.write_text(DRIFT_SPEC.replace("`src/c.cpp`", "`src/c.cpp`, `src/gone.hpp` (was `src/old.hpp`)"))
+        reqs, _, _ = sm.build_matrix(root)
+        drift = sm.check_drift(root, reqs)
+        assert drift == {"SPEC-DRIFT-01": ["missing_fn", "path src/gone.hpp"]}, drift
+
         spec.write_text(DRIFT_SPEC.replace("* **Verified by**", "* **Not implemented yet**: `missing_fn`\n* **Verified by**"))
         reqs, skills, _ = sm.build_matrix(root)
         assert sm.check_drift(root, reqs) == {}

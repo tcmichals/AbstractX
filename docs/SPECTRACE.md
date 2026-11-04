@@ -268,6 +268,10 @@ where its evidence goes. SpecTrace connects them: requirement → code
   `* **Not implemented yet**:` line are exempt, and such a requirement's verdict is `PARTIAL`,
   never `VERIFIED`. The adversarial audit's Stage 0 treats it as open, not as a missing
   `@impl` tag; a requirement without that line and without an `@impl` tag still fails.
+* **Requirement** (2026-11-04, review G-16): `--check-drift` also exits 1 when a path on an
+  implemented requirement's `Implementation Target` or `Verified by` line exists neither from the
+  repository root nor from the spec's folder. Globs, placeholders and `(was ...)` history are
+  skipped. Before this, requirements pointed at files that had moved and nothing noticed.
 * **Requirement**: a requirement that names skills but has no evidence that counts is `STALE`,
   never `VERIFIED` (`SPEC-E906-CACHE-02` showed `VERIFIED` with no `e906-disassembly-check` run).
 * **Requirement**: `python3 tools/spectrace_matrix.py --check-tests` exits 1 when a test file is

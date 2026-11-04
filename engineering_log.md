@@ -3823,3 +3823,12 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `tests/test_spectrace_matrix.py`: a commented-out `add_cocotb_test` line and a macro that makes only a custom target are both reported; against the old `check_tests` it fails (`AssertionError: a commented-out suite is not run`), with the new one `[PASS] spectrace_matrix`. A cocotb failure fails `make` (probe test with `assert False`: `make` exit 2).
 * **Evidence**: `ctest -L rtl -j8` in a fresh build: 17/17 rtl suites passed (4.3 s); with `ABX_VERILATOR` unset: `rtl_sim-test-router (Skipped)`; gate in the commit message.
 * **Not verified**: CI (it checks out submodules recursively and installs distro `verilator`, but does not install cocotb, so the rtl tests will be skips there: G-10).
+
+---
+
+### 2026-11-04: --check-drift now checks that spec paths exist (review G-16, the check that was missing)
+* **Category**: `tool-bug`
+* **What was found**: G-16's dead paths were found by reading, not by a check: `--check-drift` compared function names only. Adding the path check found three more: `[SPEC-ARCH-07]` and `[SPEC-TRACE-06]` pointed at `docs/*.md` files that `5843dfa` moved to `docs/tier2_contracts/observability/`; `[SPEC-ARCH-12]` pointed at `drivers/CMakeLists.txt` and still described a `drivers/` tree that `84695dc` moved to `applib/` (prose rewritten to `applib/`, target `abstractx_applib`, alias `abstractx_drivers`).
+* **Spec update**: `[SPEC-AUDIT-12]`: a path on an implemented requirement's Implementation Target / Verified by line must exist from the repo root or the spec's folder; globs, placeholders and `(was ...)` history are skipped (`[SPEC-E906-MEM-02]` keeps its "(was `include/dram_spsc_protocol.h`, removed in `4273f95`)" note).
+* **Regression test**: `tests/test_spectrace_matrix.py::test_drift_check_and_not_implemented_line`: a target `src/gone.hpp` is reported, `(was src/old.hpp)` is not. Old checker: `AssertionError: {'SPEC-DRIFT-01': ['missing_fn']}`; new: `[PASS] spectrace_matrix`. `test_repo_is_honest` failed on the three real paths until they were fixed.
+* **Evidence**: `--check-drift`: `Drift: 0 requirements`; gate in the commit message.
