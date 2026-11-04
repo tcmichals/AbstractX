@@ -222,6 +222,8 @@ public:
 };
 
 PicoI2c& get_pico_i2c() noexcept;
+// The one PicoSpi for SPI1 ([SPEC-PICO-HAL-02]); get_spi_driver() returns the same object.
+PicoSpi& get_pico_spi() noexcept;
 II2c& get_i2c_driver() noexcept;
 II2c& get_i2c() noexcept;
 

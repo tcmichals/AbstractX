@@ -279,9 +279,16 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   with `now_ns()` and calls `IoEngine::on_trigger`; it never resumes a coroutine.
 * **Requirement**: `PicoSpi` drives one chip select (GP13, `cs_pin` 0). A SPI channel with another
   `cs_pin` is refused by `init_channel` instead of reading the wrong device.
-* **Verified by**: `host-tests` (build only on the host), `board-bringup`
-* **Not verified yet**: on a Pico 2 W (no hardware on 2026-10-30).
-* **Implementation Target**: `targets/pico2w_rp2350/src/io_processor.cpp`
+* **Requirement** (2026-11-03): there is exactly one `PicoSpi` for SPI1 (`hal::get_pico_spi()`,
+  the instance behind `get_spi_driver()`). The I/O back end submits auto-channel transfers to that
+  instance; it never owns a second one. `PicoSpi::init()` on a second instance returns `false`
+  and leaves the first one in charge. **Why**: the DMA interrupt delivers completions to one
+  registered instance. The back end had its own `PicoSpi`; the IMU driver's later `init()` took
+  the registration, so every auto-DMA transfer completed on the wrong instance, its job never
+  finished and `g_sensor_ring` stayed empty (found on the board 2026-11-03).
+* **Verified by**: `host-tests` (build only on the host), `board-bringup` (DRDY edges counted on
+  GP20; auto-DMA TLPs reach `g_sensor_ring`; IMU rate equals the configured ODR)
+* **Implementation Target**: `targets/pico2w_rp2350/src/io_processor.cpp`, `targets/pico2w_rp2350/src/hal_spi.cpp`, `targets/pico2w_rp2350/src/hal_platform.cpp`
 
 ### [SPEC-PICO-HAL-03] Text Console on UART1, GPS Owns UART0
 * **Why**: the pico-sdk default stdio UART is UART0 on GP0/GP1, which is also the GPS bus

@@ -34,6 +34,11 @@ ISpi& get_spi_driver() noexcept {
     return g_pico_spi;
 }
 
+// @impl [SPEC-PICO-HAL-02] targets/pico2w_rp2350/SPECIFICATION.md
+PicoSpi& get_pico_spi() noexcept {
+    return g_pico_spi;
+}
+
 IUart& get_uart_driver() noexcept {
     return g_pico_uart;
 }

@@ -206,7 +206,8 @@ inline Task<void> imu_producer_task(Icm42688p& imu) {
                 got_auto = true;
             }
         }
-        if (got_auto) {
+        // @impl [SPEC-IMU-03] docs/DESIGN_SPECIFICATION.md (auto mode: one sample per DRDY edge, no polling)
+        if (got_auto || hal::get_target_io_processor().is_auto_mode(0)) {
             co_await abstractx::step_async();
             continue;
         }

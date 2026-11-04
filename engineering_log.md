@@ -3554,3 +3554,15 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Tool fact**: on this firmware OpenOCD `reset run` (and a watchdog reboot while OpenOCD is attached) leaves Core 1 at boot-ROM PC `0xda`; `reset halt` then `resume` starts both cores. Under GDB, hardware breakpoints confirmed Core 1 reaches `core1_entry` and `main` on the 16 KB stack (`msp 0x2001bae0`). Not checked: a plain power-on boot without the debugger.
 * **Host suite**: 88 of 89 pass in all three builds; `sim_test_e906_dma_irq` fails as before (pre-existing). `boundary_review.py --check` fails only on `g_stop` in `e906_rpmsg_studio_bridge.cpp` (pre-existing, last changed in af609a3).
 * **Not verified**: power-on boot without a debugger; Debug preset; DRDY auto-DMA; LED by eye.
+
+---
+
+### 2026-11-03: Pico 2 W auto-DMA delivered nothing: second PicoSpi stole completions; DRDY still not reaching GP20
+* **Category**: `product-bug` (two SPI instances; INT_CONFIG1 at 8 kHz), `process-gap` (the "IMU rate" measured all day was register polling, not DRDY samples)
+* **Bugs found**:
+  1. `PicoIoBackend` owned its own `hal::PicoSpi`; `PicoSpi::init()` registers one global instance for the DMA IRQ, and the IMU driver's later `init()` took it, so auto-DMA completions went to the wrong instance and `g_sensor_ring` stayed empty. Fixed: one instance (`get_pico_spi()`), `init()` refuses a second (`[SPEC-PICO-HAL-02]`).
+  2. `imu_producer_task` fell back to `next_sample_async()` whenever the ring was empty; that call reads the data registers immediately (no DRDY wait), so every IMU rate quoted earlier today (1418..3933/s) was polling speed. Fixed: no polling in auto mode (`[SPEC-IMU-03]`).
+  3. `INT_CONFIG1 = 0x00` at ODR 8 kHz breaks the datasheet rule (8 us pulse and de-assert disabled required at >= 4 kHz). Fixed: `0x60` at ODR codes 1..4 (`[SPEC-IMU-01]`).
+* **Board facts (SWD)**: `IMU=OK` (WHO_AM_I 0x47, all writes read back, including INT_CONFIG1 0x60). GP20: FUNCSEL 5 (SIO), pad IE=1, `PROC1_INTE` rising edge set, `PROC0_INTE` 0; 3000 samples all low; rising-edge latch never set, both before and after fix 3. GPIO scan: only GP24/25/29 (CYW43 bus) toggle. Console after the fixes: `IMU: 0` (auto mode on, no polling).
+* **Open**: whether INT1 is wired to GP20, or the IMU does not assert INT1. See TODO.md.
+* **Not verified**: host tests do not cover the Pico back end; no Debug build; DRDY rate.

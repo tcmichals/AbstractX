@@ -776,8 +776,8 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 * **Requirement**: Read 15-byte burst (`Temp[1..2]`, `Accel_XYZ[3..8]`, `Gyro_XYZ[9..14]`) on `DRDY` edge, convert to engineering units, and format into a 23-byte CTF `ImuSamplePayload` encapsulated in `Tlp64::make_ctf(Channel::Telemetry, TLP_TAG_IMU, payload)`.
 * **ODR & Scaling**: Gyro $\pm 2000\ \text{dps}$ ($16.4\ \text{LSB/dps}$), Accel $\pm 16g$ ($2048\ \text{LSB/g}$).
   The ODR is a parameter (`GYRO_CONFIG0`/`ACCEL_CONFIG0` bits [3:0]: `0x3` = 8 kHz, `0x6` = 1 kHz), the same value for gyro and accel.
-* **DRDY interrupt**: `init_async()` checks WHO_AM_I = `0x47` and fails otherwise, then sets `INT_CONFIG` (`0x14`) = `0x03` (INT1 pulsed, push-pull, active high), `INT_CONFIG0` (`0x63`) = `0x20` (DRDY cleared by the sensor data read), `INT_CONFIG1` (`0x64`) = `0x00` (100 µs pulse, `INT_ASYNC_RESET` = 0) and `INT_SOURCE0` (`0x65`) = `0x08` (UI_DRDY to INT1), and returns false if any write fails.
-  `0x20` is chosen so the 15-byte burst read (the auto-DMA) clears DRDY and no status read is needed. Measured 2026-10-29 on the Cubie A5E with these settings at 1 kHz: PI8 was high in 15 of 300 Linux `devmem` samples while the E906 read in a loop, and CLIC line 100 pended again after the next sample. The pulse rate and the default (clear-on-status-read) behaviour are not measured yet.
+* **DRDY interrupt**: `init_async()` checks WHO_AM_I = `0x47` and fails otherwise, then sets `INT_CONFIG` (`0x14`) = `0x03` (INT1 pulsed, push-pull, active high), `INT_CONFIG0` (`0x63`) = `0x20` (DRDY cleared by the sensor data read), `INT_CONFIG1` (`0x64`) = `0x00` below 4 kHz (100 µs pulse, `INT_ASYNC_RESET` = 0) and `0x60` at 4 kHz and above (`INT_TPULSE_DURATION` = 1: 8 µs pulse, `INT_TDEASSERT_DISABLE` = 1; the datasheet requires both for ODR >= 4 kHz, since a 100 µs pulse plus a 100 µs de-assert is longer than the 125 µs period at 8 kHz) and `INT_SOURCE0` (`0x65`) = `0x08` (UI_DRDY to INT1), and returns false if any write fails.
+  `0x20` is chosen so the 15-byte burst read (the auto-DMA) clears DRDY and no status read is needed. Measured 2026-10-29 on the Cubie A5E with these settings at 1 kHz: PI8 was high in 15 of 300 Linux `devmem` samples while the E906 read in a loop, and CLIC line 100 pended again after the next sample. The pulse rate and the default (clear-on-status-read) behaviour are not measured yet. 2026-11-03 Pico 2 W at 8 kHz with `0x00`: GP20 never went high (3000 SWD samples, rising-edge latch never set) while register polling worked; whether `0x60` alone fixes it is recorded in `engineering_log.md`.
 * **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_imu_auto_dma_cocotb.py`)
 * **Implementation Target**: `drivers/include/abstractx/drivers/imu/icm42688p.hpp`
 
@@ -785,6 +785,16 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 * **Requirement**: `co_await imu.next_sample_async()` suspends the calling task with zero CPU polling until the SPI DMA completes.
 * **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `sanitizer-gate`
 * **Implementation Target**: `drivers/include/abstractx/drivers/imu/icm42688p.hpp`
+
+### `[SPEC-IMU-03]` Auto-DMA Mode Replaces Polling
+* **Requirement**: while the IMU auto channel is in auto mode (`IIoProcessor::is_auto_mode()`),
+  the IMU producer takes samples only from the ingress ring (one per DRDY edge) and does not call
+  `next_sample_async()`. Polling is the fallback only when auto mode is off.
+* **Why**: `next_sample_async()` reads the data registers immediately, without waiting for DRDY.
+  Mixed with auto-DMA it competes for the same SPI bus and produces samples that are not aligned
+  to the sensor's output data rate (2026-11-03, Pico 2 W).
+* **Verified by**: `board-bringup` (IMU rate equals the configured ODR with auto mode on)
+* **Implementation Target**: `apps/gps_imu_app/include/gps_imu_tasks.hpp`
 
 ### `[SPEC-MAG-01]` 3-Axis Magnetometer Interface & Coroutine Ingestion
 * **Requirement**: Calibrated 3-axis magnetic field vector ingestion (`read_sample_async()`), returning `mag::MagSample` in milliGauss with hardware timestamping, adhering to the `IMagDriver` abstract interface with zero dynamic heap allocation.

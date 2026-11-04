@@ -4,7 +4,7 @@
  *
  * AbstractX Raspberry Pi Pico 2 W (RP2350): I/O processor back end (Core 0).
  * The shared IoEngine ([SPEC-ARCH-13]) decodes TLPs; this file maps its transfers onto the
- * PicoSpi DMA request queue and PicoI2c, its triggers onto GPIO edge interrupts, and its host
+ * shared PicoSpi DMA request queue and PicoI2c, its triggers onto GPIO edge interrupts, and its host
  * notification onto the SIO FIFO doorbell to Core 1.
  */
 
@@ -49,7 +49,7 @@ public:
             hal::SpiConfig cfg{};
             cfg.frequency_hz = ch.bus_speed_hz ? ch.bus_speed_hz : 10'000'000;
             cfg.mode = hal::SpiMode::Mode3;
-            spi_.init(cfg);
+            if (!spi_.init(cfg)) return false;
             spi_ready_ = true;
         } else if (ch.bus_type == hal::BusType::I2c) {
             hal::I2cConfig cfg{};
@@ -208,7 +208,8 @@ private:
     }
 
     hal::IoEngine* engine_{nullptr};
-    hal::PicoSpi spi_{};
+    // @impl [SPEC-PICO-HAL-02] targets/pico2w_rp2350/SPECIFICATION.md (shared SPI1 driver, never a second PicoSpi)
+    hal::PicoSpi& spi_{hal::get_pico_spi()};
     bool spi_ready_{false};
     bool i2c_ready_{false};
     std::array<Job, hal::IoEngine::kMaxChannels + hal::IoEngine::kBridgeSlots> jobs_{};

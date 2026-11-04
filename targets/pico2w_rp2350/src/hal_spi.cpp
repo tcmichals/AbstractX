@@ -51,6 +51,10 @@ bool PicoSpi::init(const SpiConfig& config) {
         return false;  // PL022 shifts MSB first only
     }
 #ifdef PICO_ON_DEVICE
+    // @impl [SPEC-PICO-HAL-02] targets/pico2w_rp2350/SPECIFICATION.md (one PicoSpi owns SPI1's DMA IRQ)
+    if (g_active_spi_instance != nullptr && g_active_spi_instance != this) {
+        return false;
+    }
     // 1. Initialize SPI1 on GP10 (SCK), GP11 (TX/MOSI), GP12 (RX/MISO), GP13 (CS)
     const uint8_t mode = static_cast<uint8_t>(config.mode);
     const spi_cpol_t cpol = (mode & 0x2U) ? SPI_CPOL_1 : SPI_CPOL_0;

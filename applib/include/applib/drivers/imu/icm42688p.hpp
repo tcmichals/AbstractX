@@ -118,10 +118,14 @@ public:
 
         // DRDY on INT1, cleared by the data read ([SPEC-IMU-01]); power last (200 us rule).
         const uint8_t odr = static_cast<uint8_t>(cfg_.odr & 0x0F);
+        // @impl [SPEC-IMU-01] docs/DESIGN_SPECIFICATION.md (ODR codes 1..4 = 32/16/8/4 kHz need TPULSE=8us, TDEASSERT off)
+        constexpr auto int_config1 = [](uint8_t o) -> uint8_t {
+            return (o >= 1U && o <= 4U) ? static_cast<uint8_t>(0x60) : static_cast<uint8_t>(0x00);
+        };
         const std::array<std::array<uint8_t, 2>, 7> writes{{
             {IcmRegs::INT_CONFIG,    0x03},   // INT1 pulsed, push-pull, active high
             {IcmRegs::INT_CONFIG0,   0x20},   // UI_DRDY cleared on sensor register read
-            {IcmRegs::INT_CONFIG1,   0x00},   // 100 us pulse, INT_ASYNC_RESET = 0
+            {IcmRegs::INT_CONFIG1,   int_config1(odr)},  // [SPEC-IMU-01] 8 us pulse at >= 4 kHz
             {IcmRegs::INT_SOURCE0,   0x08},   // UI_DRDY -> INT1
             {IcmRegs::GYRO_CONFIG0,  odr},    // +-2000 dps
             {IcmRegs::ACCEL_CONFIG0, odr},    // +-16 g
