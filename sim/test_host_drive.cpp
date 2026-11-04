@@ -7,6 +7,7 @@
  * 1. next_period(): no drift, late slots skipped and counted, never a burst
  * 2. step() returns kNow while a coroutine is ready, kNever when idle, the status deadline when on
  * 3. one wake route: wake() / wake_from_isr() reach the hooks the host registered
+ * 5. longest_ready_run(): a coroutine that never waits shows up as a number
  * 4. steady state: a producer thread publishes 1000 values, posts and wakes; a host loop that
  *    blocks only on (deadline, wake) like freertos_host::run() receives all of them, with no
  *    dropped resumes and no coroutine pool growth
@@ -156,6 +157,28 @@ void test_steady_state() {
                 kMessages, coro_pool_high_water());
 }
 
+// --- 5. a host never spins silently ([SPEC-ARCH-15]) ------------------------------------------
+bool g_spin_done = false;
+Task<void> spinner() {
+    for (int i = 0; i < 500; ++i) co_await step_async();  // never waits for anything
+    g_spin_done = true;
+}
+
+void test_longest_ready_run() {
+    while (step() == kNow) {}
+    (void)longest_ready_run(true);
+    assert(longest_ready_run() == 0);
+    assert(spawn(spinner(), "spinner"));
+    while (step() == kNow) {}
+    assert(g_spin_done);
+    const uint32_t run = longest_ready_run();
+    std::printf("[+] longest ready run after a 500-yield coroutine: %u\n", run);
+    assert(run >= 499 && "a coroutine that never waits must be visible");  // spawn() ran the first
+    assert(step() == kNever && longest_ready_run() == run);  // idle keeps the max
+    (void)longest_ready_run(true);
+    assert(step() == kNever && longest_ready_run() == 0);    // new window, idle: 0
+}
+
 void test_status_deadline() {
     Config cfg{};
     cfg.trace.status_period_ms = 1000;
@@ -178,6 +201,7 @@ int main() {
     test_step_return();
     test_wake_routing();
     test_steady_state();
+    test_longest_ready_run();
     test_status_deadline();
     std::puts("[SUCCESS] host-driven step [SPEC-ARCH-15]");
     return 0;

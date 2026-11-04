@@ -141,6 +141,15 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   already in the past, it skips to the latest slot that is not in the future and adds the skipped
   slots to `overruns`. It never runs once per missed period back to back (FreeRTOS auto-reload
   timers do, `prvReloadTimer`).
+* **Requirement (a host never spins silently, 2026-11-04)**: while `step()` returns `kNow` the host
+  calls it again without blocking, so a coroutine that never waits (for example one that loops on
+  `step_async()`) keeps the host's thread running. Hosts that share a CPU yield on `kNow`: the
+  FreeRTOS host calls `taskYIELD()`, so equal-priority tasks run at once; lower-priority tasks still
+  wait, as they would behind any FreeRTOS task that never blocks. That is an application rule, not
+  hidden: the core counts consecutive `kNow` passes and keeps the longest run
+  (`abstractx::longest_ready_run(reset)`), so a coroutine that hogs the CPU shows up as a number.
+  A fixed block on `kNow` (for example `vTaskDelay(1)`) is not used: it would add a tick of latency
+  to every wake. (Found by a dataAcq integration review, 2026-11-04.)
 * **Requirement (FreeRTOS host, one copy)**: FreeRTOS targets (E906 now, ESP32-P4 next) use the
   shared host in `hosts/freertos/` (`abstractx::freertos_host::run()`), not their own loop. It
   registers the wake hooks for the AbstractX task and turns the deadline from `step()` into the wait:
@@ -152,7 +161,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   per sleep and `run()` still sleeps 100 us) and the ESP32-P4 FreeRTOS loop.
 * **Verified by**: `coro-contract-lint` (`tools/audit_coro_contracts.py` check 7: no foreign
   coroutine runtime; `tests/test_coro_contracts.py`), `host-tests` (`sim/test_host_drive.cpp`:
-  step return values, wake routing from another thread 1000x, `next_period`), `thread-sanitizer`,
+  step return values, wake routing from another thread 1000x, `next_period`, longest ready run), `thread-sanitizer`,
   `e906-build-layout` (`e906_freertos_app` in each `ABX_FREERTOS_TIMER` mode)
 * **Implementation Target**: `tools/audit_coro_contracts.py`, `include/abstractx/abstractx.hpp`,
   `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`

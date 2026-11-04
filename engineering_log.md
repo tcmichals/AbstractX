@@ -3635,3 +3635,14 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Cross builds**: E906 all 5 images layout `[ok]`; SRAM_FAST dropped (no 16-entry request queue): `e906_repl_app` 190.6 -> 188.8 / 192 KB (98.3%), `gps_imu_app` 138.8 KB (72.3%), `e906_freertos_app` 138.1 KB (71.9%); FreeRTOS XTIMER and TICK_HOOK modes build. Pico 2 W (`pico2w` preset) builds `gps_imu_app.elf` and `serial_loopback_app.elf` (needed `hardware/sync.h` for `__sev`).
 * **Hooks**: `git config core.hooksPath tools/git-hooks` set on this PC (pre-commit: spectrace change review; pre-push: `gate.sh --quick`). Git does not version this setting: it must be set once on the other PC.
 * **Not verified**: no board run (E906 bare metal / FreeRTOS, Pico): the magnetometer rate before and after, Pico `add_alarm_at` / `cancel_alarm` under the SMP `InterruptGuard`, and the `wfe` wake by `__sev()` are untested on hardware. ESP32-P4 not built (no ESP-IDF here).
+
+---
+
+### 2026-11-04: FreeRTOS host spun silently while a coroutine was ready (T-9)
+* **Category**: `product-bug`
+* **Mistake / bug observed** (`hosts/freertos/src/freertos_host.cpp`): `if (next == kNow) continue;` never blocks or yields, so a coroutine that never waits (a loop on `step_async()`) starves lower-priority FreeRTOS tasks and delays equal-priority ones until the next tick, and nothing reports it. Found by an agent integrating AbstractX into dataAcq, not by the core review.
+* **Which check should have caught it**: the `platforms` checklist of `full-audit` (how the host maps onto the OS scheduler) had not been walked yet; no test measures a busy host.
+* **Spec update**: `[SPEC-ARCH-15]` "a host never spins silently": yield on `kNow` (`taskYIELD()`), no fixed block (it would add a tick to every wake), and `abstractx::longest_ready_run(reset)` counts consecutive `kNow` passes.
+* **Regression test**: `sim/test_host_drive.cpp` `test_longest_ready_run`: a coroutine that yields 500 times gives a run of 499 (`spawn()` runs the first iteration inline); idle keeps the max; after a reset an idle loop reads 0. The old code has no such counter (the test does not compile there).
+* **Evidence**: `tools/gate.sh` plain / asan / tsan 92/92 each, `[PASS] gate`; `e906_freertos_app` WAIT / XTIMER / TICK_HOOK build, layout `[ok]`.
+* **Not verified**: the yield on a board; the counter is not yet in the runtime status report (wire format `[SPEC-TRACE-08]` unchanged).

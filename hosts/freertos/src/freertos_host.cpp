@@ -97,7 +97,12 @@ void arm(uint64_t deadline_us, TickType_t n) noexcept {
     set_wake({&wake_task, &wake_isr});
     for (;;) {
         const uint64_t next = step();
-        if (next == kNow) continue;
+        if (next == kNow) {
+            // A coroutine is ready: let equal-priority tasks run, then continue (no fixed block,
+            // which would add a tick to every wake). longest_ready_run() exposes a hog.
+            taskYIELD();
+            continue;
+        }
         const TickType_t n = ticks_until(next);
         if (n == 0) continue;  // already due
 #if ABX_FREERTOS_TIMER_MODE == 0

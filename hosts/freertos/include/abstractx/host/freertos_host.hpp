@@ -16,6 +16,8 @@
 namespace abstractx::freertos_host {
 
 // Call from the one task that runs AbstractX; registers the wake hooks for it. Never returns.
+// While a coroutine is ready it yields (taskYIELD) instead of blocking, so equal-priority tasks
+// run; lower-priority tasks wait as behind any task that never blocks ([SPEC-ARCH-15]).
 [[noreturn]] void run() noexcept;
 
 // TICK_HOOK mode only: the application's vApplicationTickHook calls this. It compares the tick

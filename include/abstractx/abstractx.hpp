@@ -108,6 +108,10 @@ void notify_work(uint32_t flags) noexcept;
 // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md
 uint64_t step() noexcept;
 
+// Longest run of consecutive step() calls that returned kNow ([SPEC-ARCH-15]): a coroutine that
+// never waits keeps the host's thread busy; this makes it visible. reset = start a new window.
+uint32_t longest_ready_run(bool reset = false) noexcept;
+
 /*
  * 3a. Wake route ([SPEC-ARCH-15]): the host registers how to wake the thread that
  *     calls step(); an event source publishes first, then calls wake() (task/thread)

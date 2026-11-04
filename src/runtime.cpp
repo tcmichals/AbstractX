@@ -330,6 +330,17 @@ void notify_work(uint32_t flags) noexcept {
     g_pending_work.fetch_or(flags, std::memory_order_release);
 }
 
+// shared: step() only (the one thread that runs AbstractX); read by the same thread
+static uint32_t g_ready_run = 0;
+static uint32_t g_ready_run_max = 0;
+
+// @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (a host never spins silently)
+uint32_t longest_ready_run(bool reset) noexcept {
+    const uint32_t m = g_ready_run_max;
+    if (reset) g_ready_run_max = g_ready_run;
+    return m;
+}
+
 // @impl [SPEC-ARCH-06] [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
 uint64_t step() noexcept {
@@ -379,8 +390,11 @@ uint64_t step() noexcept {
     // 7. When to call again ([SPEC-ARCH-15]); asked again because a coroutine may have just slept
     const uint64_t timer_due = timer.service_due_us();
     if (Dispatcher::has_pending_resumes()) {
+        // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (a host never spins silently)
+        if (++g_ready_run > g_ready_run_max) g_ready_run_max = g_ready_run;
         return kNow;
     }
+    g_ready_run = 0;
     const uint64_t status_due = status_deadline_us();
     return timer_due < status_due ? timer_due : status_due;
 }

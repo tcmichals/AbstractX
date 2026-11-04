@@ -31,8 +31,8 @@ fails on the old code and passes on the new.
 
 | # | Sev | Finding | Ev. |
 | --- | --- | --- | --- |
-| T-1 | High | Concurrent `ITimer` sleeps run one after another: three 10 ms sleeps wake at 10, 20 and 30 ms (E906, Linux and Pico share the path) | [V] |
-| T-2 | High | `with_timeout` leaves its timeout sleep holding the timer. Later sleeps are delayed by the whole timeout, and after 16 of them every `with_timeout` fails at once | [V] |
+| T-1 | High | **Fixed in `583637b`.** Concurrent `ITimer` sleeps run one after another: three 10 ms sleeps wake at 10, 20 and 30 ms (E906, Linux and Pico share the path) | [V] |
+| T-2 | High | **Fixed in `583637b`.** `with_timeout` leaves its timeout sleep holding the timer. Later sleeps are delayed by the whole timeout, and after 16 of them every `with_timeout` fails at once | [V] |
 | T-3 / Q-7 | High | Destroying a suspended task leaves its handle and result pointer in driver requests and wait slots. The completion writes into the freed frame and resumes whatever reused it | [V] |
 | Q-1 | High | Linux I2C reports `Ok` for transfers it never sends: 2-write `write_regs`, 3 or more messages, zero-length probe | [V] |
 | Q-2 | High | A TLP read/write/transaction whose submit fails returns an earlier response as if it were fresh | [V] |
@@ -63,6 +63,7 @@ fails on the old code and passes on the new.
 | T-5 | Med | `async_driver.hpp:49-54`; `targets/linux/src/hal_timer.cpp:72` | Completions post but never call `wake()` / `wake_from_isr()`; [SPEC-ARCH-15] requires publish-then-wake. FreeRTOS E906 works only because its ISR handler wakes. | [R] | [SPEC-ARCH-15] |
 | T-6 | Med | `targets/pico2w_rp2350/src/hal_platform.cpp:124-128` | Bare `wfe` with no masked re-check; `SmpInterruptLock::unlock` sends no `__sev()`; an alarm callback on core 0 can be slept through on core 1. | [I] (alarm-pool core not confirmed on hardware) | [SPEC-ARCH-06] idle policy |
 | T-7 | Low | `targets/linux/src/hal_timer.cpp:55`; `targets/linux/src/hal_platform.cpp:42-44` | One detached `std::thread` per sleep (heap, can throw in `noexcept`); idle polls every 100 µs. Known: [SPEC-ARCH-15] "not covered yet" (Linux Asio host). | [R] | [SPEC-ARCH-15] |
+| T-9 | Med | `hosts/freertos/src/freertos_host.cpp` (`if (next == kNow) continue;`) | While `step()` returns `kNow` the FreeRTOS host never blocks or yields: a coroutine that never waits starves lower-priority tasks and delays equal-priority ones to the next tick, with nothing to show it. Found by a dataAcq integration review after this review. **Fixed 2026-11-04**: `taskYIELD()` on `kNow`, and `longest_ready_run()` counts it ([SPEC-ARCH-15]); `sim/test_host_drive.cpp`. | [V] | [SPEC-ARCH-15] |
 | T-8 | Low | `include/abstractx/interrupt_lock.hpp:31-36`; `targets/esp32p4` | ESP32-P4 is dual-core but builds with `ABSTRACTX_SMP_CORES=1`; latent while every P4 driver is a stub. | [R] | [SPEC-ARCH-01] |
 
 Refuted: the dispatcher queue is named SPSC but every producer and the consumer go through
