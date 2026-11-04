@@ -260,7 +260,9 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Requirement**: `python3 tools/spectrace_matrix.py --check-tests` exits 1 when a test file is
   not run by ctest: `tests/**/test_*.py` and `tests/test_*.cpp` must appear in
   `tests/CMakeLists.txt`, `sim/cocotb/test_*_cocotb.py` in `sim/CMakeLists.txt`, unless the
-  CMakeLists has a line `# not-in-ctest: <path> <reason>`.
+  CMakeLists has a line `# not-in-ctest: <path> <reason>`. Only files git tracks count
+  (2026-11-04): an untracked work-in-progress test is not part of the repository, CI never sees
+  it, and it made the local gate and pre-push hook fail for every push.
 * **Rationale**: on 2026-10-20 `audit_specs.py` printed "100% verified" while 38 of 159
   requirements were verified; the spec promised `tlp_poll_into`, `tlp_send_nav`,
   `serial_tlp_*` that never existed; and six test files never ran, one of them already failing.

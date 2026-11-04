@@ -18,6 +18,7 @@
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
 #include "pico/time.h"
+#include "hardware/sync.h"  // __sev() in the timer alarm ([SPEC-PICO-HAL-01])
 #include "hardware/spi.h"
 #include "hardware/i2c.h"
 #include "hardware/uart.h"
@@ -126,46 +127,38 @@ public:
     }
 
 protected:
-    void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
-        active_req_ = req;
+    // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md (Pico: Polled)
+    // @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md (timer)
+    // One SDK alarm at the earliest deadline; its callback only signals, so the sleeps expire in
+    // step() (service_due_us), never in the alarm interrupt.
+    Alarm arm_alarm(uint64_t deadline_us) noexcept override {
 #ifdef PICO_ON_DEVICE
-        alarm_id_ = add_alarm_in_us(req.duration_us, alarm_callback_wrapper, this, true);
-        if (alarm_id_ < 0) {
-            TimerResult result{};
-            result.status = TimerStatus::Error;
-            result.timestamp_us = get_time_us();
-            push_completion_from_isr(req, result);
-            set_hardware_idle_from_isr();
-        }
+        if (alarm_id_ > 0) cancel_alarm(alarm_id_);
+        alarm_id_ = add_alarm_at(from_us_since_boot(deadline_us), alarm_callback, nullptr, true);
+        return alarm_id_ < 0 ? Alarm::Unsupported : Alarm::Polled;  // 0: already fired (past)
 #else
-        TimerResult result{};
-        result.status = TimerStatus::Ok;
-        result.timestamp_us = get_time_us() + req.duration_us;
-        push_completion_from_isr(req, result);
-        set_hardware_idle_from_isr();
+        (void)deadline_us;
+        return Alarm::Polled;
+#endif
+    }
+
+    void disarm_alarm() noexcept override {
+#ifdef PICO_ON_DEVICE
+        if (alarm_id_ > 0) cancel_alarm(alarm_id_);
+        alarm_id_ = 0;
 #endif
     }
 
 private:
 #ifdef PICO_ON_DEVICE
-    static int64_t alarm_callback_wrapper(alarm_id_t id, void* user_data) {
-        (void)id;
-        auto* self = static_cast<PicoTimer*>(user_data);
-        TimerResult result{};
-        result.status = TimerStatus::Ok;
-        result.timestamp_us = self->get_time_us();
-
-        // @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
-        // set_hardware_idle_from_isr() already starts the next request; never pop a second one.
-        TimerRequest req = self->active_req_;
-        self->push_completion_from_isr(req, result);
-        self->set_hardware_idle_from_isr();
+    static int64_t alarm_callback(alarm_id_t, void*) {
+        __sev();  // end a wfe on either core; step() expires the sleeps
+        abstractx::wake_from_isr();
         return 0;
     }
 
-    alarm_id_t alarm_id_{0};
+    alarm_id_t alarm_id_{0};  // shared: arm/disarm under InterruptGuard; the callback does not touch it
 #endif
-    TimerRequest active_req_{};
 };
 
 // ----------------------------------------------------------------------------

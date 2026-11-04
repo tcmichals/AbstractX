@@ -817,10 +817,36 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 * **Implementation Target**: `include/abstractx/hal/mailbox.hpp`
 
 ### `[SPEC-HAL-05]` Asynchronous Timer & Alarm Engine
-* **Requirement**: Timer delays, alarms, and periodic tasks must operate asynchronously through `AsyncTimerDriver` inheriting from `AsyncDriverBase<TimerRequest, TimerResult>`. Coroutines yield to the work queue and are awakened by hardware alarm ISRs, OS timer callbacks, or I/O processor queue completions. Coroutines never block or busy-spin on timers.
-* **Mechanism**: Request Queue $\rightarrow$ Hardware Alarm / OS Timer Callback $\rightarrow$ Completion Queue $\rightarrow$ `IsrDispatcher::post(handle)`.
-* **Verified by**: `host-tests` (`sim/test_gps_imu_coro_pool.cpp`), `thread-sanitizer`
-* **Implementation Target**: `include/abstractx/hal/timer.hpp`
+* **Requirement**: coroutine sleeps (`co_await timer.sleep_ms_async(ms)` / `sleep_us_async(us)`) are
+  asynchronous: the coroutine suspends and is posted to the Dispatcher when its deadline passes. Coroutines
+  never block or busy-spin on timers.
+* **Requirement (any number of sleeps at once, 2026-11-04)**: each sleep is an absolute deadline
+  (`get_time_us()` at suspension + duration) in one deadline-sorted list owned by `AsyncTimerDriver`
+  (the awaiter is the list node, in the coroutine frame: no queue, no capacity limit). Sleeps never wait
+  for each other: N concurrent sleeps of D each wake at about D, not D, 2D, ..., ND. The target provides
+  one alarm, `arm_alarm(deadline_us)`, for the earliest deadline and returns `Armed` (its alarm calls
+  `expire_sleeps(now)`), `Polled` (its alarm only wakes the loop; `service_due_us()`, which `step()` calls,
+  expires the due sleeps) or `Unsupported` (the sleep completes at once with `TimerStatus::Error`).
+  `expire_sleeps` posts every sleep whose deadline has passed (`now >= deadline`), writes its result
+  first, re-arms the alarm for the next deadline and calls `abstractx::wake()` / `wake_from_isr()`
+  (`[SPEC-ARCH-15]`). A sleep whose awaiter is destroyed before it expires (its task destroyed) leaves
+  the list in the awaiter's destructor.
+* **Per target**: E906: the driver's one `hal::Timer` node at the earliest deadline (line-7 interrupt on
+  bare metal; `hal::Timer::service_due()` in the AbstractX task under FreeRTOS). Linux: one timer thread
+  waiting on a condition variable until the earliest deadline (no thread per sleep). Pico 2 W: `Polled`,
+  with one SDK alarm whose callback only signals (`__sev()`), so expiry runs in `step()`, never in the
+  alarm interrupt. ESP32-P4: `Unsupported` until it has an alarm driver (`[SPEC-ESP32P4-HAL-00]`).
+* **Rationale (2026-11-04)**: sleeps went through `AsyncDriverBase<TimerRequest>`, which runs one request
+  at a time, and each started counting only when the previous one ended. Three concurrent 10 ms sleeps
+  woke at 10, 20 and 30 ms; in `gps_imu_app` the 50 Hz magnetometer sleep waited behind the 1 s monitor
+  sleep; a `with_timeout` whose task won kept the timer busy for the whole timeout, and after 16 of them
+  every `with_timeout` failed at once (`docs/reviews/2026-11-04-core-review.md` T-1, T-2).
+* **Verified by**: `host-tests` (`sim/test_timer_concurrency.cpp`: concurrent sleeps, mixed durations,
+  1000-iteration steady state, destroyed sleeper, `with_timeout` won by the task; `tests/test_coro_primitives.cpp`:
+  `TimerSubmitFailureIsAnError`; `sim/test_gps_imu_coro_pool.cpp`), `thread-sanitizer`
+* **Implementation Target**: `include/abstractx/hal/timer.hpp`, `targets/allwinner_e906/src/platform.cpp`,
+  `targets/linux/src/hal_timer.cpp`, `targets/pico2w_rp2350/include/abstractx_pico.hpp`,
+  `targets/esp32p4/src/hal_timer.cpp`
 
 ---
 

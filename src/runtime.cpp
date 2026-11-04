@@ -330,24 +330,6 @@ void notify_work(uint32_t flags) noexcept {
     g_pending_work.fetch_or(flags, std::memory_order_release);
 }
 
-// @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (one wake route)
-// shared: host writes once before events start (set_wake), ISRs / threads read; atomic
-static std::atomic<WakeFn> g_wake_task{nullptr};
-static std::atomic<WakeFn> g_wake_isr{nullptr};
-
-void set_wake(const WakeHooks& hooks) noexcept {
-    g_wake_task.store(hooks.task, std::memory_order_release);
-    g_wake_isr.store(hooks.isr, std::memory_order_release);
-}
-
-void wake() noexcept {
-    if (WakeFn fn = g_wake_task.load(std::memory_order_acquire)) fn();
-}
-
-void wake_from_isr() noexcept {
-    if (WakeFn fn = g_wake_isr.load(std::memory_order_acquire)) fn();
-}
-
 // @impl [SPEC-ARCH-06] [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 // @status Complete
 uint64_t step() noexcept {

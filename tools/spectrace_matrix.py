@@ -173,6 +173,8 @@ def check_tests(root: Path) -> list[str]:
     """Test files that ctest never runs ([SPEC-AUDIT-12])."""
     # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
     problems = []
+    listed = git(root, "ls-files", "tests", "sim") if (root / ".git").exists() else ""
+    tracked = set(listed.splitlines()) if listed else None  # None: not a git checkout, check all
     for cmake, patterns in ((root / "tests" / "CMakeLists.txt", ("tests/**/test_*.py", "tests/test_*.cpp")),
                             (root / "sim" / "CMakeLists.txt", ("sim/cocotb/test_*_cocotb.py",))):
         text = cmake.read_text(encoding="utf-8") if cmake.exists() else ""
@@ -180,8 +182,8 @@ def check_tests(root: Path) -> list[str]:
         for pattern in patterns:
             for f in sorted(root.glob(pattern)):
                 rel = str(f.relative_to(root))
-                if rel in excluded:
-                    continue
+                if rel in excluded or (tracked is not None and rel not in tracked):
+                    continue  # untracked work in progress is not part of the repository
                 key = f.stem if f.suffix == ".py" and "cocotb" in f.parts else f.name
                 if not re.search(rf"\b{re.escape(key)}\b", text):
                     problems.append(f"{rel}: not run by ctest (register it in {cmake.relative_to(root)} "

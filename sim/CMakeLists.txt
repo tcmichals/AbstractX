@@ -40,6 +40,8 @@ add_abstractx_sim(test_linux_hal_completion test_linux_hal_completion.cpp)
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
 # [SPEC-ARCH-15] the host drives AbstractX: step() deadline, wake route, steady state
 add_abstractx_sim(test_host_drive          test_host_drive.cpp)
+# [SPEC-HAL-05] sleeps never wait for each other (review 2026-11-04 T-1, T-2)
+add_abstractx_sim(test_timer_concurrency   test_timer_concurrency.cpp)
 add_abstractx_sim(test_trace_zero_copy     test_trace_zero_copy.cpp)
 add_abstractx_sim(test_coro_failures       test_coro_failures.cpp)
 add_abstractx_sim(test_async_queue_deferred_resume test_async_queue_deferred_resume.cpp)

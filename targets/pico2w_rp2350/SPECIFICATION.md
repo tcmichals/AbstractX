@@ -232,13 +232,16 @@ between the trace engine and the Wi-Fi driver.
 The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
 * **Goal**: every async request on Pico 2 W completes exactly once, with its own result, and the
   bus is configured the way the caller asked.
-* **Requirement (one start per completion)**: the SPI DMA completion, the I2C interrupt and the
-  timer alarm callback complete the finished request with `push_completion_from_isr(active_req_,
-  result)` and then call `set_hardware_idle_from_isr()` **only**. That call already pops and starts
-  the next queued request; popping and starting another one afterwards overwrites `active_req_`
-  and loses a completion. If `add_alarm_in_us` returns `< 0` (no hardware alarm available),
-  `PicoTimer::start_hardware_transfer_from_isr` completes immediately with `TimerStatus::Error`
-  and calls `set_hardware_idle_from_isr()`. `PicoIoBackend` submits both SPI and I2C transfers
+* **Requirement (one start per completion)**: the SPI DMA completion and the I2C interrupt
+  complete the finished request with `push_completion_from_isr(active_req_, result)` and then call
+  `set_hardware_idle_from_isr()` **only**. That call already pops and starts the next queued
+  request; popping and starting another one afterwards overwrites `active_req_` and loses a
+  completion.
+* **Requirement (timer, 2026-11-04)**: `PicoTimer` is `Polled` (`[SPEC-HAL-05]`): `arm_alarm`
+  replaces its one SDK alarm (`add_alarm_at`, fire-if-past) with one at the earliest sleep deadline,
+  and the alarm callback only calls `__sev()` so a `wfe` idle wakes; the sleeps expire in `step()`.
+  If no SDK alarm is available, `arm_alarm` returns `Unsupported` and the sleep completes with
+  `TimerStatus::Error`. `PicoIoBackend` submits both SPI and I2C transfers
   asynchronously through `PicoSpi::submit_request` and ` get_pico_i2c().submit_request`, and
   `PicoUart::write_byte` guards its FIFO-or-queue decision with `InterruptGuard` so `UART0_IRQ`
   cannot reorder bytes.

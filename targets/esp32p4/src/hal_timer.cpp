@@ -50,12 +50,8 @@ public:
     }
 
 protected:
-    void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
-        TimerResult result{};
-        result.status = TimerStatus::Error;
-        push_completion_from_isr(req, result);
-        set_hardware_idle_from_isr();
-    }
+    // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md (ESP32-P4: no alarm driver yet)
+    Alarm arm_alarm(uint64_t) noexcept override { return Alarm::Unsupported; }
 };
 
 } // namespace abstractx::hal

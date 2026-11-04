@@ -109,41 +109,28 @@ public:
     }
 
 protected:
-    // @impl [SPEC-E906-IRQ-03] targets/allwinner_e906/SPECIFICATION.md
-    void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
-        active_req_ = req;
-        if (req.duration_us == 0) {
-            on_alarm(this);
-            return;
-        }
-        waiter_.target_ticks = ::hal::Timer::get_ticks() +
-                               static_cast<uint64_t>(req.duration_us) * ::hal::Timer::TICKS_PER_US;
-        waiter_.handle = nullptr;
-        waiter_.callback = &E906TimerDriver::on_alarm;
-        waiter_.ctx = this;
-        ::hal::Timer::schedule_waiter(&waiter_);
+    // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md (one alarm: the earliest sleep deadline)
+    // The driver's one hal::Timer node sits at the earliest deadline; its callback runs from the
+    // line-7 interrupt on bare metal, or from hal::Timer::service_due() in the AbstractX task under
+    // an RTOS ([SPEC-E906-RTOS-03]).
+    Alarm arm_alarm(uint64_t deadline_us) noexcept override {
+        alarm_.target_ticks = deadline_us * ::hal::Timer::TICKS_PER_US;
+        alarm_.handle = nullptr;
+        alarm_.callback = &E906TimerDriver::on_alarm;
+        alarm_.ctx = this;
+        ::hal::Timer::schedule_waiter(&alarm_);  // re-inserts if already linked
+        return Alarm::Armed;
     }
 
-    bool abort_active_from_isr() noexcept override {
-        ::hal::Timer::cancel_waiter(&waiter_);
-        push_completion_from_isr(active_req_, make_cancelled_result<TimerResult>());
-        active_req_ = {};
-        return true;
-    }
+    void disarm_alarm() noexcept override { ::hal::Timer::cancel_waiter(&alarm_); }
 
 private:
     static void on_alarm(void* ctx) noexcept {
         auto* self = static_cast<E906TimerDriver*>(ctx);
-        TimerResult res{};
-        res.status = TimerStatus::Ok;
-        res.timestamp_us = self->get_time_us();
-        self->push_completion_from_isr(self->active_req_, res);
-        self->active_req_ = {};
-        self->set_hardware_idle_from_isr();
+        (void)self->expire_sleeps(self->get_time_us(), !::hal::Timer::uses_external_tick());
     }
 
-    TimerRequest               active_req_{};
-    ::hal::Timer::SleepAwaiter waiter_{};
+    ::hal::Timer::SleepAwaiter alarm_{};
 };
 
 // GPIO HAL Adapter for E906

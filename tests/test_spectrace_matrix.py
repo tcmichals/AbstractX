@@ -370,6 +370,24 @@ def test_orphan_test_check():
             assert ok not in problems, (ok, problems)
 
 
+def test_orphan_check_ignores_untracked_files():
+    """[SPEC-AUDIT-12] 2026-11-04: an untracked work-in-progress test is not part of the repo."""
+    import subprocess
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "tests").mkdir()
+        (root / "sim" / "cocotb").mkdir(parents=True)
+        (root / "tests" / "CMakeLists.txt").write_text("")
+        (root / "sim" / "CMakeLists.txt").write_text("")
+        (root / "tests" / "test_tracked.py").write_text("")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        (root / "sim" / "cocotb" / "test_wip_cocotb.py").write_text("")  # untracked
+        problems = "\n".join(sm.check_tests(root))
+        assert "tests/test_tracked.py" in problems, problems
+        assert "test_wip_cocotb" not in problems, problems
+
+
 def test_placement_and_board_evidence_source():
     from trac_lib import ledger
     with tempfile.TemporaryDirectory() as d:
@@ -438,6 +456,7 @@ def test_repo_is_honest():
 
 
 if __name__ == "__main__":
+    test_orphan_check_ignores_untracked_files()
     test_matrix_verdicts()
     test_change_review_maps_hunks_and_flags_untraced()
     test_stale_and_failing_verdicts()

@@ -12,8 +12,8 @@
 #include <chrono>
 #include <thread>
 // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md#spec-hal-05
-#include <atomic>
-#include <algorithm>
+#include <condition_variable>
+#include <mutex>
 
 namespace abstractx::hal {
 
@@ -21,17 +21,19 @@ class LinuxTimerDriver : public ITimer {
 public:
     LinuxTimerDriver() = default;
     ~LinuxTimerDriver() override {
-        shutdown_.store(true, std::memory_order_release);
-        while (active_threads_.load(std::memory_order_acquire) > 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        {
+            std::lock_guard<std::mutex> l(m_);
+            stop_ = true;
         }
+        cv_.notify_one();
+        if (thread_.joinable()) thread_.join();
     }
 
     void delay_us(uint32_t us) override {
         struct timespec req{};
         req.tv_sec = us / 1'000'000;
         req.tv_nsec = (us % 1'000'000) * 1'000;
-        ::nanosleep(&req, nullptr);
+        ::nanosleep(&req, nullptr);  // boot-only ([SPEC-HAL-05])
     }
 
     void delay_ms(uint32_t ms) override {
@@ -50,35 +52,49 @@ public:
     }
 
 protected:
-    void start_hardware_transfer_from_isr(const TimerRequest& req) noexcept override {
-        active_threads_.fetch_add(1, std::memory_order_acq_rel);
-        std::thread([this, req]() {
-            const auto target_us = std::chrono::microseconds(req.duration_us);
-            const auto start = std::chrono::steady_clock::now();
-            while (!shutdown_.load(std::memory_order_acquire)) {
-                auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now() - start);
-                if (elapsed >= target_us) {
-                    break;
-                }
-                auto remaining = target_us - elapsed;
-                auto chunk = std::min(remaining, std::chrono::microseconds(5000));
-                std::this_thread::sleep_for(chunk);
-            }
-            if (!shutdown_.load(std::memory_order_acquire)) {
-                TimerResult result{};
-                result.status = TimerStatus::Ok;
-                result.timestamp_us = get_time_us();
-                push_completion_from_isr(req, result);
-                set_hardware_idle_from_isr();
-            }
-            active_threads_.fetch_sub(1, std::memory_order_acq_rel);
-        }).detach();
+    // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md (Linux: one timer thread for every sleep)
+    // Called with the process-wide InterruptGuard held; the timer thread never takes that lock
+    // while holding m_, so the order guard -> m_ cannot deadlock.
+    Alarm arm_alarm(uint64_t deadline_us) noexcept override {
+        std::call_once(started_, [this] { thread_ = std::thread([this] { run(); }); });
+        {
+            std::lock_guard<std::mutex> l(m_);
+            armed_us_ = deadline_us;
+        }
+        cv_.notify_one();
+        return Alarm::Armed;
+    }
+
+    void disarm_alarm() noexcept override {
+        std::lock_guard<std::mutex> l(m_);
+        armed_us_ = kNever;
     }
 
 private:
-    std::atomic<bool> shutdown_{false};
-    std::atomic<int>  active_threads_{0};
+    void run() {
+        std::unique_lock<std::mutex> l(m_);
+        while (!stop_) {
+            if (armed_us_ == kNever) {
+                cv_.wait(l);
+                continue;
+            }
+            // CLOCK_MONOTONIC is steady_clock on Linux, so the same microseconds.
+            const auto due = std::chrono::steady_clock::time_point(std::chrono::microseconds(armed_us_));
+            cv_.wait_until(l, due);
+            if (stop_ || armed_us_ == kNever || get_time_us() < armed_us_) continue;
+            armed_us_ = kNever;  // expire_sleeps re-arms for the next deadline
+            l.unlock();
+            (void)expire_sleeps(get_time_us(), false);
+            l.lock();
+        }
+    }
+
+    std::mutex              m_;
+    std::condition_variable cv_;
+    uint64_t                armed_us_{kNever};  // shared: arm/disarm (any thread) and run(); m_
+    bool                    stop_{false};       // shared: destructor and run(); m_
+    std::once_flag          started_;
+    std::thread             thread_;
 };
 
 static LinuxTimerDriver g_linux_timer;

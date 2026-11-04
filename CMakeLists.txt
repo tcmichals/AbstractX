@@ -52,6 +52,7 @@ add_compile_options(
 # 2. Core AbstractX Library with Master Runtime
 add_library(abstractx_core STATIC
     src/runtime.cpp
+    src/wake.cpp
 )
 target_include_directories(abstractx_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

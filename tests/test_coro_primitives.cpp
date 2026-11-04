@@ -205,7 +205,7 @@ TEST(CoroPrimitivesTest, DetachNeverStartedTaskFreesFrame) {
     }
 }
 
-// [SPEC-ARCH-10] A sleep the timer driver cannot queue completes at once with Error, not Ok.
+// [SPEC-ARCH-10] [SPEC-HAL-05] A sleep the timer cannot arm completes at once with Error, not Ok.
 // (2026-10-28: SleepAwaiter returned false from await_suspend and left the default Ok.)
 namespace {
 class StuckTimer : public AsyncTimerDriver {
@@ -216,17 +216,12 @@ public:
     void delay_ms(uint32_t) override {}
 
 protected:
-    void start_hardware_transfer_from_isr(const TimerRequest&) noexcept override {}  // never fires
+    Alarm arm_alarm(uint64_t) noexcept override { return Alarm::Unsupported; }  // no alarm at all
 };
 } // namespace
 
 TEST(CoroPrimitivesTest, TimerSubmitFailureIsAnError) {
     StuckTimer timer;
-    size_t queued = 0;
-    while (timer.submit_request(TimerRequest{})) {
-        ++queued;
-        CHECK_TRUE(queued <= 64);
-    }
     TimerStatus st = TimerStatus::Ok;
     auto sleeper = [](AsyncTimerDriver& t, TimerStatus& out) -> Task<void> {
         TimerResult r = co_await t.sleep_ms_async(5);
