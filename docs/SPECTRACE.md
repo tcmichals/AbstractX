@@ -148,6 +148,12 @@ where its evidence goes. SpecTrace connects them: requirement → code
   not exist).
 * **Requirement**: "100%" means every requirement is `VERIFIED`. Tag presence alone
   (`audit_specs.py`) is never reported as completion.
+* **Requirement (spec before code, 2026-11-04)**: `audit_specs.py` exits 1 for a requirement with no
+  `@impl` tag, except one whose section has a `* **Not implemented yet**: <what>` line (the marker
+  `spectrace_matrix.py` already reads). Such a requirement is reported `PLANNED`, never `TAGGED`,
+  and listed with its reason. Rationale: the operating loop says change the spec before the code,
+  but a design committed ahead of its code (`[SPEC-ARCH-16]`) made `audit_specs.py` and the
+  pre-commit hook fail; a requirement that silently lacks code must still fail.
   `--require-complete` exits non-zero until then; `--write
   docs/verification/TRACEABILITY_MATRIX.md` publishes the table.
 * **Requirement**: `python3 tools/spectrace_matrix.py --graph [SPEC-TAG]` (or

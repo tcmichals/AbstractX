@@ -30,8 +30,11 @@ def run_traceability_audit(spec_file=None, root_dir=None):
 
     # 1. Parse all specification IDs from specification markdown (with or without backticks)
     spec_pattern = re.compile(r"###\s+`?\[(SPEC-[A-Z0-9\-]+)\]`?\s+(.+)")
+    # @impl [SPEC-AUDIT-07] docs/SPECTRACE.md (spec before code: a declared "Not implemented yet" is PLANNED)
+    not_impl_pattern = re.compile(r"^\s*\*\s*\*\*Not implemented yet\*\*:\s*(.*)$")
     specs = {}
 
+    current = None
     with open(spec_file, "r", encoding="utf-8") as f:
         for line in f:
             match = spec_pattern.match(line.strip())
@@ -40,8 +43,16 @@ def run_traceability_audit(spec_file=None, root_dir=None):
                 spec_title = match.group(2)
                 specs[spec_id] = {
                     "title": spec_title,
-                    "implementations": []
+                    "implementations": [],
+                    "planned": None,
                 }
+                current = spec_id
+            elif line.startswith("## ") or line.startswith("### "):
+                current = None
+            elif current is not None:
+                ni = not_impl_pattern.match(line)
+                if ni:
+                    specs[current]["planned"] = ni.group(1).strip() or "not implemented yet"
 
     # 2. Scan codebase for @impl tags
     # drivers/ and src/ were missing until 2026-10-23: tags in them were silently not counted
@@ -79,6 +90,7 @@ def run_traceability_audit(spec_file=None, root_dir=None):
                     pass
 
     implemented_count = sum(1 for data in specs.values() if data["implementations"])
+    planned_count = sum(1 for data in specs.values() if not data["implementations"] and data["planned"])
     total_count = len(specs)
     coverage = (implemented_count / total_count * 100.0) if total_count > 0 else 0.0
 
@@ -86,6 +98,7 @@ def run_traceability_audit(spec_file=None, root_dir=None):
         "spec_file": str(spec_file),
         "total": total_count,
         "implemented": implemented_count,
+        "planned": planned_count,
         "coverage": coverage,
         "specs": specs
     }
@@ -122,6 +135,9 @@ def main():
         if impls:
             status = "TAGGED"
             impl_str = ", ".join(impls)
+        elif data["planned"]:
+            status = "PLANNED"
+            impl_str = f"(not implemented yet: {data['planned'][:60]})"
         else:
             status = "MISSING"
             impl_str = "(No @impl tag found in code)"
@@ -129,14 +145,20 @@ def main():
         print(f"{spec_id:<22} | {status:<12} | {impl_str:<40}")
 
     print("=" * 80)
+    planned_count = results["planned"]
     print(f"Total Specifications: {total_count}")
     print(f"Tagged in code:       {implemented_count}")
+    print(f"Planned (declared):   {planned_count}")
     print(f"Traceability Coverage:{coverage:.1f}%")
     print("=" * 80)
 
-    if implemented_count < total_count:
-        print("[WARN] Some specifications are not yet tagged in code.")
+    if implemented_count + planned_count < total_count:
+        print("[WARN] Some specifications are not yet tagged in code and not declared 'Not implemented yet'.")
         sys.exit(1)
+    if planned_count:
+        print(f"[OK] Every specification is tagged in code or declared planned ({planned_count} planned; "
+              "traceability only, not verification; see tools/spectrace_matrix.py --matrix).")
+        sys.exit(0)
     else:
         print("[OK] Every specification has an @impl tag (traceability only, not verification; "
               "see tools/spectrace_matrix.py --matrix).")

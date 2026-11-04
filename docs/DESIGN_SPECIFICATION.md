@@ -159,6 +159,7 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
       A-->>H: next deadline
       Note over H: the deadline expiring calls step() the same way
   ```
+* **Completions, streams and executors**: see `[SPEC-ARCH-16]`.
 * **Requirement (AbstractX never waits, 2026-11-04)**: AbstractX is an API library. `step()` does the
   ready work and returns; `wake()` / `wake_from_isr()` only call the hooks the host registered (no-ops
   without a host). No AbstractX core or HAL code sleeps, blocks, polls on an interval or owns a wait
@@ -203,6 +204,97 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `e906-build-layout` (`e906_freertos_app` in each `ABX_FREERTOS_TIMER` mode)
 * **Implementation Target**: `tools/audit_coro_contracts.py`, `include/abstractx/abstractx.hpp`,
   `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`
+
+### `[SPEC-ARCH-16]` Completions, Streams and Executors (Standard RTOS / Linux Practice)
+* **Not implemented yet**: all of it. Design approved by the project owner 2026-11-04; implementation
+  follows in steps (conformance test, executor with the bare-metal ring as default, then each target).
+
+Nothing here is new: the
+interrupt hand-off is FreeRTOS `...FromISR` / ChibiOS I-class / Zephyr / Linux top half; requests and
+completions are Zephyr RTIO / Linux io_uring; DMA streams are serial DMA (V4L2 / ALSA style).
+
+* **Requirement (1, AbstractX never waits)**: as `[SPEC-ARCH-15]`: `step()` does the ready work and
+  returns the next deadline; the host's OS loop does all waiting and calls `step()` again on that
+  deadline or a wake.
+* **Requirement (2, where coroutines run)**: AbstractX coroutines run only on the AbstractX thread (the
+  one calling `step()`, or the host thread its executor resumes on). Never from an ISR, never from
+  another thread.
+* **Requirement (3, what an ISR does)**: an interrupt handler does its hardware work (acknowledge,
+  re-arm DMA, start the next queued transfer, stop a channel), queues the completion, calls
+  `post_from_isr()`, and returns. No callback, no list walk, no other code runs in interrupt context
+  on AbstractX's behalf.
+* **Requirement (4, two I/O models, no others)**:
+  * **Request / completion** (RTIO / io_uring): SPI transfer, I2C transaction, UART write, sleep.
+    The consumer submits a request; exactly one completion is queued back to it.
+  * **DMA stream** (serial DMA): UART RX with DMA, SPI auto-DMA on DRDY (the IMU), later ADC / I2S.
+    The consumer starts the stream once; each chunk the DMA fills is one packet (TLP) with length,
+    sequence number and hardware timestamp (taken at the trigger edge), written in place into a
+    transport buffer (no copy, `[SPEC-ARCH-08]`), and is one completion. The consumer drains every
+    queued packet in one pass (batching happens on draining, never by merging completions).
+  Every driver, local or behind an IoProcessor, uses one of these two. The schemes in use before
+  (request callbacks at completion, the driver output queue, per-driver waiter slots, notify-only
+  rings, the E906 timer-ISR list walk) are replaced.
+* **Requirement (5, executor)**: every place that makes a coroutine ready calls
+  `abstractx::post(handle)` (task, thread or coroutine context) or `abstractx::post_from_isr(handle)`
+  (interrupt context). The host chooses where they go with one executor interface; the AbstractX
+  static ring (bare metal) is the default. Debug builds check the context with the target's
+  `in_isr()` and assert on misuse.
+
+  | Host | `post()` | `post_from_isr()` | Waits with |
+  | --- | --- | --- | --- |
+  | Bare metal (default) | ring, interrupts masked | ring | `arm_wake(deadline)` + `wfi` / `wfe` |
+  | FreeRTOS (E906, ESP32-P4) | ring + `xTaskNotifyGive` | ring + `vTaskNotifyGiveFromISR` + `portYIELD_FROM_ISR` | `ulTaskNotifyTake(timeout)` |
+  | Zephyr | `k_fifo_put` / `k_sem_give` | same (ISR-safe) | `k_sem_take` / `k_poll` |
+  | Linux, POSIX host | ring + `eventfd_write` | not used (no ISRs) | `ppoll(eventfd, timeout)` |
+  | Linux, Boost.Asio host | `asio::post(io_context, ...)` | not used | `io_context.run()` + `steady_timer` |
+  | Pico 2 W core 0 to core 1 | as bare metal + `__sev()` | as bare metal + `__sev()` | `wfe` |
+* **Requirement (6, completion queues per consumer)**: a driver writes a completion to the queue of the
+  consumer that submitted the request (RTIO / io_uring).
+* **Requirement (7, stream overrun)**: when a stream has no free buffer, the new chunk is dropped and
+  counted; the interrupt never blocks and no packet is corrupted. The sequence number shows the gap.
+* **Requirement (8, cancellation)**: a request can be cancelled (RTIO / io_uring style); the driver
+  completes it as `Cancelled` exactly once. Destroying a waiting task cancels its outstanding requests,
+  so no completion is ever written to a destroyed frame.
+* **Requirement (9, remote consumers and unmapped data)**: an IoProcessor only pushes: it sends each
+  completion or stream packet out on its channel, fire-and-forget, like serial. The receiving
+  processor delivers only to a consumer explicitly mapped to that channel (endpoint, subscription or
+  route). Data for a channel with no mapping, or that arrives before the mapping, is **dropped**;
+  nothing is buffered for the programmer. Every drop is counted per channel with its reason (no
+  consumer mapped, consumer queue full, no buffer), shown in the runtime status and Studio, and the
+  first drop on a channel is traced once. The API that maps a consumer says this in its documentation.
+* **Requirement (10, one conformance test)**: every host and executor passes the same host conformance
+  test: an idle host stays asleep (no polling); a post from a thread or ISR wakes it within a bound; a
+  timer deadline wakes it on time; a post or wake before the wait is not lost; an always-ready
+  coroutine does not starve the system; a full queue or unmapped channel is counted, never silent. On
+  the PC: POSIX, Asio and FreeRTOS (its POSIX port); on boards: bare metal (E906, Pico 2 W).
+
+```mermaid
+sequenceDiagram
+    participant C as Consumer coroutine
+    participant D as Driver / IoProcessor
+    participant I as ISR (top half)
+    participant X as Executor (ring + host wake)
+    participant H as Host OS loop
+    C->>D: submit request (or start stream)
+    Note over C: suspended
+    I->>I: hardware work (ack, re-arm DMA)
+    I->>D: queue completion (result or packet: len, seq, timestamp)
+    I->>X: post_from_isr(consumer)
+    X->>H: wake (notification / eventfd / asio::post / interrupt)
+    H->>H: was waiting until step() deadline
+    H->>X: step(): drain ready queue
+    X->>C: resume on the AbstractX thread
+    C->>C: drain every queued completion
+```
+
+* **Rationale (2026-11-04)**: the review (`docs/reviews/2026-11-04-core-review.md`) and the
+  engineering log show six different completion schemes, each with its own wake and its own bugs
+  (T-3, T-4, T-5, T-6, Q-2, Q-3, Q-4, Q-5, and the lost-wake stalls of 10-28 to 10-31), and the
+  timer / wake model rewritten five times in five days because it was designed one change at a time.
+  This requirement fixes the whole model first; implementation follows it.
+* **Verified by** (planned): `host-tests` (host conformance test; per-driver request / stream / cancel /
+  drop tests), `thread-sanitizer`, `board-bringup` (E906, Pico 2 W)
+* **Implementation Target** (planned): `include/abstractx/`, `src/`, `hosts/`, every target's drivers
 
 ### `[SPEC-ARCH-07]` Platform Topology Table & Studio Multi-Window Observability
 * **Requirement**: AbstractX runtimes must encode and announce a standardized `PlatformTopologyTable` describing the exact silicon execution topology (e.g. `Linux_Standard_SITL`, `Linux_Host_E906`, `Linux_Host_E906_FPGA`, `RP2350_DualCore_Pico2W`, `ESP32P4_FreeRTOS`), active cores, interconnects, and hardware accelerators. The Observability Studio must render:
