@@ -3698,3 +3698,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression tests** (each fails on the old code, passes on the new): `sim/test_linux_i2c_no_false_ok.cpp` (driver on `/dev/null`: four shapes now `NotSupported`, were `Ok`); `sim/test_tlp_refused_request.cpp` (255 reads use 255 tags; refused read returns flags 1, status `0x04`, tag 0); `sim/test_linux_uart_short_write.cpp` (full FIFO: `QueueFull`, 0 bytes; room again: `Ok`, 100 bytes).
 * **Evidence**: `tools/gate.sh` plain / asan / tsan 98/98 each, `[PASS] gate`.
 * **Not verified**: a real I2C bus (only `/dev/null`); a real tty; the planned Linux UART TX worker that writes the whole buffer.
+
+---
+
+### 2026-11-04: I/O engine auto channel: trigger raced the completion; three silent sample drops (review Q-3)
+* **Category**: `product-bug`
+* **Bugs**: (1) `on_trigger` checked `in_flight` and `pending` but not `busy`; `auto_done` clears `in_flight` first and kept reading the snapshot, timestamp and command length, so an edge in that window overwrote them (a sample could carry the next edge's timestamp). (2) `auto_done` read `a.snap` again after releasing `busy` (TSan found this after fix 1). (3) An edge whose transfer could not start with the bus free, a pending retry that failed, and a failed transfer were dropped without being counted.
+* **Spec update**: `[SPEC-ARCH-13]` item 4: "in flight" means `busy` and not `pending`, the completion reads the snapshot only while it holds `busy`, and every edge is emitted, counted in `auto_overruns()`, or counted in the new `auto_failed()` (`[SPEC-ARCH-16]` requirement 7).
+* **Regression test**: `sim/test_io_engine_trigger_race.cpp` (review probe made a test): 200000 edges from the main thread, completions on a worker thread; every emitted timestamp is one of the edges; emitted + overruns + failed + dropped = 200000. The probe on the old code gave TSan `data race io_engine.hpp:199 / :362` (review). First version of the test was short by one edge: it stopped the worker while the last transfer was still in flight (test fixed).
+* **Evidence**: plain 5 runs, TSan 3 runs rc 0 (e.g. emitted 49029, overruns 150971, failed 0); `tools/gate.sh` plain / asan / tsan 99/99 each, `[PASS] gate`; E906 and Pico 2 W build.
+* **Not verified**: the E906 / Pico interrupt paths on a board (there trigger and completion are both interrupts; nesting not checked).

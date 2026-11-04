@@ -36,7 +36,7 @@ fails on the old code and passes on the new.
 | T-3 / Q-7 | High | Destroying a suspended task leaves its handle and result pointer in driver requests and wait slots. The completion writes into the freed frame and resumes whatever reused it | [V] |
 | Q-1 | High | **Fixed 2026-11-04.** Linux I2C reports `Ok` for transfers it never sends: 2-write `write_regs`, 3 or more messages, zero-length probe | [V] |
 | Q-2 | High | **Fixed 2026-11-04.** A TLP read/write/transaction whose submit fails returns an earlier response as if it were fresh | [V] |
-| Q-3 | High | `IoEngine` auto-channel data race: a new edge overwrites the snapshot, timestamp and length while the previous completion still reads them | [V] TSan |
+| Q-3 | High | **Fixed 2026-11-04.** `IoEngine` auto-channel data race: a new edge overwrites the snapshot, timestamp and length while the previous completion still reads them | [V] TSan |
 | G-1 | High | ctest runs whatever binary exists; a source that no longer compiles still "passes" | [V] |
 | G-2 / G-3 | High | VERIFIED can be permanent (ledger record with commit `HEAD`), and VERIFIED needs no `@verifies` test | [V] |
 | G-17 | High | `936d023` log entry claims "100% pass" while the same commit broke two host tests; its new I2C retry blocks with `delay_us(200)` | [V] |

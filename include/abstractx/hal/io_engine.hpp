@@ -186,12 +186,12 @@ public:
             {
                 InterruptGuard guard;
                 if (!a.cfg.auto_mode || a.cfg.trigger_pin != pin) continue;
-                if (a.in_flight.load(std::memory_order_acquire)) {
-                    overruns_.fetch_add(1, std::memory_order_relaxed);   // still in flight: drop
-                    continue;
-                }
-                if (a.pending.load(std::memory_order_acquire)) {
-                    a.ts_ns = ts_ns;                                     // newest edge supersedes
+                // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md (busy covers the whole transfer)
+                if (a.busy.load(std::memory_order_acquire)) {
+                    if (a.pending.load(std::memory_order_acquire)) {
+                        a.ts_ns = ts_ns;                                 // not started: newest edge supersedes
+                    }
+                    // else in flight or completing: the completion still reads snap / ts / cmd_len: drop
                     overruns_.fetch_add(1, std::memory_order_relaxed);
                     continue;
                 }
@@ -208,6 +208,7 @@ public:
                 if (is_bus_in_flight(a.snap.bus_type, a.snap.bus_index)) {
                     a.pending.store(true, std::memory_order_release);
                 } else {
+                    failed_.fetch_add(1, std::memory_order_relaxed);  // never silent ([SPEC-ARCH-16] 7)
                     a.busy.store(false, std::memory_order_release);
                 }
             }
@@ -217,6 +218,8 @@ public:
 
     uint32_t auto_overruns() const noexcept { return overruns_.load(std::memory_order_relaxed); }
     uint32_t ingress_dropped() const noexcept { return dropped_.load(std::memory_order_relaxed); }
+    // Auto transfers that could not start or failed: the sample is lost and counted, never silent.
+    uint32_t auto_failed() const noexcept { return failed_.load(std::memory_order_relaxed); }
     size_t bridge_slots_in_use() const noexcept {
         size_t n = 0;
         for (const auto& s : slots_) n += s.in_use.load(std::memory_order_acquire) ? 1U : 0U;
@@ -317,6 +320,7 @@ private:
                 break;
             } else {
                 if (!is_bus_in_flight(bus, bus_index)) {
+                    failed_.fetch_add(1, std::memory_order_relaxed);  // never silent ([SPEC-ARCH-16] 7)
                     a.pending.store(false, std::memory_order_release);
                     a.busy.store(false, std::memory_order_release);
                 }
@@ -345,10 +349,14 @@ private:
 
     // Copy, release, then publish ([SPEC-ARCH-13] 4): the consumer may react on another thread.
     void auto_done(AutoState& a, const IoResult& r) noexcept {
+        // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md (read the snapshot only while busy)
+        const BusType bus = a.snap.bus_type;
+        const uint8_t bus_index = a.snap.bus_index;
         a.in_flight.store(false, std::memory_order_release);
         if (!r.ok) {
+            failed_.fetch_add(1, std::memory_order_relaxed);  // never silent ([SPEC-ARCH-16] 7)
             a.busy.store(false, std::memory_order_release);
-            retry_pending_on_bus(a.snap.bus_type, a.snap.bus_index);
+            retry_pending_on_bus(bus, bus_index);
             return;
         }
         const size_t got = r.transferred < kAutoXferMax ? r.transferred : kAutoXferMax;
@@ -358,8 +366,8 @@ private:
                                           std::span<const uint8_t>(a.rx + off, payload),
                                           a.snap.tlp_tag);
         tlp.wire.timestamp_ns = a.ts_ns;
-        a.busy.store(false, std::memory_order_release);   // a.rx may be reused from here on
-        retry_pending_on_bus(a.snap.bus_type, a.snap.bus_index);
+        a.busy.store(false, std::memory_order_release);   // a.rx / snap may be reused from here on
+        retry_pending_on_bus(bus, bus_index);
         emit(tlp);
     }
 
@@ -593,6 +601,7 @@ private:
     std::array<BridgeSlot, kBridgeSlots> slots_{};
     std::atomic<uint32_t> overruns_{0};
     std::atomic<uint32_t> dropped_{0};
+    std::atomic<uint32_t> failed_{0};
 };
 
 } // namespace abstractx::hal

@@ -465,7 +465,13 @@ sequenceDiagram
   4. **Concurrency & Shared Bus Arbitration**: each auto channel owns its tx/rx buffers, a config snapshot,
      and atomic flags (`busy`, `pending`, `in_flight`). A trigger only starts channels whose `trigger_pin`
      matches. An edge while a channel's own read is in flight is counted (`auto_overruns()`) and dropped;
-     it never restarts the transfer. If a channel's trigger arrives while another engine transfer (auto or bridge)
+     it never restarts the transfer. "In flight" means `busy` and not `pending`: from the start of the
+     transfer until its completion has built the packet and cleared `busy` (2026-11-04: the trigger
+     checked `in_flight`, which the completion clears first, so an edge in that window overwrote the
+     snapshot, timestamp and command length the completion was still reading; review Q-3). The completion
+     reads the snapshot only while it holds `busy`. A transfer that cannot start (bus free) or fails is
+     counted in `auto_failed()`; every edge is emitted, counted in `auto_overruns()`, or counted in
+     `auto_failed()`, never silently lost. If a channel's trigger arrives while another engine transfer (auto or bridge)
      holds that bus (`is_bus_in_flight()`), the channel remains `busy` and enters `pending` state, preserving its
      edge `timestamp_ns`. A new edge arriving while a channel is already `pending` supersedes it (updates `timestamp_ns`
      to newest edge and counts an overrun). Pending channels on that bus are retried in FIFO order from
