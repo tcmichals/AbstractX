@@ -50,6 +50,13 @@ if(COMMAND pico_sdk_init)
         ABSTRACTX_STATIC_TRACE_PACKETS=0
     )
 
+    # @impl [SPEC-PICO-HAL-03] targets/pico2w_rp2350/SPECIFICATION.md (console on UART1; GPS owns UART0)
+    target_compile_definitions(abstractx_target_pico2w PUBLIC
+        PICO_DEFAULT_UART=1
+        PICO_DEFAULT_UART_TX_PIN=8
+        PICO_DEFAULT_UART_RX_PIN=9
+    )
+
     if(DEFINED WIFI_SSID)
         target_compile_definitions(abstractx_target_pico2w PUBLIC
             WIFI_SSID="${WIFI_SSID}"

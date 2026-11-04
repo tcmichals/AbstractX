@@ -81,14 +81,16 @@ The Raspberry Pi Pico 2 W provides a dedicated 3-pin SWD debug port located betw
 | **Pin 2** (Center pad) | `GND` | Probe **GND** (Black) |
 | **Pin 3** (Right pad) | `SWDIO` | Probe **SWDIO** (Yellow / D+) |
 
-### 2.2 UART0 Serial Console (Telemetry & Boot Logs)
+### 2.2 UART1 Serial Console (Telemetry & Boot Logs)
 For real-time text output and boot logging, wire UART0 to your debug probe's serial interface:
 
 | Pico 2 W Pin | GPIO | Function | Connects to Probe |
 | :--- | :--- | :--- | :--- |
-| **Pin 1** | `GP0` | `UART0_TX` (Pico TX) | Probe **RX** (Inverted crossover) |
-| **Pin 2** | `GP1` | `UART0_RX` (Pico RX) | Probe **TX** |
-| **Pin 3** | `GND` | Ground | Probe **GND** |
+| **Pin 11** | `GP8` | `UART1_TX` (Pico TX) | Probe **RX** (Debugprobe GP5) |
+| **Pin 12** | `GP9` | `UART1_RX` (Pico RX) | Probe **TX** (Debugprobe GP4) |
+| **Pin 13** | `GND` | Ground | Probe **GND** |
+
+The console is UART1; UART0 (GP0/GP1) is the GPS bus ([SPEC-PICO-HAL-03]).
 
 > [!NOTE]
 > Serial settings: **115200 baud, 8 data bits, 1 stop bit, no parity (8N1)**.

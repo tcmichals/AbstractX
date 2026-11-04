@@ -3496,3 +3496,20 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
   - **Full `e906_coprocessor.elf` suite**: **4 passed, 0 failed, 35 skipped** (SPI IMU WHO_AM_I, I2C compass ID, Serial GPS stream, Auto-DMA stream).
   - **Overall status**: 100% pass across all operational firmware configurations with zero failures.
 
+
+---
+
+### 2026-11-03: Pico 2 W first SWD board run; stdio console moved off the GPS UART
+* **Category**: `product-bug` (console on GPS UART), `hardware-fact` (board run results)
+* **Mistake / bug observed** (`targets/pico2w_rp2350`): the pico-sdk default stdio UART is UART0 on GP0/GP1, which is also the GPS bus (`PicoUart`). Every `printf` went into the GPS receiver's RX pin, and a console probe could not be wired without the GPS. The pin tables listed both on GP0/GP1.
+* **Which check should have caught it**: none covers pin assignments. `hw-sw-register-parity` checks register offsets, not pin ownership. Not added in this change: a check that no two functions in the target pin table share a GPIO.
+* **Spec update**: `[SPEC-PICO-HAL-03]` in `targets/pico2w_rp2350/SPECIFICATION.md` (stdio on UART1 GP8/GP9; UART0 is GPS only); pin table and `HOWTO.md` §2.2 updated.
+* **Implementation**: `PICO_DEFAULT_UART=1`, `PICO_DEFAULT_UART_TX_PIN=8`, `PICO_DEFAULT_UART_RX_PIN=9` on `abstractx_target_pico2w` (`targets/pico2w_rp2350/CMakeLists.txt`).
+* **Board run** (Pico 2 W via Debugprobe CMSIS-DAP, OpenOCD xPack 0.12.0+dev, `gps_imu_app` built with `cmake --preset pico2w-debug`):
+  - SWD: DPIDR `0x4c013477`, both Cortex-M33 cores examined; `program ... verify` -> `** Verified OK **`.
+  - Over SWD after the change: `uart_instance = 0x40078000` (UART1), UART1 `CR=0x301`, `IBRD=81 FBRD=24` at `clk_peri=150 MHz` (115207 baud), GP8/GP9 `FUNCSEL=2`.
+  - Console on `/dev/ttyACM0`: CYW43 firmware banner, AbstractX banner, `Hardware Status: IMU=OK, GPS=OK, MAG=FAIL` (no GPS or compass wired; GPS=OK with no receiver means `UbloxGps::init_async` does not check for one), AHRS lines at 1 Hz.
+  - IMU (ICM-42688-P on SPI1, WHO_AM_I matched): about 650 updates/s with Wi-Fi not joined, about 298 updates/s while joined and streaming. Everything runs on Core 0 (Core 1 still not launched, TODO.md).
+  - Wi-Fi (NETGEAR69, 2.4 GHz): joined on 1 of 3 boots (`CYW43_LINK_BADAUTH` once, `link fail` once); `platform_init` tries once with a 15 s timeout and no retry. When joined: IP 192.168.1.14, ping 0 % loss, 3196 UDP :9870 packets in 10 s (64 B, 67 B, 496 B frames).
+  - The board LED stays off: on the Pico 2 W it is CYW43 `WL_GPIO0`, not GPIO 25 as `io_processor.cpp` assumes, and nothing turns it on.
+* **Not verified**: host tests and sanitizers (no C++ changed); Release preset; console RX input; Studio decoding of the UDP stream.

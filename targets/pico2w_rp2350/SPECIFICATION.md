@@ -92,6 +92,8 @@ The Pico 2 W HAL assigns hardware peripherals to the following GPIO pins:
 | | `I2C0_SCL` | **GP5** (Pin 7) | I2C Serial Clock (400 kHz Fast Mode) |
 | **UART0 (GPS Bus)**| `UART0_TX` | **GP0** (Pin 1) | Transmits configuration commands to GPS |
 | | `UART0_RX` | **GP1** (Pin 2) | Receives UBX binary frames (115200–921600 baud) |
+| **UART1 (Console)**| `UART1_TX` | **GP8** (Pin 11) | `printf` / stdio text console, 115200 8N1 ([SPEC-PICO-HAL-03]) |
+| | `UART1_RX` | **GP9** (Pin 12) | Console input |
 | **CYW43 Wi-Fi** | Internal | **Internal WL_REG_ON** | Managed exclusively by `pico_cyw43_arch` on Core 0 |
 
 ---
@@ -312,6 +314,17 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
 * **Verified by**: `host-tests` (build only on the host), `board-bringup`
 * **Not verified yet**: on a Pico 2 W (no hardware on 2026-10-30).
 * **Implementation Target**: `targets/pico2w_rp2350/src/io_processor.cpp`
+
+### [SPEC-PICO-HAL-03] Text Console on UART1, GPS Owns UART0
+* **Why**: the pico-sdk default stdio UART is UART0 on GP0/GP1, which is also the GPS bus
+  (`PicoUart`). Until 2026-11-03 every `printf` was transmitted into the GPS receiver's RX pin,
+  and a console probe could not be wired without disconnecting the GPS.
+* **Requirement**: stdio uses UART1, TX on GP8 (pin 11), RX on GP9 (pin 12), 115200 8N1
+  (`PICO_DEFAULT_UART=1`, `PICO_DEFAULT_UART_TX_PIN=8`, `PICO_DEFAULT_UART_RX_PIN=9` on
+  `abstractx_target_pico2w`). UART0 (GP0/GP1) carries only GPS traffic.
+* **Verified by**: `board-bringup` (over SWD: UART1 enabled at 115200 and GP8/GP9 muxed to UART;
+  UART0 transmits no console text)
+* **Implementation Target**: `targets/pico2w_rp2350/CMakeLists.txt`
 
 ### 4.1 IMU Auto-Sample Pipeline
 1. **ICM-42688-P asserts `DRDY` (GP20 / Pin 3)**:
