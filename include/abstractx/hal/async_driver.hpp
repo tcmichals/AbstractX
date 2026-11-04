@@ -27,15 +27,12 @@
 #include "abstractx/domain_dispatcher.hpp"
 #include "abstractx/executor.hpp"
 #include "io_status.hpp"
+#include "abstractx/cold.hpp"
 
 namespace abstractx::hal {
 
 // @impl [SPEC-ARCH-16] docs/DESIGN_SPECIFICATION.md (8: request state, abort else wait)
-// Code that runs only when a task is destroyed during a transfer. E906: placed in .text_cold
-// (SRAM Space 1), not the fast SRAM ([SPEC-E906-MEM-01]).
-#ifndef ABSTRACTX_COLD
-#define ABSTRACTX_COLD __attribute__((cold, noinline, section(".text.abx_cold")))
-#endif
+// Cancellation runs only when a task is destroyed during a transfer: ABSTRACTX_COLD (cold.hpp).
 
 // Request state, owned by the awaiter (in the coroutine frame): Pending -> Done, or
 // Pending -> Abandoned -> Done. A completion that finds Abandoned writes and posts nothing.

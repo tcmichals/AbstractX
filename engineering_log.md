@@ -3750,3 +3750,13 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **E906 memory**: `e906_repl_app` overflowed SRAM_FAST by 1008 B; the cancellation functions (`cancel_request` per driver type, `abandon_request`) are now `ABSTRACTX_COLD`, placed in `.text_cold` (SRAM Space 1, `[SPEC-E906-MEM-01]`). Result: `e906_repl_app` 191.2 / 192 KB (99.6%), about 0.8 KB free: too tight, follow-up needed.
 * **Evidence**: `tools/gate.sh` plain / asan / tsan 101/101 each, `[PASS] gate`; E906 5 images layout ok; FreeRTOS XTIMER / TICK_HOOK build; Pico 2 W builds; `audit_coro_contracts`, `audit_specs` pass.
 * **Not verified**: no driver implements a hardware abort yet (every running request takes the wait path); board runs; the wait path when a completion can only arrive through `step()` (it would trap after 1 s).
+
+---
+
+### 2026-11-04: E906 REPL app: MicroPython runs from SRAM Space 1; fast SRAM 99.6% -> 62.6%
+* **Category**: `process-gap` (memory budget)
+* **What was wrong**: after the cancellation work `e906_repl_app` used 191.2 / 192 KB of SRAM Space 0 (0.8 KB free); 162 KB of it was code. The MicroPython heap was never the issue: it is in the HiFi4 DSP RAM (`gc_init` at `0x00020000`, 128 KB).
+* **Decision (project owner)**: use more of SRAM Space 1 (fast SRAM like Space 0).
+* **Spec update**: `[SPEC-E906-MEM-01]`: `.text_cold` (Space 1 lower half) holds all of MicroPython's own code and constants (`py/`, `shared/`, about 63 KB) and AbstractX code marked `ABSTRACTX_COLD` (cancellation path, status report builder); Space 0 keeps vectors, AbstractX core and target, the app's drivers, libc / libm, data, bss and stack. `ABSTRACTX_COLD` moved to `include/abstractx/cold.hpp`.
+* **Evidence**: `analyze_elf_size.sh e906_repl_app`: SRAM_FAST 120.2 / 192.0 KB (62.6%, 71.8 KB free), SRAM_A3_2 115.8 / 128 KB (90.4%, 12.2 KB free), DRAM 0.00 MB; all 5 E906 images layout ok; `tools/gate.sh` plain / asan / tsan 101/101, `[PASS] gate`; Pico 2 W builds.
+* **Not verified**: REPL behaviour and MicroPython speed on the board with the VM in Space 1 (Space 1 code execution itself is proven: the compiler has run there since 2026-10-27). Space 1 is now the tighter region: new code defaults to Space 0.

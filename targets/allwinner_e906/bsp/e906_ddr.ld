@@ -81,21 +81,15 @@ SECTIONS
         __sram_c_end = .;
     } > SRAM_A3_2
 
-    /* Cold code in SRAM Space 1 lower half: MicroPython's compiler runs only while a script is
-     * compiled ([SPEC-E906-MEM-01]). Listed before .text so these input sections land here. */
+    /* Second code region in SRAM Space 1 lower half ([SPEC-E906-MEM-01]): all of MicroPython's own
+     * code and constants, and AbstractX code marked ABSTRACTX_COLD. Listed before .text so these
+     * input sections land here; Space 0 keeps AbstractX, drivers, libc / libm, data and stack. */
     .text_cold : ALIGN(4)
     {
         __text_cold_start = .;
-        *py/lexer.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
-        *py/parse.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
-        *py/compile.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
-        *py/emitbc.c.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
-        *py/emitglue.c.obj(.text .text.*)
-        *py/scope.c.obj(.text .text.* .rodata .rodata.*)
-        *py/parsenum.c.obj(.text .text.* .rodata .rodata.*)
-        *py/parsenumbase.c.obj(.text .text.*)
-        *py/mpz.c.obj(.text .text.* .rodata .rodata.*)
-        *(.text.abx_cold .text.abx_cold.*)   /* [SPEC-ARCH-16] 8 cancellation path, ABSTRACTX_COLD */
+        */micropython/py/*.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
+        */micropython/shared/*.obj(.text .text.* .rodata .rodata.* .srodata .srodata.*)
+        *(.text.abx_cold .text.abx_cold.*)   /* [SPEC-ARCH-16] 8 cancellation, status report */
         __text_cold_end = .;
     } > SRAM_A3_2
 

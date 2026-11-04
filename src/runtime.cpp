@@ -7,6 +7,7 @@
  * Authoritative single runtime orchestrator for AbstractX applications.
  */
 
+#include "abstractx/cold.hpp"
 #include "abstractx/abstractx.hpp"
 #include "abstractx/trace/sink.hpp"
 #include "abstractx/trace/trace_dispatcher.hpp"
@@ -205,7 +206,7 @@ __attribute__((weak)) void hal::platform_runtime_stats(stats::PlatformStats& out
 }
 
 // @impl [SPEC-TRACE-08] docs/DESIGN_SPECIFICATION.md
-void status_service_at(uint64_t now_us) noexcept {
+ABSTRACTX_COLD void status_service_at(uint64_t now_us) noexcept {
     if (!g_initialized) {
         return;
     }
