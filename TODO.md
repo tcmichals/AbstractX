@@ -38,6 +38,17 @@ owner's OK).
   `check_register_parity.py` gets a TLP layout check (EL-1027-21). Write B's new modules LE from the start.
 - [ ] **D. Motor failsafe** (P0-01..03): fixed gate on GPIO 0..3 in `asp_top`: ARM bit + heartbeat
   watchdog in `asp_sys_regs`; disarmed or heartbeat lost -> motor pins forced low; cocotb test.
+- [ ] **E0. Shrink the PIO SM (owner: do 1 and 3, 2026-11-05; paused, nothing changed yet)**: one `asp_pio_sm`
+  alone, `yosys synth_gowin -nowidelut`: **4,701 LUT4**, 291 ALU, 623 DFF, 0 BSRAM, so 4 SMs ~18,800 LUT4 =
+  ~91 % of the 20K (20,736). Not memory (BSRAM 46 blocks almost unused; the 8-word FIFO is 256 of the 623 DFF):
+  the LUTs are 32-bit one-clock shift/rotate datapaths per SM (IN rotator, OUT/SET/side-set mask and value
+  rotators, `low_mask`, ISR/OSR variable shifts). Plan, in pio2 first (spec, then cocotb + conformance suites,
+  each run under a 60 s timeout): (1) GPIO width parameter (24 on Tang; only the pin datapaths shrink, ISR/OSR
+  stay 32-bit; wrap at the width, bases >= width rejected); (3) TX/RX FIFOs out of flip-flops (split into a
+  TX and an RX memory, one write and one read port each, LUT RAM; the pull must stay same-clock, so no
+  registered-read BRAM without a head register). Measure one SM again (< 1 min) before a full fit.
+  Note: new pio2 commits stay local (no push), so an AbstractX pin to them does not resolve on a clone until
+  pio2 is pushed first.
 - [ ] **E. Tang Nano 20K fit** (`[SPEC-TN20K-03]`): was LUT4 95 %, no placement, with the old cores in;
   re-measure after A-D (`make tang_nano20k_fit`, minutes: owner OK given); Tang 9K / Primer 20K too.
 - [ ] **F. Later (owner decision)**: `pio2_core` with its SPI link / Zynq adapter replaces the TLP path on
