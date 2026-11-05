@@ -11,7 +11,7 @@
 
 #include <pthread.h>
 #include <poll.h>
-#include <sched.h>
+#include <ctime>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -60,9 +60,11 @@ void platform_launch_processing_domain(void (*entry)()) noexcept {
     }
 }
 
+// Convenience loop only: bounded sleep, never a sched_yield() spin (EL-1027-18).
+// @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md
 void platform_idle_wait() noexcept {
-    // Cooperative yield with sub-millisecond backoff using sched_yield
-    sched_yield();
+    const timespec ts{0, 100'000};  // 100 us, same as the Linux target
+    nanosleep(&ts, nullptr);
 }
 
 void platform_poll_network() noexcept {

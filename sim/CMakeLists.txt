@@ -160,6 +160,14 @@ if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_target.cpp)
     target_link_libraries(test_zynq_target PRIVATE abstractx_core)
     add_test(NAME sim_test_zynq_target COMMAND test_zynq_target)
 endif()
+# [SPEC-ARCH-06] hosted idle wait sleeps, never spins (EL-1027-18): one binary per hosted target file
+foreach(_idle_target linux zynq7000)
+    add_executable(test_hosted_idle_wait_${_idle_target} test_hosted_idle_wait.cpp
+                   ${PROJECT_SOURCE_DIR}/targets/${_idle_target}/src/hal_platform.cpp)
+    target_include_directories(test_hosted_idle_wait_${_idle_target} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(test_hosted_idle_wait_${_idle_target} PRIVATE etl pthread)
+    add_test(NAME sim_test_hosted_idle_wait_${_idle_target} COMMAND test_hosted_idle_wait_${_idle_target})
+endforeach()
 # Each cocotb suite is a make target (sim-test-*) and a ctest (rtl_sim-test-*, label rtl).
 # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md (cocotb suites run by ctest; visible skips)
 option(ABSTRACTX_RTL_TESTS "Register the cocotb RTL suites with ctest" ON)

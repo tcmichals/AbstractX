@@ -2898,7 +2898,7 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-15 | RTL | `asp_uart_core.sv` (new in `c5a1eaa`): egress TLP payload hard-wired zero and RX FIFO never drained, so it sends empty TLPs forever once 40 B arrive; ingress `s_tlp_tdata` accepted and dropped; IRQ flags never set; error flags never cleared; default divisor 14 at 27 MHz = 4.4% baud error; no cocotb test | `rtl/serial/asp_uart_core.sv:406,451`; instantiated `rtl/asp_top.sv:358` | remove (all-PIO direction, EL-1027-20); confirm the other PC has no newer version first | `cocotb-regression`, `rtl-lint` |
 | EL-1027-16 | Zynq C++ (wider: see 2026-11-05 entry, two TLP byte orders; owner decision A/B/C) | `ZynqUioBridge::write_tlp`/`read_tlp` send DWORD 0 first, which lands in bits [31:0]; RTL decodes type/channel from [511:480] (`asp_axi_lite_bridge.sv:238`, `asp_wishbone_master.sv:106`); Python `zynq_diagnostics.py` matches the RTL. Every C++ TLP is misrouted | `targets/zynq7000/include/abstractx/target/zynq_uio.hpp:132,142` | spec the word order, fix C++, make the mock check order | `hw-sw-register-parity`, host test |
 | EL-1027-17 | Zynq C++ | UIO interrupt unmasked only when `egress_count()==0` after a drain, so it can stay masked; `ingress_rx_ring->push()` result ignored (packet lost silently) | `zynq_uio.hpp` `ack_interrupt`, `targets/zynq7000/src/io_processor.cpp` | spec + fix | `ipc-transport-audit` |
-| EL-1027-18 | Linux/Zynq | `platform_idle_wait` now `sched_yield()`: an idle core spins at 100% | `targets/zynq7000/src/hal_platform.cpp:65` | wait on the UIO fd / eventfd with a timeout | review |
+| EL-1027-18 | Linux/Zynq (**fixed 2026-11-05**: bounded 100 us sleep, `sim/test_hosted_idle_wait`) | `platform_idle_wait` now `sched_yield()`: an idle core spins at 100% | `targets/zynq7000/src/hal_platform.cpp:65` | wait on the UIO fd / eventfd with a timeout | review |
 | EL-1027-19 | Zynq tests | `sim/test_zynq_target.cpp` `@verifies` SPEC-ZYNQ-02 / -06 but never runs poll/ack or timestamps; checks are `assert()` with side effects (vanish under NDEBUG); no 1000-cycle test | `sim/test_zynq_target.cpp` | rewrite with CHECK, drive poll/ack | `--check-verifies` |
 | EL-1027-20 | FPGA all-PIO | for ESC 4-way passthrough and bidirectional DShot on PIO: `asp_pio_tile` `o_gpio_out`/`o_gpio_pindir` unconnected and motor pins driven by `asp_dshot_core`; motor pins output-only (need `inout`, OE from `o_gpio_pindir`, fed back into `i_gpio`); 32-word shared IRAM (program swap while disarmed); SM FIFOs reachable only by Wishbone; no PIO DShot / bidir DShot / half-duplex UART programs or cocotb timing-parity tests | `rtl/asp_top.sv:52,321,392-394`, `rtl/pio/asp_pio_tile.sv:53` | spec first in `rtl/pio/SPECIFICATION.md` (passthrough: program swap, pin turnaround, TLP data path); check the other PC for all-PIO tops before RTL edits | `cocotb-regression`, `fpga-fit` |
 | EL-1027-21 | tools | `check_register_parity.py` compares Python with values hard-coded in the script (not parsed from RTL), spec check only looks for the offset string, skips E906 entries silently, does not check TLP word/byte layout or the UART core | `tools/check_register_parity.py` | parse RTL; add TLP layout check (would have caught EL-1027-16) | its own test |
@@ -3886,4 +3886,23 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **B (smallest)**: memory/software format stays little-endian; each FPGA transport converts at one boundary (`to_fpga_words` / `from_fpga_words` in `asp_tlp64.hpp`: header fields to big-endian, byte 0 at bit 511, 16 DWORDs DW0 = bits [511:480]). Zynq `write_tlp` sends DW15 first because the bridge packs the first write into [31:0].
 * **C**: change the RTL and cocotb to little-endian.
 * Also check `asp_axi_dma.sv:311`: beat 0 = bits [511:448] goes to DDR bytes 0..7 as a little-endian 64-bit beat, so DW0 lands at bytes 4..7.
+
+## [2026-11-05] - EL-1027-18: Zynq idle wait spun at 100% CPU
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/zynq7000/src/hal_platform.cpp`
+* **Category**: `product-bug`
+* **Symptoms**: `platform_idle_wait()` was `sched_yield()`, so the built-in `run()` loop kept an idle A9 core at 100%.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: the idle policy ([SPEC-ARCH-06]) only described bare metal (masked re-check + `wfi`); nothing said what a hosted target does, and the Zynq file was never compiled on the host, so no test touched it.
+* **Which check should have caught it**: `host-tests`, but no host test built `targets/zynq7000/src/hal_platform.cpp` (the Zynq target library is only built with `-DABSTRACTX_TARGET=zynq7000`).
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-ARCH-06]` idle policy: on hosted builds (Linux, Zynq-7000) `platform_idle_wait()` sleeps a bounded time (100 us) and never spins; the convenience loop only, a real host waits on `step()`'s deadline and the wake hook ([SPEC-ARCH-15]).
+
+### 4. Implementation & Regression Test
+* Zynq: `nanosleep` 100 us, same as Linux.
+* `sim/test_hosted_idle_wait.cpp`, built once per hosted target file (`_linux`, `_zynq7000`): ~20 ms of back-to-back idle waits, CPU/wall must be <= 0.5. Old Zynq code: `40474 calls, wall 20.0 ms, cpu 20.0 ms (100%)` -> FAIL; new: `132 calls, cpu 0.3 ms (1%)` -> PASS. Linux: 3%.
+* **Limit**: on a heavily loaded machine a spinning `sched_yield()` can get less than half a core, so the test may miss a regression there; it never fails a correct sleep.
 
