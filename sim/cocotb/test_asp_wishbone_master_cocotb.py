@@ -1,5 +1,6 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
+# @verifies [SPEC-TLP-07] docs/DESIGN_SPECIFICATION.md (asp_wishbone_master: one completion per read, held until accepted)
 
 import struct
 import cocotb
@@ -240,3 +241,45 @@ async def test_mem_wr_burst_execution(dut):
     dut._log.info("[SUCCESS] Multi-register burst write verified with 4 consecutive Wishbone writes!")
 
 
+
+
+@cocotb.test(timeout_time=2, timeout_unit="ms")
+async def test_every_completion_exactly_once_random_ready(dut):
+    """[SPEC-TLP-07] AXI-Stream on the completion port: with random tready, every MemRead gives
+    exactly one completion, and tdata/tvalid never change before tready (2026-11-05: EMIT set
+    tvalid on every cycle, so a completion could be sent twice and the next read overwrote it)."""
+    import random
+    from cocotb.triggers import FallingEdge, ReadOnly
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    n = 200
+    cocotb.start_soon(wb_slave_responder(dut, read_data_map={0x40000000 + 4 * i: 0xC0DE0000 + i for i in range(n)},
+                                         max_cycles=10 ** 9))
+    got = []
+
+    async def sink():
+        held = None
+        while True:
+            await FallingEdge(dut.clk)
+            dut.m_cpl_tready.value = int(random.random() < 0.4)
+            await ReadOnly()
+            v, d, r = int(dut.m_cpl_tvalid.value), int(dut.m_cpl_tdata.value), int(dut.m_cpl_tready.value)
+            if held is not None:
+                assert v and d == held, "completion changed or withdrawn before tready"
+            if v and r:
+                got.append(unpack_cpl_tlp(d))
+                held = None
+            else:
+                held = d if v else None
+    cocotb.start_soon(sink())
+
+    for i in range(n):
+        await send_tlp(dut, pack_tlp_int(TYPE_MEM_RD, 0, i & 0xFF, 0x01, 0x40000000 + 4 * i, 1, i, 0))
+    for _ in range(20000):
+        if len(got) >= n:
+            break
+        await RisingEdge(dut.clk)
+    await ClockCycles(dut.clk, 200)
+    assert len(got) == n, f"{len(got)} completions for {n} reads (duplicates or losses)"
+    assert [g[7] for g in got] == [0xC0DE0000 + i for i in range(n)]
+    assert [g[1] for g in got] == [i & 0xFF for i in range(n)]

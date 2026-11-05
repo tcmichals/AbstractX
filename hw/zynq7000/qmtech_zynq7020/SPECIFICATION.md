@@ -207,11 +207,10 @@ configuration:
 
 ### `[SPEC-ZYNQ-03]` Fixed 64-Byte TLP Routing (`asp-tlp-64b`)
 * All transactions between PS and PL MUST be encapsulated into strict 64-byte (16 x 32-bit DWORD) TLP containers.
-* The PL router (`asp_router.sv`) MUST route packets by `Channel/AXID`:
-  * `Channel 0x01` (`CONTROL`): Memory Read / Write requests targeting Wishbone registers.
-  * `Channel 0x02` (`TELEMETRY`): Autonomous IMU sensor telemetry frames.
-  * `Channel 0x04` (`DEBUG_TRACE`): Binary CTF 1.8 diagnostic trace stream.
-  * `Channel 0x05` (`ESC_SERIAL`): Bidirectional serial/UART tunneling.
+* The PL router (`asp_router.sv`) routes by `Channel/AXID` ([SPEC-TLP-07], 2026-11-05):
+  * `Channel 0x01` (`CONTROL`): Memory Read / Write requests to the PL registers.
+  * Every other channel: the PIO tile, whose `IN_CFG` channel selects its own (ESC serial, motor frames,
+    any PIO program's input). Egress: control completions first, then the PIO stream.
 * Every router source port a top does not use is tied off (`tvalid = 0`, `tdata = 0`), never left
   unconnected: an undriven `tvalid` enters the egress arbiter as X/Z. The QMTECH top has no PIO tile
   yet (pio2 `[SPEC-ICN-11]` plans `pio2_core` with its own Zynq adapter), so its `s_pio_stream_*` is
@@ -268,46 +267,22 @@ configuration:
 * **Implementation Target**: `rtl/pio/`, `rtl/asp_pio_wrap.sv`, `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`, `targets/zynq7000/`
 * **Not implemented yet**: decided 2026-10-30; UART PIO program, DMA path choice and endpoint mapping are open (`TODO.md` section 2a).
 
-### `[SPEC-ZYNQ-04]` Autonomous IMU Auto-DMA & Direct SPI Engine
-* The PL MUST integrate a hardware SPI Master and Auto-DMA state machine mapped to Wishbone base `0x4000_0100`:
-  * `0x4000_0100` (`IMU_REG_CTRL`):
-    * Bit 0 (`auto_dma_en`): Write `1` to **start** continuous autonomous DRDY auto-DMA; write `0` to **stop** auto-DMA mode.
-    * Bit 1 (`direct_spi_trig`): Self-clearing single SPI transfer trigger pulse.
-    * Bit 2 (`int_polarity`): Hardware DRDY interrupt polarity (`1` = active-high rising edge, `0` = active-low falling edge).
-    * Bit 3 (`direct_spi_rw`): Manual SPI transfer direction (`0` = Read, `1` = Write).
-  * `0x4000_0104` (`IMU_REG_ADDR`): Target IMU register offset (e.g. `0x75` WHO_AM_I, `0x4E` PWR_MGMT0, `0x1D` TEMP_DATA1).
-  * `0x4000_0108` (`IMU_REG_LEN`): Payload transfer length in bytes (`1` for single register, `14` for the full temperature/6-axis sample from `0x1D` through `0x2A`; the SPI command byte is additional).
-  * `0x4000_010C` (`IMU_REG_WDATA`): Data word to shift out over MOSI during manual register write.
+### `[SPEC-ZYNQ-04]` IMU on the PIO Tile (the IMU Auto-DMA Core Is Removed)
+* **Requirement (2026-11-05, project owner: all-PIO)**: the PL has no dedicated IMU SPI / auto-DMA core.
+  The IMU pins are PIO GPIOs of the shared pin map (`rtl/asp_pio_pins.sv`, `[SPEC-TLP-07]` in
+  `docs/DESIGN_SPECIFICATION.md`): SCLK 7, CS_n 8, MOSI 9, MISO 10, DRDY 11. A PIO program
+  (pio2 `src/programs/imu_spi_burst.pio`) reads the sensor and its samples leave as PIO stream TLPs
+  ([SPEC-TLP-06]). The former register block at `0x4000_0100`..`0x4000_013C` no longer exists; an access
+  there completes with data 0.
+* **History**: the removed core's contract (direct SPI mode, DRDY auto-DMA with overrun counter, TLP layout
+  DW3-DW10) is in git before 2026-11-05; `hw/zynq7000/testApps/imu_backend_validation_poc/` validated it
+  and is retired.
+* **Not implemented yet**: host-side loading of `imu_spi_burst` on the Zynq and a cocotb test of the
+  program on this top (pio2 tests the program on its own core).
 * **Refines**: `[SPEC-ARCH-01]`
 * **Method**: `Test`
-* **Verified by**: `cocotb-regression` (`test_asp_tlp_64b_cocotb`, which replaced `test_asp_top_cocotb` after the Dual-SPI change)
-  * `0x4000_0110` (`IMU_REG_RDATA`): Captured data word from MISO during manual register read.
-  * `0x4000_0114 - 0x4000_0118`: 64-bit nanosecond timestamp latched at the start of the last SPI transfer (high word then low word).
-  * `0x4000_011C` (`IMU_REG_STATUS`): Bit 0 direct-transfer busy, bit 1 direct-transfer done (write-one-to-clear), bit 2 Auto-DMA enabled, bit 3 SPI engine busy.
-  * `0x4000_0120 - 0x4000_012C` (`IMU_REG_DATA0..3`): Four read-only words containing the most-significant-byte-first payload from the latest direct SPI read. The final word contains two payload bytes in bits 31:16 and zeroes in bits 15:0.
-  * `0x4000_0130 - 0x4000_0134` (`IMU_REG_END_TIME_HI/LO`): 64-bit nanosecond timestamp captured after the final SPI bit and chip-select deassertion.
-  * `0x4000_0138` (`IMU_REG_SPI_HALF_PERIOD`): SPI half-period in 100 MHz PL clock cycles; the SPI engine MUST use the configured value for both direct and Auto-DMA transfers.
-  * `0x4000_013C` (`IMU_REG_DRDY_OVERRUN_COUNT`): Read-only 32-bit counter incremented for each active-polarity DRDY edge received while the Auto-DMA engine is not idle; the counter wraps modulo 2^32.
-  * The SPI master MUST implement mode 0 (CPOL=0, CPHA=0): SCLK idles low, MOSI is stable before each rising edge, MISO is sampled on each rising edge, and MOSI changes on falling edges. Chip select MUST remain asserted across the command and complete payload.
-* **Mode A (Direct Host Register Access)**:
-  * When `direct_spi_trig` is pulsed, the engine performs a single transaction (read or write) and returns directly to `IDLE` without generating TLP stream packets.
-  * The engine clears `done` when a request is accepted, asserts `busy` during transfer, and sets `done` only after payload and completion timestamp are committed and chip-select is deasserted.
-  * Direct-read data remains available in `IMU_REG_DATA0..3` until the next direct read. Software MUST use the bounded busy/done handshake and MUST NOT infer completion from the self-clearing trigger or a changed sensor value.
-* **Mode B (Autonomous 8 kHz DRDY Auto-DMA)**:
-  * When `auto_dma_en` is `1`, each `DRDY` edge autonomously:
-    1. Latches the 64-bit nanosecond hardware uptime timer.
-    2. Performs an autonomous SPI burst read of `burst_len` bytes (default 14 bytes beginning at `TEMP_DATA1` register `0x1D`: temperature, accel, gyro).
-    3. Packs raw sensor data, 16-bit sequence, DRDY/start timestamp, and SPI completion timestamp into a 64-byte `DMA_Stream` TLP (`Type=0x10`, `Channel=0x02`).
-     4. Forwards the packet through the switch router to the BRAM egress FIFO;
-       an optional DDR profile may instead forward it to the DDR DMA engine.
-  * The 16-bit sample sequence MUST be assigned at each accepted DRDY edge and advance for every later DRDY edge while Auto-DMA is enabled, including edges received while the engine is busy. Busy edges increment `IMU_REG_DRDY_OVERRUN_COUNT`; the resulting sequence gaps let software account for samples that could not be acquired.
-  * Software MUST snapshot the overrun counter before arming Auto-DMA and after stopping it, and report the modulo-2^32 delta. The counter is diagnostic and MUST NOT be interpreted as a count of records lost specifically to host packet-buffer exhaustion.
-  * The TLP layout MUST retain the 14 sensor payload bytes in DW5–DW8, the DRDY/start timestamp in DW3–DW4, and the completion timestamp in DW9–DW10; sequence and padding fields MUST follow `hw/zynq7000/testApps/imu_backend_validation_poc/SPECIFICATION.md`.
-  * The TLP stream valid signal MUST remain asserted with stable frame data until a valid/ready handshake occurs; a ready signal without valid MUST NOT consume or discard a frame.
-* Writing `auto_dma_en = 0` MUST immediately halt autonomous triggering and place the engine in idle state; the status busy bit MUST remain asserted until the in-flight Auto-DMA transfer is aborted and chip select is deasserted.
-* DRDY-to-packet-commit latency is a board-validation metric and MUST NOT be
-  published as measured until captured on the synthesized QMTECH bitstream.
-* The default burst address MUST be `0x1D`; a 14-byte read beginning at `0x1F` omits temperature and does not match the shared ICM-42688-P sample parser.
+* **Verified by**: `cocotb-regression` (`sim-test-tlp64-top`: shared pin map and PIO path on `asp_top`), `rtl-lint`
+* **Implementation Target**: `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`, `rtl/asp_pio_pins.sv`
 
 ### `[SPEC-ZYNQ-08]` Nanosecond Monotonic Hardware Timer
 * The top-level 64-bit uptime counter MUST represent elapsed nanoseconds, not PL clock cycles. Its update rate MUST derive from `CLK_FREQ_HZ`, preserving fractional nanoseconds when the clock period is not an integer number of nanoseconds.

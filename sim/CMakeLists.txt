@@ -186,6 +186,7 @@ macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
         COMMENT "Running Cocotb test: ${TEST_FILE} on ${TOPLEVEL_MODULE}"
         VERBATIM
     )
+    list(APPEND _all_cocotb_targets ${TARGET_NAME})   # sim-test-all depends on every registered suite
     if(ABSTRACTX_RTL_TESTS)
         set(_skip "")
         if(NOT ABX_VERILATOR OR NOT ABX_COCOTB_CONFIG OR NOT ABX_MAKE)
@@ -215,16 +216,8 @@ add_cocotb_test(sim-test-axis-fifo    asp_axis_fifo          test_asp_axis_fifo_
 add_cocotb_test(sim-test-router       asp_router             test_asp_router_cocotb)
 add_cocotb_test(sim-test-sys-regs     asp_sys_regs           test_asp_sys_regs_cocotb)
 add_cocotb_test(sim-test-wb-master    asp_wishbone_master    test_asp_wishbone_master_cocotb)
-add_cocotb_test(sim-test-tlp64-top    asp_top                test_asp_tlp_64b_cocotb)
-add_cocotb_test(sim-test-imu-auto-dma asp_imu_auto_dma       test_asp_imu_auto_dma_cocotb)
+add_cocotb_test(sim-test-tlp64-top    asp_top                test_asp_top_pio_cocotb)
 add_cocotb_test(sim-test-axi-lite     asp_axi_lite_bridge    test_asp_axi_lite_bridge_cocotb)
-# Protocol timing at each board clock ([SPEC-FPGA-CLK-01]): 27 MHz Tang, 12 MHz CYC1000, 50 MHz default
-add_cocotb_test(sim-test-dshot-27m    asp_dshot_core    test_asp_dshot_core_cocotb    "SIM_PARAMS=-GNUM_CHANNELS=1 -GCLK_FREQ_HZ=27000000")
-add_cocotb_test(sim-test-dshot-12m    asp_dshot_core    test_asp_dshot_core_cocotb    "SIM_PARAMS=-GNUM_CHANNELS=1 -GCLK_FREQ_HZ=12000000")
-add_cocotb_test(sim-test-dshot-50m    asp_dshot_core    test_asp_dshot_core_cocotb    "SIM_PARAMS=-GNUM_CHANNELS=1")
-add_cocotb_test(sim-test-neopixel-27m asp_neopixel_core test_asp_neopixel_core_cocotb SIM_PARAMS=-GCLK_FREQ_HZ=27000000)
-add_cocotb_test(sim-test-neopixel-12m asp_neopixel_core test_asp_neopixel_core_cocotb SIM_PARAMS=-GCLK_FREQ_HZ=12000000)
-add_cocotb_test(sim-test-neopixel-50m asp_neopixel_core test_asp_neopixel_core_cocotb)
 add_cocotb_test(sim-test-pio-wrap     asp_pio_wrap      test_asp_pio_wrap_cocotb)
 # [SPEC-TLP-06] PIO TLP data path through the wrapper (moved from pio2)
 add_cocotb_test(sim-test-pio-tlp-path asp_pio_wrap      test_asp_pio_tlp_path_cocotb)
@@ -234,7 +227,7 @@ add_cocotb_test(sim-test-pio-tlp-path asp_pio_wrap      test_asp_pio_tlp_path_co
 
 # Run all defined simulation targets
 add_custom_target(sim-test-all
-    DEPENDS sim-test-reg-bank sim-test-spi-frontend sim-test-spi-frontend-single sim-test-axis-fifo sim-test-router sim-test-sys-regs sim-test-wb-master sim-test-tlp64-top sim-test-imu-auto-dma sim-test-axi-lite sim-test-dshot-27m sim-test-dshot-12m sim-test-dshot-50m sim-test-neopixel-27m sim-test-neopixel-12m sim-test-neopixel-50m sim-test-pio-wrap
+    DEPENDS ${_all_cocotb_targets}
     COMMENT "All simulation regression suites complete."
 )
 

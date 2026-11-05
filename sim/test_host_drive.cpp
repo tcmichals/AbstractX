@@ -135,7 +135,10 @@ void test_steady_state() {
     const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(20);
     while (!g_consumer_done) {
         const uint64_t next = step();
-        if (next == kNow) continue;
+        // The step may have finished the work: check before sleeping. Without this the loop waited for
+        // a wake that would never come whenever no stale wake was latched (2026-11-05: 3/3 hangs pinned
+        // to one core, sum complete; flaky under the loaded gate).
+        if (next == kNow || g_consumer_done) continue;
         std::unique_lock<std::mutex> l(g_mu);
         if (next == kNever) {
             g_cv.wait_until(l, give_up, [] { return g_pending_wakes != 0; });

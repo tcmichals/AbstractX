@@ -14,9 +14,7 @@
 // 2. 512-bit (64-byte) Vector TLP Router (asp_router)
 // 3. Wishbone Master Gateway (asp_wishbone_master)
 // 4. System Identification & Timestamp Registers (asp_sys_regs)
-// 5. Autonomous IMU SPI Master & Auto-DMA Core (asp_imu_auto_dma)
-// 6. DShot / PWM Motor Core (asp_dshot_core)
-// 7. WS2812B NeoPixel Status Core (asp_neopixel_core)
+// 5. PIO tile (pio2, asp_pio_wrap) driving the IMU, motor, NeoPixel and UART pins ([SPEC-TLP-07])
 //
 // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
 // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
@@ -229,27 +227,11 @@ module top_qmtech_zynq7020 #(
     assign m_axi_hp_rready  = 1'b0;
 
     // ------------------------------------------------------------------------
-    // Router <-> Endpoints Signals
+    // Router ([SPEC-TLP-07]): CONTROL -> Wishbone master, every other channel -> PIO tile
     // ------------------------------------------------------------------------
-    logic [511:0] ctrl_tdata;
-    logic         ctrl_tvalid;
-    logic         ctrl_tready;
-
-    logic [511:0] wb_cpl_tdata;
-    logic         wb_cpl_tvalid;
-    logic         wb_cpl_tready;
-
-    logic [511:0] imu_stream_tdata;
-    logic         imu_stream_tvalid;
-    logic         imu_stream_tready;
-
-    logic [511:0] serial_ingress_tdata;
-    logic         serial_ingress_tvalid;
-    logic         serial_ingress_tready;
-
-    logic [511:0] serial_stream_tdata;
-    logic         serial_stream_tvalid;
-    logic         serial_stream_tready;
+    logic [511:0] ctrl_tdata,   wb_cpl_tdata,   pio_in_tdata,   pio_stream_tdata;
+    logic         ctrl_tvalid,  wb_cpl_tvalid,  pio_in_tvalid,  pio_stream_tvalid;
+    logic         ctrl_tready,  wb_cpl_tready,  pio_in_tready,  pio_stream_tready;
 
     asp_router u_router (
         .clk                 (s_axi_aclk),
@@ -260,45 +242,26 @@ module top_qmtech_zynq7020 #(
         .m_ctrl_tdata        (ctrl_tdata),
         .m_ctrl_tvalid       (ctrl_tvalid),
         .m_ctrl_tready       (ctrl_tready),
-        .m_tel_tdata         (),
-        .m_tel_tvalid        (),
-        .m_tel_tready        (1'b1),
-        .m_esc_tdata         (serial_ingress_tdata),
-        .m_esc_tvalid        (serial_ingress_tvalid),
-        .m_esc_tready        (serial_ingress_tready),
+        .m_pio_tdata         (pio_in_tdata),
+        .m_pio_tvalid        (pio_in_tvalid),
+        .m_pio_tready        (pio_in_tready),
         .m_egr_tdata         (tlp_tx_data),
         .m_egr_tvalid        (tlp_tx_valid),
         .m_egr_tready        (tlp_tx_ready),
         .s_wb_cpl_tdata      (wb_cpl_tdata),
         .s_wb_cpl_tvalid     (wb_cpl_tvalid),
         .s_wb_cpl_tready     (wb_cpl_tready),
-        .s_imu_stream_tdata  (imu_stream_tdata),
-        .s_imu_stream_tvalid (imu_stream_tvalid),
-        .s_imu_stream_tready (imu_stream_tready),
-        .s_esc_stream_tdata  (serial_stream_tdata),
-        .s_esc_stream_tvalid (serial_stream_tvalid),
-        .s_esc_stream_tready (serial_stream_tready),
-        // No PIO tile on this top yet: the source is tied off, never left floating ([SPEC-ZYNQ-03])
-        .s_pio_stream_tdata  (512'd0),
-        .s_pio_stream_tvalid (1'b0),
-        .s_pio_stream_tready (pio_stream_tready_unused)
+        .s_pio_stream_tdata  (pio_stream_tdata),
+        .s_pio_stream_tvalid (pio_stream_tvalid),
+        .s_pio_stream_tready (pio_stream_tready)
     );
-    logic pio_stream_tready_unused;
-    /* verilator lint_off UNUSEDSIGNAL */
-    wire _unused_pio = pio_stream_tready_unused;
-    /* verilator lint_on UNUSEDSIGNAL */
 
     // ------------------------------------------------------------------------
-    // Wishbone Master & On-Chip Wishbone Interconnect
+    // Wishbone master and slaves: SYS 0x400000xx, PIO 0x400007xx / 0x400008xx
     // ------------------------------------------------------------------------
-    logic [31:0] wb_adr;
-    logic [31:0] wb_dat_w;
-    logic [31:0] wb_dat_r;
+    logic [31:0] wb_adr, wb_dat_w, wb_dat_r;
     logic [3:0]  wb_sel;
-    logic        wb_we;
-    logic        wb_cyc;
-    logic        wb_stb;
-    logic        wb_ack;
+    logic        wb_we, wb_cyc, wb_stb, wb_ack;
 
     asp_wishbone_master u_wishbone_master (
         .clk          (s_axi_aclk),
@@ -319,30 +282,20 @@ module top_qmtech_zynq7020 #(
         .wb_dat_i     (wb_dat_r)
     );
 
-    // ------------------------------------------------------------------------
-    // Wishbone Slave Address Decoding:
-    // SYS:      0x400000xx (SYS_VERSION, SCRATCH, LED_CTRL)
-    // IMU:      0x400001xx (IMU Auto-DMA & Timestamping Engine)
-    // DShot:    0x400002xx (Motor Channel 1..4 Control)
-    // Serial:   0x400005xx (High-Speed UART with 256B FIFOs & Auto-TLP)
-    // NeoPixel: 0x400006xx (WS2812B RGB Status LED)
-    // ------------------------------------------------------------------------
-    logic sys_sel, imu_sel, dshot_sel, serial_sel, neopixel_sel;
-    assign sys_sel      = (wb_adr[31:8] == 24'h400000);
-    assign imu_sel      = (wb_adr[31:8] == 24'h400001);
-    assign dshot_sel    = (wb_adr[31:8] == 24'h400002);
-    assign serial_sel   = (wb_adr[31:8] == 24'h400005);
-    assign neopixel_sel = (wb_adr[31:8] == 24'h400006);
+    wire sys_sel  = wb_adr[31:8] == 24'h400000;
+    wire pio_sel  = wb_adr[31:8] == 24'h400007 || wb_adr[31:8] == 24'h400008;
+    wire none_sel = !sys_sel && !pio_sel;
+    logic [31:0] sys_wb_dat_r, pio_wb_dat_r;
+    logic        sys_wb_ack, pio_wb_ack, none_ack;
 
-    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, serial_wb_dat_r, neopixel_wb_dat_r;
-    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   serial_wb_ack,   neopixel_wb_ack;
+    // An address no slave decodes is acknowledged with data 0, so the master never waits forever.
+    always_ff @(posedge s_axi_aclk or negedge s_axi_aresetn) begin
+        if (!s_axi_aresetn) none_ack <= 1'b0;
+        else                none_ack <= wb_cyc && wb_stb && none_sel && !none_ack;
+    end
 
-    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | serial_wb_ack | neopixel_wb_ack;
-    assign wb_dat_r = sys_sel      ? sys_wb_dat_r :
-                      imu_sel      ? imu_wb_dat_r :
-                      dshot_sel    ? dshot_wb_dat_r :
-                      serial_sel   ? serial_wb_dat_r :
-                      neopixel_sel ? neopixel_wb_dat_r : 32'd0;
+    assign wb_ack   = sys_wb_ack | pio_wb_ack | none_ack;
+    assign wb_dat_r = sys_sel ? sys_wb_dat_r : pio_sel ? pio_wb_dat_r : 32'd0;
 
     logic [5:0] led_bits;
 
@@ -365,97 +318,59 @@ module top_qmtech_zynq7020 #(
     assign o_led_carrier = led_bits[0];
     assign o_led_core    = led_bits[1];
 
-    // IMU SPI Master & Auto-DMA IP Core (Base: 0x40000100)
-    asp_imu_auto_dma u_imu_core (
-        .clk                 (s_axi_aclk),
-        .rst_n               (s_axi_aresetn),
-        .i_sys_timestamp     (sys_timestamp),
-        .o_imu_sclk          (o_imu_sclk),
-        .o_imu_cs_n          (o_imu_cs_n),
-        .o_imu_mosi          (o_imu_mosi),
-        .i_imu_miso          (i_imu_miso),
-        .i_imu_int           (i_imu_int),
-        .wb_cyc_i            (wb_cyc && imu_sel),
-        .wb_stb_i            (wb_stb && imu_sel),
-        .wb_we_i             (wb_we),
-        .wb_adr_i            (wb_adr),
-        .wb_dat_i            (wb_dat_w),
-        .wb_dat_o            (imu_wb_dat_r),
-        .wb_ack_o            (imu_wb_ack),
-        .m_imu_stream_tdata  (imu_stream_tdata),
-        .m_imu_stream_tvalid (imu_stream_tvalid),
-        .m_imu_stream_tready (imu_stream_tready)
+    // ------------------------------------------------------------------------
+    // PIO tile (pio2) and the shared pin map ([SPEC-TLP-07]); pio2_core with its own Zynq
+    // adapter replaces this path later (pio2 [SPEC-ICN-11])
+    // ------------------------------------------------------------------------
+    logic [31:0] gpio_out, gpio_dir, gpio_in;
+
+    asp_pio_pins #(.NUM_PWM_INPUTS(1)) u_pio_pins (
+        .i_gpio_out(gpio_out), .i_gpio_pindir(gpio_dir), .o_gpio_in(gpio_in),
+        .o_motor_pins(o_motor_pins), .o_neopixel_pin(o_neopixel),
+        .o_uart_tx(o_uart_tx), .i_uart_rx(i_uart_rx),
+        .o_imu_sclk(o_imu_sclk), .o_imu_cs_n(o_imu_cs_n), .o_imu_mosi(o_imu_mosi),
+        .i_imu_miso(i_imu_miso), .i_imu_int(i_imu_int), .i_pwm_pins(1'b0)
     );
 
-    // Motor Output Core (DShot600 / DShot300 / PWM, Base: 0x40000200)
-    asp_dshot_core #(
-        .CLK_FREQ_HZ  (CLK_FREQ_HZ),
-        .NUM_CHANNELS (4)
-    ) u_motor_core (
-        .clk          (s_axi_aclk),
-        .rst_n        (s_axi_aresetn),
-        .wb_cyc       (wb_cyc && dshot_sel),
-        .wb_stb       (wb_stb && dshot_sel),
-        .wb_we        (wb_we),
-        .wb_addr      (wb_adr),
-        .wb_data_i    (wb_dat_w),
-        .wb_data_o    (dshot_wb_dat_r),
-        .wb_ack       (dshot_wb_ack),
-        .o_motor_pins (o_motor_pins)
-    );
-
-    // WS2812B NeoPixel Controller (Base: 0x40000600)
-    asp_neopixel_core #(
-        .CLK_FREQ_HZ (CLK_FREQ_HZ)
-    ) u_neopixel (
-        .clk          (s_axi_aclk),
-        .rst_n        (s_axi_aresetn),
-        .wb_cyc       (wb_cyc && neopixel_sel),
-        .wb_stb       (wb_stb && neopixel_sel),
-        .wb_we        (wb_we),
-        .wb_addr      (wb_adr),
-        .wb_data_i    (wb_dat_w),
-        .wb_data_o      (neopixel_wb_dat_r),
-        .wb_ack         (neopixel_wb_ack),
-        .o_neopixel_pin (o_neopixel)
-    );
-
-    // High-Speed UART / Serial Core with 256-Byte FIFOs (Base: 0x40000500)
-    asp_uart_core #(
-        .CLK_FREQ_HZ (CLK_FREQ_HZ),
-        .DEFAULT_BAUD(115_200),
-        .FIFO_DEPTH  (256)
-    ) u_uart_core (
+    asp_pio_wrap #(
+        .BASE_ADDR(32'h40000700),
+        .TILE_ID  (0)
+    ) u_pio_tile (
         .clk             (s_axi_aclk),
         .rst_n           (s_axi_aresetn),
         .i_sys_timestamp (sys_timestamp),
-        .i_uart_rx       (i_uart_rx),
-        .o_uart_tx       (o_uart_tx),
-        .wb_cyc_i        (wb_cyc && serial_sel),
-        .wb_stb_i        (wb_stb && serial_sel),
+        .i_gpio          (gpio_in),
+        .o_gpio_out      (gpio_out),
+        .o_gpio_pindir   (gpio_dir),
+        .wb_cyc_i        (wb_cyc && pio_sel),
+        .wb_stb_i        (wb_stb && pio_sel),
         .wb_we_i         (wb_we),
-        .wb_adr_i        (wb_adr[7:0]),
+        .wb_adr_i        (wb_adr),
         .wb_dat_i        (wb_dat_w),
-        .wb_dat_o        (serial_wb_dat_r),
-        .wb_ack_o        (serial_wb_ack),
-        .s_tlp_tdata     (serial_ingress_tdata),
-        .s_tlp_tvalid    (serial_ingress_tvalid),
-        .s_tlp_tready    (serial_ingress_tready),
-        .m_tlp_tdata     (serial_stream_tdata),
-        .m_tlp_tvalid    (serial_stream_tvalid),
-        .m_tlp_tready    (serial_stream_tready),
-        .o_uart_irq      ()
+        .wb_dat_o        (pio_wb_dat_r),
+        .wb_ack_o        (pio_wb_ack),
+        .s_tlp_tdata     (pio_in_tdata),
+        .s_tlp_tvalid    (pio_in_tvalid),
+        .s_tlp_tready    (pio_in_tready),
+        .m_tlp_tdata     (pio_stream_tdata),
+        .m_tlp_tvalid    (pio_stream_tvalid),
+        .m_tlp_tready    (pio_stream_tready),
+        .o_pio_irq       ()
     );
 
     // Logic Analyzer Debug Signals:
     // Debug 0: IMU DRDY Input
-    // Debug 1: IMU Auto-DMA Stream Valid
+    // Debug 1: PIO stream TLP valid
     // Debug 2: FPGA TLP Egress Valid
     // Debug 3: IRQ_F2P[0] Asserted
     assign o_debug_pins[0] = i_imu_int;
-    assign o_debug_pins[1] = imu_stream_tvalid;
+    assign o_debug_pins[1] = pio_stream_tvalid;
     assign o_debug_pins[2] = tlp_tx_valid;
     assign o_debug_pins[3] = irq_f2p;
+
+    /* verilator lint_off UNUSEDSIGNAL */
+    wire _unused_inputs = &{1'b0, i_key_carrier};
+    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
 `default_nettype wire

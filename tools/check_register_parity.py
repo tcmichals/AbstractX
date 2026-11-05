@@ -162,58 +162,34 @@ def check_zynq_uio_bridge(root: Path) -> list[str]:
     return errors
 
 
-def check_wishbone_peripherals(root: Path) -> list[str]:
-    """Verify Wishbone slave addresses between RTL, Python diag, and specs."""
+def check_sys_regs(root: Path) -> list[str]:
+    """System register offsets: the Python diagnostic tool against the case labels in asp_sys_regs.sv
+    (parsed from the RTL, not assumed). The IMU core check was removed with the core (2026-11-05,
+    [SPEC-TLP-07]: all-PIO, no dedicated cores)."""
     errors = []
     py_path = root / "hw/zynq7000/qmtech_zynq7020/tools/zynq_diagnostics.py"
     sys_regs_sv = root / "rtl/asp_sys_regs.sv"
-    imu_dma_sv = root / "rtl/imu/asp_imu_auto_dma.sv"
-
-    if not py_path.exists() or not sys_regs_sv.exists() or not imu_dma_sv.exists():
-        return [f"Required peripheral files missing"]
+    if not py_path.exists() or not sys_regs_sv.exists():
+        return ["Required peripheral files missing"]
 
     py_consts = parse_python_constants(py_path)
-
-    # Parse asp_sys_regs.sv case addresses:
-    # 8'h08: scratch_reg
-    # 8'h0C: led_reg
-    # 8'h10: timestamp low
-    # 8'h14: timestamp high
+    rtl_offsets = {int(m, 16) for m in re.findall(r"8'h([0-9A-Fa-f]{2})\s*:", sys_regs_sv.read_text())}
     sys_base = 0x40000000
     expected_sys = {
-        "SYS_REG_SCRATCH": sys_base + 0x08,
-        "SYS_REG_LED_CTRL": sys_base + 0x0C,
-        "SYS_REG_TIME_L": sys_base + 0x10,
-        "SYS_REG_TIME_H": sys_base + 0x14,
+        "SYS_REG_SCRATCH": 0x08,
+        "SYS_REG_LED_CTRL": 0x0C,
+        "SYS_REG_TIME_L": 0x10,
+        "SYS_REG_TIME_H": 0x14,
     }
-    for name, exp_val in expected_sys.items():
+    for name, off in expected_sys.items():
+        if off not in rtl_offsets:
+            errors.append(f"asp_sys_regs.sv has no case label 8'h{off:02X} for {name}")
         if name not in py_consts:
             errors.append(f"Python diag missing definition '{name}'")
-        elif py_consts[name] != exp_val:
+        elif py_consts[name] != sys_base + off:
             errors.append(
-                f"Wishbone mismatch for {name}: Python has 0x{py_consts[name]:08X}, RTL specifies 0x{exp_val:08X}"
+                f"System register mismatch for {name}: Python has 0x{py_consts[name]:08X}, RTL 0x{sys_base + off:08X}"
             )
-
-    # IMU Auto-DMA Register addresses:
-    imu_base = 0x40000100
-    expected_imu = {
-        "IMU_REG_CTRL": imu_base + 0x00,
-        "IMU_REG_ADDR": imu_base + 0x04,
-        "IMU_REG_LEN": imu_base + 0x08,
-        "IMU_REG_WDATA": imu_base + 0x0C,
-        "IMU_REG_RDATA": imu_base + 0x10,
-        "IMU_REG_TIME_H": imu_base + 0x14,
-        "IMU_REG_TIME_L": imu_base + 0x18,
-        "IMU_REG_STATUS": imu_base + 0x1C,
-    }
-    for name, exp_val in expected_imu.items():
-        if name not in py_consts:
-            errors.append(f"Python diag missing definition '{name}'")
-        elif py_consts[name] != exp_val:
-            errors.append(
-                f"Wishbone mismatch for {name}: Python has 0x{py_consts[name]:08X}, RTL specifies 0x{exp_val:08X}"
-            )
-
     return errors
 
 
@@ -272,15 +248,15 @@ def main() -> int:
     else:
         print(f"[{GREEN}PASS{RESET}] Zynq-7000 AXI-Lite Bridge Parity (C++ <-> RTL <-> Python <-> Spec)")
 
-    # Check Wishbone Peripherals
-    wb_errs = check_wishbone_peripherals(root)
-    if wb_errs:
-        all_errors.extend(wb_errs)
-        print(f"[{RED}FAIL{RESET}] Wishbone Peripheral Register Parity ({len(wb_errs)} errors)")
-        for e in wb_errs:
+    # System registers (offsets parsed from the RTL)
+    sys_errs = check_sys_regs(root)
+    if sys_errs:
+        all_errors.extend(sys_errs)
+        print(f"[{RED}FAIL{RESET}] System Register Parity ({len(sys_errs)} errors)")
+        for e in sys_errs:
             print(f"  {RED}* {e}{RESET}")
     else:
-        print(f"[{GREEN}PASS{RESET}] Wishbone Peripheral Register Parity (SysRegs & IMU Auto-DMA)")
+        print(f"[{GREEN}PASS{RESET}] System Register Parity (asp_sys_regs.sv <-> zynq_diagnostics.py)")
 
     # Check E906 Memory Map
     e906_errs = check_e906_memory_map(root)

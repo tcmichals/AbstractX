@@ -8,17 +8,18 @@
 // Wires together:
 // 1. Configurable SPI / Dual-SPI 64B Frontend (asp_spi_frontend)
 // 2. 512-Bit Vector TLP Router (asp_router)
-// 3. Wishbone Master Gateway (asp_wishbone_master)
-// 4. IMU SPI Master & Auto-DMA Core (asp_imu_auto_dma)
+// 3. Wishbone Master Gateway (asp_wishbone_master) -> System registers (asp_sys_regs)
+// 4. PIO tile (pio2, asp_pio_wrap) driving every peripheral pin ([SPEC-TLP-07], all-PIO)
 // 5. External Interrupt Doorbell pin (o_int_req) to Host CPU
 //
 // Shared by every serial-link board; board tops only map pins and clocks.
 // @impl [SPEC-A5E-LINK-02] hw/tang_nano20k/SPECIFICATION.md
+// @impl [SPEC-TLP-07] docs/DESIGN_SPECIFICATION.md
 
 module asp_top #(
     // @impl [SPEC-FPGA-CLK-01] [SPEC-TN20K-03] hw/tang_nano20k/SPECIFICATION.md
     parameter bit DUAL_SPI_ENABLE = 1'b1,
-    // Real frequency of `clk`; DShot, WS2812 and PWM timing derive from it.
+    // Real frequency of `clk`; PIO clock dividers (DShot, serial) are computed from it by the host.
     // Every board top sets it explicitly. [SPEC-FPGA-CLK-01]
     parameter int CLK_FREQ_HZ    = 27_000_000,
     parameter int NUM_PWM_INPUTS = 4
@@ -96,11 +97,11 @@ module asp_top #(
 
     // Logic Analyzer Debug Signals:
     // Debug 0: Host SPI CS Active
-    // Debug 1: IMU Auto-DMA Stream Valid
+    // Debug 1: PIO stream TLP valid
     // Debug 2: FPGA TLP Egress Valid
     // Debug 3: Host Doorbell IRQ Asserted
     assign o_debug_pins[0] = ~spi_cs_n;
-    assign o_debug_pins[1] = imu_stream_tvalid;
+    assign o_debug_pins[1] = pio_stream_tvalid;
     assign o_debug_pins[2] = tlp_tx_valid;
     assign o_debug_pins[3] = o_int_req;
 
@@ -145,31 +146,11 @@ module asp_top #(
     );
 
     // ------------------------------------------------------------------------
-    // Router <-> Endpoints Signals
+    // Router ([SPEC-TLP-07]): CONTROL -> Wishbone master, every other channel -> PIO tile
     // ------------------------------------------------------------------------
-    logic [511:0] ctrl_tdata;
-    logic         ctrl_tvalid;
-    logic         ctrl_tready;
-
-    logic [511:0] wb_cpl_tdata;
-    logic         wb_cpl_tvalid;
-    logic         wb_cpl_tready;
-
-    logic [511:0] imu_stream_tdata;
-    logic         imu_stream_tvalid;
-    logic         imu_stream_tready;
-
-    logic [511:0] serial_ingress_tdata;
-    logic         serial_ingress_tvalid;
-    logic         serial_ingress_tready;
-
-    logic [511:0] serial_stream_tdata;
-    logic         serial_stream_tvalid;
-    logic         serial_stream_tready;
-
-    logic [511:0] pio_stream_tdata;
-    logic         pio_stream_tvalid;
-    logic         pio_stream_tready;
+    logic [511:0] ctrl_tdata,   wb_cpl_tdata,   pio_in_tdata,   pio_stream_tdata;
+    logic         ctrl_tvalid,  wb_cpl_tvalid,  pio_in_tvalid,  pio_stream_tvalid;
+    logic         ctrl_tready,  wb_cpl_tready,  pio_in_tready,  pio_stream_tready;
 
     asp_router u_router (
         .clk                 (clk),
@@ -180,40 +161,26 @@ module asp_top #(
         .m_ctrl_tdata        (ctrl_tdata),
         .m_ctrl_tvalid       (ctrl_tvalid),
         .m_ctrl_tready       (ctrl_tready),
-        .m_tel_tdata         (),
-        .m_tel_tvalid        (),
-        .m_tel_tready        (1'b1),
-        .m_esc_tdata         (serial_ingress_tdata),
-        .m_esc_tvalid        (serial_ingress_tvalid),
-        .m_esc_tready        (serial_ingress_tready),
+        .m_pio_tdata         (pio_in_tdata),
+        .m_pio_tvalid        (pio_in_tvalid),
+        .m_pio_tready        (pio_in_tready),
         .m_egr_tdata         (tlp_tx_data),
         .m_egr_tvalid        (tlp_tx_valid),
         .m_egr_tready        (tlp_tx_ready),
         .s_wb_cpl_tdata      (wb_cpl_tdata),
         .s_wb_cpl_tvalid     (wb_cpl_tvalid),
         .s_wb_cpl_tready     (wb_cpl_tready),
-        .s_imu_stream_tdata  (imu_stream_tdata),
-        .s_imu_stream_tvalid (imu_stream_tvalid),
-        .s_imu_stream_tready (imu_stream_tready),
-        .s_esc_stream_tdata  (serial_stream_tdata),
-        .s_esc_stream_tvalid (serial_stream_tvalid),
-        .s_esc_stream_tready (serial_stream_tready),
         .s_pio_stream_tdata  (pio_stream_tdata),
         .s_pio_stream_tvalid (pio_stream_tvalid),
         .s_pio_stream_tready (pio_stream_tready)
     );
 
     // ------------------------------------------------------------------------
-    // Wishbone Master & On-Chip Wishbone Interconnect
+    // Wishbone master and slaves: SYS 0x400000xx, PIO 0x400007xx / 0x400008xx ([SPEC-TLP-07])
     // ------------------------------------------------------------------------
-    logic [31:0] wb_adr;
-    logic [31:0] wb_dat_w;
-    logic [31:0] wb_dat_r;
+    logic [31:0] wb_adr, wb_dat_w, wb_dat_r;
     logic [3:0]  wb_sel;
-    logic        wb_we;
-    logic        wb_cyc;
-    logic        wb_stb;
-    logic        wb_ack;
+    logic        wb_we, wb_cyc, wb_stb, wb_ack;
 
     asp_wishbone_master u_wishbone_master (
         .clk          (clk),
@@ -234,38 +201,21 @@ module asp_top #(
         .wb_dat_i     (wb_dat_r)
     );
 
-    // ------------------------------------------------------------------------
-    // Wishbone Slave Address Decoding:
-    // SYS:      0x400000xx (SYS_VERSION, SCRATCH, LED_CTRL)
-    // IMU:      0x400001xx (IMU Auto-DMA & Timestamping Engine)
-    // DShot:    0x400002xx (Motor Channel 1..4 Control)
-    // PWM Dec:  0x400003xx (PWM Receiver Decoder / Input Capture)
-    // Serial:   0x400005xx (High-Speed UART with 256B FIFOs & Auto-TLP)
-    // NeoPixel: 0x400006xx (WS2812B RGB Status LED)
-    // PIO:      0x400007xx (Quad-State Machine Tile with RP2040/RP2350 ISA)
-    // ------------------------------------------------------------------------
-    logic sys_sel, imu_sel, dshot_sel, pwm_dec_sel, serial_sel, neopixel_sel, pio_sel;
-    assign sys_sel      = (wb_adr[31:8] == 24'h400000);
-    assign imu_sel      = (wb_adr[31:8] == 24'h400001);
-    assign dshot_sel    = (wb_adr[31:8] == 24'h400002);
-    assign pwm_dec_sel  = (wb_adr[31:8] == 24'h400003);
-    assign serial_sel   = (wb_adr[31:8] == 24'h400005);
-    assign neopixel_sel = (wb_adr[31:8] == 24'h400006);
-    assign pio_sel      = (wb_adr[31:8] == 24'h400007) || (wb_adr[31:8] == 24'h400008);
+    wire sys_sel   = wb_adr[31:8] == 24'h400000;
+    wire pio_sel   = wb_adr[31:8] == 24'h400007 || wb_adr[31:8] == 24'h400008;
+    wire none_sel  = !sys_sel && !pio_sel;
+    logic [31:0] sys_wb_dat_r, pio_wb_dat_r;
+    logic        sys_wb_ack, pio_wb_ack, none_ack;
 
-    logic [31:0] sys_wb_dat_r, imu_wb_dat_r, dshot_wb_dat_r, pwm_dec_wb_dat_r, serial_wb_dat_r, neopixel_wb_dat_r, pio_wb_dat_r;
-    logic        sys_wb_ack,   imu_wb_ack,   dshot_wb_ack,   pwm_dec_wb_ack,   serial_wb_ack,   neopixel_wb_ack,   pio_wb_ack;
+    // An address no slave decodes is acknowledged with data 0, so the master never waits forever.
+    always_ff @(posedge clk or negedge sync_rst_n) begin
+        if (!sync_rst_n) none_ack <= 1'b0;
+        else             none_ack <= wb_cyc && wb_stb && none_sel && !none_ack;
+    end
 
-    assign wb_ack   = sys_wb_ack | imu_wb_ack | dshot_wb_ack | pwm_dec_wb_ack | serial_wb_ack | neopixel_wb_ack | pio_wb_ack;
-    assign wb_dat_r = sys_sel      ? sys_wb_dat_r :
-                      imu_sel      ? imu_wb_dat_r :
-                      dshot_sel    ? dshot_wb_dat_r :
-                      pwm_dec_sel  ? pwm_dec_wb_dat_r :
-                      serial_sel   ? serial_wb_dat_r :
-                      neopixel_sel ? neopixel_wb_dat_r :
-                      pio_sel      ? pio_wb_dat_r : 32'd0;
+    assign wb_ack   = sys_wb_ack | pio_wb_ack | none_ack;
+    assign wb_dat_r = sys_sel ? sys_wb_dat_r : pio_sel ? pio_wb_dat_r : 32'd0;
 
-    // System Control, PCIe ID & Master Timestamp Registers (Base: 0x40000000)
     asp_sys_regs u_sys_regs (
         .clk             (clk),
         .rst             (!sync_rst_n),
@@ -281,107 +231,19 @@ module asp_top #(
         .o_led_bits      (o_led)
     );
 
-    // IMU SPI Master & Auto-DMA IP Core (Base: 0x40000100)
-    asp_imu_auto_dma u_imu_core (
-        .clk                 (clk),
-        .rst_n               (sync_rst_n),
-        .i_sys_timestamp     (sys_timestamp),
-        .o_imu_sclk          (imu_sclk),
-        .o_imu_cs_n          (imu_cs_n),
-        .o_imu_mosi          (imu_mosi),
-        .i_imu_miso          (imu_miso),
-        .i_imu_int           (imu_int_i),
-        .wb_cyc_i            (wb_cyc && imu_sel),
-        .wb_stb_i            (wb_stb && imu_sel),
-        .wb_we_i             (wb_we),
-        .wb_adr_i            (wb_adr),
-        .wb_dat_i            (wb_dat_w),
-        .wb_dat_o            (imu_wb_dat_r),
-        .wb_ack_o            (imu_wb_ack),
-        .m_imu_stream_tdata  (imu_stream_tdata),
-        .m_imu_stream_tvalid (imu_stream_tvalid),
-        .m_imu_stream_tready (imu_stream_tready)
+    // ------------------------------------------------------------------------
+    // PIO tile and its pins ([SPEC-TLP-07] pin table)
+    // ------------------------------------------------------------------------
+    logic [31:0] gpio_out, gpio_dir, gpio_in;
+
+    asp_pio_pins #(.NUM_PWM_INPUTS(NUM_PWM_INPUTS)) u_pio_pins (
+        .i_gpio_out(gpio_out), .i_gpio_pindir(gpio_dir), .o_gpio_in(gpio_in),
+        .o_motor_pins(o_motor_pins), .o_neopixel_pin(o_neopixel_pin),
+        .o_uart_tx(o_uart_tx), .i_uart_rx(i_uart_rx),
+        .o_imu_sclk(imu_sclk), .o_imu_cs_n(imu_cs_n), .o_imu_mosi(imu_mosi),
+        .i_imu_miso(imu_miso), .i_imu_int(imu_int_i), .i_pwm_pins(i_pwm_pins)
     );
 
-    // DShot / PWM Motor Control IP Core (Base: 0x40000200, 4 Channels)
-    // @impl [SPEC-FPGA-CLK-01] hw/tang_nano20k/SPECIFICATION.md
-    asp_dshot_core #(
-        .CLK_FREQ_HZ (CLK_FREQ_HZ),
-        .NUM_CHANNELS(4)
-    ) u_dshot_core (
-        .clk           (clk),
-        .rst_n         (sync_rst_n),
-        .wb_cyc        (wb_cyc && dshot_sel),
-        .wb_stb        (wb_stb && dshot_sel),
-        .wb_we         (wb_we),
-        .wb_addr       (wb_adr),
-        .wb_data_i     (wb_dat_w),
-        .wb_data_o     (dshot_wb_dat_r),
-        .wb_ack        (dshot_wb_ack),
-        .o_motor_pins  (o_motor_pins)
-    );
-
-    // PWM Receiver Decoder / Input Capture Core (Base: 0x40000300, NUM_PWM_INPUTS channels)
-    asp_pwm_decoder #(
-        .CLK_FREQ_HZ (CLK_FREQ_HZ),
-        .NUM_CHANNELS(NUM_PWM_INPUTS)
-    ) u_pwm_decoder (
-        .clk        (clk),
-        .rst_n      (sync_rst_n),
-        .i_pwm_pins (i_pwm_pins),
-        .wb_cyc_i   (wb_cyc && pwm_dec_sel),
-        .wb_stb_i   (wb_stb && pwm_dec_sel),
-        .wb_we_i    (wb_we),
-        .wb_adr_i   (wb_adr),
-        .wb_dat_i   (wb_dat_w),
-        .wb_dat_o   (pwm_dec_wb_dat_r),
-        .wb_ack_o   (pwm_dec_wb_ack)
-    );
-
-    // NeoPixel WS2812B Status LED Core (Base: 0x40000600)
-    asp_neopixel_core #(
-        .CLK_FREQ_HZ(CLK_FREQ_HZ)
-    ) u_neopixel_core (
-        .clk            (clk),
-        .rst_n          (sync_rst_n),
-        .wb_cyc         (wb_cyc && neopixel_sel),
-        .wb_stb         (wb_stb && neopixel_sel),
-        .wb_we          (wb_we),
-        .wb_addr        (wb_adr),
-        .wb_data_i      (wb_dat_w),
-        .wb_data_o      (neopixel_wb_dat_r),
-        .wb_ack         (neopixel_wb_ack),
-        .o_neopixel_pin (o_neopixel_pin)
-    );
-
-    // High-Speed UART / Serial Core with 256-Byte FIFOs (Base: 0x40000500)
-    asp_uart_core #(
-        .CLK_FREQ_HZ (CLK_FREQ_HZ),
-        .DEFAULT_BAUD(115_200),
-        .FIFO_DEPTH  (256)
-    ) u_uart_core (
-        .clk             (clk),
-        .rst_n           (sync_rst_n),
-        .i_sys_timestamp (sys_timestamp),
-        .i_uart_rx       (i_uart_rx),
-        .o_uart_tx       (o_uart_tx),
-        .wb_cyc_i        (wb_cyc && serial_sel),
-        .wb_stb_i        (wb_stb && serial_sel),
-        .wb_we_i         (wb_we),
-        .wb_adr_i        (wb_adr[7:0]),
-        .wb_dat_i        (wb_dat_w),
-        .wb_dat_o        (serial_wb_dat_r),
-        .wb_ack_o        (serial_wb_ack),
-        .s_tlp_tdata     (serial_ingress_tdata),
-        .s_tlp_tvalid    (serial_ingress_tvalid),
-        .s_tlp_tready    (serial_ingress_tready),
-        .m_tlp_tdata     (serial_stream_tdata),
-        .m_tlp_tvalid    (serial_stream_tvalid),
-        .m_tlp_tready    (serial_stream_tready),
-        .o_uart_irq      ()
-    );
-
-    // PIO Subsystem Tile 0 (Base: 0x40000700): pio2 tile behind the Wishbone -> AXI4-Lite wrapper ([SPEC-TLP-05])
     asp_pio_wrap #(
         .BASE_ADDR(32'h40000700),
         .TILE_ID  (0)
@@ -389,9 +251,9 @@ module asp_top #(
         .clk             (clk),
         .rst_n           (sync_rst_n),
         .i_sys_timestamp (sys_timestamp),
-        .i_gpio          ({16'd0, i_pwm_pins, imu_int_i, imu_miso, 10'd0}),
-        .o_gpio_out      (),
-        .o_gpio_pindir   (),
+        .i_gpio          (gpio_in),
+        .o_gpio_out      (gpio_out),
+        .o_gpio_pindir   (gpio_dir),
         .wb_cyc_i        (wb_cyc && pio_sel),
         .wb_stb_i        (wb_stb && pio_sel),
         .wb_we_i         (wb_we),
@@ -399,9 +261,9 @@ module asp_top #(
         .wb_dat_i        (wb_dat_w),
         .wb_dat_o        (pio_wb_dat_r),
         .wb_ack_o        (pio_wb_ack),
-        .s_tlp_tdata     (512'd0),          // router port for PIO channels: EL-1027-39
-        .s_tlp_tvalid    (1'b0),
-        .s_tlp_tready    (),
+        .s_tlp_tdata     (pio_in_tdata),
+        .s_tlp_tvalid    (pio_in_tvalid),
+        .s_tlp_tready    (pio_in_tready),
         .m_tlp_tdata     (pio_stream_tdata),
         .m_tlp_tvalid    (pio_stream_tvalid),
         .m_tlp_tready    (pio_stream_tready),

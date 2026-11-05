@@ -13,16 +13,14 @@ Decisions: the TLP is always little-endian (byte k at bits [8k+7:8k], fields LE)
 commit, do not push. Every sim and build runs under `timeout` (60 s per sim; synthesis only with the
 owner's OK).
 
-- [ ] **A. Remove the old cores, all-PIO `asp_top`** ([SPEC-TLP-07], **in progress, uncommitted**):
+- [x] **A. Remove the old cores, all-PIO `asp_top`** ([SPEC-TLP-07], done 2026-11-05):
   cores and their tests deleted; router = CONTROL -> registers, every other channel -> PIO tile, egress
   grant held until accepted (old router changed `tdata` under `tvalid`: shown failing on the old code);
   shared pin map `rtl/asp_pio_pins.sv` (board ports unchanged); Zynq top gets the same PIO tile;
   Wishbone master duplicate-completion bug fixed and tested (moot once B lands).
-  Open: `sim/cocotb/test_asp_top_pio_cocotb.py` motor test fails (PIO program does not drive motor 0
-  yet: debug); `check_register_parity.py` still checks the removed IMU core; `zynq_diagnostics.py`,
-  `tools/example_imu_whoami.py`, `hw/zynq7000/testApps/imu_backend_validation_poc/` drive the removed
-  IMU core (mark retired); specs `[SPEC-ZYNQ-03]`, `[SPEC-ZYNQ-04]` (IMU engine), `[SPEC-TN20K-03]`
-  feature table, `rtl/README.md`; WS2812, RC PWM capture and general UART have no PIO program yet.
+  Top test over Dual-SPI passes (a PIO program drives motor 0 from TLPs on channel 0x40); specs,
+  register parity, diagnostics and `rtl/README.md` updated; IMU PoC retired. Still open: WS2812, RC PWM
+  capture and a general UART have no PIO program; Zynq host loading of `imu_spi_burst`.
 - [ ] **B. Wishbone -> AXI4-Lite** (owner: no Wishbone): `asp_tlp_axil_master.sv` replaces
   `asp_wishbone_master.sv` (MemRead/MemWrite/burst -> AXI4-Lite, one completion per read held until
   accepted, SLVERR/DECERR -> error status in the completion); Forencich `axil_crossbar` (pio2

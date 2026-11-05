@@ -100,20 +100,21 @@ not guessed.
 * **Verified by**: `fpga-build`, `rtl-lint`. **Status**: not written.
 
 ### `[SPEC-TN20K-03]` Feature Set and Resource Budget
-* **Feature set** (decided 2026-10-14):
+* **Feature set** (decided 2026-10-14, all-PIO since 2026-11-05, [SPEC-TLP-07]):
 
-  | Function | Count | Core | `asp_top` parameter |
+  | Function | Count | Implemented by | Notes |
   | :--- | :--- | :--- | :--- |
   | A5E link | Dual-SPI (`SPI_IO0`, `SPI_IO1`) | `asp_spi_frontend` | `DUAL_SPI_ENABLE = 1` |
-  | Motor outputs | 4 (DShot600) | `asp_dshot_core` | 4 channels |
-  | RC PWM inputs | 6 | `asp_pwm_decoder` | `NUM_PWM_INPUTS = 6` |
-  | NeoPixel (WS2812) | 1 data pin | `asp_neopixel_core` | — |
-  | Fabric clock | 27 MHz | all timing cores | `CLK_FREQ_HZ = 27_000_000` |
+  | Motor outputs | 4 (DShot600, bidirectional program) | PIO tile, `dshot_bidir.pio` | GPIO 0..3 |
+  | RC PWM inputs | 6 (pins) | PIO tile | GPIO 12..17; **no capture program yet** |
+  | NeoPixel (WS2812) | 1 data pin | PIO tile | GPIO 4; **no program yet** |
+  | IMU | SPI + DRDY | PIO tile, `imu_spi_burst.pio` | GPIO 7..11 |
+  | Fabric clock | 27 MHz | `CLK_FREQ_HZ = 27_000_000` | PIO dividers derive from it |
 
-  Also included: `asp_router`, `asp_sys_regs`, `asp_wishbone_master`,
-  `asp_imu_auto_dma` (all of `asp_top`). PWM channels 1–6 read at
-  `0x40000304`–`0x40000318`.
-* **Excluded** (Zynq only): `asp_axi_lite_bridge`, `asp_axi_dma`, `asp_ila_trace`.
+  Also included: `asp_router`, `asp_sys_regs`, the control master, `asp_pio_wrap` + `asp_pio_pins`.
+  The dedicated cores (`asp_dshot_core`, `asp_pwm_decoder`, `asp_neopixel_core`, `asp_uart_core`,
+  `asp_imu_auto_dma`) are removed.
+* **Excluded** (Zynq only): `asp_axi_lite_bridge`.
 * **Requirement**: the design fits with at least 20% LUT and FF headroom and
   meets timing at its system clock (27 MHz, or a PLL clock stated in the top),
   per the nextpnr report.

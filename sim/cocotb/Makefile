@@ -33,14 +33,6 @@ else ifeq ($(TOPLEVEL), asp_spi_reg_bank)
     VERILOG_SOURCES = $(RTL_DIR)/spi/asp_spi_reg_bank.sv
 else ifeq ($(TOPLEVEL), asp_axi_lite_bridge)
     VERILOG_SOURCES = $(RTL_DIR)/asp_axi_lite_bridge.sv
-else ifeq ($(TOPLEVEL), asp_imu_auto_dma)
-    VERILOG_SOURCES = $(RTL_DIR)/imu/asp_imu_auto_dma.sv
-else ifeq ($(TOPLEVEL), asp_dshot_core)
-    VERILOG_SOURCES = $(RTL_DIR)/motor/asp_dshot_core.sv
-else ifeq ($(TOPLEVEL), asp_pwm_decoder)
-    VERILOG_SOURCES = $(RTL_DIR)/pwm/asp_pwm_decoder.sv
-else ifeq ($(TOPLEVEL), asp_neopixel_core)
-    VERILOG_SOURCES = $(RTL_DIR)/led/asp_neopixel_core.sv
 else ifeq ($(TOPLEVEL), asp_pio_tile)
     VERILOG_SOURCES = $(RTL_DIR)/pio/src/rtl/asp_pio_sm.sv \
                       $(RTL_DIR)/pio/src/rtl/asp_pio_tile.sv
@@ -53,11 +45,7 @@ else ifeq ($(TOPLEVEL), asp_top)
                       $(RTL_DIR)/asp_sys_regs.sv \
                       $(RTL_DIR)/asp_wishbone_master.sv \
                       $(RTL_DIR)/spi/asp_spi_frontend.sv \
-                      $(RTL_DIR)/imu/asp_imu_auto_dma.sv \
-                      $(RTL_DIR)/motor/asp_dshot_core.sv \
-                      $(RTL_DIR)/pwm/asp_pwm_decoder.sv \
-                      $(RTL_DIR)/led/asp_neopixel_core.sv \
-                      $(RTL_DIR)/serial/asp_uart_core.sv \
+                      $(RTL_DIR)/asp_pio_pins.sv \
                       $(PIO_WRAP_SOURCES)
 endif
 

@@ -241,7 +241,7 @@ progress, out of scope).
 | `tools/run_sitl_gui_demo.py` | unsure | only `docs/tier2_contracts/observability/README.md:173`; drives `flight_display.py` |
 | `tools/check_cubie_a5e_peripherals.sh` | keep, move to `tests/board/` (unsure) | referenced by nothing; on-board health check with `@impl [SPEC-GPS-01]` |
 | `tools/build_gemini_context.py` | **remove** | no reference; builds the Gemini context bundle (`abstractx_context_for_gemini.txt`, gitignored); the file lists it bundles are partly stale |
-| `tools/example_imu_whoami.py` | remove or move to `examples/` (unsure) | no reference; last change 2026-08-11; "PCIe-like TLP" mock demo |
+| `tools/example_imu_whoami.py` | **removed 2026-11-05** (drove the removed IMU core; was: remove or move to `examples/`) | no reference; last change 2026-08-11; "PCIe-like TLP" mock demo |
 | `tools/test_asp_pcie.py` | **remove** | no reference; last change 2026-08-11; tests the old "PCIe register" flow (NeoPixel/DShot sweeps) not wired to any board path |
 | `tools/run_vivado_check.py` | unsure | no reference; needs Vivado 2025.2; superseded in practice by the open Gowin flow and `rtl-lint` skill |
 | `tools/render_end_to_end_walkthrough.py` | unsure (keep only if the README GIF must be regenerable) | no reference; produced `docs/media/*` |

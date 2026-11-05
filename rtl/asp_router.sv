@@ -1,147 +1,93 @@
 // Copyright (C) 2026 Tim Michals
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-`default_nettype wire
+`default_nettype none
 
-// AbstractX 64-Byte TLP Parallel Vector Channel Router
+// AbstractX 64-byte TLP router, all-PIO fabric ([SPEC-TLP-07]).
+// Ingress: channel 0x01 (CONTROL) -> Wishbone master; every other channel -> PIO tile.
+// Egress: control completions, then the PIO stream; a presented TLP is held until accepted.
 //
-// Accepts 512-bit (64-Byte) TLP containers from transport frontend and routes them
-// to destination endpoints based on Channel/AXID field (tdata[23:16]).
-//
-// @impl [SPEC-TLP-01] rtl/asp_router.sv
-// @impl [SPEC-TLP-03] rtl/asp_router.sv
+// @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-TLP-07] docs/DESIGN_SPECIFICATION.md
 module asp_router (
-    input  wire         clk,
-    input  wire         rst_n,
+    input  wire          clk,
+    input  wire          rst_n,
 
-    // Slave Ingress TLP Stream (from SPI frontend)
-    input  wire [511:0] s_tlp_tdata,
-    input  wire         s_tlp_tvalid,
-    output logic        s_tlp_tready,
+    // Ingress (link frontend)
+    input  wire [511:0]  s_tlp_tdata,
+    input  wire          s_tlp_tvalid,
+    output logic         s_tlp_tready,
 
-    // Master CONTROL Stream (Wishbone Gateway - Channel 0x01)
+    // CONTROL (channel 0x01) -> Wishbone master
     output logic [511:0] m_ctrl_tdata,
     output logic         m_ctrl_tvalid,
     input  wire          m_ctrl_tready,
 
-    // Master TELEMETRY Stream (IMU Engine - Channel 0x02)
-    output logic [511:0] m_tel_tdata,
-    output logic         m_tel_tvalid,
-    input  wire          m_tel_tready,
+    // Every other channel -> PIO tile (its IN_CFG channel picks its own)
+    output logic [511:0] m_pio_tdata,
+    output logic         m_pio_tvalid,
+    input  wire          m_pio_tready,
 
-    // Master ESC_SERIAL Stream (UART ESC Engine - Channel 0x05)
-    output logic [511:0] m_esc_tdata,
-    output logic         m_esc_tvalid,
-    input  wire          m_esc_tready,
-
-    // Egress Transport Stream (Responses & Egress Telemetry -> SPI Frontend)
+    // Egress (-> link frontend)
     output logic [511:0] m_egr_tdata,
     output logic         m_egr_tvalid,
     input  wire          m_egr_tready,
 
-    // Egress Inputs from Peripherals
-    input  wire [511:0]  s_wb_cpl_tdata,   // Wishbone CplD TLP
+    input  wire  [511:0] s_wb_cpl_tdata,     // Wishbone completions
     input  wire          s_wb_cpl_tvalid,
     output logic         s_wb_cpl_tready,
 
-    input  wire [511:0]  s_imu_stream_tdata, // IMU Auto-DMA Stream TLP
-    input  wire          s_imu_stream_tvalid,
-    output logic         s_imu_stream_tready,
-
-    input  wire [511:0]  s_esc_stream_tdata, // ESC Serial Stream TLP
-    input  wire          s_esc_stream_tvalid,
-    output logic         s_esc_stream_tready,
-
-    input  wire [511:0]  s_pio_stream_tdata, // PIO Tile Stream TLP
+    input  wire  [511:0] s_pio_stream_tdata, // PIO tile stream
     input  wire          s_pio_stream_tvalid,
     output logic         s_pio_stream_tready
 );
+    localparam logic [7:0] CH_CONTROL = 8'h01;
 
-    localparam logic [7:0] CH_CONTROL   = 8'h01;
-    localparam logic [7:0] CH_TELEMETRY = 8'h02;
-    localparam logic [7:0] CH_ESC_SERIAL= 8'h05;
+    wire [7:0] channel  = s_tlp_tdata[487:480];   // DW0 channel byte
+    wire       sel_ctrl = channel == CH_CONTROL;
 
-    // Extract Channel/AXID from DW0 (bits 487:480 in 512-bit big-endian TLP vector)
-    logic [7:0] channel;
-    assign channel = s_tlp_tdata[487:480];
+    assign m_ctrl_tdata  = s_tlp_tdata;
+    assign m_ctrl_tvalid = s_tlp_tvalid & sel_ctrl;
+    assign m_pio_tdata   = s_tlp_tdata;
+    assign m_pio_tvalid  = s_tlp_tvalid & ~sel_ctrl;
+    assign s_tlp_tready  = sel_ctrl ? m_ctrl_tready : m_pio_tready;
 
+    // Egress: fixed priority, but a grant is held while its TLP is presented and not accepted.
+    logic held, held_pio;              // a TLP is presented and waiting; which source
+    wire  pick_pio = held ? held_pio : !s_wb_cpl_tvalid;
 
-    logic sel_ctrl, sel_tel, sel_esc, sel_known;
-
-    // Ingress Demux Routing
     always_comb begin
-        sel_ctrl  = (channel == CH_CONTROL);
-        sel_tel   = (channel == CH_TELEMETRY);
-        sel_esc   = (channel == CH_ESC_SERIAL);
-        sel_known = sel_ctrl | sel_tel | sel_esc;
-
-        m_ctrl_tdata  = s_tlp_tdata;
-        m_ctrl_tvalid = s_tlp_tvalid & sel_ctrl;
-
-        m_tel_tdata   = s_tlp_tdata;
-        m_tel_tvalid  = s_tlp_tvalid & sel_tel;
-
-        m_esc_tdata   = s_tlp_tdata;
-        m_esc_tvalid  = s_tlp_tvalid & sel_esc;
-
-        unique case (1'b1)
-            sel_ctrl: s_tlp_tready = m_ctrl_tready;
-            sel_tel:  s_tlp_tready = m_tel_tready;
-            sel_esc:  s_tlp_tready = m_esc_tready;
-            default:  s_tlp_tready = 1'b1; // drop unknown channel
-        endcase
+        m_egr_tvalid        = pick_pio ? s_pio_stream_tvalid : s_wb_cpl_tvalid;
+        m_egr_tdata         = pick_pio ? s_pio_stream_tdata  : s_wb_cpl_tdata;
+        s_wb_cpl_tready     = !pick_pio && m_egr_tready;
+        s_pio_stream_tready =  pick_pio && m_egr_tready;
     end
 
-    // Egress Mux Arbitration (Fixed Priority: Control CplD > IMU Telemetry > Serial ESC > PIO Stream)
-    always_comb begin
-        s_wb_cpl_tready     = 1'b0;
-        s_imu_stream_tready = 1'b0;
-        s_esc_stream_tready = 1'b0;
-        s_pio_stream_tready = 1'b0;
-
-        if (s_wb_cpl_tvalid) begin
-            m_egr_tdata     = s_wb_cpl_tdata;
-            m_egr_tvalid    = 1'b1;
-            s_wb_cpl_tready = m_egr_tready;
-        end else if (s_imu_stream_tvalid) begin
-            m_egr_tdata         = s_imu_stream_tdata;
-            m_egr_tvalid        = 1'b1;
-            s_imu_stream_tready = m_egr_tready;
-        end else if (s_esc_stream_tvalid) begin
-            m_egr_tdata         = s_esc_stream_tdata;
-            m_egr_tvalid        = 1'b1;
-            s_esc_stream_tready = m_egr_tready;
-        end else if (s_pio_stream_tvalid) begin
-            m_egr_tdata         = s_pio_stream_tdata;
-            m_egr_tvalid        = 1'b1;
-            s_pio_stream_tready = m_egr_tready;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            held     <= 1'b0;
+            held_pio <= 1'b0;
         end else begin
-            m_egr_tdata  = 512'd0;
-            m_egr_tvalid = 1'b0;
+            held     <= m_egr_tvalid && !m_egr_tready;
+            held_pio <= pick_pio;
         end
     end
 
 `ifndef SYNTHESIS
-    // Formal SystemVerilog Assertions (SVA) for HW/SW Co-Design Verification
     /* verilator lint_off SYNCASYNCNET */
-    // Invariant: Ingress demux routing must be mutually exclusive (at most one channel valid)
-    property p_ingress_demux_mutual_exclusion;
-        @(posedge clk) disable iff (!rst_n)
-        (m_ctrl_tvalid + m_tel_tvalid + m_esc_tvalid) <= 1;
+    // [SVA-ROUTER-01] one ingress destination at a time
+    property p_ingress_one_hot;
+        @(posedge clk) disable iff (!rst_n) !(m_ctrl_tvalid && m_pio_tvalid);
     endproperty
-    assert property (p_ingress_demux_mutual_exclusion)
-        else $error("[SVA-ROUTER-01] Ingress router emitted multi-hot channel valid!");
+    assert property (p_ingress_one_hot) else $error("[SVA-ROUTER-01] multi-hot ingress valid");
 
-    // Invariant: Fixed priority egress arbitration guarantees Control CplD preemption
-    property p_egress_priority_control;
+    // [SVA-ROUTER-02] AXI-Stream: a presented egress TLP keeps valid and data until accepted
+    property p_egress_stable;
         @(posedge clk) disable iff (!rst_n)
-        s_wb_cpl_tvalid |-> (m_egr_tvalid && (m_egr_tdata == s_wb_cpl_tdata));
+        (m_egr_tvalid && !m_egr_tready) |=> (m_egr_tvalid && $stable(m_egr_tdata));
     endproperty
-    assert property (p_egress_priority_control)
-        else $error("[SVA-ROUTER-02] Egress arbiter failed to prioritize Control CplD!");
+    assert property (p_egress_stable) else $error("[SVA-ROUTER-02] egress tdata changed before tready");
     /* verilator lint_on SYNCASYNCNET */
 `endif
-
 endmodule
 
 `default_nettype wire

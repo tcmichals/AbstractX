@@ -1,5 +1,11 @@
 # Zynq ICM-42688-P Backend Validation Proof of Concept
 
+> **Retired (2026-11-05)**: this app drives the FPGA IMU auto-DMA core (`asp_imu_auto_dma`, registers at
+> `0x4000_01xx`), which was removed with the other dedicated cores ([SPEC-TLP-07] in
+> `docs/DESIGN_SPECIFICATION.md`: the FPGA is all-PIO; the IMU is read by a PIO program,
+> pio2 `src/programs/imu_spi_burst.pio`). Kept for reference; it does not run against current RTL.
+
+
 **Location:** `hw/zynq7000/testApps/imu_backend_validation_poc/`
 **Status:** Specification-first proof of concept
 **Purpose:** Compare Linux interrupt-driven SPI acquisition with AbstractX FPGA
@@ -451,7 +457,7 @@ effective bus-rate differences and MUST NOT assert an unmeasured winner.
 Standard-library host unit tests MUST exercise common suite logic, backend
 failure paths, sample/TLP parsing, ring accounting, and report comparison.
 Hardware integration failures MUST be explicit and nonzero.
-* **Verified by**: `host-tests` (`hw/zynq7000/testApps/imu_backend_validation_poc/test_imu_validation.py`), `cocotb-regression` (`sim/cocotb/test_asp_imu_auto_dma_cocotb.py`)
+* **Verified by**: `host-tests` (`hw/zynq7000/testApps/imu_backend_validation_poc/test_imu_validation.py`), `cocotb-regression` ((was `sim/cocotb/test_asp_imu_auto_dma_cocotb.py`, removed 2026-11-05))
 
 ### `[SPEC-ZYNQ-IMU-POC-08]` Evidence-based article
 

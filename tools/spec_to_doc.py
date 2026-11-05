@@ -270,96 +270,79 @@ def generate_pio_human_doc(parsed: dict, code_info: dict, spec_rel_path: str) ->
 
     return "\n".join(out)
 
-def generate_rtl_human_doc(root: Path) -> str:
-    """Generates the authoritative, human-readable Architecture Guide for the top-level RTL fabric."""
-    out = []
-    out.append("# AbstractX Synthesizable SystemVerilog FPGA Fabric — Architecture Guide")
-    out.append("")
-    out.append("> **SSOT Notice**: This documentation is automatically generated from authoritative specifications (`docs/DESIGN_SPECIFICATION.md`, `rtl/pio/docs/SPECIFICATION.md` (pio2 submodule)) and verified against SystemVerilog RTL source code by SpecTrace. Do not edit manually.")
-    out.append("")
-    out.append("## 1. Executive Architectural Overview")
-    out.append("")
-    out.append("In AbstractX, **the FPGA is really just all hardware drivers**. Rather than burning CPU cycles executing software driver routines or polling hardware registers, autonomous synthesizable SystemVerilog cores act as pure hardware drivers connected to a high-speed, non-blocking **PCIe-style crossbar switch fabric**.")
-    out.append("")
-    out.append("All transactions in the FPGA fabric flow as standardized **64-Byte Transaction Layer Packets (TLPs)** over a 512-bit wide AXI-Stream bus with credit flow control (`tvalid`/`tready`) and hardware nanosecond timestamping.")
-    out.append("")
-    out.append("## 2. Fabric Architecture Diagram")
-    out.append("")
-    out.append("```mermaid")
-    out.append("flowchart TD")
-    out.append("    subgraph SENSORS[\"Physical Peripherals & Sensors\"]")
-    out.append("        SPI_DEV[\"High-Speed SPI Sensors<br/><i>e.g. 8 kHz IMU</i>\"]")
-    out.append("        DSHOT_DEV[\"Actuators / ESCs<br/><i>4-Channel DShot Motor</i>\"]")
-    out.append("        UART_DEV[\"Serial Peripherals<br/><i>GPS, CRSF, RC Receiver</i>\"]")
-    out.append("        LED_DEV[\"Status Indicators<br/><i>WS2812B NeoPixel String</i>\"]")
-    out.append("    end")
-    out.append("")
-    out.append("    subgraph FPGA[\"Synthesizable SystemVerilog FPGA Fabric (rtl/asp_top.sv)\"]")
-    out.append("        subgraph PIO_ENGINE[\"Autonomous Programmable I/O Subsystem (rtl/pio/)\"]")
-    out.append("            PIO_TILE[\"<b>asp_pio_tile.sv</b><br/>Quad-SM RP2040/RP2350 ISA<br/>Auto-DMA & TLP Shim (0.0% CPU)\"]")
-    out.append("        end")
-    out.append("")
-    out.append("        subgraph HARDWIRED_CORES[\"Dedicated Hardware Offload IP\"]")
-    out.append("            IMU_DMA[\"<b>asp_imu_auto_dma.sv</b><br/>Dedicated 8 kHz IMU DMA\"]")
-    out.append("            DSHOT_CORE[\"<b>asp_dshot_core.sv</b><br/>Bidirectional DShot\"]")
-    out.append("            UART_CORE[\"<b>asp_uart_core.sv</b><br/>Full-Duplex UART\"]")
-    out.append("            NEO_CORE[\"<b>asp_neopixel_core.sv</b><br/>WS2812B Driver\"]")
-    out.append("            PWM_CORE[\"<b>asp_pwm_decoder.sv</b><br/>RC PWM Decoder\"]")
-    out.append("        end")
-    out.append("")
-    out.append("        subgraph SWITCH[\"Full-Crossbar Switch Fabric (rtl/asp_router.sv)\"]")
-    out.append("            ROUTER[\"<b>AXI-Stream Crossbar Router</b><br/>64-Byte TLP Switching • Nanosecond Timestamps<br/>Channel Routing & Hardware CRC32\"]")
-    out.append("        end")
-    out.append("")
-    out.append("        subgraph HOST_BRIDGES[\"Host Bus Interfaces\"]")
-    out.append("            AXI_LITE[\"<b>asp_axi_lite_bridge.sv</b><br/>AXI-Lite Slave (Zynq PS / AArch64)\"]")
-    out.append("            AXI_DMA[\"<b>asp_axi_dma.sv</b><br/>Direct Memory Write to Host Rings\"]")
-    out.append("            WB_MASTER[\"<b>asp_wishbone_master.sv</b><br/>TLP to Wishbone Bridge\"]")
-    out.append("            SYS_REGS[\"<b>asp_sys_regs.sv</b><br/>Monotonic 64-bit nanosecond clock\"]")
-    out.append("        end")
-    out.append("")
-    out.append("        PIO_TILE -->|512-bit AXI-Stream TLP| ROUTER")
-    out.append("        IMU_DMA -->|512-bit AXI-Stream TLP| ROUTER")
-    out.append("        ROUTER <-->|Actuator Commands & Telemetry| DSHOT_CORE")
-    out.append("        ROUTER <-->|Serial Rx/Tx Stream| UART_CORE")
-    out.append("        ROUTER -->|LED Packets| NEO_CORE")
-    out.append("        ROUTER -->|Routed 64B TLPs| AXI_DMA")
-    out.append("        AXI_LITE --> WB_MASTER --> PIO_TILE")
-    out.append("    end")
-    out.append("")
-    out.append("    SPI_DEV <--> PIO_TILE")
-    out.append("    DSHOT_DEV <--> DSHOT_CORE")
-    out.append("    UART_DEV <--> UART_CORE")
-    out.append("    LED_DEV <--> NEO_CORE")
-    out.append("```")
-    out.append("")
-    out.append("## 3. Peripheral Subsystem & Address Map")
-    out.append("")
-    out.append("The FPGA fabric integrates peripherals on standard Wishbone B4 and AXI-Lite buses (Base `0x40000000`):")
-    out.append("")
-    out.append("| Base Address | Subsystem Core | SystemVerilog File | Description |")
-    out.append("| :--- | :--- | :--- | :--- |")
-    out.append("| `0x40000000` | **System Registers** | [`asp_sys_regs.sv`](asp_sys_regs.sv) | 64-bit nanosecond timebase, hardware ID, uptime counter |")
-    out.append("| `0x40000100` | **IMU Auto-DMA** | [`imu/asp_imu_auto_dma.sv`](imu/asp_imu_auto_dma.sv) | Dedicated ICM-42688-P Auto-DMA SPI master |")
-    out.append("| `0x40000200` | **DShot Motor Core** | [`motor/asp_dshot_core.sv`](motor/asp_dshot_core.sv) | 4-channel bidirectional DShot motor output with eRPM telemetry |")
-    out.append("| `0x40000300` | **PWM Decoder** | [`pwm/asp_pwm_decoder.sv`](pwm/asp_pwm_decoder.sv) | 8-channel RC PWM pulse-width decoder |")
-    out.append("| `0x40000500` | **UART Core** | [`serial/asp_uart_core.sv`](serial/asp_uart_core.sv) | High-speed full-duplex UART transceiver (CRSF / GPS) |")
-    out.append("| `0x40000600` | **NeoPixel Core** | [`led/asp_neopixel_core.sv`](led/asp_neopixel_core.sv) | WS2812B single-wire RGB LED string driver |")
-    out.append("| `0x40000700` | **Autonomous PIO Tile** | [`pio/asp_pio_tile.sv`](pio/asp_pio_tile.sv) | Quad-SM programmable I/O tile with RP2040 ISA (45% LUT savings) |")
-    out.append("")
-    out.append("## 4. Key Subsystem Guides")
-    out.append("* [**Autonomous Programmable I/O (PIO) Guide**](pio/README.md): Detailed specifications, register map, RP2040 ISA opcodes, and supervisor-worker patterns.")
-    out.append("* [**64-Byte TLP Wire Format & Bus Specification**](../docs/DESIGN_SPECIFICATION.md#spec-tlp-01): Standard framing, split transaction completions, and CTF 1.8 schemas.")
-    out.append("* [**Hardware ILA Trace Engine**](asp_ila_trace.sv): Real-time nanosecond trace capture into ring buffers.")
-    out.append("")
-    out.append("## 5. Verification & Regression Gateways")
-    out.append("All RTL modules undergo multi-layer verification:")
-    out.append("1. **Cocotb Regression Suite**: Run `make` under `sim/cocotb/` with Verilator / Icarus.")
-    out.append("2. **Verilator Linting**: Zero-warning enforcement (`verilator --lint-only -Wall rtl/*.sv`).")
-    out.append("3. **FPGA Synthesis**: Verified on Gowin GW2A-18 (Tang Nano 20K) and Xilinx Zynq-7020 (QMTech).")
-    out.append("")
+def rtl_modules(root: Path) -> list[tuple[str, str, str]]:
+    """(relative path, module name, one-line purpose) for every first-party RTL file that exists.
+    The pio2 submodule (rtl/pio/) documents itself. Purpose = first comment line after the licence."""
+    mods = []
+    files = sorted(root.glob("rtl/*.sv")) + sorted(p for p in root.glob("rtl/*/*.sv") if "rtl/pio/" not in str(p))
+    for f in files:
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        m = re.search(r"^\s*module\s+(\w+)", text, re.M)
+        if not m:
+            continue
+        purpose = ""
+        for line in text.splitlines():
+            c = line.strip()
+            if not c.startswith("//"):
+                continue
+            c = c.lstrip("/ ").strip()
+            if not c or c.startswith(("Copyright", "SPDX", "@impl", "@verifies")) or set(c) <= set("-=*"):
+                continue
+            purpose = c
+            break
+        mods.append((str(f.relative_to(root / "rtl")), m.group(1), purpose))
+    return mods
 
+
+# @impl [SPEC-TLP-07] docs/DESIGN_SPECIFICATION.md (rtl/README.md is generated from the RTL that exists)
+def generate_rtl_human_doc(root: Path) -> str:
+    """rtl/README.md, generated from the RTL files that exist (2026-11-05: the hand-written list kept five
+    deleted cores and --check still said OK)."""
+    out = [
+        "# AbstractX FPGA Fabric (rtl/)",
+        "",
+        "> Generated by `python3 tools/spec_to_doc.py --target rtl` from the RTL files in this directory; the",
+        "> requirements are in `docs/DESIGN_SPECIFICATION.md` (`[SPEC-TLP-05]`..`[SPEC-TLP-07]`). Do not edit by hand.",
+        "",
+        "## 1. Structure (all-PIO, `[SPEC-TLP-07]`)",
+        "",
+        "The FPGA carries no protocol-specific cores. A host link (Dual-SPI frontend, or the Zynq PS through",
+        "`asp_axi_lite_bridge`) delivers 64-byte TLPs to `asp_router`: channel `0x01` (CONTROL) goes to the",
+        "register master, every other channel to the PIO tile (pio2, `rtl/pio/`), whose programs drive every",
+        "peripheral pin through the fixed pin map in `asp_pio_pins`.",
+        "",
+        "| Address | Block |",
+        "| :--- | :--- |",
+        "| `0x400000xx` | `asp_sys_regs`: ID, scratch, LEDs, 64-bit timestamp |",
+        "| `0x400007xx`-`0x400008xx` | PIO tile (`asp_pio_wrap`), TLP data path registers in the wrapper |",
+        "| anything else | no slave: the access completes with data 0 |",
+        "",
+        "## 2. Modules in this directory",
+        "",
+        "| File | Module | Purpose (first comment line) |",
+        "| :--- | :--- | :--- |",
+    ]
+    for rel, mod, purpose in rtl_modules(root):
+        out.append(f"| [`{rel}`]({rel}) | `{mod}` | {purpose.replace('|', '/')} |")
+    out += [
+        "",
+        "The PIO tile itself, its programs and its own tests are in the pio2 submodule (`rtl/pio/`, its README",
+        "and `docs/SPECIFICATION.md`).",
+        "",
+        "## 3. Checks",
+        "",
+        "* `tools/rtl_lint.sh` (rtl-lint skill), Yosys `check -assert` (rtl-synth-check)",
+        "* `python3 tools/run_cocotb.py` (cocotb-regression; every target under a 60 s limit)",
+        "* `make -f hw/Makefile tang_nano20k_fit` (fpga-fit)",
+        "",
+    ]
     return "\n".join(out)
+
+
+def check_links(root: Path, doc: str) -> list[str]:
+    """Every relative link in the generated page points at a file that exists."""
+    return [t for t in re.findall(r"\]\(([^)#:]+)\)", doc) if not (root / "rtl" / t).exists()]
+
 
 def main():
     parser = argparse.ArgumentParser(description="AbstractX Specification to Markdown Documentation Generator")
@@ -373,16 +356,16 @@ def main():
     root = Path(__file__).resolve().parent.parent
 
     if args.target == "pio":
-        spec_path = root / "rtl" / "pio" / "SPECIFICATION.md"
-        out_path = root / "rtl" / "pio" / "README.md"
-        with open(spec_path, "r", encoding="utf-8") as f:
-            spec_text = f.read()
-        parsed = parse_spec(spec_text)
-        code_info = review_pio_code(root)
-        doc_content = generate_pio_human_doc(parsed, code_info, "SPECIFICATION.md")
+        # The PIO tile moved to its own repository (pio2, rtl/pio/, 2026-10-29); pio2 owns its docs.
+        print("[SKIPPED] --target pio: the PIO tile is the pio2 submodule, which documents itself (not a pass)")
+        return 2
     elif args.target == "rtl":
         out_path = root / "rtl" / "README.md"
         doc_content = generate_rtl_human_doc(root)
+        broken = check_links(root, doc_content)
+        if broken:
+            print(f"[FAIL] rtl/README.md would link missing files: {broken}", file=sys.stderr)
+            return 1
     elif args.spec:
         spec_path = Path(args.spec)
         if not spec_path.is_absolute():
@@ -430,4 +413,4 @@ def main():
     print(f"[SUCCESS] Generated human documentation: {out_path.relative_to(root)}")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

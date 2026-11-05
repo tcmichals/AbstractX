@@ -567,7 +567,7 @@ sequenceDiagram
 * **Channel Routing**:
   - `Channel::Telemetry` (`0x02`): CTF Stream 1 (`ImuSamplePayload` 23B, `GpsFixPayload` 35B).
   - `Channel::FlightLog` / `Channel::Debug` (`0x03` / `0x04`): CTF Stream 0 (`CoroEventPayload` 17B), CTF Stream 2 (`HalIoPayload` 16B / `TlpTracePayload` 19B).
-* **Verified by**: `host-tests` (`sim/test_tlp_msg.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_tlp_64b_cocotb.py`)
+* **Verified by**: `host-tests` (`sim/test_tlp_msg.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_top_pio_cocotb.py`) (was `sim/cocotb/test_asp_tlp_64b_cocotb.py`)
 * **Implementation Target**: `include/asp_tlp64.hpp`, `include/asp_tlp64.h`
 
 ### `[SPEC-TLP-02]` Memory-Mapped Virtual Addressing & Routing
@@ -657,6 +657,56 @@ sequenceDiagram
   `sim-test-tlp64-top`), `rtl-lint`, `rtl-synth-check`
 * **Implementation Target**: `rtl/pio_tlp/asp_pio_tlp_ingress.sv`, `rtl/pio_tlp/asp_pio_tlp_shim.sv`,
   `rtl/asp_pio_wrap.sv`
+
+### `[SPEC-TLP-07]` `asp_top` Is All-PIO: Link, Router, Control, System Registers, PIO Tile
+* **Decision (project owner, 2026-11-05)**: the dedicated cores are removed from every top:
+  `asp_dshot_core`, `asp_pwm_decoder`, `asp_neopixel_core`, `asp_uart_core`, `asp_imu_auto_dma`, and the
+  unused `asp_axi_dma` and `asp_ila_trace`. pio2 `[SPEC-PIO-*]` migration rule asks for a PIO program with
+  a timing-parity test first; the owner removed them now, so the state is:
+
+  | Function | PIO program (pio2 `src/programs/`) | Status |
+  | :--- | :--- | :--- |
+  | DShot600 (bidirectional) | `dshot_bidir.pio` | cocotb timing test at 12 / 27 / 50 MHz |
+  | ESC serial passthrough | `esc_serial.pio` | cocotb test with a modelled ESC |
+  | IMU SPI burst (auto read) | `imu_spi_burst.pio` | pio2 core test |
+  | WS2812 NeoPixel, RC PWM capture, general UART | none | **not available** until a program exists |
+
+* **Requirement (blocks)**: `asp_top` = `asp_spi_frontend` (link) -> `asp_router` -> `asp_wishbone_master`
+  (control TLPs) -> `asp_sys_regs` (`0x400000xx`) and the PIO tile `asp_pio_wrap` (`0x400007xx`).
+  Nothing else answers on Wishbone; an access elsewhere is acknowledged with read data 0 (the master
+  never hangs).
+* **Requirement (routing)**: channel `0x01` (`CONTROL`) goes to the Wishbone master; **every other channel
+  goes to the PIO tile**, whose `IN_CFG` channel ([SPEC-TLP-06]) takes its own and consumes the rest.
+  Egress: control completions first, then the PIO stream. A TLP that is presented (`m_egr_tvalid`)
+  stays presented with the same data until accepted; the arbiter chooses again only after a
+  handshake (2026-11-05: the old fixed-priority mux switched `tdata` under a held `tvalid` when a
+  completion arrived while a stream TLP waited, an AXI-Stream violation that replaced a TLP mid-send).
+  The Wishbone master sends exactly one completion per MemRead and holds it (valid and data) until
+  it is accepted, taking no new request meanwhile (2026-11-05: its emit state set `tvalid` on every
+  clock, so a completion accepted in that state was sent again and the next read overwrote it).
+* **Requirement (pins)**: the board-facing ports of `asp_top` keep their names (board tops and constraint
+  files do not change) and are wired to fixed PIO GPIO numbers:
+
+  | GPIO | Port | Dir | Level when the PIO does not drive it (`pindir` = 0) |
+  | :--- | :--- | :--- | :--- |
+  | 0..3 | `o_motor_pins[0..3]` | out | 0 |
+  | 4 | `o_neopixel_pin` | out | 0 |
+  | 5 | `o_uart_tx` | out | 1 (UART idle) |
+  | 6 | `i_uart_rx` | in | |
+  | 7 | `imu_sclk` | out | 0 |
+  | 8 | `imu_cs_n` | out | 1 (deselected) |
+  | 9 | `imu_mosi` | out | 0 |
+  | 10 | `imu_miso` | in | |
+  | 11 | `imu_int_i` | in | |
+  | 12.. | `i_pwm_pins[0..NUM_PWM_INPUTS-1]` (at most 8) | in | |
+
+  An output port is `o_gpio_out[k]` while `o_gpio_pindir[k]` is 1, else the idle level above. Inputs not
+  in the table read 0. Motor pins are output-only at the board ports; bidirectional DShot receive needs
+  `inout` pads (EL-1027-20, open). The motor outputs pass the failsafe gate of `[SPEC-TLP-08]` once it exists.
+* **Verified by**: `cocotb-regression` (`sim-test-tlp64-top`: control TLPs through `asp_top`;
+  `sim/cocotb/test_asp_top_pio_cocotb.py`: a TLP on a PIO channel reaches the tile, a PIO program drives a
+  motor pin, idle levels, unmapped Wishbone access answers 0), `rtl-lint`, `rtl-synth-check`, `fpga-fit`
+* **Implementation Target**: `rtl/asp_top.sv`, `rtl/asp_router.sv`
 
 ## 3. Hardware Abstraction Layer Specifications (`SPEC-HAL`)
 
@@ -1130,7 +1180,7 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
   The ODR is a parameter (`GYRO_CONFIG0`/`ACCEL_CONFIG0` bits [3:0]: `0x3` = 8 kHz, `0x6` = 1 kHz), the same value for gyro and accel.
 * **DRDY interrupt**: `init_async()` checks WHO_AM_I = `0x47` and fails otherwise, then sets `INT_CONFIG` (`0x14`) = `0x03` (INT1 pulsed, push-pull, active high), `INT_CONFIG0` (`0x63`) = `0x20` (DRDY cleared by the sensor data read), `INT_CONFIG1` (`0x64`) = `0x00` below 4 kHz (100 µs pulse, `INT_ASYNC_RESET` = 0) and `0x60` at 4 kHz and above (`INT_TPULSE_DURATION` = 1: 8 µs pulse, `INT_TDEASSERT_DISABLE` = 1; the datasheet requires both for ODR >= 4 kHz, since a 100 µs pulse plus a 100 µs de-assert is longer than the 125 µs period at 8 kHz) and `INT_SOURCE0` (`0x65`) = `0x08` (UI_DRDY to INT1), and returns false if any write fails.
   `0x20` is chosen so the 15-byte burst read (the auto-DMA) clears DRDY and no status read is needed. Measured 2026-10-29 on the Cubie A5E with these settings at 1 kHz: PI8 was high in 15 of 300 Linux `devmem` samples while the E906 read in a loop, and CLIC line 100 pended again after the next sample. The pulse rate and the default (clear-on-status-read) behaviour are not measured yet. 2026-11-03 Pico 2 W at 8 kHz with `0x00`: GP20 never went high (3000 SWD samples, rising-edge latch never set) while register polling worked; whether `0x60` alone fixes it is recorded in `engineering_log.md`.
-* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_imu_auto_dma_cocotb.py`)
+* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`). The FPGA auto-read core and its test (was `sim/cocotb/test_asp_imu_auto_dma_cocotb.py`) were removed 2026-11-05 ([SPEC-TLP-07]); on the FPGA a PIO program does the auto-read.
 * **Implementation Target**: `applib/include/applib/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-IMU-02]` ICM-42688-P Coroutine Awaiter
@@ -1321,8 +1371,11 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 
 ### `[SPEC-ILA-01]` Decoupled Hardware ILA Trace Memory Pool & Non-Blocking DMA Reader
 * **Requirement**: Hardware and software tracing must operate on a dedicated memory pool completely isolated from the primary 64-byte control TLP plane. The FPGA hardware ILA (`asp_ila_trace.sv`) MUST capture timestamped internal events into an on-chip dual-port Block RAM circular buffer without consuming TLP bus bandwidth. The egress DMA reader MUST stream accumulated ILA trace frames only when the primary control TLP egress channel is idle, or upon receiving an explicit host DMA pull request, guaranteeing 0 head-of-line blocking for flight-critical control packets.
+* **Not implemented yet**: `asp_ila_trace` was removed 2026-11-05 ([SPEC-TLP-07]); it was never instantiated, did
+  not parse in Yosys and had no test. pio2's trace (event FIFO, `[SPEC-TRC-01]`..`[SPEC-TRC-04]` there) is the
+  FPGA trace source now.
 * **Verified by**: `rtl-lint`, `rtl-synth-check`
-* **Implementation Target**: `rtl/asp_ila_trace.sv`
+* **Implementation Target**: `rtl/asp_ila_trace.sv` (removed)
 
 ---
 

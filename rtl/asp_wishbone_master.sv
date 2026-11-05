@@ -191,9 +191,13 @@ module asp_wishbone_master (
                     state <= ST_EMIT_CPLD;
                 end
 
+                // One completion, held until accepted ([SPEC-TLP-07]): raise tvalid once, leave
+                // only after the handshake (the clear above then drops tvalid).
+                // @impl [SPEC-TLP-07] docs/DESIGN_SPECIFICATION.md
                 ST_EMIT_CPLD: begin
-                    m_cpl_tvalid <= 1'b1;
-                    if (m_cpl_tready) begin
+                    if (!m_cpl_tvalid) begin
+                        m_cpl_tvalid <= 1'b1;
+                    end else if (m_cpl_tready) begin
                         state <= ST_IDLE;
                     end
                 end

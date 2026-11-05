@@ -14,17 +14,13 @@ read_verilog -sv rtl/asp_sys_regs.sv
 read_verilog -sv rtl/asp_wishbone_master.sv
 read_verilog -sv rtl/spi/asp_spi_frontend.sv
 read_verilog -sv rtl/spi/asp_spi_reg_bank.sv
-read_verilog -sv rtl/imu/asp_imu_auto_dma.sv
-read_verilog -sv rtl/motor/asp_dshot_core.sv
-read_verilog -sv rtl/pwm/asp_pwm_decoder.sv
-read_verilog -sv rtl/led/asp_neopixel_core.sv
-read_verilog -sv rtl/serial/asp_uart_core.sv
 read_verilog -sv rtl/pio/src/rtl/asp_pio_sm.sv
 read_verilog -sv rtl/pio/src/rtl/asp_pio_tile.sv
 read_verilog rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v
 read_verilog -sv rtl/pio_tlp/asp_pio_tlp_ingress.sv
 read_verilog -sv rtl/pio_tlp/asp_pio_tlp_shim.sv
 read_verilog -sv rtl/asp_pio_wrap.sv
+read_verilog -sv rtl/asp_pio_pins.sv
 
 
 

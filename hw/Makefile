@@ -9,6 +9,10 @@ GOWIN_PACK = $(TOOLS_DIR)/gowin_pack
 # Build directories
 BUILD_DIR = build_hw
 
+# Every RTL file a board build reads (hw/common/gowin_synth.tcl): rtl/*/*.sv includes rtl/pio_tlp/; from
+# the submodule only the tile (pio2_core and its DMA/link are not used) ([SPEC-TLP-05], [SPEC-TLP-07])
+TOP_RTL = $(wildcard rtl/*.sv rtl/*/*.sv) rtl/pio/src/rtl/asp_pio_sm.sv rtl/pio/src/rtl/asp_pio_tile.sv rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v
+
 .PHONY: all tang9k clean primer20k tang_nano20k tang_nano20k_fit
 
 all: tang9k primer20k tang_nano20k
@@ -19,7 +23,7 @@ T9_DEVICE = GW1NR-LV9QN88PC6/I5
 
 tang9k: $(BUILD_DIR)/tang9k.fs
 
-$(BUILD_DIR)/tang9k.json: hw/tang9k/top_tang9k.sv rtl/asp_top.sv rtl/pwm/asp_pwm_decoder.sv
+$(BUILD_DIR)/tang9k.json: hw/tang9k/top_tang9k.sv $(TOP_RTL)
 	mkdir -p $(BUILD_DIR)
 	TOP_MODULE=top_tang9k \
 	BOARD_TOP_FILE=hw/tang9k/top_tang9k.sv \
@@ -42,7 +46,7 @@ TP20_DEVICE = GW2A-LV18PG256C8/I7
 
 primer20k: $(BUILD_DIR)/primer20k.fs
 
-$(BUILD_DIR)/primer20k.json: hw/primer20k/top_primer20k.sv rtl/asp_top.sv rtl/pwm/asp_pwm_decoder.sv
+$(BUILD_DIR)/primer20k.json: hw/primer20k/top_primer20k.sv $(TOP_RTL)
 	mkdir -p $(BUILD_DIR)
 	TOP_MODULE=top_primer20k \
 	BOARD_TOP_FILE=hw/primer20k/top_primer20k.sv \
@@ -62,8 +66,7 @@ $(BUILD_DIR)/primer20k.fs: $(BUILD_DIR)/primer20k_pnr.json
 # --- Tang Nano 20K (Cubie A5E test target, [SPEC-TN20K-01]) ---
 TN20_FAMILY = GW2A-18C
 TN20_DEVICE = GW2AR-LV18QN88C8/I7
-# rtl/*/*.sv includes rtl/pio_tlp/; from the submodule only the tile (pio2_core and its DMA/link are not used)
-TN20_RTL = $(wildcard rtl/*.sv rtl/*/*.sv) rtl/pio/src/rtl/asp_pio_sm.sv rtl/pio/src/rtl/asp_pio_tile.sv rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v
+TN20_RTL = $(TOP_RTL)
 
 tang_nano20k: $(BUILD_DIR)/tang_nano20k.fs
 

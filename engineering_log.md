@@ -3991,3 +3991,23 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Fix**: the bullet's indented continuation lines are joined before notes are stripped. `tests/test_spectrace_matrix.py::test_verified_by_bullet_spans_wrapped_lines`: old parser gives `['host-tests', 'sim-test-x']`, new `['host-tests', 'sanitizer-gate']`.
 * **Evidence**: `--matrix`: BROKEN 0 (was 1 visible, 2 hidden); `--check-skills` 0 problems; `--check-drift` 0; gate PASS.
 
+## [2026-11-05] - All-PIO FPGA: dedicated cores removed; router and Wishbone master AXI-Stream bugs; host-drive test hang
+
+### 1. What changed (owner decision 2026-11-05)
+* **Category**: design change; `product-bug` x2 (router, Wishbone master); `tool-bug` x3 (spec_to_doc, register parity, sim-test-all); test bug (host drive)
+* Removed `asp_dshot_core`, `asp_pwm_decoder`, `asp_neopixel_core`, `asp_uart_core`, `asp_imu_auto_dma`, `asp_axi_dma`, `asp_ila_trace` and their cocotb tests. `[SPEC-TLP-07]`: `asp_top` = link, router, register master, `asp_sys_regs`, PIO tile; router sends CONTROL to the registers and every other channel to the PIO tile (before, the tile's TLP input was tied to 0, so the host could not reach it: EL-1027-39); fixed pin map `rtl/asp_pio_pins.sv` shared by `asp_top` and the Zynq top (board ports and constraints unchanged). WS2812, RC PWM capture and a general UART have no PIO program yet (listed in the spec).
+
+### 2. Bugs found on the way
+* **Router** (`product-bug`): the fixed-priority egress mux switched `tdata` under a held `tvalid` when a completion arrived while a PIO TLP waited (AXI-Stream violation, a TLP replaced mid-send). Shown failing on the old router with a scratch cocotb test ("egress tdata changed before tready"); the new router holds its grant until the handshake, with SVA-ROUTER-02 and a random two-source test (every TLP once, in order, stable).
+* **Wishbone master** (`product-bug`): `ST_EMIT_CPLD` set `tvalid` on every clock, overriding the handshake clear, so a completion accepted there was sent again and the next read overwrote it. Found by the new router assertion in the top test; `test_every_completion_exactly_once_random_ready` fails on the old code, passes on the new. (The module goes away with TODO 0-B.)
+* **spec_to_doc** (`tool-bug`): `rtl/README.md` was "generated" from hard-coded text that still listed five deleted cores, and `--check` said OK; `--target pio` crashed (the spec moved into pio2). Now the page is built from the RTL files that exist and `--check` fails on a link to a missing file; `--target pio` reports SKIPPED (pio2 owns its docs).
+* **check_register_parity** (`tool-bug`): checked the IMU core with values hard-coded in the script; now the system register offsets are parsed from `asp_sys_regs.sv` case labels (part of EL-1027-21).
+* **sim-test-all** (`tool-bug`): a hand-kept `DEPENDS` list named deleted targets and missed `sim-test-pio-tlp-path`; now built by `add_cocotb_test`.
+* **test_host_drive hang** (test bug, the runtime was right): ASan gate run failed once ("host loop missed a wake", 21 s). Pinned to one core it hung 3/3; a state dump at the give-up showed all 1000 messages consumed (`sum=500500`), queue empty: the test's host loop slept after the `step()` that finished the consumer, without re-checking its exit condition, and only a stale latched wake usually saved it. Fixed in the test; one-core runs 0/40 fail.
+* Test note: the new top test's motor case first failed because the tile's `SHIFTCTRL` resets to 0 (OUT shifts left), unlike the RP2040 reset value; the test sets `OUT_SHIFTDIR`. Worth a line in pio2's docs.
+
+### 3. Evidence
+* Each target `run_cocotb --only <t> --timeout 60`: 11/11 PASS (router 5, wb-master 5, tlp64-top 2 = new all-PIO top test over Dual-SPI, pio-wrap 2, pio-tlp-path 8, others unchanged).
+* `tools/rtl_lint.sh` 13/13 clean; Yosys `check -assert` on `asp_top` and `asp_router` pass.
+* Gate, audits and the change review in the commit message.
+

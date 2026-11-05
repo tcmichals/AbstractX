@@ -1,5 +1,11 @@
 # Zynq ICM-42688-P Backend Validation POC
 
+> **Retired (2026-11-05)**: this app drives the FPGA IMU auto-DMA core (`asp_imu_auto_dma`, registers at
+> `0x4000_01xx`), which was removed with the other dedicated cores ([SPEC-TLP-07] in
+> `docs/DESIGN_SPECIFICATION.md`: the FPGA is all-PIO; the IMU is read by a PIO program,
+> pio2 `src/programs/imu_spi_burst.pio`). Kept for reference; it does not run against current RTL.
+
+
 This program runs one shared sensor-validation suite through either Linux
 userspace GPIO-event-to-SPI acquisition or AbstractX PL DRDY-to-SPI Auto-DMA.
 It is for hardware bring-up and measurement, not a simulator or a claim that

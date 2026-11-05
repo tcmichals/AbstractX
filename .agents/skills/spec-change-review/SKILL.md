@@ -18,7 +18,7 @@ python3 tools/spectrace_matrix.py --changes --staged --strict             # what
 git config core.hooksPath tools/git-hooks                                 # enable the hook once per clone
 
 # Audit and verify human-readable documentation parity (Zero Drift)
-python3 tools/spec_to_doc.py --target pio --check
+# (--target pio retired: the PIO tile is the pio2 submodule, which documents itself)
 python3 tools/spec_to_doc.py --target rtl --check
 ```
 
