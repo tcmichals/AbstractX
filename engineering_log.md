@@ -3832,3 +3832,17 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Spec update**: `[SPEC-AUDIT-12]`: a path on an implemented requirement's Implementation Target / Verified by line must exist from the repo root or the spec's folder; globs, placeholders and `(was ...)` history are skipped (`[SPEC-E906-MEM-02]` keeps its "(was `include/dram_spsc_protocol.h`, removed in `4273f95`)" note).
 * **Regression test**: `tests/test_spectrace_matrix.py::test_drift_check_and_not_implemented_line`: a target `src/gone.hpp` is reported, `(was src/old.hpp)` is not. Old checker: `AssertionError: {'SPEC-DRIFT-01': ['missing_fn']}`; new: `[PASS] spectrace_matrix`. `test_repo_is_honest` failed on the three real paths until they were fixed.
 * **Evidence**: `--check-drift`: `Drift: 0 requirements`; gate in the commit message.
+
+---
+
+### 2026-11-05: Linux spec still described the removed result ring; untracked PIO replay and a stale config found
+* **Category**: `process-gap` (spec drift no check caught; work left untracked), `false-alarm` (none)
+* **What was found** (while checking an outside review of the Linux threading model):
+  1. `targets/linux/SPECIFICATION.md` (diagram, §1.2, `[SPEC-LINUX-HAL-01]`) still said workers complete through `notify_completion()`, `g_rx_ring` and `rx_eventfd`. `1e5f546` removed the shared result queue: workers end in `request.complete()` ([SPEC-ARCH-16] item 8), which writes `result_slot`, posts the handle to the Dispatcher, and the post's wake hook writes the posix host eventfd. Text and diagram now say that; §1.2 names the IoEngine `ingress_rx_ring` + `notify_host()`.
+  2. `sim/cocotb/pio_sdk.py` and `test_asp_pio_rtfc_cocotb.py` (written 2026-11-04) were never committed, and the PIO tile had already moved to `rtl/pio` (pio2, `b239002`). Ported and committed in pio2 `92c34c7` (on its local `main`, not pushed); the originals were removed here.
+  3. Untracked `tools/memory_targets.json` (2026-10-09) shadowed the committed `tools/membrowse-targets.json` (`track_memory_footprint.py` reads it first) with an E906 RAM budget of 64 KB instead of 192 KB. Not committed; moved out of the tree.
+  4. The 2026-10-22 review and handoff plan were untracked; committed in `dc57ef9`. Its layer sketch failed `render_diagrams --check` and is now marked `ascii-ok`.
+* **Hardware/tool fact**: pio2 `main` (`89fc1b6`, `92c34c7`) does not work with AbstractX `asp_top`: with `rtl/pio` on it, `rtl_sim-test-tlp64-top` and `rtl_sim-test-pio-wrap` fail (the tile's TLP ports became AXI-Stream FIFO ports, pio2 [SPEC-ICN-09]); on the pinned `e856f24` both pass. Bumping the submodule needs an `asp_top` change first.
+* **Which check should have caught (1)**: `spectrace_matrix.py --check-drift`. It compares function names and paths; a backticked variable (`g_rx_ring`) or a function that still exists under another role (`notify_completion` is now an alias of `complete`) passes. Open: flag backticked `g_*` identifiers in spec text that no source file defines.
+* **Also open**: the comment at `include/abstractx/hal/async_driver.hpp:88` still says "instead of the shared output queue".
+* **Evidence**: `render_diagrams --check` OK; `--check-drift` 0; `audit_specs.py` 100%; gate in the commit message.

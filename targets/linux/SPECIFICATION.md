@@ -18,7 +18,7 @@ AbstractX splits Linux responsibilities cleanly:
 2. **The Data Plane**: **ETL (Embedded Template Library)** provides lock-free, zero-heap SPSC rings (`etl::queue_spsc_isr`) and type-safe delegates (`etl::delegate`).
 3. **Dedicated Bus Workers**: Independent background worker threads (`SpiWorker`, `I2cWorker`) execute blocking bus `ioctl()`s without contending with or stalling each other.
 
-![Linux hybrid reactor: the main epoll reactor hands requests to the SPI and I2C worker threads through etl::queue_spsc_isr rings and eventfd notifies; the workers run blocking ioctl()s in parallel and complete through notify_completion(), g_rx_ring and rx_eventfd, waking the reactor to resume the coroutine](assets/specification-reactor-workers.svg)
+![Linux hybrid reactor: the main epoll reactor hands requests to the SPI and I2C worker threads through etl::queue_spsc_isr rings and eventfd notifies; the workers run blocking ioctl()s in parallel and complete through request.complete(), which writes the awaiter's result slot and posts its coroutine to the Dispatcher; the post writes the host's eventfd, so the host thread wakes and step() resumes the coroutine](assets/specification-reactor-workers.svg)
 
 ### 1.1 Industrial IIO Subsystem Model & Seamless Hardware Offload
 
@@ -45,7 +45,7 @@ For mission-critical industrial applications where Linux kernel scheduling jitte
    - **Periodic Auto-Trigger**: POSIX `timerfd` can be registered directly in `epoll_wait()` to drive periodic sensor sweeps.
 2. **Autonomous ASAP Read & Forward**:
    - On trigger, the reactor latches the nanosecond kernel timestamp (`gpiod_edge_event_get_timestamp_ns()`) and immediately dispatches the transfer to `SpiWorker`.
-   - On bus completion, the payload is wrapped into a 64-byte `DMA_Stream` TLP stamped with the kernel timestamp and forwarded immediately into `g_rx_ring`, signaling the coroutine doorbell.
+   - On bus completion, the payload is wrapped into a 64-byte `DMA_Stream` TLP stamped with the kernel timestamp and pushed into the I/O processor's ingress ring (`ingress_rx_ring`, `io_processor.yaml`); `notify_host()` then signals the RX doorbell eventfd and calls `abstractx::wake()`.
 3. **Bus Lockout Invariant (`ASP_STATUS_BUS_LOCKED`)**:
    - When Auto-DMA is armed (`auto_mode == true`), the bound bus is locked exclusively for autonomous streaming.
    - Any manual transfer request (`make_spi_transfer`) arriving on `g_tx_ring` is immediately rejected with completion status `ASP_STATUS_BUS_LOCKED` (`0x05`).
@@ -94,10 +94,13 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
   never `Ok` with 0 bytes), and a request the worker cannot take never leaves a coroutine waiting.
 * **Requirement**:
   - The worker MUST deliver every completion through the owning driver's
-    `AsyncDriverBase::push_completion_from_isr` (a completion sink bound by the driver), which
-    writes `request.result_slot` before posting the coroutine handle. A worker without a bound
-    sink (the I/O processor bridge) MUST still write `result_slot` when it is set before calling
-    `notify_completion`.
+    `AsyncDriverBase::push_completion_from_isr` (a completion sink bound by the driver). A worker
+    without a bound sink (the I/O processor bridge) MUST call `request.complete()` itself. Both end
+    in `request.complete()`, the one completion path ([SPEC-ARCH-16] item 8): it runs the request
+    callback, writes `result_slot`, posts the coroutine handle to the Dispatcher and marks the
+    request Done, and skips an abandoned request. There is no shared result ring: the Dispatcher's
+    ready queue is the only ring back to the coroutine thread, and the host's eventfd wakes it
+    (`hosts/posix`).
   - A failing `SPI_IOC_MESSAGE` / `I2C_RDWR` ioctl MUST complete with a non-`Ok` status
     (`SpiStatus::DmaError`, `I2cStatus::NackAddress`) and `transferred_bytes = 0`.
   - `SpiWorker::submit` / `I2cWorker::submit` MUST return `false` when the worker thread is not

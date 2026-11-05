@@ -459,6 +459,7 @@ The surface, the mismatches and the licensing are in system review §15.4.
 3. **Licensing: accepted.** Builds that link Betaflight/INAV code are GPLv3-only. The clean-room shim and native AbstractX stay dual-licensed. `ABSTRACTX_COMPAT=betaflight|inav` stamps the output.
 
 **Architecture:**
+<!-- ascii-ok: layer sketch in a dated review record, kept as written on 2026-10-22 -->
 ```
   Betaflight / INAV src/main  (pinned upstream version, GPLv3, unmodified or small patch set)
         │ calls their platform API: micros, IO/EXTI, spiSequence, busRead, serialPort_t, motorDevice_t, config_streamer …
