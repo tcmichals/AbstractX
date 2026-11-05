@@ -98,18 +98,7 @@ public:
 
             // 2. Drain incoming telemetry/TLPs from FPGA Egress BRAM -> Ingress RX Ring
             // @impl [SPEC-ZYNQ-01] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-01
-            if (setup_.ingress_rx_ring) {
-                Tlp64 rx_tlp{};
-                uint32_t count = bridge_.egress_count();
-                while (count > 0 && bridge_.read_tlp(rx_tlp)) {
-                    setup_.ingress_rx_ring->push(rx_tlp);
-                    ++processed;
-                    if (setup_.on_rx_pushed) {
-                        setup_.on_rx_pushed();
-                    }
-                    --count;
-                }
-            }
+            processed += drain_egress();
 
             // Re-arm the interrupt once a burst taken earlier has been drained (polled or woken).
             // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
@@ -143,18 +132,7 @@ public:
                     bridge_.note_interrupt_taken();
 
                     // Drain incoming packets on interrupt wake
-                    if (setup_.ingress_rx_ring) {
-                        Tlp64 rx_tlp{};
-                        uint32_t irq_drain_count = bridge_.egress_count();
-                        while (irq_drain_count > 0 && bridge_.read_tlp(rx_tlp)) {
-                            setup_.ingress_rx_ring->push(rx_tlp);
-                            ++processed;
-                            if (setup_.on_rx_pushed) {
-                                setup_.on_rx_pushed();
-                            }
-                            --irq_drain_count;
-                        }
-                    }
+                    processed += drain_egress();
 
                     // Clear and re-arm if drained; otherwise a later step() re-arms it
                     bridge_.rearm_if_drained();
@@ -179,7 +157,36 @@ public:
         return true;
     }
 
+    [[nodiscard]] uint32_t rx_ring_full() const noexcept { return rx_ring_full_.load(std::memory_order_relaxed); }
+    [[nodiscard]] uint32_t rx_dropped() const noexcept { return rx_dropped_.load(std::memory_order_relaxed); }
+
 private:
+    // FPGA egress -> ingress_rx_ring. Reads a packet only when the ring has room; a full ring
+    // leaves the rest in the FPGA FIFO (backpressure). Caller holds the InterruptGuard.
+    // @impl [SPEC-ZYNQ-02] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-02
+    int drain_egress() noexcept {
+        auto* ring = setup_.ingress_rx_ring;
+        if (!ring) return 0;
+        int moved = 0;
+        Tlp64 rx_tlp{};
+        for (uint32_t count = bridge_.egress_count(); count > 0; --count) {
+            if (ring->size() >= ring->capacity()) {
+                rx_ring_full_.fetch_add(1, std::memory_order_relaxed);
+                break;
+            }
+            if (!bridge_.read_tlp(rx_tlp)) break;
+            if (!ring->push(rx_tlp)) {  // another producer took the slot after the check
+                rx_dropped_.fetch_add(1, std::memory_order_relaxed);
+                break;
+            }
+            ++moved;
+            if (setup_.on_rx_pushed) setup_.on_rx_pushed();
+        }
+        return moved;
+    }
+
+    std::atomic<uint32_t> rx_ring_full_{0};  // shared: step() writes, any thread reads; atomic
+    std::atomic<uint32_t> rx_dropped_{0};    // shared: step() writes, any thread reads; atomic
     ZynqUioBridge bridge_{};
     hal::IoProcessorSetup setup_{};
     int wake_fd_{-1};

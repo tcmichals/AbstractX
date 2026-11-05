@@ -13,6 +13,7 @@
  * @verifies [SPEC-ZYNQ-06] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md#spec-zynq-06
  */
 
+#undef NDEBUG  // the asserts below carry the calls under test; keep them in Release builds
 #include "abstractx/target/zynq_uio.hpp"
 #include "abstractx/hal/io_processor.hpp"
 #include "tlp_ring.hpp"
@@ -245,6 +246,47 @@ void test_uio_irq_rearm_after_burst() {
     std::printf("  -> re-arm after burst passed.\n");
 }
 
+// [SPEC-ZYNQ-02] full ingress ring: packets stay in the FPGA egress FIFO, nothing is read
+// and discarded, on_rx_pushed runs only for pushed packets, the stall is counted.
+void test_full_ingress_ring_backpressure() {
+    std::printf("[TEST] Full ingress ring leaves packets in the FPGA (backpressure)...\n");
+    MockUioEnvironment env;
+    env.set_reg(ZynqUioBridge::REG_HARDWARE_ID, ZynqUioBridge::HARDWARE_MAGIC);
+    env.set_reg(ZynqUioBridge::REG_ING_FREE, 128);
+    env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 0);
+    ::setenv("ABSTRACTX_UIO_DEV", env.path, 1);
+
+    MpscTlpRing<> egress_tx_ring{};
+    static MpscTlpRing<> ingress_rx_ring{};
+    CallbackHelper helper;
+    IoProcessorSetup setup{};
+    setup.egress_tx_ring = &egress_tx_ring;
+    setup.ingress_rx_ring = &ingress_rx_ring;
+    setup.on_rx_pushed = etl::delegate<void()>::create<CallbackHelper, &CallbackHelper::on_pushed>(helper);
+    IIoProcessor& io_proc = get_target_io_processor();
+    assert(io_proc.configure(setup) && io_proc.start());
+
+    const Tlp64 filler{};
+    while (ingress_rx_ring.push(filler)) {}
+    assert(ingress_rx_ring.size() == ingress_rx_ring.capacity());
+
+    env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 5);
+    for (int i = 0; i < 1000; ++i) {
+        assert(io_proc.step(0) == 0 && "nothing may be taken from the FPGA while the ring is full");
+    }
+    assert(!helper.rx_pushed && "on_rx_pushed must not run for a packet that was not pushed");
+
+    Tlp64 out{};
+    assert(ingress_rx_ring.pop(out));        // consumer frees one slot
+    env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 1);
+    assert(io_proc.step(0) == 1 && "one slot free: exactly one packet moves");
+    assert(helper.rx_pushed);
+
+    io_proc.stop();
+    ::unsetenv("ABSTRACTX_UIO_DEV");
+    std::printf("  -> full ring backpressure passed.\n");
+}
+
 int main() {
     std::printf("==============================================================================\n");
     std::printf(" Zynq-7000 Target HAL & IoProcessor Unit Verification\n");
@@ -254,6 +296,7 @@ int main() {
     test_uio_bridge_tlp_ingress_and_egress();
     test_uio_irq_rearm_after_burst();
     test_zynq_io_processor_reactor_loop();
+    test_full_ingress_ring_backpressure();
 
     std::printf("------------------------------------------------------------------------------\n");
     std::printf("[SUCCESS] 100%% Zynq-7000 Target Data Plane Loops Verified.\n");

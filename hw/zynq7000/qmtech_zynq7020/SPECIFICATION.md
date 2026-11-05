@@ -194,6 +194,13 @@ configuration:
   unmasks while egress is non-empty (the level interrupt would fire again at once). Rationale: the
   old `ack_interrupt()` unmasked only if egress was empty at that instant and nothing re-armed it
   later, so one burst left the processor on 10 ms poll timeouts for good (2026-10-30 code review).
+* **Full ingress ring (2026-11-05, EL-1027-17)**: `step()` reads a packet from the egress port
+  only when `ingress_rx_ring` has room. A full ring stops the drain and leaves the packets in the
+  FPGA egress FIFO (backpressure; the interrupt stays masked by the re-arm rule and the next
+  `step()` retries); the stall is counted (`rx_ring_full()`). If a packet already read still cannot
+  be pushed (another producer filled the ring in between), it is counted as dropped
+  (`rx_dropped()`). A packet is never read and discarded uncounted, and `on_rx_pushed` runs only
+  for a packet that was pushed. Both interrupt and polled drains use the same code.
 * **Refines**: `[SPEC-ARCH-01]`
 * **Method**: `Test`
 * **Verified by**: `host-tests` (`tests/test_adversarial_invariants.py`, `sim/test_zynq_target.cpp`)

@@ -2897,9 +2897,9 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-13 | RTL Zynq | `top_qmtech_zynq7020` fails Verilator lint: router `s_pio_stream_*` unconnected (also at `2dfa62a`) | `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv:254` | connect or tie off as part of EL-1027-20 | `rtl-lint` |
 | EL-1027-15 | RTL | `asp_uart_core.sv` (new in `c5a1eaa`): egress TLP payload hard-wired zero and RX FIFO never drained, so it sends empty TLPs forever once 40 B arrive; ingress `s_tlp_tdata` accepted and dropped; IRQ flags never set; error flags never cleared; default divisor 14 at 27 MHz = 4.4% baud error; no cocotb test | `rtl/serial/asp_uart_core.sv:406,451`; instantiated `rtl/asp_top.sv:358` | remove (all-PIO direction, EL-1027-20); confirm the other PC has no newer version first | `cocotb-regression`, `rtl-lint` |
 | EL-1027-16 | Zynq C++ (wider: see 2026-11-05 entry, two TLP byte orders; owner decision A/B/C) | `ZynqUioBridge::write_tlp`/`read_tlp` send DWORD 0 first, which lands in bits [31:0]; RTL decodes type/channel from [511:480] (`asp_axi_lite_bridge.sv:238`, `asp_wishbone_master.sv:106`); Python `zynq_diagnostics.py` matches the RTL. Every C++ TLP is misrouted | `targets/zynq7000/include/abstractx/target/zynq_uio.hpp:132,142` | spec the word order, fix C++, make the mock check order | `hw-sw-register-parity`, host test |
-| EL-1027-17 | Zynq C++ | UIO interrupt unmasked only when `egress_count()==0` after a drain, so it can stay masked; `ingress_rx_ring->push()` result ignored (packet lost silently) | `zynq_uio.hpp` `ack_interrupt`, `targets/zynq7000/src/io_processor.cpp` | spec + fix | `ipc-transport-audit` |
+| EL-1027-17 | Zynq C++ (**fixed 2026-11-05**: masked IRQ in `9c902a4`; full ring now backpressure + counted) | UIO interrupt unmasked only when `egress_count()==0` after a drain, so it can stay masked; `ingress_rx_ring->push()` result ignored (packet lost silently) | `zynq_uio.hpp` `ack_interrupt`, `targets/zynq7000/src/io_processor.cpp` | spec + fix | `ipc-transport-audit` |
 | EL-1027-18 | Linux/Zynq (**fixed 2026-11-05**: bounded 100 us sleep, `sim/test_hosted_idle_wait`) | `platform_idle_wait` now `sched_yield()`: an idle core spins at 100% | `targets/zynq7000/src/hal_platform.cpp:65` | wait on the UIO fd / eventfd with a timeout | review |
-| EL-1027-19 | Zynq tests | `sim/test_zynq_target.cpp` `@verifies` SPEC-ZYNQ-02 / -06 but never runs poll/ack or timestamps; checks are `assert()` with side effects (vanish under NDEBUG); no 1000-cycle test | `sim/test_zynq_target.cpp` | rewrite with CHECK, drive poll/ack | `--check-verifies` |
+| EL-1027-19 | Zynq tests (partly 2026-11-05: `#undef NDEBUG`; poll/ack still not driven) | `sim/test_zynq_target.cpp` `@verifies` SPEC-ZYNQ-02 / -06 but never runs poll/ack or timestamps; checks are `assert()` with side effects (vanish under NDEBUG); no 1000-cycle test | `sim/test_zynq_target.cpp` | rewrite with CHECK, drive poll/ack | `--check-verifies` |
 | EL-1027-20 | FPGA all-PIO | for ESC 4-way passthrough and bidirectional DShot on PIO: `asp_pio_tile` `o_gpio_out`/`o_gpio_pindir` unconnected and motor pins driven by `asp_dshot_core`; motor pins output-only (need `inout`, OE from `o_gpio_pindir`, fed back into `i_gpio`); 32-word shared IRAM (program swap while disarmed); SM FIFOs reachable only by Wishbone; no PIO DShot / bidir DShot / half-duplex UART programs or cocotb timing-parity tests | `rtl/asp_top.sv:52,321,392-394`, `rtl/pio/asp_pio_tile.sv:53` | spec first in `rtl/pio/SPECIFICATION.md` (passthrough: program swap, pin turnaround, TLP data path); check the other PC for all-PIO tops before RTL edits | `cocotb-regression`, `fpga-fit` |
 | EL-1027-21 | tools | `check_register_parity.py` compares Python with values hard-coded in the script (not parsed from RTL), spec check only looks for the offset string, skips E906 entries silently, does not check TLP word/byte layout or the UART core | `tools/check_register_parity.py` | parse RTL; add TLP layout check (would have caught EL-1027-16) | its own test |
 | EL-1027-22 | Python | `zynq_diagnostics.py` `wb_read32` discards unrelated egress TLPs (steals traffic from a running IoProcessor); shared `ing_word_idx` interleaves concurrent writers | `hw/zynq7000/qmtech_zynq7020/tools/zynq_diagnostics.py` | document exclusive use or filter by tag | review |
@@ -3905,4 +3905,23 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * Zynq: `nanosleep` 100 us, same as Linux.
 * `sim/test_hosted_idle_wait.cpp`, built once per hosted target file (`_linux`, `_zynq7000`): ~20 ms of back-to-back idle waits, CPU/wall must be <= 0.5. Old Zynq code: `40474 calls, wall 20.0 ms, cpu 20.0 ms (100%)` -> FAIL; new: `132 calls, cpu 0.3 ms (1%)` -> PASS. Linux: 3%.
 * **Limit**: on a heavily loaded machine a spinning `sched_yield()` can get less than half a core, so the test may miss a regression there; it never fails a correct sleep.
+
+## [2026-11-05] - EL-1027-17: Zynq dropped FPGA packets silently when the ingress ring was full
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/zynq7000/src/io_processor.cpp`
+* **Category**: `product-bug`
+* **Symptoms**: both egress drains (polled and interrupt) read a packet from the FPGA, ignored `ingress_rx_ring->push()`'s result, counted it as processed and called `on_rx_pushed`. With a full ring every packet the FPGA sent was consumed and lost, with no counter. (The other half of EL-1027-17, the interrupt left masked, was fixed in `9c902a4`, 2026-10-30.)
+
+### 2. Root Cause & Lesson Learned
+* **Why**: the drain was written twice (poll path and interrupt path) and neither copy had a full-ring case; [SPEC-ZYNQ-02] said nothing about it.
+* **Which check should have caught it**: `ipc-transport-audit` looks for unchecked results in RPMsg/msgbox transports, not this UIO drain; `sim/test_zynq_target.cpp` never filled the ring.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-ZYNQ-02]` full ingress ring: read only when the ring has room, leave the rest in the FPGA FIFO (backpressure), count the stall (`rx_ring_full()`), count a packet that was read but could not be pushed (`rx_dropped()`), `on_rx_pushed` only for pushed packets, one drain for both paths.
+
+### 4. Implementation & Regression Test
+* `drain_egress()` used by both paths; two atomic counters.
+* `sim/test_zynq_target.cpp` `test_full_ingress_ring_backpressure`: ring full, egress 5, 1000 `step(0)` calls all return 0, no callback; one slot freed -> exactly one packet moves. **Old code**: `Assertion 'io_proc.step(0) == 0 && "nothing may be taken from the FPGA while the ring is full"' failed`; new code passes. Also `#undef NDEBUG` in that test (its asserts carry the calls under test; part of EL-1027-19).
+* **Limit**: the mock register file cannot see reads of `REG_TLP_OUT_PORT`, so the test observes the return value and the callback, not the port reads themselves.
 
