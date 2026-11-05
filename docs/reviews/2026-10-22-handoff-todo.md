@@ -503,6 +503,11 @@ Severity tags refer to the system review.
 
   The test fails on the current RTL (record that).
 - **Checks:** `cocotb-regression`, `rtl-lint`, `rtl-synth-check`, `fpga-fit`.
+- **Status (2026-11-05): not started; needs an owner decision.** P0-01..P0-03 name
+  `asp_dshot_core` and `asp_pwm_decoder`, which the 2026-10-26 all-PIO direction makes obsolete (motors
+  and RC as PIO programs, pio2 submodule). Where the arming FSM, heartbeat failsafe and clamp live
+  in an all-PIO design (TLP master, pio2 tile, or a small fixed gate on the motor pins) is not
+  decided yet.
 
 #### P0-02 One motor register map, generated
 - **Why:** §2 (Critical). Three maps disagree.
@@ -524,6 +529,15 @@ Severity tags refer to the system review.
 - **Files:** `targets/{allwinner_e906,pico2w_rp2350,linux}/src/io_processor.cpp`.
 - **Accept:** a host test (Linux io_processor, plus E906/Pico parsers compiled for host where possible) feeds `tx_len=200`, `rx_len=255` and `pin=255`. Each gets an error completion and no out-of-bounds access under ASan. The test fails on the old code.
 - **Checks:** `host-tests`, `sanitizer-gate`.
+- **Status (2026-11-05): mostly superseded by the shared IoEngine ([SPEC-ARCH-13]).** The
+  per-target parsers are gone; `include/abstractx/hal/io_engine.hpp` clamps every host length
+  (auto command 8, SPI bridge, I2C rx) instead of rejecting it, `header_skip` no longer exists, and
+  GPIO needs `pin < 32` plus the backend's own check (`sim/test_io_engine.cpp` step 1: tx 255 /
+  rx 255 clamped; "GPIO bounds"). **Open:** the SPI chip select is passed through unchecked.
+  The Pico refuses `cs_pin != 0`, and Linux fails to open `/dev/spidevB.C`. The E906
+  (`targets/allwinner_e906/src/io_processor.cpp:78` -> `Spi1::start_dma_transfer`) asserts no CS
+  for an id other than 0/1 and still clocks the transfer, reporting success. Next: spec text in
+  [SPEC-ARCH-13] ("an unknown chip select is refused with an error completion"), then the check.
 
 #### P0-05 Stop the E906 `gps_imu` main corrupting the resource table
 - **Why:** §11 (High).
