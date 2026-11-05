@@ -538,6 +538,11 @@ Severity tags refer to the system review.
   (`targets/allwinner_e906/src/io_processor.cpp:78` -> `Spi1::start_dma_transfer`) asserts no CS
   for an id other than 0/1 and still clocks the transfer, reporting success. Next: spec text in
   [SPEC-ARCH-13] ("an unknown chip select is refused with an error completion"), then the check.
+  **Closed (2026-11-05):** [SPEC-ARCH-13] 3 and [SPEC-E906-HAL-03] now say a back end refuses a
+  device it cannot select; `Spi1::transceive_fifo_sync` and `Spi1::start_dma_transfer` return
+  `false` for `cs_id` other than 0/1 before claiming the bus (`sim/test_e906_spi1_ownership`
+  case `unknown_chip_select` fails on the old code, passes on the new). A refused SPI bridge answers
+  `ASP_STATUS_QUEUE_FULL` (the engine's status for any refused start; misleading, not wrong).
 
 #### P0-05 Stop the E906 `gps_imu` main corrupting the resource table
 - **Why:** §11 (High).

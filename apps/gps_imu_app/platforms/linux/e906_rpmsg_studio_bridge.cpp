@@ -70,7 +70,7 @@ struct RpmsgEndpointInfo {
 constexpr unsigned long kRpmsgCreateEptIoctl =
     (1UL << 30) | (sizeof(RpmsgEndpointInfo) << 16) | (0xB5UL << 8) | 0x1UL;
 
-volatile sig_atomic_t g_stop = 0;
+volatile sig_atomic_t g_stop = 0;  // shared: on_signal (SIGINT/SIGTERM) writes, the one host thread reads; volatile sig_atomic_t (no threads)
 
 void on_signal(int) {
     g_stop = 1;

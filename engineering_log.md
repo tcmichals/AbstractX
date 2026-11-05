@@ -3846,3 +3846,26 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Which check should have caught (1)**: `spectrace_matrix.py --check-drift`. It compares function names and paths; a backticked variable (`g_rx_ring`) or a function that still exists under another role (`notify_completion` is now an alias of `complete`) passes. Open: flag backticked `g_*` identifiers in spec text that no source file defines.
 * **Also open**: the comment at `include/abstractx/hal/async_driver.hpp:88` still says "instead of the shared output queue".
 * **Evidence**: `render_diagrams --check` OK; `--check-drift` 0; `audit_specs.py` 100%; gate in the commit message.
+
+## [2026-11-05] - E906 SPI1 clocked a transfer with no chip select (P0-04 gap)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/src/spi.cpp`, `include/abstractx/hal/io_engine.hpp`
+* **Category**: `product-bug`
+* **Symptoms**: a host SPI bridge or auto channel with `cs_pin` other than 0/1 reached `Spi1::start_dma_transfer` (or `transceive_fifo_sync`), which asserted neither CS, clocked the bytes and reported success with whatever MISO floated to.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: `IoEngine` passes the host's chip select through by design ([SPEC-ARCH-13] 1-2: the back end owns the bus); the E906 back end and `Spi1` only had `if (cs==0) ... else if (cs==1) ...`, with no `else`. Pico refuses `cs != 0`, Linux fails to open the spidev node; only the E906 silently succeeded.
+* **Which check should have caught it**: `sim/test_io_engine.cpp` uses a mock back end, and `sim/test_e906_spi1_ownership.cpp` only used CS0. No requirement said what a back end does with a device it cannot select, so no test asked.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-ARCH-13]` 3: a back end that cannot select the device refuses `start_transfer()`; never runs it with no device selected.
+* `[SPEC-E906-HAL-03]`: every SPI1 path refuses `cs_id` other than 0/1 before claiming the bus or touching a register.
+
+### 4. Implementation & Regression Test
+* `valid_cs()` in `spi.cpp`, checked first in `transceive_fifo_sync` and `start_dma_transfer` (the awaiter and sync wrappers go through them).
+* `sim/test_e906_spi1_ownership` case `unknown_chip_select` (cs 2, 7, -1: both paths refused, FCR untouched, bus free; CS1 still works): **fails on the old code** (`Assertion '!Spi1::transceive_fifo_sync(cs, ...)' failed`), passes on the new.
+* **Also found (`process-gap`)**: `tools/boundary_review.py --check` failed on `main` since `c4cca33` (2026-11-01): `g_stop` in `e906_rpmsg_studio_bridge.cpp` had no `// shared:` note. Fixed (signal handler writes, the one host thread reads; `volatile sig_atomic_t`). Not caught because `tools/gate.sh` does not run `boundary_review.py`; it is only in the skill and `full_audit.py`.
+* **Also found (`process-gap`, agent miss)**: a `git stash` / `stash pop` while `tools/gate.sh` was building left the TSan test object compiled from the stashed (old) source but newer than the restored file, so the next gate counted it up to date: TSan "passed" without the new case. Caught by grepping each build's `LastTest.log` for the new case name. Lesson: never change the working tree while the gate builds; check that a new test case appears in each build's log, not only the pass count.
+* **Evidence**: gate, E906 layout and `analyze_elf_size.sh` quoted in the commit message.
+

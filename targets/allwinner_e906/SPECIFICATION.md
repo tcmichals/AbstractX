@@ -812,6 +812,11 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   * The awaiter keeps its coroutine handle and result in its own object (the coroutine frame) and
     binds the completion callback to that object; there is no file-scope handle or result pointer
     that a second awaiter could overwrite (AGENTS.md §10.4).
+  * **Chip select (2026-11-05)**: SPI1 has two chip selects, CS0 (PB11, the IMU) and CS1. Every
+    path refuses any other `cs_id` before it claims the bus or touches a SPI1 register: the call
+    returns `false` (the awaiter resumes with `false`). A transfer with no device selected is never
+    clocked and never reported as a success. The host-supplied `cs_pin` reaches this check through
+    `IoEngine` ([SPEC-ARCH-13] 3).
 * **Rationale**: 2026-10-30 code review: the FIFO path ignored the busy flag (a DRDY auto-DMA
   could start in the middle of it, or it could reset the FIFO under a running DMA), the sync DMA
   wrappers ignored a refused start and then waited on someone else's transfer, and the awaiter

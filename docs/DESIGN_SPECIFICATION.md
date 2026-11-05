@@ -502,6 +502,10 @@ sequenceDiagram
      clamped length). Bridge: SPI `tx, rx <= 36`, I2C `tx <= 32`, `rx <= 36`. GPIO pin `>= 32` is
      answered with an error status, never shifted. The tx and rx buffers of an SPI transfer are the
      same length (tx zero-padded), because SPI clocks both.
+     The engine passes the host's chip select / device address through unchanged; a back end that
+     cannot select that device refuses `start_transfer()` (the bridge answers an error status, an
+     auto channel counts `auto_failed()`) and never runs the transfer with no device selected
+     (E906: [SPEC-E906-HAL-03], 2026-11-05).
   4. **Concurrency & Shared Bus Arbitration**: each auto channel owns its tx/rx buffers, a config snapshot,
      and atomic flags (`busy`, `pending`, `in_flight`). A trigger only starts channels whose `trigger_pin`
      matches. An edge while a channel's own read is in flight is counted (`auto_overruns()`) and dropped;

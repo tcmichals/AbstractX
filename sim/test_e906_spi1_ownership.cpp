@@ -164,6 +164,20 @@ void test_steady_state_1000_rounds() {
     assert(Dispatcher::dropped_resumes() == dropped0);
 }
 
+// [SPEC-E906-HAL-03] chip select: only CS0/CS1 exist; any other id is refused before the
+// bus is claimed or a register is written (2026-11-05: it used to clock with no CS asserted).
+void test_unknown_chip_select_refused() {
+    for (int cs : {2, 7, -1}) {
+        reg(kFcr) = 0x5A5AU;
+        assert(!Spi1::transceive_fifo_sync(cs, g_tx, g_rx, 4));
+        assert(!Spi1::start_dma_transfer(cs, g_tx, g_rx, 100));
+        assert(reg(kFcr) == 0x5A5AU);  // no SPI1 register touched
+        assert(!Spi1::is_busy());
+    }
+    assert(Spi1::transceive_fifo_sync(1, g_tx, g_rx, 4));  // CS1 still works
+    assert(!Spi1::is_busy());
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -174,6 +188,7 @@ int main(int argc, char **argv) {
         {"sync_dma_refused", test_sync_dma_refused_while_other_dma_in_flight},
         {"refused_awaiter", test_refused_awaiter_does_not_steal_completion},
         {"steady_state", test_steady_state_1000_rounds},
+        {"unknown_chip_select", test_unknown_chip_select_refused},
     };
     Spi1::init(10'000'000);
     for (const Case &c : cases) {

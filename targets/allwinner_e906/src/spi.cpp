@@ -61,6 +61,10 @@ bool claim_bus() noexcept {
     return true;
 }
 
+// SPI1 has CS0 (PB11) and CS1 only; any other id would clock with no device selected.
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+constexpr bool valid_cs(int cs_id) noexcept { return cs_id == 0 || cs_id == 1; }
+
 volatile bool g_sync_dma_ok = false;  // shared: SPI DMA ISR writes, sync wrapper (bus owner) reads; volatile
 
 void on_sync_dma_done(bool success) noexcept {
@@ -150,6 +154,7 @@ bool Spi1::is_busy() noexcept {
 
 bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_buf, size_t length, bool dual) {
     if (length == 0) return true;
+    if (!valid_cs(cs_id)) return false;
     // @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
     if (!claim_bus()) return false;  // a DMA (or DRDY auto-DMA) owns SPI1
 
@@ -212,6 +217,7 @@ bool Spi1::start_dma_transfer(
 ) noexcept {
     if (len == 0) return true;
     if (g_spi_tx_chan < 0 || g_spi_rx_chan < 0) return false;
+    if (!valid_cs(cs_id)) return false;  // [SPEC-E906-HAL-03] chip select
 
     // A transfer in flight owns the LLIs and the callback: refuse instead of overwriting them
     // (callers run in thread and ISR context, so test-and-set with interrupts masked).
