@@ -22,24 +22,48 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-TEST_RE = re.compile(r"^\s*add_cocotb_test\(\s*(\S+)\s+(\S+)\s+(\S+)(.*)\)\s*$")
+# A trailing "# comment" is legal CMake; ctest registers such a line, so the runner must too.
+TEST_RE = re.compile(r"^\s*add_cocotb_test\(\s*(\S+)\s+(\S+)\s+(\S+)([^)]*)\)\s*(#.*)?$")
 RESULT_RE = re.compile(r"TESTS=(\d+) PASS=(\d+) FAIL=(\d+)")
 
 
-def registered_tests():
+# @impl [SPEC-AUDIT-12] docs/SPECTRACE.md (every registered suite runs; nothing-ran is not a pass)
+def registered_tests(text: str | None = None):
+    """Every add_cocotb_test line; one the runner cannot parse is an error, never skipped."""
     tests = []
-    for line in (ROOT / "sim" / "CMakeLists.txt").read_text().splitlines():
+    if text is None:
+        text = (ROOT / "sim" / "CMakeLists.txt").read_text()
+    for line in text.splitlines():
+        if not line.lstrip().startswith("add_cocotb_test("):
+            continue
         m = TEST_RE.match(line)
+        if not m:
+            raise SystemExit(f"run_cocotb: cannot parse registration line: {line.strip()}")
         if m:
             extra = shlex.split(m.group(4))  # e.g. "SIM_PARAMS=-GA=1 -GB=2"
             tests.append((m.group(1), m.group(2), m.group(3), extra))
     return tests
+
+
+def run_with_timeout(cmd, cwd, env, timeout_s):
+    """Run make in its own process group; past timeout_s kill the whole group (make, the simulator,
+    cocotb), so a runaway simulation never outlives the runner. Returns (rc, output, timed_out)."""
+    proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, start_new_session=True)
+    try:
+        out, _ = proc.communicate(timeout=timeout_s)
+        return proc.returncode, out or "", False
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, _ = proc.communicate()
+        return 124, out or "", True
 
 
 def main():
@@ -47,6 +71,8 @@ def main():
     ap.add_argument("--only", default="", help="run targets whose name contains this text")
     ap.add_argument("--trace", action="store_true", help="enable FST waveform tracing (needs lz4)")
     ap.add_argument("--log", default="", help="write each target's full output to DIR/<target>.log")
+    ap.add_argument("--timeout", type=int, default=60,
+                    help="seconds per target (build + run); a target over it is killed and FAILs (default 60)")
     args = ap.parse_args()
 
     if not shutil.which("cocotb-config"):
@@ -54,6 +80,9 @@ def main():
         return 2
 
     tests = [t for t in registered_tests() if args.only in t[0]]
+    if not tests:
+        print(f"no cocotb target matches '{args.only}': nothing ran (not a pass)", file=sys.stderr)
+        return 1
     failures = 0
     with tempfile.TemporaryDirectory(prefix="abstractx-cocotb-") as tmp:
         work = Path(tmp)
@@ -67,15 +96,17 @@ def main():
             if not args.trace:
                 cmd.append("TRACE=")
             env = dict(os.environ, ABSTRACTX_ROOT=str(ROOT))  # tests may import repo tools
-            proc = subprocess.run(cmd, cwd=cocotb_dir, capture_output=True, text=True, env=env)
-            out = proc.stdout + proc.stderr
+            rc_, out, timed_out = run_with_timeout(cmd, cocotb_dir, env, args.timeout)
             if args.log:
                 Path(args.log).mkdir(parents=True, exist_ok=True)
                 (Path(args.log) / f"{name}.log").write_text(out)
             results = RESULT_RE.findall(out)
-            if results:
+            if timed_out:
+                ok = False
+                summary = f"TIMEOUT after {args.timeout} s (killed; runaway guard)"
+            elif results:
                 total, passed, failed = (int(x) for x in results[-1])
-                ok = proc.returncode == 0 and total > 0 and failed == 0 and passed == total
+                ok = rc_ == 0 and total > 0 and failed == 0 and passed == total
                 summary = f"TESTS={total} PASS={passed} FAIL={failed}"
             else:
                 ok = False

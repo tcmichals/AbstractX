@@ -277,8 +277,16 @@ module top_qmtech_zynq7020 #(
         .s_imu_stream_tready (imu_stream_tready),
         .s_esc_stream_tdata  (serial_stream_tdata),
         .s_esc_stream_tvalid (serial_stream_tvalid),
-        .s_esc_stream_tready (serial_stream_tready)
+        .s_esc_stream_tready (serial_stream_tready),
+        // No PIO tile on this top yet: the source is tied off, never left floating ([SPEC-ZYNQ-03])
+        .s_pio_stream_tdata  (512'd0),
+        .s_pio_stream_tvalid (1'b0),
+        .s_pio_stream_tready (pio_stream_tready_unused)
     );
+    logic pio_stream_tready_unused;
+    /* verilator lint_off UNUSEDSIGNAL */
+    wire _unused_pio = pio_stream_tready_unused;
+    /* verilator lint_on UNUSEDSIGNAL */
 
     // ------------------------------------------------------------------------
     // Wishbone Master & On-Chip Wishbone Interconnect

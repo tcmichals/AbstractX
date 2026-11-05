@@ -26,7 +26,7 @@ run_suite() {
         echo "[FAIL] gate: $name build failed (full log: $dir/gate_build.log); no tests run"
         exit 1
     fi
-    if ! timeout 2400 $prefix ctest --test-dir "$dir" -j"$JOBS" --timeout 300 --output-on-failure \
+    if ! timeout 2400 $prefix ctest --test-dir "$dir" -j"$JOBS" --timeout 60 --output-on-failure \
             >"$dir/gate_ctest.log" 2>&1; then
         grep -E "tests passed|^\s+[0-9]+ - " "$dir/gate_ctest.log"
         echo "[FAIL] gate: $name tests (full log: $dir/gate_ctest.log)"

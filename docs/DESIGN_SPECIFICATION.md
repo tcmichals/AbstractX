@@ -594,13 +594,69 @@ sequenceDiagram
   `rtl/asp_pio_wrap.sv`: a classic-to-pipelined step (one request per transaction, re-armed on `ack`),
   ZipCPU's `wbm2axilite` bridge (Apache-2.0, `rtl/pio/third_party/wb2axip`, not copied), and the tile.
   An AXI `SLVERR` / `DECERR` comes back as an `ack` (AbstractX's fabric has no `err`). The wrapper keeps
-  the tile's former port list, so `asp_top` and the board tops change only the module name.
-* **Requirement**: every board top and the cocotb `asp_top` build read the wrapper, the bridge and the
-  submodule RTL; `git submodule update --init --recursive` fetches them.
+  the tile's former port list (TLP in and out, `i_sys_timestamp`, `TILE_ID`), so `asp_top` and the board
+  tops change only the module name.
+* **Requirement (pio2 tile split, 2026-11-05)**: pio2 `main` (`[SPEC-ICN-09]` there) took the TLP
+  ingress queue, the egress packetizer, their registers and the timestamp input out of the tile and
+  gave it per-SM AXI-Stream FIFO ports. They live in AbstractX (`rtl/pio_tlp/`, `[SPEC-TLP-06]`), and
+  `asp_pio_wrap` serves their register offsets itself (`OUT_CFG 0x0C`, `OUT_TIMEOUT 0x90`,
+  `IN_CFG 0x94`, `IN_STATUS 0x98`, software trigger `SMx + 0x1C`); every other access goes through the
+  bridge to the tile. In the tile those offsets read 0 and writes do nothing.
+* **Requirement**: every board top and the cocotb `asp_top` build read the wrapper, `rtl/pio_tlp/`, the
+  bridge and the submodule RTL from one list per build; `git submodule update --init --recursive`
+  fetches the submodule. The submodule pin is a commit on pio2's `origin/main`, so a clone resolves it.
 * **Verified by**: `cocotb-regression` (`sim-test-tlp64-top`: TLP over Dual-SPI into `asp_top`, through
   the wrapper; `sim/cocotb/test_asp_pio_wrap_cocotb.py`: register writes and reads, classic bursts and
   back-to-back accesses through the wrapper), `rtl-lint`, `fpga-build`
 * **Implementation Target**: `rtl/asp_pio_wrap.sv`, `rtl/asp_top.sv`
+
+### `[SPEC-TLP-06]` PIO Tile TLP Data Path (from pio2 `[SPEC-PIO-04]`, `[SPEC-PIO-10]`)
+* **Goal**: a PIO program gets its data from TLPs and returns its results as TLPs without the CPU
+  touching each word: motor frames in, sensor reports and byte streams out. The rules are those pio2
+  had in the tile before `[SPEC-ICN-09]`; only the connection to the tile changed (its AXI-Stream
+  FIFO ports instead of internal FIFO strobes).
+* **Requirement (ingress)**: a TLP on the configured channel carries up to 10 data words and an SM mask;
+  word `k` goes to the TX FIFO of the `k`-th selected SM. Words are dealt in groups: with `n` selected
+  SMs, group `g` writes words `g*n .. g*n+n-1` to the selected SMs in ascending SM order, **all in one
+  clock**, once every SM of the group has TX space (so four motors start together); the last group
+  may be partial. A full TX FIFO makes the TLP wait; words are never dropped.
+  * On the tile's `s_axis_tx_*` ports this means `TVALID` of the group's lanes rises only in a clock
+    where all of them have `TREADY`. That makes `TVALID` depend on `TREADY`, which AXI-Stream does not
+    allow in general; here it is safe because the tile's `TREADY` is a function of FIFO state and of
+    its own register port only (pio2 `[SPEC-ICN-09]`), never of `TVALID`, so there is no
+    combinational loop. This link is internal to `asp_pio_wrap`; no AXI checker is attached to it.
+* **Requirement (ingress queue, why)**: the tile copies each accepted TLP into a queue of 32 slots in
+  block RAM, one word per clock (ingress is held at most 11 clocks per TLP), and deals from the queue.
+  `asp_spi_frontend` holds one TLP and the router has one ingress for every channel, so a tile that
+  held ingress until a slow program (ESC serial: 0.5 ms per byte) drained would make control TLPs
+  drop. Ingress waits only when the queue is full; the host tracks space through `IN_STATUS`.
+* **Requirement (egress)**: a *round* takes one RX word from every SM in the `OUT_CFG` mask in the same
+  clock, only when all of them have one (`m_axis_rx_*`: `TREADY` = the mask in that clock); words are
+  stored in SM order. The TLP is sent when it holds at least `burst_words` words, when another round
+  would not fit in 10 words, or when it holds a word and no round happened for `idle_timeout` clocks.
+  Streaming is the same rule with one SM in the mask; gathering (DShot telemetry: mask `0xF`, burst 8)
+  uses several.
+* **Wire format** (the `asp_router` 512-bit vector): DW0 `[511:480]` = {type, flags, tag, channel},
+  DW1 address, DW2 {length_dw, sequence}, DW3-DW4 timestamp, payload word `k` = bits `[351-32k -: 32]`.
+  Ingress: `flags[3:0]` = SM mask, `length_dw` = word count (clipped to 10; 0 or an empty mask writes
+  nothing). Egress: type `0x10`, `flags[3:0]` = mask, tag and channel from `OUT_CFG`, address = tile
+  base, sequence +1 per TLP, timestamp = `i_sys_timestamp` in the clock the first word left the RX FIFOs.
+* **Requirement (trace)**: with `TRACE_EN`, the egress also emits the barectf Stream 5 events from the
+  tile's observation port (`o_obs_active`, `o_obs_stalled`, `o_obs_pc`) and an IRQ event for every flag
+  that rises on `o_obs_irq` (a flag set while already set gives no event; before the split the tile gave
+  the set pulse itself). A write to `SMx + 0x1C` starts a trace event only.
+* **Requirement (one owner per FIFO)**: while ingress or egress is enabled for an SM, the host does not
+  also use its `TXFn` / `RXFn` registers; the tile keeps register and stream access apart within a clock,
+  but the word order between the two is not defined. Two tiles never share an ingress channel.
+* **Registers** (offsets from the tile base, served by `asp_pio_wrap`): `0x0C OUT_CFG` = `EN[0]`,
+  `MASK[7:4]`, `TAG[15:8]`, `CHANNEL[23:16]`, `BURST_WORDS[27:24]` (1..10; 0 = 10), `TRACE_EN[31]`;
+  `0x90 OUT_TIMEOUT` = idle timeout in clocks `[23:0]` (0 = only `burst_words` sends); `0x94 IN_CFG` =
+  `EN[0]`, `CHANNEL[15:8]`; `0x98 IN_STATUS` (read) = queued TLPs `[5:0]`, `BUSY[8]`.
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_pio_tlp_path_cocotb.py`, moved from pio2:
+  ingress groups, backpressure, egress rounds, burst and idle timeout, through `asp_pio_wrap`;
+  `sim-test-tlp64-top`), `rtl-lint`, `rtl-synth-check`
+* **Implementation Target**: `rtl/pio_tlp/asp_pio_tlp_ingress.sv`, `rtl/pio_tlp/asp_pio_tlp_shim.sv`,
+  `rtl/asp_pio_wrap.sv`
 
 ## 3. Hardware Abstraction Layer Specifications (`SPEC-HAL`)
 

@@ -102,6 +102,8 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-AUDIT-17] the audit and the gate never pass a stage that did not run
     add_test(NAME py_test_full_audit
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_full_audit.py)
+    add_test(NAME py_test_run_cocotb
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_run_cocotb.py)
     # [SPEC-E906-IPC-04] Linux-side RPMsg <-> UDP bridge (no hardware needed)
     # [SPEC-AUDIT-09] Trac tools and evidence ledger
     add_test(NAME py_test_trac

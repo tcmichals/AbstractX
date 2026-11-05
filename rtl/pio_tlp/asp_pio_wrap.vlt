@@ -1,0 +1,8 @@
+`verilator_config
+// [SPEC-TLP-06] The ingress raises a group's TX TVALID only in a clock where all its lanes have
+// TREADY, and the shim's RX TREADY is its round on RX TVALID. Per lane neither TREADY (tile:
+// sm_tx_ready && !wb_tx_wvalid) nor RX TVALID depends on the other side, so there is no bit-level
+// loop; Verilator reports one because the tile computes ready, valid and the FIFO strobes of all
+// lanes in one always_comb. UNOPTFLAT only costs simulation speed (Verilator iterates the block).
+lint_off -rule UNOPTFLAT -file "*asp_pio_tile.sv" -match "*s_axis_tx_tvalid*"
+lint_off -rule UNOPTFLAT -file "*asp_pio_tile.sv" -match "*m_axis_rx_tready*"

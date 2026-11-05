@@ -3959,3 +3959,27 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * Both drivers now write `TlpType::DmaStream`.
 * `sim/test_mag_drivers.cpp`: register-file fake with both parts; NACK on each of the 3+3 configuration writes fails init; HMC axis order X, Z, Y and scale (1090 LSB -> 1000 mG); `UniversalCompass` picks HMC on `H43`, else QMC, else fails; TLP header; 1000 reads with pool high water and dropped resumes flat. **Old code**: `Assertion 't.wire.type == ... DmaStream && "telemetry, not MemRead"' failed`; new: PASS.
 
+## [2026-11-05] - FPGA on pio2 `main`: TLP path moved into AbstractX; rtl-lint, cocotb runner and timeouts fixed
+
+### 1. What changed and why
+* **Category**: `process-gap` (pin held on a pre-split pio2), `tool-bug` (rtl-lint command, cocotb runner), `product-bug` (Zynq top)
+* The FPGA design is pio2 (`rtl/pio`). The pin was `e856f24` (a pio2 side branch, before the tile split); with pio2 `main` the `tlp64-top` and `pio-wrap` suites failed because pio2 `[SPEC-ICN-09]` moved the TLP ingress queue, packetizer, their registers and the timestamp out of the tile. pio2's own TODO (item 6) assigns the move to AbstractX.
+* Now: pin = pio2 `origin/main` `89fc1b6`; `rtl/pio_tlp/asp_pio_tlp_{ingress,shim}.sv` (from pio2 `e856f24`); `asp_pio_wrap` serves `OUT_CFG`/`OUT_TIMEOUT`/`IN_CFG`/`IN_STATUS`/`SMx+0x1C` itself and connects the TLP path to the tile's AXI-Stream FIFO ports; `[SPEC-TLP-06]` holds the former pio2 `[SPEC-PIO-04]`/`[SPEC-PIO-10]` rules; `sim/cocotb/test_asp_pio_tlp_path_cocotb.py` (7 tests from pio2 + the packetizer/trace test) runs through the wrapper over Wishbone.
+* Design note: the ingress writes a group of SM words in one clock (four motors start together), so its `TVALID` depends on the tile's `TREADY`. Safe (tile `TREADY` never depends on `TVALID`), documented in `[SPEC-TLP-06]`; Verilator reports `UNOPTFLAT` because the tile computes all lanes in one `always_comb`: waived for those two signals only (`rtl/pio_tlp/asp_pio_wrap.vlt`, reason in the file).
+* IRQ trace events now come from rising flags on the tile's observation port (the tile no longer exports set pulses): a flag set while already set gives no event.
+
+### 2. Findings on the way
+* **rtl-lint skill** (`tool-bug`): its loop had a stale include path (`asp_top`/`asp_pio_wrap`: `wbm2axilite` not found), used `hw/**` without `globstar`, and set no exit status. Replaced by `tools/rtl_lint.sh` (one list, waiver files, exit 1 on any failure). It then found:
+* **Zynq top** (`product-bug`): `top_qmtech_zynq7020.sv` left the router's `s_pio_stream_*` unconnected, so `tvalid` entered the egress arbiter undriven. Tied off; `[SPEC-ZYNQ-03]` now requires tie-offs. No cocotb test covers this top (no Vivado here); lint is the check.
+* **rtl-synth-check**: `asp_top` and `asp_pio_wrap` pass `check -assert` with their full source lists (the "undriven" warnings of a one-file run were `false-alarm`s). `asp_axi_dma` has two drivers on `reg_irq_status[0]` (lines 203 and 340, two `always_ff`) and `asp_ila_trace.sv:102` does not parse in Yosys (`return` in a function). Neither is instantiated or tested; both are on the "remove, ask first" list (TODO.md), so not fixed.
+* **cocotb runner** (`tool-bug`): a registration line with a trailing `# comment` was skipped (CMake/ctest accept it), and `--only` matching nothing printed `0/0 passed` with exit 0. Now: comments allowed, an unparsable line is an error, no match exits 1. Each target also has a wall-clock limit (`--timeout`, default 60 s; the whole process group is killed): the user asked that every sim be guarded against runaways. ctest `rtl_*` `TIMEOUT` 900 -> 60, gate per-test `--timeout` 300 -> 60 (slowest test 11.7 s under the gate). `tests/test_run_cocotb.py` (incl. a runaway `sleep` killed within 10 s).
+* **I ran FPGA builds with `timeout 5400`**: the user stopped that ("if it runs more than 1 minute stop it"). Lesson: tight limits; synthesis / place-and-route only with the user's OK.
+* **Tang Nano 20K fit** (`hardware-fact`, partial): `make tang_nano20k` fails by design (the board `.cst` assigns only the clock). `make tang_nano20k_fit` on the new tree: **LUT4 19 897 / 20 736 (95 %)**, DFF 8 816 (56 %), ALU 2 874 (18 %), BSRAM 1, IOB 29; nextpnr: "Unable to find legal placement ... utilisation limit". `[SPEC-TN20K-03]` (20 % headroom) is **not met**. The last recorded fit (22 %) predates the PIO tile in `asp_top`; pio2 `a81cfbf` already reported the tile alone at 110 % of the 20K. The baseline build on the old pin was stopped (runtime), so whether this change moved the count is **not measured**. Tang 9K and Primer 20K not built. pio2's plan (`[SPEC-ICN-12]`) removes the dedicated cores from the Tang tops, which is where the room has to come from.
+* **spectrace_matrix --changes** (`tool-bug`, open): attributes a changed hunk to the requirement whose section holds the hunk's first *context* line; the `[SPEC-MAG-01]` edit was reported as "[SPEC-HAL-05] changed".
+
+### 3. Evidence
+* `tools/run_cocotb.py --only <target> --timeout 60`, one process per target: all 18 registered AbstractX targets PASS; `sim-test-pio-tlp-path` 8/8, `tlp64-top` 2/2, `pio-wrap` 2/2.
+* pio2 at `89fc1b6`: `uv run pio2-cocotb` 11/11 suites PASS.
+* `tools/rtl_lint.sh`: 19/19 files clean. Yosys `check -assert` on `asp_top`, `asp_pio_wrap`: pass.
+* Gate and audits in the commit message.
+

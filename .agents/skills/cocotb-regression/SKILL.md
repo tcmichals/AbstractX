@@ -17,7 +17,11 @@ python3 tools/run_cocotb.py              # every add_cocotb_test target in sim/C
 python3 tools/run_cocotb.py --only dshot # a subset
 ```
 
-Runs in a temporary copy (no `sim_build/` in the repo). Waveforms: `--trace`
+Runs in a temporary copy (no `sim_build/` in the repo). Every target has a wall-clock limit
+(`--timeout`, default 60 s, build + run; the slowest target took 12.5 s on 2026-11-05): a target over it
+is killed with its whole process group and reported `TIMEOUT` (a FAIL). Under ctest each `rtl_*` test
+has `TIMEOUT 60`. Give new tests a `timeout_time` as well. Never raise the limits to make a slow
+run pass; find out why it is slow. Waveforms: `--trace`
 (needs lz4 headers).
 
 ## Pass criteria

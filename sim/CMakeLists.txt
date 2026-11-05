@@ -204,7 +204,7 @@ macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
                              SIM_BUILD=${_out} COCOTB_RESULTS_FILE=${_out}/results.xml ${ARGN}
                      WORKING_DIRECTORY ${_cocotb_dir})
         endif()
-        set_tests_properties(rtl_${TARGET_NAME} PROPERTIES LABELS rtl SKIP_RETURN_CODE 77 TIMEOUT 900)
+        set_tests_properties(rtl_${TARGET_NAME} PROPERTIES LABELS rtl SKIP_RETURN_CODE 77 TIMEOUT 60)  # runaway guard: slowest 11.7 s (2026-11-05)
     endif()
 endmacro()
 
@@ -226,6 +226,8 @@ add_cocotb_test(sim-test-neopixel-27m asp_neopixel_core test_asp_neopixel_core_c
 add_cocotb_test(sim-test-neopixel-12m asp_neopixel_core test_asp_neopixel_core_cocotb SIM_PARAMS=-GCLK_FREQ_HZ=12000000)
 add_cocotb_test(sim-test-neopixel-50m asp_neopixel_core test_asp_neopixel_core_cocotb)
 add_cocotb_test(sim-test-pio-wrap     asp_pio_wrap      test_asp_pio_wrap_cocotb)
+# [SPEC-TLP-06] PIO TLP data path through the wrapper (moved from pio2)
+add_cocotb_test(sim-test-pio-tlp-path asp_pio_wrap      test_asp_pio_tlp_path_cocotb)
 # The PIO tile's own regression (tile, conformance, DShot, ESC serial, TLP path) lives in the
 # rtl/pio submodule (pio2): cd rtl/pio/tests/cocotb && uv run make MODULE=<test>. asp_top above
 # still builds the PIO RTL from the submodule.

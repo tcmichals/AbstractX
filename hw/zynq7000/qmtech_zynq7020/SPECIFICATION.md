@@ -212,6 +212,10 @@ configuration:
   * `Channel 0x02` (`TELEMETRY`): Autonomous IMU sensor telemetry frames.
   * `Channel 0x04` (`DEBUG_TRACE`): Binary CTF 1.8 diagnostic trace stream.
   * `Channel 0x05` (`ESC_SERIAL`): Bidirectional serial/UART tunneling.
+* Every router source port a top does not use is tied off (`tvalid = 0`, `tdata = 0`), never left
+  unconnected: an undriven `tvalid` enters the egress arbiter as X/Z. The QMTECH top has no PIO tile
+  yet (pio2 `[SPEC-ICN-11]` plans `pio2_core` with its own Zynq adapter), so its `s_pio_stream_*` is
+  tied off (2026-11-05, found by `rtl-lint` `PINMISSING`).
 * **Refines**: `[SPEC-TLP-01]`
 * **Method**: `Test`
 * **Verified by**: `cocotb-regression` (`test_asp_router_cocotb`)
@@ -251,9 +255,11 @@ configuration:
 * **Not chosen**: RPMsg-Lite with the PL as the remote side (virtqueue descriptor handling in RTL,
   several uncached GP0 reads per message, kernel RPMsg would need a custom remoteproc driver);
   right only if a soft CPU is added to the PL.
-* **Open (decide in pio2, it is a submodule)**: pio2 `[SPEC-ICN-11]` connects the Zynq PS through
-  the Xilinx AXI MCDMA. That is non-PIO IP with the Linux driver stack this decision avoids; the
-  alternative is pio2's DMA engine writing its rings into DDR over HP0 itself.
+* **Decided in pio2 (2026-10-30, pio2 `a3859f2`)**: pio2 `[SPEC-ICN-11]` connects the Zynq PS with
+  its own RTL, no vendor IP and no kernel driver: `M_AXI_GP0` -> `axi_axil_adapter` -> the core's
+  AXI4-Lite slave for registers, and `pio2_ring_dma` on `S_AXI_HP0` with one DDR ring per channel
+  for streams (`generic-uio`, uncached carveout). The Xilinx AXI MCDMA plan is dropped. As of pio2
+  `89fc1b6` (the submodule pin) `pio2_zynq_adapter` / `pio2_ring_dma` are specified, not yet in RTL.
 * **Open (this repo)**: `rtl/asp_top.sv` and `top_qmtech_zynq7020.sv` still instantiate
   fixed-function cores (`asp_uart_core`, `asp_dshot_core`, `asp_imu_auto_dma`,
   `asp_neopixel_core`, `asp_pwm_decoder`) and `rtl/asp_axi_dma.sv` exists; under this decision

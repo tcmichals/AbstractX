@@ -62,7 +62,8 @@ $(BUILD_DIR)/primer20k.fs: $(BUILD_DIR)/primer20k_pnr.json
 # --- Tang Nano 20K (Cubie A5E test target, [SPEC-TN20K-01]) ---
 TN20_FAMILY = GW2A-18C
 TN20_DEVICE = GW2AR-LV18QN88C8/I7
-TN20_RTL = $(wildcard rtl/*.sv rtl/*/*.sv rtl/pio/src/rtl/*.sv) rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v
+# rtl/*/*.sv includes rtl/pio_tlp/; from the submodule only the tile (pio2_core and its DMA/link are not used)
+TN20_RTL = $(wildcard rtl/*.sv rtl/*/*.sv) rtl/pio/src/rtl/asp_pio_sm.sv rtl/pio/src/rtl/asp_pio_tile.sv rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v
 
 tang_nano20k: $(BUILD_DIR)/tang_nano20k.fs
 
