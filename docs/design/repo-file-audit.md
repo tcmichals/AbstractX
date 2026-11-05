@@ -197,7 +197,7 @@ progress, out of scope).
 
 | Path | Verdict | Evidence |
 | --- | --- | --- |
-| `rtl/asp_top.sv`, `asp_axis_fifo.sv`, `asp_router.sv`, `asp_sys_regs.sv`, `asp_wishbone_master.sv`, `spi/asp_spi_frontend.sv`, `spi/asp_spi_reg_bank.sv`, `imu/asp_imu_auto_dma.sv`, `motor/asp_dshot_core.sv`, `pwm/asp_pwm_decoder.sv`, `led/asp_neopixel_core.sv` | keep | read by `hw/common/gowin_synth.tcl:10-20`; testbenches in `sim/CMakeLists.txt:73-90` (`asp_pwm_decoder` has **no** cocotb test, which breaks AGENTS.md §11) |
+| `rtl/asp_top.sv`, `asp_axis_fifo.sv`, `asp_router.sv`, `asp_sys_regs.sv`, `asp_tlp_pkg.sv`, `asp_tlp_axil_master.sv`, `asp_ctrl_plane.sv`, `asp_pio_pins.sv`, `asp_pio_wrap.sv`, `pio_tlp/*`, `spi/*` | keep (2026-11-05: the dedicated cores and `asp_wishbone_master.sv` were removed, [SPEC-TLP-07], [SPEC-TLP-04]) | read by `hw/common/gowin_synth.tcl`; every module has a cocotb suite in `sim/CMakeLists.txt` |
 | `rtl/asp_axi_lite_bridge.sv` | keep | `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`; `sim/CMakeLists.txt:83` |
 | `rtl/asp_axi_dma.sv` | unsure (remove or add top + testbench) | instantiated by no top, not in `gowin_synth.tcl`, no testbench; `@impl SPEC-ZYNQ-01/02` (also implemented elsewhere) |
 | `rtl/asp_ila_trace.sv` | unsure (remove or add top + testbench) | instantiated by no top, no testbench; sole `@impl [SPEC-ILA-01]` |

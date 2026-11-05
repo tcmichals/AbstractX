@@ -1,7 +1,9 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
+# @verifies [SPEC-TLP-02] docs/DESIGN_SPECIFICATION.md (asp_sys_regs over AXI4-Lite)
 
 import cocotb
+from axil_bfm import AxilMaster
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, ClockCycles
 
@@ -16,59 +18,29 @@ SYS_ID_REV_DEFAULT    = 0xABF10164
 SYS_VENDOR_ID_DEFAULT = 0x19981ACC
 
 
+_bus = {}
+
+
 async def reset(dut):
-    dut.rst.value = 1
+    """AXI4-Lite now ([SPEC-TLP-04]: no Wishbone); the register map is unchanged."""
+    dut.rst_n.value = 0
     dut.i_sys_timestamp.value = 0
-    dut.wb_adr_i.value = 0
-    dut.wb_dat_i.value = 0
-    dut.wb_sel_i.value = 0
-    dut.wb_we_i.value = 0
-    dut.wb_cyc_i.value = 0
-    dut.wb_stb_i.value = 0
+    dut.i_wr_err.value = 0
+    _bus["m"] = AxilMaster(dut, "s_axil", gap=0.3)
     await ClockCycles(dut.clk, 5)
-    dut.rst.value = 0
+    dut.rst_n.value = 1
     await ClockCycles(dut.clk, 5)
 
 
 async def wb_read(dut, addr):
-    """Execute a single Wishbone read cycle and return the 32-bit result."""
-    dut.wb_adr_i.value = addr
-    dut.wb_we_i.value = 0
-    dut.wb_sel_i.value = 0xF
-    dut.wb_cyc_i.value = 1
-    dut.wb_stb_i.value = 1
-
-    for _ in range(10):
-        await RisingEdge(dut.clk)
-        if dut.wb_ack_o.value == 1:
-            result = int(dut.wb_dat_o.value)
-            dut.wb_cyc_i.value = 0
-            dut.wb_stb_i.value = 0
-            await RisingEdge(dut.clk)
-            return result
-
-    raise TimeoutError(f"Wishbone read at 0x{addr:08X} never acknowledged!")
+    data, resp = await _bus["m"].read(addr)
+    assert resp == 0, f"read 0x{addr:08X}: resp {resp}"
+    return data
 
 
 async def wb_write(dut, addr, data, sel=0xF):
-    """Execute a single Wishbone write cycle."""
-    dut.wb_adr_i.value = addr
-    dut.wb_dat_i.value = data
-    dut.wb_sel_i.value = sel
-    dut.wb_we_i.value = 1
-    dut.wb_cyc_i.value = 1
-    dut.wb_stb_i.value = 1
-
-    for _ in range(10):
-        await RisingEdge(dut.clk)
-        if dut.wb_ack_o.value == 1:
-            dut.wb_cyc_i.value = 0
-            dut.wb_stb_i.value = 0
-            dut.wb_we_i.value = 0
-            await RisingEdge(dut.clk)
-            return
-
-    raise TimeoutError(f"Wishbone write at 0x{addr:08X} never acknowledged!")
+    resp = await _bus["m"].write(addr, data)
+    assert resp == 0, f"write 0x{addr:08X}: resp {resp}"
 
 
 @cocotb.test()
@@ -141,3 +113,18 @@ async def test_atomic_timestamp_latching(dut):
     assert time_high == 0x0000000A, f"Atomic latch failed! Expected 0x0000000A, got 0x{time_high:08X}"
     dut._log.info("[SUCCESS] 64-bit Atomic Shadow Timestamp latching verified across rollover!")
 
+
+
+@cocotb.test()
+async def test_ctrl_write_error_counter(dut):
+    """[SPEC-TLP-04] CTRL_WR_ERR (0x18) counts one per i_wr_err pulse; read-only."""
+    cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
+    await reset(dut)
+    assert await wb_read(dut, 0x40000018) == 0
+    for _ in range(5):
+        dut.i_wr_err.value = 1
+        await RisingEdge(dut.clk)
+        dut.i_wr_err.value = 0
+        await ClockCycles(dut.clk, 2)
+    await wb_write(dut, 0x40000018, 0)          # ignored
+    assert await wb_read(dut, 0x40000018) == 5

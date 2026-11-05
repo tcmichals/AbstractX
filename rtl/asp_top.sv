@@ -8,7 +8,7 @@
 // Wires together:
 // 1. Configurable SPI / Dual-SPI 64B Frontend (asp_spi_frontend)
 // 2. 512-Bit Vector TLP Router (asp_router)
-// 3. Wishbone Master Gateway (asp_wishbone_master) -> System registers (asp_sys_regs)
+// 3. Control plane (asp_ctrl_plane: TLP -> AXI4-Lite master -> crossbar -> asp_sys_regs + PIO tile)
 // 4. PIO tile (pio2, asp_pio_wrap) driving every peripheral pin ([SPEC-TLP-07], all-PIO)
 // 5. External Interrupt Doorbell pin (o_int_req) to Host CPU
 //
@@ -146,11 +146,11 @@ module asp_top #(
     );
 
     // ------------------------------------------------------------------------
-    // Router ([SPEC-TLP-07]): CONTROL -> Wishbone master, every other channel -> PIO tile
+    // Router ([SPEC-TLP-07]): CONTROL -> control plane, every other channel -> PIO tile
     // ------------------------------------------------------------------------
-    logic [511:0] ctrl_tdata,   wb_cpl_tdata,   pio_in_tdata,   pio_stream_tdata;
-    logic         ctrl_tvalid,  wb_cpl_tvalid,  pio_in_tvalid,  pio_stream_tvalid;
-    logic         ctrl_tready,  wb_cpl_tready,  pio_in_tready,  pio_stream_tready;
+    logic [511:0] ctrl_tdata,   cpl_tdata,   pio_in_tdata,   pio_stream_tdata;
+    logic         ctrl_tvalid,  cpl_tvalid,  pio_in_tvalid,  pio_stream_tvalid;
+    logic         ctrl_tready,  cpl_tready,  pio_in_tready,  pio_stream_tready;
 
     asp_router u_router (
         .clk                 (clk),
@@ -167,68 +167,37 @@ module asp_top #(
         .m_egr_tdata         (tlp_tx_data),
         .m_egr_tvalid        (tlp_tx_valid),
         .m_egr_tready        (tlp_tx_ready),
-        .s_wb_cpl_tdata      (wb_cpl_tdata),
-        .s_wb_cpl_tvalid     (wb_cpl_tvalid),
-        .s_wb_cpl_tready     (wb_cpl_tready),
+        .s_cpl_tdata      (cpl_tdata),
+        .s_cpl_tvalid     (cpl_tvalid),
+        .s_cpl_tready     (cpl_tready),
         .s_pio_stream_tdata  (pio_stream_tdata),
         .s_pio_stream_tvalid (pio_stream_tvalid),
         .s_pio_stream_tready (pio_stream_tready)
     );
 
     // ------------------------------------------------------------------------
-    // Wishbone master and slaves: SYS 0x400000xx, PIO 0x400007xx / 0x400008xx ([SPEC-TLP-07])
+    // Control plane ([SPEC-TLP-07], [SPEC-TLP-04]): TLP -> AXI4-Lite master -> crossbar ->
+    // system registers + PIO tile; an unmapped address completes with DECERR. No Wishbone.
     // ------------------------------------------------------------------------
-    logic [31:0] wb_adr, wb_dat_w, wb_dat_r;
-    logic [3:0]  wb_sel;
-    logic        wb_we, wb_cyc, wb_stb, wb_ack;
+    logic [31:0] pio_awaddr, pio_wdata, pio_araddr, pio_rdata;
+    logic [2:0]  pio_awprot, pio_arprot;
+    logic [3:0]  pio_wstrb;
+    logic [1:0]  pio_bresp, pio_rresp;
+    logic        pio_awvalid, pio_awready, pio_wvalid, pio_wready, pio_bvalid, pio_bready;
+    logic        pio_arvalid, pio_arready, pio_rvalid, pio_rready;
 
-    asp_wishbone_master u_wishbone_master (
-        .clk          (clk),
-        .rst_n        (sync_rst_n),
-        .s_tlp_tdata  (ctrl_tdata),
-        .s_tlp_tvalid (ctrl_tvalid),
-        .s_tlp_tready (ctrl_tready),
-        .m_cpl_tdata  (wb_cpl_tdata),
-        .m_cpl_tvalid (wb_cpl_tvalid),
-        .m_cpl_tready (wb_cpl_tready),
-        .wb_adr_o     (wb_adr),
-        .wb_dat_o     (wb_dat_w),
-        .wb_sel_o     (wb_sel),
-        .wb_we_o      (wb_we),
-        .wb_cyc_o     (wb_cyc),
-        .wb_stb_o     (wb_stb),
-        .wb_ack_i     (wb_ack),
-        .wb_dat_i     (wb_dat_r)
-    );
-
-    wire sys_sel   = wb_adr[31:8] == 24'h400000;
-    wire pio_sel   = wb_adr[31:8] == 24'h400007 || wb_adr[31:8] == 24'h400008;
-    wire none_sel  = !sys_sel && !pio_sel;
-    logic [31:0] sys_wb_dat_r, pio_wb_dat_r;
-    logic        sys_wb_ack, pio_wb_ack, none_ack;
-
-    // An address no slave decodes is acknowledged with data 0, so the master never waits forever.
-    always_ff @(posedge clk or negedge sync_rst_n) begin
-        if (!sync_rst_n) none_ack <= 1'b0;
-        else             none_ack <= wb_cyc && wb_stb && none_sel && !none_ack;
-    end
-
-    assign wb_ack   = sys_wb_ack | pio_wb_ack | none_ack;
-    assign wb_dat_r = sys_sel ? sys_wb_dat_r : pio_sel ? pio_wb_dat_r : 32'd0;
-
-    asp_sys_regs u_sys_regs (
-        .clk             (clk),
-        .rst             (!sync_rst_n),
-        .i_sys_timestamp (sys_timestamp),
-        .wb_adr_i        (wb_adr),
-        .wb_dat_i        (wb_dat_w),
-        .wb_sel_i        (wb_sel),
-        .wb_we_i         (wb_we),
-        .wb_cyc_i        (wb_cyc && sys_sel),
-        .wb_stb_i        (wb_stb && sys_sel),
-        .wb_ack_o        (sys_wb_ack),
-        .wb_dat_o        (sys_wb_dat_r),
-        .o_led_bits      (o_led)
+    asp_ctrl_plane u_ctrl (
+        .clk(clk), .rst_n(sync_rst_n), .i_sys_timestamp(sys_timestamp),
+        .s_tlp_tdata(ctrl_tdata), .s_tlp_tvalid(ctrl_tvalid), .s_tlp_tready(ctrl_tready),
+        .m_cpl_tdata(cpl_tdata), .m_cpl_tvalid(cpl_tvalid), .m_cpl_tready(cpl_tready),
+        .m_pio_awaddr(pio_awaddr), .m_pio_awprot(pio_awprot), .m_pio_awvalid(pio_awvalid),
+        .m_pio_awready(pio_awready), .m_pio_wdata(pio_wdata), .m_pio_wstrb(pio_wstrb),
+        .m_pio_wvalid(pio_wvalid), .m_pio_wready(pio_wready), .m_pio_bresp(pio_bresp),
+        .m_pio_bvalid(pio_bvalid), .m_pio_bready(pio_bready),
+        .m_pio_araddr(pio_araddr), .m_pio_arprot(pio_arprot), .m_pio_arvalid(pio_arvalid),
+        .m_pio_arready(pio_arready), .m_pio_rdata(pio_rdata), .m_pio_rresp(pio_rresp),
+        .m_pio_rvalid(pio_rvalid), .m_pio_rready(pio_rready),
+        .o_led_bits(o_led)
     );
 
     // ------------------------------------------------------------------------
@@ -254,13 +223,13 @@ module asp_top #(
         .i_gpio          (gpio_in),
         .o_gpio_out      (gpio_out),
         .o_gpio_pindir   (gpio_dir),
-        .wb_cyc_i        (wb_cyc && pio_sel),
-        .wb_stb_i        (wb_stb && pio_sel),
-        .wb_we_i         (wb_we),
-        .wb_adr_i        (wb_adr),
-        .wb_dat_i        (wb_dat_w),
-        .wb_dat_o        (pio_wb_dat_r),
-        .wb_ack_o        (pio_wb_ack),
+        .s_axil_awaddr(pio_awaddr), .s_axil_awprot(pio_awprot), .s_axil_awvalid(pio_awvalid),
+        .s_axil_awready(pio_awready), .s_axil_wdata(pio_wdata), .s_axil_wstrb(pio_wstrb),
+        .s_axil_wvalid(pio_wvalid), .s_axil_wready(pio_wready), .s_axil_bresp(pio_bresp),
+        .s_axil_bvalid(pio_bvalid), .s_axil_bready(pio_bready),
+        .s_axil_araddr(pio_araddr), .s_axil_arprot(pio_arprot), .s_axil_arvalid(pio_arvalid),
+        .s_axil_arready(pio_arready), .s_axil_rdata(pio_rdata), .s_axil_rresp(pio_rresp),
+        .s_axil_rvalid(pio_rvalid), .s_axil_rready(pio_rready),
         .s_tlp_tdata     (pio_in_tdata),
         .s_tlp_tvalid    (pio_in_tvalid),
         .s_tlp_tready    (pio_in_tready),

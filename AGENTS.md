@@ -212,7 +212,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 ## 11. RTL, Interface and Code Conventions
 * **RTL naming**: SystemVerilog files and top modules use the `asp_` prefix (`asp_foo.sv` contains `module asp_foo`).
 * **Every `.sv` change has a cocotb testbench** in `sim/cocotb/test_<module>_cocotb.py`, registered in `sim/CMakeLists.txt` (unregistered tests never run). AXI-Stream testbenches use randomised backpressure (toggling `tready`) and check `tlast` framing.
-* **Interfaces**: physical SPI logic stays in its front end (`asp_spi_frontend.sv`); data plane is AXI-Stream (`tdata/tvalid/tready/tlast`); control plane is Wishbone (`cyc/stb/we/adr/dat/ack`). Every `always_ff`-driven register has exactly one driver (checked by `check-rtl-synth`).
+* **Interfaces**: physical SPI logic stays in its front end (`asp_spi_frontend.sv`); data plane is AXI-Stream (`tdata/tvalid/tready/tlast`); control plane is AXI4-Lite. **No Wishbone** (owner decision 2026-11-05; pio2 is AXI-only too): control TLPs become AXI4-Lite in `asp_tlp_axil_master`, behind a Forencich `axil_crossbar` ([SPEC-TLP-04], [SPEC-TLP-07]). TLP field positions come only from `rtl/asp_tlp_pkg.sv`. Every `always_ff`-driven register has exactly one driver (checked by `check-rtl-synth`).
 * **Host tools** are Python; prefer user-space interfaces (`spidev`, `rpmsg_char`, UIO) over new kernel code.
 * **Comments**: short, and point to the requirement (`// @impl [SPEC-*] <spec file>`); architecture explanations live in the Markdown specs, not in code headers.
 * **Licensing**: dual GPLv3 / commercial; never copy code under a license that conflicts with that.

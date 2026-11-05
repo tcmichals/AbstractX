@@ -21,7 +21,7 @@ owner's OK).
   Top test over Dual-SPI passes (a PIO program drives motor 0 from TLPs on channel 0x40); specs,
   register parity, diagnostics and `rtl/README.md` updated; IMU PoC retired. Still open: WS2812, RC PWM
   capture and a general UART have no PIO program; Zynq host loading of `imu_spi_burst`.
-- [ ] **B. Wishbone -> AXI4-Lite** (owner: no Wishbone): `asp_tlp_axil_master.sv` replaces
+- [x] **B. Wishbone -> AXI4-Lite** (owner: no Wishbone; done 2026-11-05, `rtl/asp_ctrl_plane.sv`): `asp_tlp_axil_master.sv` replaces
   `asp_wishbone_master.sv` (MemRead/MemWrite/burst -> AXI4-Lite, one completion per read held until
   accepted, SLVERR/DECERR -> error status in the completion); Forencich `axil_crossbar` (pio2
   `third_party/verilog-axi`): SYS `0x400000xx`, PIO `0x400007xx`-`0x400008xx`, else DECERR;

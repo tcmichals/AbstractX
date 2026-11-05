@@ -21,7 +21,7 @@ module asp_pio_tlp_ingress #(
 
     // SM TX FIFOs
     input  wire [3:0]    i_tx_ready,
-    input  wire [3:0]    i_tx_block,    // Wishbone writes these TX FIFOs this clock
+    input  wire [3:0]    i_tx_block,    // register port writes these TX FIFOs this clock (0 in asp_pio_wrap)
     output logic [3:0]   o_tx_wvalid,
     output logic [127:0] o_tx_wdata,    // {sm3, sm2, sm1, sm0}
 
@@ -48,9 +48,11 @@ module asp_pio_tlp_ingress #(
     assign o_queued = 6'(queued);
 
     // ---------------- writer: one word per clock straight from the held TLP ----------------
-    wire        match   = s_tlp_tvalid && i_en && s_tlp_tdata[487:480] == i_channel;
-    wire [3:0]  in_mask = s_tlp_tdata[499:496];
-    wire [15:0] in_len  = s_tlp_tdata[447:432];
+    // Field map: asp_tlp_pkg ([SPEC-TLP-04]); flags[3:0] = SM mask, length_dw = word count
+    wire        match   = s_tlp_tvalid && i_en && asp_tlp_pkg::tlp_channel(s_tlp_tdata) == i_channel;
+    wire [7:0]  in_flags = asp_tlp_pkg::tlp_flags(s_tlp_tdata);
+    wire [3:0]  in_mask  = in_flags[3:0];
+    wire [15:0] in_len  = asp_tlp_pkg::tlp_len(s_tlp_tdata);
     wire [3:0]  in_cnt  = (in_len > 16'd10) ? 4'd10 : in_len[3:0];
     wire        in_void = in_mask == 4'd0 || in_cnt == 4'd0;
 
@@ -70,7 +72,7 @@ module asp_pio_tlp_ingress #(
             end else begin
                 we    = 1'b1;
                 waddr = {wr_ptr[SW-1:0], wr_idx};
-                wdata = s_tlp_tdata[351 - 32 * int'(wr_idx) -: 32];
+                wdata = asp_tlp_pkg::tlp_word(s_tlp_tdata, int'(wr_idx));
                 s_tlp_tready = wr_idx == wr_cnt - 4'd1;
             end
         end

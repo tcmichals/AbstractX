@@ -4011,3 +4011,17 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `tools/rtl_lint.sh` 13/13 clean; Yosys `check -assert` on `asp_top` and `asp_router` pass.
 * Gate, audits and the change review in the commit message.
 
+## [2026-11-05] - No Wishbone: control TLPs to AXI4-Lite, Forencich crossbar, one TLP field map
+
+### 1. What changed (owner decision 2026-11-05: "we are tossing Wishbone")
+* **Category**: design change; `product-bug` (burst reads missing); `tool-bug` (test BFM); `hardware-fact` (Yosys subset)
+* `asp_wishbone_master` -> `asp_tlp_axil_master` (MemWrite / MemRead bursts of 1..9 words on AXI4-Lite, one completion per read held until accepted, SLVERR / DECERR in completion `flags[1:0]`, failed posted writes counted in `asp_sys_regs` `CTRL_WR_ERR` 0x18). `asp_ctrl_plane` = master + Forencich `axil_crossbar` (pio2 `third_party`, unmodified; sys regs 0x40000000/256, PIO 0x40000700 + 0x40000800/256, else DECERR) + `asp_sys_regs` (now an AXI4-Lite slave through Forencich `axil_reg_if`), shared by `asp_top` and the Zynq top. `asp_pio_wrap` is an AXI4-Lite slave (local TLP-path registers, the rest forwarded to the tile); `wbm2axilite` is no longer used. `rtl/asp_tlp_pkg.sv` holds every TLP field position (router, master, PIO TLP modules), so TODO 0-C (little-endian) changes one file plus the SPI byte order.
+* **Burst reads** (`product-bug`): `[SPEC-TLP-04]` required MemRead bursts; the Wishbone master read one word. Now N words, tested.
+* **Yosys subset** (`hardware-fact`): Yosys (the Gowin flow) rejects `return` in functions and `import pkg::*` inside a module body (`syntax error, unexpected TOK_ID / TOK_IMPORT`); Verilator accepts both, so only the Yosys check caught it. The package assigns to the function name and every user writes `asp_tlp_pkg::name`. (Same cause as the old `asp_ila_trace` parse error.)
+* **Test BFM** (`tool-bug`, mine): the first AXI stability checker sampled just after the rising edge and so missed a ready raised mid-cycle, reporting a valid "dropped before ready" that was a completed handshake; it samples mid-cycle now (where the model drives ready).
+* Docs: AGENTS.md section 11, `.agents/rules/silicon-api-atlas.md`, the register-parity skill, `[SPEC-TLP-02/04/05/07]`, `TLP_BUS_SPECIFICATION.md` section 2 rewritten; tier-1/2 architecture docs carry a "superseded in part" note; `spec_to_doc.py` keeps only the RTL page generator.
+
+### 2. Evidence
+* `run_cocotb --only <t> --timeout 60` per target: 11/11 PASS (axil-master 4/4 incl. 1000 random transactions against a model with random backpressure on all AXI channels and the completion port; sys-regs 5/5; pio-wrap 2/2 incl. 1000 random local + tile accesses; pio-tlp-path 8/8; tlp64-top 2/2 incl. DECERR for the removed IMU address; router 5/5).
+* `tools/rtl_lint.sh` 14/14 (`--timescale 1ns/1ps`: Forencich files declare one, ours do not); Yosys `check -assert` on `asp_top` with the full list: pass.
+

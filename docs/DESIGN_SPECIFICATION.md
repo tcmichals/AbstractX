@@ -572,7 +572,7 @@ sequenceDiagram
 
 ### `[SPEC-TLP-02]` Memory-Mapped Virtual Addressing & Routing
 * **Requirement**: Sensor and actuator requests must target virtual BAR memory regions (`IMU_BASE = 0x40000100`, `GPS_BASE = 0x40000300`), remaining transport-agnostic.
-* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_sys_regs_cocotb.py`, `sim/cocotb/test_asp_wishbone_master_cocotb.py`)
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_sys_regs_cocotb.py`, `sim/cocotb/test_asp_tlp_axil_master_cocotb.py`)
 * **Implementation Target**: `include/pcie_bar_map.hpp`
 
 ### `[SPEC-TLP-03]` Multi-Producer MPSC and Dedicated SPSC Ring Transport
@@ -580,34 +580,48 @@ sequenceDiagram
 * **Verified by**: `queue-concurrency`, `host-tests` (`sim/test_spsc_channel_array.cpp`), `thread-sanitizer` (`sim/test_baremetal_isr_spsc.cpp`)
 * **Implementation Target**: `include/tlp_ring.hpp`, `include/abstractx/hal/io_processor.hpp`, `include/abstractx/domain_dispatcher.hpp`, `apps/gps_imu_app/include/gps_imu_tasks.hpp`
 
-### `[SPEC-TLP-04]` Multi-Register Burst Memory Operations
-* **Requirement**: The TLP memory interface MUST support packed multi-register burst writes (`MemWrBurst`) and burst reads (`MemRdBurst`) packing up to 9 consecutive 32-bit registers (36 bytes payload) into a single 64-byte TLP with `length_dw = N (1..9)`. The receiving gateway (`asp_wishbone_master.sv`) MUST sequentially write/read consecutive memory-mapped Wishbone addresses starting at `target_address` without issuing separate 64-byte control frames.
-* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_wishbone_master_cocotb.py`)
-* **Implementation Target**: `include/asp_tlp64.hpp`, `rtl/asp_wishbone_master.sv`
+### `[SPEC-TLP-04]` Control TLPs to AXI4-Lite, With Bursts (No Wishbone)
+* **Decision (project owner, 2026-11-05)**: there is no Wishbone in AbstractX. Registers are AXI4-Lite,
+  data is AXI-Stream; pio2 is AXI-only as well.
+* **Requirement**: `asp_tlp_axil_master` turns a CONTROL TLP into AXI4-Lite transactions on consecutive
+  word addresses from `target_address`: `MemWrite` (`0x02`) writes `length_dw = N` words (1..9; 0 is
+  treated as 1, above 9 is clipped to 9), `MemRead` (`0x01`) reads N words and answers with one `CplD`
+  (`0x03`) carrying the same tag, channel, sequence and timestamp, `length_dw = N` and the words in
+  payload order. Other types are consumed and dropped. One transaction is outstanding at a time.
+* **Requirement (errors)**: an AXI `SLVERR` / `DECERR` on a read stops the burst; the completion carries
+  the words read before it, `length_dw` = that count, and `flags[1:0]` = the response (`2` SLVERR,
+  `3` DECERR; `0` OK). Writes are posted (no completion, like PCIe); a write error stops the burst and is
+  counted in `asp_sys_regs` `CTRL_WR_ERR` (`0x18`, read-only, wraps).
+* **Requirement (stream rules)**: the completion is held (valid and data) until accepted, and no new TLP is
+  taken meanwhile ([SPEC-TLP-07]).
+* **Requirement (one field map)**: TLP field positions in RTL come from `rtl/asp_tlp_pkg.sv` only
+  (router, control master, PIO TLP path), so the byte order is defined in one place ([SPEC-TLP-01]).
+* **Rationale**: the Wishbone master read only one word per `MemRead` although this requirement asked for
+  bursts, had no way to report an error (a missing register answered 0), and needed a Wishbone to
+  AXI4-Lite bridge in front of the pio2 tile.
+* **Verified by**: `cocotb-regression` (`sim/cocotb/test_asp_tlp_axil_master_cocotb.py`: single and burst
+  reads and writes, DECERR / SLVERR mid-burst, random backpressure on all five AXI channels and the
+  completion port, exactly one completion per read, 1000 random transactions against a model)
+* **Implementation Target**: `include/asp_tlp64.hpp`, `rtl/asp_tlp_axil_master.sv`, `rtl/asp_tlp_pkg.sv`
 
----
-
-
-### `[SPEC-TLP-05]` PIO Tile Integration: AbstractX Wishbone to pio2 AXI4-Lite
+### `[SPEC-TLP-05]` PIO Tile Integration: AXI4-Lite to the pio2 Tile
 * **Requirement**: the PIO tile comes from the `rtl/pio` submodule (pio2), whose register port is
-  AXI4-Lite (pio2 `[SPEC-AXI-04]`). AbstractX keeps its Wishbone B4 classic fabric and connects through
-  `rtl/asp_pio_wrap.sv`: a classic-to-pipelined step (one request per transaction, re-armed on `ack`),
-  ZipCPU's `wbm2axilite` bridge (Apache-2.0, `rtl/pio/third_party/wb2axip`, not copied), and the tile.
-  An AXI `SLVERR` / `DECERR` comes back as an `ack` (AbstractX's fabric has no `err`). The wrapper keeps
-  the tile's former port list (TLP in and out, `i_sys_timestamp`, `TILE_ID`), so `asp_top` and the board
-  tops change only the module name.
+  AXI4-Lite (pio2 `[SPEC-AXI-04]`). `rtl/asp_pio_wrap.sv` is an AXI4-Lite slave (2026-11-05: no Wishbone,
+  no `wbm2axilite`): it serves the TLP data path registers itself and passes every other access to the
+  tile's AXI4-Lite port, returning the tile's response. The wrapper keeps the TLP ports, `i_sys_timestamp`
+  and `TILE_ID`.
 * **Requirement (pio2 tile split, 2026-11-05)**: pio2 `main` (`[SPEC-ICN-09]` there) took the TLP
   ingress queue, the egress packetizer, their registers and the timestamp input out of the tile and
   gave it per-SM AXI-Stream FIFO ports. They live in AbstractX (`rtl/pio_tlp/`, `[SPEC-TLP-06]`), and
   `asp_pio_wrap` serves their register offsets itself (`OUT_CFG 0x0C`, `OUT_TIMEOUT 0x90`,
-  `IN_CFG 0x94`, `IN_STATUS 0x98`, software trigger `SMx + 0x1C`); every other access goes through the
-  bridge to the tile. In the tile those offsets read 0 and writes do nothing.
+  `IN_CFG 0x94`, `IN_STATUS 0x98`, software trigger `SMx + 0x1C`); every other access goes to the tile.
+  In the tile those offsets read 0 and writes do nothing.
 * **Requirement**: every board top and the cocotb `asp_top` build read the wrapper, `rtl/pio_tlp/`, the
-  bridge and the submodule RTL from one list per build; `git submodule update --init --recursive`
+  Forencich AXI blocks (pio2 `third_party/verilog-axi`, unmodified) and the submodule RTL from one list per build; `git submodule update --init --recursive`
   fetches the submodule. The submodule pin is a commit on pio2's `origin/main`, so a clone resolves it.
 * **Verified by**: `cocotb-regression` (`sim-test-tlp64-top`: TLP over Dual-SPI into `asp_top`, through
-  the wrapper; `sim/cocotb/test_asp_pio_wrap_cocotb.py`: register writes and reads, classic bursts and
-  back-to-back accesses through the wrapper), `rtl-lint`, `fpga-build`
+  the wrapper; `sim/cocotb/test_asp_pio_wrap_cocotb.py`: AXI4-Lite writes and reads to local and tile
+  registers with random backpressure), `rtl-lint`, `fpga-build`
 * **Implementation Target**: `rtl/asp_pio_wrap.sv`, `rtl/asp_top.sv`
 
 ### `[SPEC-TLP-06]` PIO Tile TLP Data Path (from pio2 `[SPEC-PIO-04]`, `[SPEC-PIO-10]`)
@@ -671,19 +685,20 @@ sequenceDiagram
   | IMU SPI burst (auto read) | `imu_spi_burst.pio` | pio2 core test |
   | WS2812 NeoPixel, RC PWM capture, general UART | none | **not available** until a program exists |
 
-* **Requirement (blocks)**: `asp_top` = `asp_spi_frontend` (link) -> `asp_router` -> `asp_wishbone_master`
-  (control TLPs) -> `asp_sys_regs` (`0x400000xx`) and the PIO tile `asp_pio_wrap` (`0x400007xx`).
-  Nothing else answers on Wishbone; an access elsewhere is acknowledged with read data 0 (the master
-  never hangs).
-* **Requirement (routing)**: channel `0x01` (`CONTROL`) goes to the Wishbone master; **every other channel
+* **Requirement (blocks)**: `asp_top` = `asp_spi_frontend` (link) -> `asp_router` -> `asp_ctrl_plane`
+  (`asp_tlp_axil_master` -> Forencich `axil_crossbar` -> `asp_sys_regs` at `0x40000000`/256 B and the PIO
+  tile `asp_pio_wrap` at `0x40000700`/512 B). An access elsewhere gets `DECERR`, which the master
+  reports in the completion ([SPEC-TLP-04]); nothing hangs. No Wishbone (2026-11-05).
+* **Requirement (routing)**: channel `0x01` (`CONTROL`) goes to the control master; **every other channel
   goes to the PIO tile**, whose `IN_CFG` channel ([SPEC-TLP-06]) takes its own and consumes the rest.
   Egress: control completions first, then the PIO stream. A TLP that is presented (`m_egr_tvalid`)
   stays presented with the same data until accepted; the arbiter chooses again only after a
   handshake (2026-11-05: the old fixed-priority mux switched `tdata` under a held `tvalid` when a
   completion arrived while a stream TLP waited, an AXI-Stream violation that replaced a TLP mid-send).
-  The Wishbone master sends exactly one completion per MemRead and holds it (valid and data) until
-  it is accepted, taking no new request meanwhile (2026-11-05: its emit state set `tvalid` on every
-  clock, so a completion accepted in that state was sent again and the next read overwrote it).
+  The control master sends exactly one completion per MemRead and holds it (valid and data) until
+  it is accepted, taking no new request meanwhile (2026-11-05: the former Wishbone master's emit state
+  set `tvalid` on every clock, so a completion accepted there was sent again and the next read
+  overwrote it).
 * **Requirement (pins)**: the board-facing ports of `asp_top` keep their names (board tops and constraint
   files do not change) and are wired to fixed PIO GPIO numbers:
 
@@ -705,8 +720,8 @@ sequenceDiagram
   `inout` pads (EL-1027-20, open). The motor outputs pass the failsafe gate of `[SPEC-TLP-08]` once it exists.
 * **Verified by**: `cocotb-regression` (`sim-test-tlp64-top`: control TLPs through `asp_top`;
   `sim/cocotb/test_asp_top_pio_cocotb.py`: a TLP on a PIO channel reaches the tile, a PIO program drives a
-  motor pin, idle levels, unmapped Wishbone access answers 0), `rtl-lint`, `rtl-synth-check`, `fpga-fit`
-* **Implementation Target**: `rtl/asp_top.sv`, `rtl/asp_router.sv`
+  motor pin, idle levels, an unmapped address completes with DECERR), `rtl-lint`, `rtl-synth-check`, `fpga-fit`
+* **Implementation Target**: `rtl/asp_top.sv`, `rtl/asp_router.sv`, `rtl/asp_ctrl_plane.sv`, `rtl/asp_pio_pins.sv`
 
 ## 3. Hardware Abstraction Layer Specifications (`SPEC-HAL`)
 

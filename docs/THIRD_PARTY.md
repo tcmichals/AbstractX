@@ -9,7 +9,7 @@ it uses keeps its own license; each entry says how AbstractX complies, for both 
 | `third_party/micropython` | <https://github.com/micropython/micropython> | MIT | submodule | E906 REPL |
 | `third_party/FreeRTOS-Kernel` | <https://github.com/FreeRTOS/FreeRTOS-Kernel> | MIT | submodule | E906 FreeRTOS app |
 | `rtl/pio` | <https://github.com/tcmichals/pio2> | GPL-3.0-or-later (same author) | submodule | PIO tile |
-| `rtl/pio/third_party/wb2axip` | <https://github.com/ZipCPU/wb2axip> (Dan Gisselquist, ZipCPU) | Apache-2.0 (file headers, README) | nested submodule (pio2 pins it) | `rtl/wbm2axilite.v`: Wishbone to AXI4-Lite bridge in `rtl/asp_pio_wrap.sv` ([SPEC-TLP-05]) |
+| `rtl/pio/third_party/wb2axip` (pio2's; **not used by AbstractX since 2026-11-05**, no Wishbone) | <https://github.com/ZipCPU/wb2axip> (Dan Gisselquist, ZipCPU) | Apache-2.0 (file headers, README) | nested submodule (pio2 pins it) | `rtl/wbm2axilite.v`: Wishbone to AXI4-Lite bridge in `rtl/asp_pio_wrap.sv` ([SPEC-TLP-05]) |
 | `rtl/pio/third_party/verilog-axi`, `verilog-axis` | <https://github.com/alexforencich> (Alex Forencich) | MIT | nested submodules (pio2) | not instantiated by AbstractX yet |
 
 ## Compliance

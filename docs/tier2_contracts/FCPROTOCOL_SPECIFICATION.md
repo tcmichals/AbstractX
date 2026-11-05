@@ -1,5 +1,10 @@
 # AbstractX FCProtocol Specification (`FCPROTOCOL_SPECIFICATION.md`)
 
+> **Superseded in part (2026-11-05)**: there is no Wishbone and there are no dedicated peripheral cores in
+> the FPGA any more. Control is AXI4-Lite ([SPEC-TLP-04]), data is AXI-Stream, peripherals are PIO programs
+> ([SPEC-TLP-07]); see `docs/DESIGN_SPECIFICATION.md`. Text below that says otherwise describes the old design.
+
+
 This document defines the normative **FCProtocol (Flight Controller Protocol)** specification for **AbstractX**. FCProtocol defines how flight software (Betaflight, ArduPilot, iNav, RTOS, Linux) communicates with the Gowin FPGA offloader over the **`asp-tlp-64b`** 64-byte PCIe-like transport protocol.
 
 ---

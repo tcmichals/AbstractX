@@ -22,12 +22,13 @@ peripheral pin through the fixed pin map in `asp_pio_pins`.
 | :--- | :--- | :--- |
 | [`asp_axi_lite_bridge.sv`](asp_axi_lite_bridge.sv) | `asp_axi_lite_bridge` | AbstractX AXI4-Lite to 64-Byte TLP Bridge |
 | [`asp_axis_fifo.sv`](asp_axis_fifo.sv) | `asp_axis_fifo` | Ingress (Slave) Port |
+| [`asp_ctrl_plane.sv`](asp_ctrl_plane.sv) | `asp_ctrl_plane` | Control plane shared by every top ([SPEC-TLP-07], [SPEC-TLP-04]): CONTROL TLPs -> asp_tlp_axil_master |
 | [`asp_pio_pins.sv`](asp_pio_pins.sv) | `asp_pio_pins` | Fixed PIO GPIO <-> board port map shared by every top ([SPEC-TLP-07] pin table). |
-| [`asp_pio_wrap.sv`](asp_pio_wrap.sv) | `asp_pio_wrap` | PIO tile (pio2 submodule, AXI4-Lite register port, AXI-Stream FIFO ports) behind AbstractX's |
+| [`asp_pio_wrap.sv`](asp_pio_wrap.sv) | `asp_pio_wrap` | PIO tile (pio2 submodule, AXI4-Lite register port, AXI-Stream FIFO ports) as an AXI4-Lite slave of |
 | [`asp_router.sv`](asp_router.sv) | `asp_router` | AbstractX 64-byte TLP router, all-PIO fabric ([SPEC-TLP-07]). |
-| [`asp_sys_regs.sv`](asp_sys_regs.sv) | `asp_sys_regs` | AbstractX PCIe System, ID & Master Timestamp Registers (Wishbone Slave) |
+| [`asp_sys_regs.sv`](asp_sys_regs.sv) | `asp_sys_regs` | AbstractX System, ID & Master Timestamp Registers (AXI4-Lite slave through Forencich axil_reg_if) |
+| [`asp_tlp_axil_master.sv`](asp_tlp_axil_master.sv) | `asp_tlp_axil_master` | Control TLPs -> AXI4-Lite ([SPEC-TLP-04]). MemWrite: N posted writes; MemRead: N reads, one CplD. |
 | [`asp_top.sv`](asp_top.sv) | `asp_top` | AbstractX Top-Level Fabric Integrator (64-Byte TLP Profile) |
-| [`asp_wishbone_master.sv`](asp_wishbone_master.sv) | `asp_wishbone_master` | AbstractX Wishbone Master Gateway (64-Byte TLP Profile) |
 | [`pio_tlp/asp_pio_tlp_ingress.sv`](pio_tlp/asp_pio_tlp_ingress.sv) | `asp_pio_tlp_ingress` | PIO tile TLP ingress: queue of TLPs in block RAM, dealt to the SM TX FIFOs in groups. |
 | [`pio_tlp/asp_pio_tlp_shim.sv`](pio_tlp/asp_pio_tlp_shim.sv) | `asp_pio_tlp_shim` | PIO tile TLP egress: rounds of RX words from the masked SMs framed into 64-byte TLPs, plus |
 | [`spi/asp_spi_frontend.sv`](spi/asp_spi_frontend.sv) | `asp_spi_frontend` | AbstractX Configurable SPI / Dual-SPI 64-Byte TLP Frontend |

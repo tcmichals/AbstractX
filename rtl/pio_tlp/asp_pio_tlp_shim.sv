@@ -29,7 +29,7 @@ module asp_pio_tlp_shim #(
     // SM RX FIFOs
     input  wire [127:0]  i_rx_data,          // {sm3, sm2, sm1, sm0}
     input  wire [3:0]    i_rx_valid,
-    input  wire [3:0]    i_rx_block,         // Wishbone pops these RX FIFOs this clock
+    input  wire [3:0]    i_rx_block,         // register port pops these RX FIFOs this clock (0 in asp_pio_wrap)
     output logic [3:0]   o_rx_pop,
     input  wire          i_sm_trigger,       // software trigger: trace event only
 
@@ -69,15 +69,13 @@ module asp_pio_tlp_shim #(
     assign o_rx_pop = round ? i_mask : 4'd0;
 
     // Words above count are zero: all words are cleared when a TLP is accepted
-    wire [511:0] tx_frame = {
-        8'h10, 4'h0, i_mask, i_tlp_tag, i_tlp_channel,
-        BASE_ADDR,
-        12'd0, count, seq_num,
-        latched_timestamp,
-        words[0], words[1], words[2], words[3], words[4],
-        words[5], words[6], words[7], words[8], words[9],
-        32'h00000000
-    };
+    // Field map: asp_tlp_pkg ([SPEC-TLP-04]); type 0x10 DMA stream, flags[3:0] = SM mask
+    logic [511:0] tx_frame;
+    always_comb begin
+        tx_frame = asp_tlp_pkg::tlp_header(8'h10, {4'h0, i_mask}, i_tlp_tag, i_tlp_channel, BASE_ADDR,
+                                           {12'd0, count}, seq_num, latched_timestamp);
+        for (int k = 0; k < 10; k++) tx_frame = asp_tlp_pkg::tlp_set_word(tx_frame, k, words[k]);
+    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -142,15 +140,12 @@ module asp_pio_tlp_shim #(
                 ev_type    = i_sm_trigger ? 8'd0 : 8'd1; // 0=Trigger, 1=IRQ Pulse
                 active_sm  = i_sm_active[1] ? 8'd1 : 8'd0;
 
-                trace_frame_buf <= {
-                    // DW0: barectf magic 0xC1, 0xFC, Stream 5, ev_type
-                    8'hC1, 8'hFC, 8'd5, ev_type,
-                    BASE_ADDR,
-                    16'd4, seq_num,
-                    i_sys_timestamp,
-                    {active_sm, i_tile_id, 3'd0, i_sm_pc[5*active_sm[1:0] +: 5], 7'd0, i_sm_stalled[active_sm[1:0]]},
-                    320'd0
-                };
+                // barectf Stream 5 record: type 0xC1, flags 0xFC (magic), tag 5, channel = event type
+                trace_frame_buf <= asp_tlp_pkg::tlp_set_word(
+                    asp_tlp_pkg::tlp_header(8'hC1, 8'hFC, 8'd5, ev_type, BASE_ADDR, 16'd4, seq_num,
+                                            i_sys_timestamp),
+                    0, {active_sm, i_tile_id, 3'd0, i_sm_pc[5*active_sm[1:0] +: 5], 7'd0,
+                        i_sm_stalled[active_sm[1:0]]});
                 trace_pending   <= 1'b1;
             end
         end

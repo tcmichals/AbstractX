@@ -1,5 +1,9 @@
 # AbstractX IMU SPI Master & Auto-DMA IP Core Specification
 
+> **Retired (2026-11-05)**: `asp_imu_auto_dma` was removed with the other dedicated cores ([SPEC-TLP-07]); the
+> IMU is read by a PIO program (pio2 `src/programs/imu_spi_burst.pio`). Kept as history.
+
+
 This document details the hardware architecture, register map, operational workflow, simulation model, and iNav/Betaflight driver alignment for the **AbstractX IMU SPI Master & Auto-DMA IP Core**.
 
 ---

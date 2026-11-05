@@ -43,7 +43,7 @@ Defines the permanent, non-negotiable laws and execution models of the AbstractX
 3. **[`tier1_vision/PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](tier1_vision/PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
    *Why*: Silicon offloader architecture detailing hardware offload mechanisms across silicon targets.
 4. **[`tier1_vision/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](tier1_vision/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
-   *Why*: Parallel vector router fabric and Wishbone gateway architecture.
+   *Why*: Parallel vector router fabric and AXI4-Lite control plane (no Wishbone since 2026-11-05).
 5. **[`tier1_vision/PROMPT_MARKDOWN_DRIVEN_ARCHITECTURE.md`](tier1_vision/PROMPT_MARKDOWN_DRIVEN_ARCHITECTURE.md)**  
    *Why*: Principles and rules for specification-driven development.
 6. **[`tier1_vision/historical/`](tier1_vision/historical/)**  
@@ -56,7 +56,7 @@ Defines the permanent, non-negotiable laws and execution models of the AbstractX
 Defines universal integration boundaries, binary framing, HAL contracts, and the telemetry ecosystem:
 
 1. **[`tier2_contracts/TLP_BUS_SPECIFICATION.md`](tier2_contracts/TLP_BUS_SPECIFICATION.md)**  
-   *Why*: **Universal Data Plane Specification**. Fixed 64-byte TLP headers, packet operations (`MemRd`, `MemWr`, `CplD`, `DMA_Stream`), Wishbone gateway address map, and Dual-SPI 50 MHz physical transport.
+   *Why*: **Universal Data Plane Specification**. Fixed 64-byte TLP headers, packet operations (`MemRd`, `MemWr`, `CplD`, `DMA_Stream`), AXI4-Lite control-plane gateway address map, and Dual-SPI 50 MHz physical transport.
 2. **[`tier2_contracts/HAL_INTERFACES.md`](tier2_contracts/HAL_INTERFACES.md)**  
    *Why*: **Symmetrical HAL Contracts**. Non-blocking awaitable HAL interfaces (`ISpi`, `II2c`, `IUart`, `ITimer`, `IMailbox`) and the zero-blocking driver mandate.
 3. **[`tier2_contracts/OBSERVABILITY_SCHEMA.md`](tier2_contracts/OBSERVABILITY_SCHEMA.md)**  

@@ -3,8 +3,8 @@
 """asp_top, all-PIO ([SPEC-TLP-07]), driven over Dual-SPI exactly like the host.
 
 1. After reset every output port sits at its idle level (motors 0, UART TX 1, IMU CS_n 1).
-2. A control MemRead of SYS_ID returns 0xABF10164 (link, asp_router, asp_wishbone_master, sys regs).
-3. A control MemRead of an address no slave decodes (old IMU core 0x40000100) completes with 0.
+2. A control MemRead of SYS_ID returns 0xABF10164 (link, asp_router, asp_ctrl_plane, sys regs).
+3. A control MemRead of an address no slave decodes (old IMU core 0x40000100) completes with DECERR.
 4. A PIO program loaded over control TLPs takes motor 0; data TLPs on a PIO channel (not CONTROL)
    reach the tile through the router and the program drives the pin from them.
 
@@ -89,7 +89,7 @@ async def mem_write(dut, addr, value, seq=0):
     await send_tlp(dut, pack_tlp(0x02, 0, 0, CH_CONTROL, addr, 1, seq, 0, struct.pack(">I", value)))
 
 
-async def mem_read(dut, addr, tag=0x5A):
+async def mem_read(dut, addr, tag=0x5A, want_flags=False):
     await send_tlp(dut, pack_tlp(0x01, 0, tag, CH_CONTROL, addr, 1, 0, 0))
     for _ in range(5000):
         if int(dut.o_int_req.value):
@@ -99,6 +99,9 @@ async def mem_read(dut, addr, tag=0x5A):
         raise AssertionError(f"no completion for MemRead 0x{addr:08X} (doorbell never rose)")
     f = unpack_tlp(await read_tlp(dut))
     assert f[0] == 0x03 and f[2] == tag, f"not our completion: type 0x{f[0]:02X} tag 0x{f[2]:02X}"
+    if want_flags:
+        return struct.unpack(">I", f[8][:4])[0], f[1], f[5]
+    assert f[1] == 0, f"MemRead 0x{addr:08X} failed: flags 0x{f[1]:02X}"
     return struct.unpack(">I", f[8][:4])[0]
 
 
@@ -126,7 +129,8 @@ async def test_idle_levels_and_control_path(dut):
     assert int(dut.imu_cs_n.value) == 1, "IMU CS_n must idle deselected"
     assert int(dut.imu_sclk.value) == 0 and int(dut.o_neopixel_pin.value) == 0
     assert await mem_read(dut, 0x40000000) == 0xABF10164
-    assert await mem_read(dut, 0x40000100, tag=0x33) == 0, "unmapped address must answer 0"
+    _, flags, length = await mem_read(dut, 0x40000100, tag=0x33, want_flags=True)
+    assert flags & 3 == 3 and length == 0, f"unmapped address: flags 0x{flags:02X} len {length} (want DECERR)"
 
 
 @cocotb.test(timeout_time=40, timeout_unit="ms")

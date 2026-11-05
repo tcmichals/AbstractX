@@ -70,12 +70,21 @@ have separate memory maps, cache rules, drivers, and specifications.
 
 ---
 
-## 2. Wishbone Gateway & Register Address Map
+## 2. Control Plane & Register Address Map (AXI4-Lite, all-PIO since 2026-11-05)
 
-The FPGA switch fabric decodes address ranges into Wishbone peripherals:
+CONTROL TLPs (channel `0x01`) become AXI4-Lite transactions (`asp_tlp_axil_master`, [SPEC-TLP-04] in
+`docs/DESIGN_SPECIFICATION.md`); a Forencich `axil_crossbar` decodes:
 
-| Address Range | Block | Architectural Purpose |
+| Address Range | Block | Purpose |
 | :--- | :--- | :--- |
+| `0x40000000 - 0x400000FF` | **System registers** (`asp_sys_regs`) | ID `0xABF10164`, scratch, LEDs, 64-bit timestamp, `CTRL_WR_ERR` |
+| `0x40000700 - 0x400008FF` | **PIO tile** (`asp_pio_wrap`, pio2) | tile registers and the TLP data path registers ([SPEC-TLP-06]) |
+| anything else | none | the completion carries DECERR (`flags[1:0] = 3`) |
+
+The dedicated IMU, DShot, PWM, NeoPixel and UART cores were removed ([SPEC-TLP-07]); PIO programs do
+their work, and every non-control channel goes to the PIO tile.
+
+--- | :--- | :--- |
 | `0x40000000 - 0x40000014` | **System ID & Central Timer** | Device ID (`0xABF10164`), Monotonic 64-bit nanosecond timer. |
 | `0x40000100 - 0x400001FF` | **IMU Auto-DMA Core** | Auto-DMA trigger config, SPI clock divisor, sample buffer. |
 | `0x40000200 - 0x400002FF` | **DShot Motor Core** | 4-channel motor pulse width registers (1000–2000 µs / DShot300). |

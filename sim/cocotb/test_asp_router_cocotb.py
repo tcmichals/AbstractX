@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""asp_router, all-PIO fabric ([SPEC-TLP-07]): CONTROL to the Wishbone master, every other channel to
+"""asp_router, all-PIO fabric ([SPEC-TLP-07]): CONTROL to the control plane, every other channel to
 the PIO tile; egress completions first, a presented TLP held until accepted.
 
 @verifies [SPEC-TLP-07] docs/DESIGN_SPECIFICATION.md
@@ -23,7 +23,7 @@ def make_tlp(channel: int, payload_val: int = 0x12345678) -> int:
 async def reset(dut):
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     dut.rst_n.value = 0
-    for s in ("s_tlp_tvalid", "s_tlp_tdata", "s_wb_cpl_tvalid", "s_wb_cpl_tdata",
+    for s in ("s_tlp_tvalid", "s_tlp_tdata", "s_cpl_tvalid", "s_cpl_tdata",
               "s_pio_stream_tvalid", "s_pio_stream_tdata"):
         getattr(dut, s).value = 0
     for s in ("m_ctrl_tready", "m_pio_tready", "m_egr_tready"):
@@ -75,15 +75,15 @@ async def test_egress_completion_first(dut):
     await reset(dut)
     await FallingEdge(dut.clk)
     cpl, pio = make_tlp(CH_CONTROL, 0x11111111), make_tlp(0x40, 0x22222222)
-    dut.s_wb_cpl_tdata.value = cpl
-    dut.s_wb_cpl_tvalid.value = 1
+    dut.s_cpl_tdata.value = cpl
+    dut.s_cpl_tvalid.value = 1
     dut.s_pio_stream_tdata.value = pio
     dut.s_pio_stream_tvalid.value = 1
     await ReadOnly()
-    assert int(dut.m_egr_tdata.value) == cpl and int(dut.s_wb_cpl_tready.value) == 1
+    assert int(dut.m_egr_tdata.value) == cpl and int(dut.s_cpl_tready.value) == 1
     assert int(dut.s_pio_stream_tready.value) == 0
     await FallingEdge(dut.clk)
-    dut.s_wb_cpl_tvalid.value = 0
+    dut.s_cpl_tvalid.value = 0
     await ReadOnly()
     assert int(dut.m_egr_tdata.value) == pio and int(dut.s_pio_stream_tready.value) == 1
 
@@ -100,8 +100,8 @@ async def test_presented_tlp_held_until_accepted(dut):
     dut.s_pio_stream_tdata.value = pio
     dut.s_pio_stream_tvalid.value = 1
     await FallingEdge(dut.clk)                    # PIO presented, not accepted
-    dut.s_wb_cpl_tdata.value = cpl
-    dut.s_wb_cpl_tvalid.value = 1                 # completion arrives while it waits
+    dut.s_cpl_tdata.value = cpl
+    dut.s_cpl_tvalid.value = 1                 # completion arrives while it waits
     for _ in range(5):
         await ReadOnly()
         assert int(dut.m_egr_tvalid.value) == 1 and int(dut.m_egr_tdata.value) == pio, \
@@ -113,7 +113,7 @@ async def test_presented_tlp_held_until_accepted(dut):
     await FallingEdge(dut.clk)
     dut.s_pio_stream_tvalid.value = 0
     await ReadOnly()
-    assert int(dut.m_egr_tdata.value) == cpl and int(dut.s_wb_cpl_tready.value) == 1
+    assert int(dut.m_egr_tdata.value) == cpl and int(dut.s_cpl_tready.value) == 1
 
 
 @cocotb.test(timeout_time=2, timeout_unit="ms")
@@ -154,7 +154,7 @@ async def test_random_egress_every_tlp_once_in_order(dut):
             else:
                 held = d if v else None
 
-    cocotb.start_soon(source("cpl", dut.s_wb_cpl_tvalid, dut.s_wb_cpl_tdata, dut.s_wb_cpl_tready))
+    cocotb.start_soon(source("cpl", dut.s_cpl_tvalid, dut.s_cpl_tdata, dut.s_cpl_tready))
     cocotb.start_soon(source("pio", dut.s_pio_stream_tvalid, dut.s_pio_stream_tdata, dut.s_pio_stream_tready))
     await sink()
     assert [t for t in got if (t >> 480) & 0xFF == CH_CONTROL] == srcs["cpl"]

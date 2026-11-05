@@ -7,8 +7,8 @@ backpressure only when the queue is full, other channels ignored. Egress: rounds
 SMs, burst and idle-timeout sends, timestamp of the first word. Every SM runs an echo program
 (pull -> mov isr, osr -> push), so what goes in comes back out. Both TLP sides use random valid gaps
 / tready toggling and check that tdata stays stable while tvalid waits. Registers go over the
-wrapper's Wishbone port: the TLP path registers are served by the wrapper, the rest by the tile
-behind the AXI4-Lite bridge ([SPEC-TLP-05]).
+wrapper's AXI4-Lite port: the TLP path registers are served by the wrapper, the rest are forwarded to
+the tile ([SPEC-TLP-05]).
 
 @verifies [SPEC-TLP-06] [SPEC-TLP-05] docs/DESIGN_SPECIFICATION.md
 """
@@ -18,6 +18,8 @@ import random
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, ReadOnly, RisingEdge, Timer
+
+from axil_bfm import AxilMaster
 
 BASE = 0x40000700
 REG_CTRL = 0x00
@@ -51,55 +53,28 @@ def PIO_MOV(dest=0, op=0, src=0, delay=0):
 
 ECHO = [PIO_PULL(block=1), PIO_MOV(dest=6, op=0, src=7), PIO_PUSH(block=1)]
 
-_wb_lock = None
-
-
-async def _wb(dut, we, off, val=0, max_wait=64):
-    """One Wishbone classic access (as asp_wishbone_master does); serialised between coroutines."""
-    global _wb_lock
-    from cocotb.triggers import Lock
-    if _wb_lock is None:
-        _wb_lock = Lock()
-    async with _wb_lock:
-        await FallingEdge(dut.clk)
-        dut.wb_cyc_i.value = 1
-        dut.wb_stb_i.value = 1
-        dut.wb_we_i.value = we
-        dut.wb_adr_i.value = BASE + off
-        dut.wb_dat_i.value = val
-        for _ in range(max_wait):
-            await RisingEdge(dut.clk)
-            await ReadOnly()
-            if int(dut.wb_ack_o.value):
-                break
-        else:
-            raise AssertionError(f"no ack for offset 0x{off:03X}")
-        data = int(dut.wb_dat_o.value)
-        await FallingEdge(dut.clk)
-        dut.wb_cyc_i.value = 0
-        dut.wb_stb_i.value = 0
-        dut.wb_we_i.value = 0
-        return data
+_bus = {}
 
 
 async def reg_write(dut, off, val):
-    await _wb(dut, 1, off, val)
+    assert await _bus["m"].write(BASE + off, val) == 0
 
 
 async def reg_read(dut, off):
-    return await _wb(dut, 0, off)
+    data, resp = await _bus["m"].read(BASE + off)
+    assert resp == 0
+    return data
 
 
 async def init_tile(dut):
-    global _wb_lock
-    _wb_lock = None
     cocotb.start_soon(Clock(dut.clk, 10, unit="ns").start())
     dut.rst_n.value = 0
     dut.i_sys_timestamp.value = 0
     dut.i_gpio.value = 0
-    for s in ("wb_cyc_i", "wb_stb_i", "wb_we_i", "wb_adr_i", "wb_dat_i", "s_tlp_tvalid", "s_tlp_tdata"):
-        getattr(dut, s).value = 0
+    dut.s_tlp_tvalid.value = 0
+    dut.s_tlp_tdata.value = 0
     dut.m_tlp_tready.value = 1
+    _bus["m"] = AxilMaster(dut, "s_axil")
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 4)

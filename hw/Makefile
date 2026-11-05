@@ -11,7 +11,7 @@ BUILD_DIR = build_hw
 
 # Every RTL file a board build reads (hw/common/gowin_synth.tcl): rtl/*/*.sv includes rtl/pio_tlp/; from
 # the submodule only the tile (pio2_core and its DMA/link are not used) ([SPEC-TLP-05], [SPEC-TLP-07])
-TOP_RTL = $(wildcard rtl/*.sv rtl/*/*.sv) rtl/pio/src/rtl/asp_pio_sm.sv rtl/pio/src/rtl/asp_pio_tile.sv rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v
+TOP_RTL = $(wildcard rtl/*.sv rtl/*/*.sv) rtl/pio/src/rtl/asp_pio_sm.sv rtl/pio/src/rtl/asp_pio_tile.sv $(wildcard rtl/pio/third_party/verilog-axi/rtl/axil_*.v)
 
 .PHONY: all tang9k clean primer20k tang_nano20k tang_nano20k_fit
 

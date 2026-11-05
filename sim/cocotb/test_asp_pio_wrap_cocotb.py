@@ -1,12 +1,12 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-asp_pio_wrap: AbstractX's Wishbone B4 classic fabric to the pio2 tile's AXI4-Lite port ([SPEC-TLP-05]).
+asp_pio_wrap as an AXI4-Lite slave ([SPEC-TLP-05], no Wishbone since 2026-11-05).
 
-The master behaves like rtl/asp_wishbone_master.sv: it holds cyc/stb until ack and, on the ack edge,
-either moves to the next word of a burst (stb stays high, new address) or ends the cycle.
-Checks: single writes and reads, classic bursts with no idle clock between words, every access
-answered exactly once (no extra ack, no lost write), 1000 random accesses against a model.
+Tile registers are forwarded to the pio2 tile's AXI4-Lite port; the TLP data path registers
+(OUT_CFG 0x0C, OUT_TIMEOUT 0x90, IN_CFG 0x94) are served by the wrapper itself (the tile reads 0 there).
+Checks: single accesses, both kinds mixed with random valid gaps, 1000 random accesses against a model,
+OKAY on every response.
 """
 # @verifies [SPEC-TLP-05] docs/DESIGN_SPECIFICATION.md
 
@@ -14,12 +14,15 @@ import random
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, ReadOnly, RisingEdge, Timer
+from cocotb.triggers import ClockCycles
+
+from axil_bfm import AxilMaster
 
 BASE = 0x40000700
-SM_SHIFTCTRL = lambda n: 0x100 + 0x20 * n + 0x08   # noqa: E731  plain read/write registers
+SM_SHIFTCTRL = lambda n: 0x100 + 0x20 * n + 0x08   # noqa: E731  plain read/write tile registers
 SM_PINCTRL = lambda n: 0x100 + 0x20 * n + 0x0C     # noqa: E731
-PLAIN = [f(n) for n in range(4) for f in (SM_SHIFTCTRL, SM_PINCTRL)]
+TILE = [f(n) for n in range(4) for f in (SM_SHIFTCTRL, SM_PINCTRL)]
+LOCAL = {0x0C: 0xFFFFFFFF & ~(0x7 << 1) & ~(0x7 << 28), 0x90: 0x00FFFFFF, 0x94: 0x0000FF01}  # writable bits
 
 
 async def setup(dut):
@@ -27,87 +30,59 @@ async def setup(dut):
     dut.rst_n.value = 0
     dut.i_sys_timestamp.value = 0
     dut.i_gpio.value = 0
-    for s in ("wb_cyc_i", "wb_stb_i", "wb_we_i", "wb_adr_i", "wb_dat_i", "s_tlp_tvalid", "s_tlp_tdata"):
-        getattr(dut, s).value = 0
+    dut.s_tlp_tvalid.value = 0
+    dut.s_tlp_tdata.value = 0
     dut.m_tlp_tready.value = 1
+    m = AxilMaster(dut, "s_axil", gap=0.3)
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
-    acks = {"n": 0}
-
-    async def count_acks():
-        while True:
-            await RisingEdge(dut.clk)
-            await ReadOnly()
-            if int(dut.wb_ack_o.value):
-                acks["n"] += 1
-    cocotb.start_soon(count_acks())
-    return acks
+    await ClockCycles(dut.clk, 3)
+    return m
 
 
-async def burst(dut, we, offsets, values=None, max_wait=64):
-    """One classic cycle of len(offsets) words, like asp_wishbone_master. Returns read data."""
-    out = []
-    dut.wb_cyc_i.value = 1
-    dut.wb_stb_i.value = 1
-    dut.wb_we_i.value = we
-    for i, off in enumerate(offsets):
-        dut.wb_adr_i.value = BASE + off
-        if we:
-            dut.wb_dat_i.value = values[i]
-        for _ in range(max_wait):
-            await RisingEdge(dut.clk)
-            await ReadOnly()
-            if int(dut.wb_ack_o.value):
-                break
-        else:
-            raise AssertionError(f"no ack for offset 0x{off:03X}")
-        if not we:
-            out.append(int(dut.wb_dat_o.value))
-        await Timer(1, unit="ns")          # registered master: next word right after the ack edge
-    dut.wb_cyc_i.value = 0
-    dut.wb_stb_i.value = 0
-    dut.wb_we_i.value = 0
-    await RisingEdge(dut.clk)
-    await Timer(1, unit="ns")
-    return out
+async def wr(m, off, val):
+    assert await m.write(BASE + off, val) == 0
+
+
+async def rd(m, off):
+    data, resp = await m.read(BASE + off)
+    assert resp == 0
+    return data
 
 
 @cocotb.test(timeout_time=5, timeout_unit="ms")
-async def test_single_and_burst(dut):
-    acks = await setup(dut)
-    await burst(dut, 1, [SM_PINCTRL(0)], [0x1111_0000])
-    assert await burst(dut, 0, [SM_PINCTRL(0)]) == [0x1111_0000]
-    offs = PLAIN[:6]
-    vals = [0xA000_0000 + i for i in range(6)]
-    await burst(dut, 1, offs, vals)                       # 6-word write burst, no idle between words
-    assert await burst(dut, 0, offs) == vals              # 6-word read burst
-    await ClockCycles(dut.clk, 20)
-    assert acks["n"] == 1 + 1 + 6 + 6, f"{acks['n']} acks for 14 accesses (extra or lost answers)"
+async def test_tile_and_local_registers(dut):
+    m = await setup(dut)
+    await wr(m, SM_PINCTRL(0), 0x1111_0000)
+    assert await rd(m, SM_PINCTRL(0)) == 0x1111_0000             # forwarded to the tile
+    await wr(m, 0x094, 0x4001)                                   # IN_CFG: served by the wrapper
+    assert await rd(m, 0x094) == 0x4001
+    await wr(m, 0x090, 0x123456)                                 # OUT_TIMEOUT
+    assert await rd(m, 0x090) == 0x123456
+    assert int(dut.u_tlp_ingress.i_channel.value) == 0x40 and int(dut.u_tlp_ingress.i_en.value) == 1
+    assert await rd(m, 0x098) & 0x3F == 0                        # IN_STATUS: queue empty
 
 
 @cocotb.test(timeout_time=50, timeout_unit="ms")
 async def test_random_1000(dut):
-    acks = await setup(dut)
+    m = await setup(dut)
     rng = random.Random(11)
     model = {}
-    for off in PLAIN:
-        model[off] = (await burst(dut, 0, [off]))[0]
-    done = len(PLAIN)
-    while done < len(PLAIN) + 1000:
-        n = rng.randint(1, 4)
-        offs = [rng.choice(PLAIN) for _ in range(n)]
-        if rng.random() < 0.5:
-            vals = [rng.getrandbits(32) for _ in range(n)]
-            await burst(dut, 1, offs, vals)
-            for o, v in zip(offs, vals):
-                model[o] = v
+    for off in TILE:
+        model[off] = await rd(m, off)
+    for off in LOCAL:
+        model[off] = await rd(m, off)
+    for _ in range(1000):
+        if rng.random() < 0.6:
+            off = rng.choice(TILE)
+            mask = 0xFFFFFFFF
         else:
-            got = await burst(dut, 0, offs)
-            # a read burst sees the model as it is (all writes before it completed)
-            assert got == [model[o] for o in offs], f"read {offs}: {got}"
-        done += n
-        if rng.random() < 0.3:
-            await ClockCycles(dut.clk, rng.randint(1, 4))
-    await ClockCycles(dut.clk, 20)
-    assert acks["n"] == done, f"{acks['n']} acks for {done} accesses"
+            off = rng.choice(list(LOCAL))
+            mask = LOCAL[off]
+        if rng.random() < 0.5:
+            v = rng.getrandbits(32)
+            await wr(m, off, v)
+            model[off] = v & mask
+        else:
+            got = await rd(m, off)
+            assert got & mask == model[off] & mask, f"0x{off:03X}: read 0x{got:08X}, model 0x{model[off]:08X}"

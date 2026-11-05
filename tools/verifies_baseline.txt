@@ -25,7 +25,6 @@ apps/e906_repl_app/tests/board/test_e906_trace.py: SPEC-TRACE-10
 apps/e906_repl_app/tests/board/tools/i2c_wedge.py: SPEC-E906-HAL-04
 apps/e906_repl_app/tests/unit/test_abstractx_coro.py: SPEC-E906-REPL-06
 apps/e906_repl_app/tests/unit/test_abstractx_coro.py: SPEC-E906-REPL-16
-sim/cocotb/wb_util.py: SPEC-FPGA-CLK-01
 sim/e906_shim/memory_map.h: SPEC-E906-HAL-03
 sim/test_baremetal_isr_spsc.cpp: SPEC-HAL-01
 sim/test_bus_protocols.cpp: SPEC-HAL-08

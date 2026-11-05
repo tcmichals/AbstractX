@@ -4,7 +4,7 @@
 `default_nettype none
 
 // AbstractX 64-byte TLP router, all-PIO fabric ([SPEC-TLP-07]).
-// Ingress: channel 0x01 (CONTROL) -> Wishbone master; every other channel -> PIO tile.
+// Ingress: channel 0x01 (CONTROL) -> control plane; every other channel -> PIO tile.
 // Egress: control completions, then the PIO stream; a presented TLP is held until accepted.
 //
 // @impl [SPEC-TLP-01] [SPEC-TLP-03] [SPEC-TLP-07] docs/DESIGN_SPECIFICATION.md
@@ -17,7 +17,7 @@ module asp_router (
     input  wire          s_tlp_tvalid,
     output logic         s_tlp_tready,
 
-    // CONTROL (channel 0x01) -> Wishbone master
+    // CONTROL (channel 0x01) -> control plane
     output logic [511:0] m_ctrl_tdata,
     output logic         m_ctrl_tvalid,
     input  wire          m_ctrl_tready,
@@ -32,18 +32,15 @@ module asp_router (
     output logic         m_egr_tvalid,
     input  wire          m_egr_tready,
 
-    input  wire  [511:0] s_wb_cpl_tdata,     // Wishbone completions
-    input  wire          s_wb_cpl_tvalid,
-    output logic         s_wb_cpl_tready,
+    input  wire  [511:0] s_cpl_tdata,        // control completions
+    input  wire          s_cpl_tvalid,
+    output logic         s_cpl_tready,
 
     input  wire  [511:0] s_pio_stream_tdata, // PIO tile stream
     input  wire          s_pio_stream_tvalid,
     output logic         s_pio_stream_tready
 );
-    localparam logic [7:0] CH_CONTROL = 8'h01;
-
-    wire [7:0] channel  = s_tlp_tdata[487:480];   // DW0 channel byte
-    wire       sel_ctrl = channel == CH_CONTROL;
+    wire sel_ctrl = asp_tlp_pkg::tlp_channel(s_tlp_tdata) == asp_tlp_pkg::CH_CONTROL;      // field map: asp_tlp_pkg ([SPEC-TLP-04])
 
     assign m_ctrl_tdata  = s_tlp_tdata;
     assign m_ctrl_tvalid = s_tlp_tvalid & sel_ctrl;
@@ -53,12 +50,12 @@ module asp_router (
 
     // Egress: fixed priority, but a grant is held while its TLP is presented and not accepted.
     logic held, held_pio;              // a TLP is presented and waiting; which source
-    wire  pick_pio = held ? held_pio : !s_wb_cpl_tvalid;
+    wire  pick_pio = held ? held_pio : !s_cpl_tvalid;
 
     always_comb begin
-        m_egr_tvalid        = pick_pio ? s_pio_stream_tvalid : s_wb_cpl_tvalid;
-        m_egr_tdata         = pick_pio ? s_pio_stream_tdata  : s_wb_cpl_tdata;
-        s_wb_cpl_tready     = !pick_pio && m_egr_tready;
+        m_egr_tvalid        = pick_pio ? s_pio_stream_tvalid : s_cpl_tvalid;
+        m_egr_tdata         = pick_pio ? s_pio_stream_tdata  : s_cpl_tdata;
+        s_cpl_tready     = !pick_pio && m_egr_tready;
         s_pio_stream_tready =  pick_pio && m_egr_tready;
     end
 

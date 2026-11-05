@@ -79,5 +79,5 @@ Drivers take these from `targets/allwinner_e906/include/hal/ports.hpp` ([SPEC-HA
 * **Switch Fabric**: `asp_router.sv` — Full 64-byte TLP crossbar switch routing frames across CPU bus and DIO lines.
 * **Bus Interfaces**:
   * **Data Plane**: AXI-Stream (`tdata[63:0]`, `tvalid`, `tready`, `tlast`).
-  * **Control Plane**: Wishbone B4 pipelined (`cyc`, `stb`, `we`, `adr[31:0]`, `dat[31:0]`, `ack`).
+  * **Control Plane**: AXI4-Lite (control TLPs -> `asp_tlp_axil_master` -> `axil_crossbar`; system registers `0x400000xx`, PIO tile `0x400007xx`-`0x400008xx`, else DECERR). No Wishbone since 2026-11-05.
   * **TLP Framing**: Strict 64-byte framing (`asp_tlp64_t`, `alignas(64)`), exactly 40-byte payload.

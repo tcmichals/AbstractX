@@ -175,8 +175,8 @@ find_program(ABX_VERILATOR verilator)
 find_program(ABX_COCOTB_CONFIG cocotb-config)
 find_program(ABX_MAKE NAMES make gmake)
 set(_cocotb_dir ${CMAKE_CURRENT_SOURCE_DIR}/cocotb)
-set(_pio_rtl ${PROJECT_SOURCE_DIR}/rtl/pio/third_party/wb2axip/rtl/wbm2axilite.v)  # last file the PIO RTL needs
-set(_pio_toplevels asp_top asp_pio_wrap)                                         # suites built from rtl/pio
+set(_pio_rtl ${PROJECT_SOURCE_DIR}/rtl/pio/third_party/verilog-axi/rtl/axil_reg_if.v)  # submodule files the RTL needs
+set(_pio_toplevels asp_top asp_pio_wrap asp_sys_regs asp_ctrl_plane)                 # suites that read rtl/pio
 
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
     add_custom_target(${TARGET_NAME}
@@ -215,7 +215,8 @@ add_cocotb_test(sim-test-spi-frontend-single asp_spi_frontend test_asp_spi_front
 add_cocotb_test(sim-test-axis-fifo    asp_axis_fifo          test_asp_axis_fifo_cocotb)
 add_cocotb_test(sim-test-router       asp_router             test_asp_router_cocotb)
 add_cocotb_test(sim-test-sys-regs     asp_sys_regs           test_asp_sys_regs_cocotb)
-add_cocotb_test(sim-test-wb-master    asp_wishbone_master    test_asp_wishbone_master_cocotb)
+# [SPEC-TLP-04] control TLPs -> AXI4-Lite (replaces the Wishbone master, 2026-11-05)
+add_cocotb_test(sim-test-axil-master  asp_ctrl_plane         test_asp_tlp_axil_master_cocotb)
 add_cocotb_test(sim-test-tlp64-top    asp_top                test_asp_top_pio_cocotb)
 add_cocotb_test(sim-test-axi-lite     asp_axi_lite_bridge    test_asp_axi_lite_bridge_cocotb)
 add_cocotb_test(sim-test-pio-wrap     asp_pio_wrap      test_asp_pio_wrap_cocotb)

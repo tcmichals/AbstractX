@@ -1,5 +1,10 @@
 # ASP Protocol Specification (ASP/1 - 64-Byte TLP Profile)
 
+> **Superseded in part (2026-11-05)**: there is no Wishbone and there are no dedicated peripheral cores in
+> the FPGA any more. Control is AXI4-Lite ([SPEC-TLP-04]), data is AXI-Stream, peripherals are PIO programs
+> ([SPEC-TLP-07]); see `docs/DESIGN_SPECIFICATION.md`. Text below that says otherwise describes the old design.
+
+
 **ASP** = **AbstractX Switch Protocol**
 
 This document is the **normative** protocol specification for `ASP/1` operating under the **PCIe-like 64-Byte Transaction Layer Packet (`asp-tlp-64b`)** profile in the AbstractX repository.
