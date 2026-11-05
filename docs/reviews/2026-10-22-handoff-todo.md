@@ -530,6 +530,12 @@ Severity tags refer to the system review.
 - **Files:** `apps/gps_imu_app/platforms/allwinner_e906/main.cpp`. Delete the raw writes to `0x40000004`/`0x4E010004`, and report uptime through the status or trace path.
 - **Accept:** `nm`/objdump shows no store to those addresses. The `e906-build-layout` check passes.
 - **Checks:** `e906-build-layout`, `memory-footprint`.
+- **Status (2026-11-05): done.** The raw writes were removed in `c4cca33` (2026-11-01). Checked on a
+  fresh `cmake --preset e906` build: layout 14 segments `[ok]`, no `[FAIL]`; no `sw`/`sh`/`sb` at
+  offset 4 after any of the 29 `lui 0x40000` / `lui 0x4e010` in `gps_imu_app` and neither constant in
+  `.rodata`/`.data` (the same scan finds both stores in a snippet that does the old writes);
+  `analyze_elf_size.sh`: SRAM_FAST 172.0/192.0 KB (89.6 %), DRAM 0.00 MB. Still linked:
+  `_malloc_r`, `_sbrk` (EL-1027-31, deferred).
 
 #### P0-06 Bound every RPMsg wait
 - **Why:** §7 (High). The E906 hangs when Linux isn't listening.
