@@ -542,6 +542,13 @@ Severity tags refer to the system review.
 - **Files:** `targets/allwinner_e906/src/rpmsg.cpp` (`notify_host`, `reply`, ring-error resync).
 - **Accept:** a host simulation (`sim/test_e906_rpmsg_flow_control.cpp`) with a full mailbox and no buffers returned: `tx_commit` returns `Busy` and the count rises, and after the ring recovers, RX resumes. It fails on the old code.
 - **Checks:** `host-tests`, `e906-board-selftest` (stop the host reader while streaming).
+- **Status (2026-11-05): done on the host, board check open.** Fixed in `d8bcbac` (2026-10-26:
+  `notify` tries `kMboxSendTries` then owes the kick, `tx_take` returns empty with no free buffer,
+  a torn avail index is resynced after `kRingResyncAfter` reads) and `0d5415e` (an owed kick wakes
+  idle). `sim_test_e906_rpmsg_flow_control` (full mailbox: `mbox_full_waits` rises and the kick is
+  owed; bad avail index resynced and RX resumes; asserts live through `-UNDEBUG`) passes in the
+  plain, ASan and TSan builds; `tools/audit_ipc_invariants.py`: PASS. Not run: the board step (stop
+  the host reader while streaming).
 
 #### P0-07 Make the traceability numbers honest
 - **Why:** §13.
