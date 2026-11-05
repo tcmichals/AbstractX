@@ -148,7 +148,8 @@ public:
         Tlp64 tlp{};
         tlp.wire.channel = static_cast<uint8_t>(Channel::Telemetry);
         tlp.wire.tag = TLP_TAG_MAG;
-        tlp.wire.type = 0x01; // Data stream
+        // @impl [SPEC-MAG-01] docs/DESIGN_SPECIFICATION.md (telemetry: DmaStream, not MemRead)
+        tlp.wire.type = static_cast<uint8_t>(abstractx::TlpType::DmaStream);
         tlp.wire.timestamp_ns = s.timestamp_us * 1000ULL;
 
         // Store milliGauss integers (int16_t) and heading (uint16_t in tenths of deg)

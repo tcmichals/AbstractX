@@ -1094,7 +1094,14 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
 
 ### `[SPEC-MAG-01]` 3-Axis Magnetometer Interface & Coroutine Ingestion
 * **Requirement**: Calibrated 3-axis magnetic field vector ingestion (`read_sample_async()`), returning `mag::MagSample` in milliGauss with hardware timestamping, adhering to the `IMagDriver` abstract interface with zero dynamic heap allocation.
-* **Verified by**: `host-tests`, `interface-compliance`
+* **Requirement (2026-11-05)**: `init_async()` returns `false` if any configuration write fails (no
+  sample is ever read from a part that was not configured); `UniversalCompass` uses HMC5883L at
+  `0x1E` when its ID reads `H43`, else QMC5883L at `0x0D`. A sample packed with `to_tlp` /
+  `pack_tlp` is autonomous telemetry ([SPEC-TLP-01]): type `DmaStream` (`0x10`), channel
+  `Telemetry`, tag `3`, the same layout for both parts (Studio decodes `type 0x10, tag 3`). The
+  drivers had type `0x01` (`MemRead`), which Studio's telemetry path ignores.
+* **Verified by**: `host-tests` (`sim/test_mag_drivers.cpp`: fake I2C bus with both parts, a NACK on each
+  configuration write, axis order and scale, chip selection, TLP header, 1000 reads flat), `interface-compliance`
 * **Implementation Target**: `include/abstractx/sensor/sensor_interface.hpp`, `applib/include/applib/drivers/mag/`
 
 ### `[SPEC-GPS-01]` U-Blox UBX-NAV-PVT Binary Parser & CTF TLP Emission

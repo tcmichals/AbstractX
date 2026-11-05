@@ -144,7 +144,8 @@ public:
         Tlp64 tlp{};
         tlp.wire.channel = static_cast<uint8_t>(Channel::Telemetry);
         tlp.wire.tag = TLP_TAG_MAG_HMC;
-        tlp.wire.type = 0x01;
+        // @impl [SPEC-MAG-01] docs/DESIGN_SPECIFICATION.md (telemetry: DmaStream, not MemRead)
+        tlp.wire.type = static_cast<uint8_t>(abstractx::TlpType::DmaStream);
         tlp.wire.timestamp_ns = s.timestamp_us * 1000ULL;
 
         int16_t mx = static_cast<int16_t>(s.mag_mgauss[0]);

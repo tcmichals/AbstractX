@@ -2903,7 +2903,7 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-20 | FPGA all-PIO | for ESC 4-way passthrough and bidirectional DShot on PIO: `asp_pio_tile` `o_gpio_out`/`o_gpio_pindir` unconnected and motor pins driven by `asp_dshot_core`; motor pins output-only (need `inout`, OE from `o_gpio_pindir`, fed back into `i_gpio`); 32-word shared IRAM (program swap while disarmed); SM FIFOs reachable only by Wishbone; no PIO DShot / bidir DShot / half-duplex UART programs or cocotb timing-parity tests | `rtl/asp_top.sv:52,321,392-394`, `rtl/pio/asp_pio_tile.sv:53` | spec first in `rtl/pio/SPECIFICATION.md` (passthrough: program swap, pin turnaround, TLP data path); check the other PC for all-PIO tops before RTL edits | `cocotb-regression`, `fpga-fit` |
 | EL-1027-21 | tools | `check_register_parity.py` compares Python with values hard-coded in the script (not parsed from RTL), spec check only looks for the offset string, skips E906 entries silently, does not check TLP word/byte layout or the UART core | `tools/check_register_parity.py` | parse RTL; add TLP layout check (would have caught EL-1027-16) | its own test |
 | EL-1027-22 | Python | `zynq_diagnostics.py` `wb_read32` discards unrelated egress TLPs (steals traffic from a running IoProcessor); shared `ing_word_idx` interleaves concurrent writers | `hw/zynq7000/qmtech_zynq7020/tools/zynq_diagnostics.py` | document exclusive use or filter by tag | review |
-| EL-1027-23 | applib | `Hmc5883l::init_async` ignores the three `write_reg_async` results (returns true on failure); `UniversalCompass::to_tlp` tags QMC samples as HMC; `[SPEC-MAG-01]` says `host-tests` but no host target compiles these headers | `applib/include/applib/drivers/mag/hmc5883l.hpp:90-96`, `compass.hpp` | fix + host test against a fake `II2c` | `host-tests`, `--check-verifies` |
+| EL-1027-23 | applib (**fixed 2026-11-05**: init results were already checked since `096954f`; QMC-as-HMC tag is byte-identical (false alarm); real bug: type `0x01` MemRead instead of `0x10` DmaStream; `sim/test_mag_drivers`) | `Hmc5883l::init_async` ignores the three `write_reg_async` results (returns true on failure); `UniversalCompass::to_tlp` tags QMC samples as HMC; `[SPEC-MAG-01]` says `host-tests` but no host target compiles these headers | `applib/include/applib/drivers/mag/hmc5883l.hpp:90-96`, `compass.hpp` | fix + host test against a fake `II2c` | `host-tests`, `--check-verifies` |
 | EL-1027-24 | E906 UART | `read_async(min, timeout_us)` with a timeout is refused (`NotSupported`): no deadline hook (`set_deadline_hook`) on the E906 | `include/abstractx/hal/uart_rx.hpp:135` | same pattern as EL-1027-09 (loop poll + `arm_wake`) | host test |
 | EL-1027-25 | E906 UART | DMA-mode RX handler keeps bounded `nop` waits (up to 1024 x 32 + 64) from the board-proven code | `targets/allwinner_e906/src/uart.cpp` `on_irq` | measure on the board (`irq_stats` cycles), then decide | `hal-concurrency-audit`, board |
 | EL-1027-26 | E906 tests | `sim/test_e906_uart.cpp` cannot cover interrupt-mode RX (RFL must drop on an RBR read) or the async write request | test header comment | register model with read side effects | `host-tests` |
@@ -3942,4 +3942,20 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `full_audit.py`: `matching_gcov()` picks `gcov-<major>` of `CMAKE_CXX_COMPILER`; coverage build with `-fprofile-update=atomic`; stale `*.gcda` deleted before ctest; gcovr runs in the build directory with absolute filters.
 * `tests/test_full_audit.py::test_coverage_uses_gcov_of_the_compiler_version` (fake compiler 99 -> `gcov-99`, fallback `gcov`).
 * **Evidence**: coverage stage now REPORT: lines 85.3% (3188/3739), functions 85.1% (516/606), branches 66.4% (1993/3001); no files left in the root. `run_static_analysis.py`: `[PASS] 0 known, no new`.
+
+## [2026-11-05] - EL-1027-23: magnetometer TLPs typed MemRead; drivers had no host test
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `applib/include/applib/drivers/mag/{hmc5883l,qmc5883l,compass}.hpp`
+* **Category**: `product-bug` (TLP type), `false-alarm` (two of the three tracker claims)
+* The tracker said: `init_async` ignores write results; `UniversalCompass::to_tlp` tags QMC as HMC; no host test compiles these headers. Checked: init results are checked since `096954f`; both parts' `to_tlp` give identical bytes (tag 3 for both), so the label has no effect. New: both set `type = 0x01` (`MemRead`) with the comment "data stream"; autonomous telemetry is `DmaStream` (`0x10`, [SPEC-TLP-01]) and Studio decodes magnetometer data on `type 0x10, tag 3` (`abstractx_studio.py:1430`). No caller uses these `to_tlp` today (the E906 bridge builds its own), so the bug was latent.
+
+### 2. Which check should have caught it
+* `[SPEC-MAG-01]` named `host-tests` but no host target compiled the headers (`--check-verifies` cannot see a missing test file). Nothing compares the TLP types a producer writes with what Studio decodes.
+* Agent note: the first version of the test passed its NACK cases for the wrong reason (the fake reported no I2C capabilities, so every transfer was refused before reaching the bus); the no-fault init assertion caught it. Every fault test needs a matching success case.
+
+### 3. Spec / fix / test
+* `[SPEC-MAG-01]`: init fails on any configuration write error; part selection; packed sample is `DmaStream` / `Telemetry` / tag 3.
+* Both drivers now write `TlpType::DmaStream`.
+* `sim/test_mag_drivers.cpp`: register-file fake with both parts; NACK on each of the 3+3 configuration writes fails init; HMC axis order X, Z, Y and scale (1090 LSB -> 1000 mG); `UniversalCompass` picks HMC on `H43`, else QMC, else fails; TLP header; 1000 reads with pool high water and dropped resumes flat. **Old code**: `Assertion 't.wire.type == ... DmaStream && "telemetry, not MemRead"' failed`; new: PASS.
 
