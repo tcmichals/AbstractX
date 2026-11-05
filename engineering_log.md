@@ -2915,8 +2915,8 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-32 | process | `--check-verifies`: 64 unbacked `@verifies` claims; `boundary_review.py --check`: 20 shared variables without an ownership note (both pre-existing) | tool output | work down the lists | the tools |
 | EL-1027-33 | other targets | Pico 2 W, ESP32-P4, Linux, Zynq have no `hal/ports.hpp` / `get_*_port` ([SPEC-HAL-15] status) | `[SPEC-HAL-15]` | per target | build per target |
 | EL-1027-34 | INAV repo | `flightcode/inav` `docs/ARCHITECTURE.md:369` and `TODO.md:137-145` point to the removed `AbstractX/apps/inav_e906_app` and claim "100% VERIFIED LIVE … 0 Heap"; `src/target/linux_sbc/a5e_riscv_target.hpp` is a stub (empty RPMsg write, `std::thread`). INAV `CLAUDE.md` forbids commits without the owner's instruction | INAV repo | owner decides; E906 runs generic AbstractX firmware (decided 2026-10-27) | n/a |
-| EL-1027-35 | tool env | TSan aborts on this PC's kernel ("unexpected memory mapping", exit 66) unless run under `setarch -R`; not a code fault | `ctest --test-dir build_tsan` | wrap the TSan ctest step in `setarch -R` where needed | `thread-sanitizer` |
-| EL-1027-36 | docs | `docs/design/repo-file-audit.md` still cites the deleted `e906_periph.cpp` (3 rows) | that file | update | `--check-drift` does not cover it |
+| EL-1027-35 | tool env | TSan aborts on this PC's kernel ("unexpected memory mapping", exit 66) unless run under `setarch -R`; not a code fault | `ctest --test-dir build_tsan` | **fixed** in `f8d63ce`: `tools/gate.sh` runs the TSan ctest under `setarch -R` (AGENTS §10.2); row closed 2026-11-05 | `thread-sanitizer` |
+| EL-1027-36 | docs | `docs/design/repo-file-audit.md` still cites the deleted `e906_periph.cpp` (3 rows) | that file | **fixed** 2026-11-05 (commit naming EL-1027-36): rows cite current users; `spsc_tlp_ring.hpp` marked removed (`5760297`) | `--check-drift` does not cover it |
 
 * **Suggested order**: EL-1027-30 (board run of what was just changed), -16 and -15/-13/-20 (FPGA path), -28 (SPI, same method), -24, -23, -17/-18/-19, -21/-27 (checks that would have caught these), the rest.
 

@@ -109,7 +109,7 @@ progress, out of scope).
 | `include/abstractx/coro.hpp` | keep | `examples/dual_processor_io_and_processing.cpp:24`; it is only a wrapper that includes `../asp_coro.hpp` (`coro.hpp:24`) |
 | `include/abstractx/domain_dispatcher.hpp` | keep | `apps/e906_bench/bench.cpp:12` |
 | `include/abstractx/isr_dispatcher.hpp` | keep (shim) | `include/abstractx/coro.hpp:25`; 4-line alias for `domain_dispatcher.hpp`, candidate to fold in |
-| `include/abstractx/interrupt_lock.hpp` | keep | `apps/e906_repl_app/src/e906_periph.cpp:14` |
+| `include/abstractx/interrupt_lock.hpp` | keep | `include/abstractx/hal/io_engine.hpp:23`, `include/tlp_ring.hpp:28` (2026-11-05; was `e906_periph.cpp`, split in `15f125c`) |
 | `include/abstractx/platform_topology.hpp` | keep | `include/abstractx/abstractx.hpp:27` |
 | `include/abstractx/timer.hpp` | removed 2026-10-28 | unused ETL TimerService that dropped handles ([SPEC-ARCH-10]) |
 | `include/abstractx/hal/async_driver.hpp` | keep | `include/abstractx/hal/i2c.hpp:19` |
@@ -127,7 +127,7 @@ progress, out of scope).
 | `include/asp_coro.hpp` | keep (relocate later) | 23 includers, e.g. `apps/e906_bench/bench.hpp:11`. The real coroutine core lives outside `include/abstractx/`; `abstractx/coro.hpp` wraps it |
 | `include/asp_tlp64.h`, `include/asp_tlp64.hpp` | keep | `asp_tlp64.hpp:11` includes the `.h`; `.hpp` has 26 includers; `.h` also read by `tests/test_board_suite_local.py:42` |
 | `include/asp_tlp_msg.hpp` | keep | `sim/test_baremetal_isr_spsc.cpp:18` |
-| `include/spsc_tlp_ring.hpp` | keep | `apps/e906_repl_app/src/e906_periph.cpp:19` |
+| `include/spsc_tlp_ring.hpp` | removed after this audit | no longer in the tree (2026-11-05; its user `e906_periph.cpp` was split in `15f125c`) |
 | `include/pcie_bar_map.hpp`, `include/pcie_reg_api.h` | keep (unsure naming) | `sim/sitl_coro_sim.cpp:19`, `targets/allwinner_e906/src/io_processor.cpp:25`; `pcie_bar_map.hpp:11` includes `pcie_reg_api.h`. "PCIe" naming is legacy for the TLP BAR map |
 | `include/asp_spi_protocol.h` | **remove** | no includer, no `@impl`, no doc reference |
 | `include/mpsc_isr_queue.hpp` | remove (after spec fix) | no includer; `MpscIsrQueue` is used nowhere in code; still named as Implementation Target in `docs/DESIGN_SPECIFICATION.md:35,108` |
@@ -147,7 +147,7 @@ progress, out of scope).
 | `targets/allwinner_e906/bsp/startup.S`, `resource_table.c`, `e906_ddr.ld` | keep | `targets/allwinner_e906/CMakeLists.txt` lines 1-3, `E906_LDSCRIPT` (line 37) |
 | `targets/allwinner_e906/bsp/e906_sram.ld` | unsure (likely remove) | no CMake user (`E906_LDSCRIPT` defaults to `e906_ddr.ld`); has `@impl [SPEC-E906-MEM-01]` (shared). `apps/gps_imu_app/platforms/allwinner_e906/HOWTO.md:87` names a non-existent `bsp/e906.ld` |
 | `targets/allwinner_e906/src/*.cpp` (17 files) | keep | all listed in `targets/allwinner_e906/CMakeLists.txt` `add_library(abstractx_target_e906 ...)`; `rpmsg.cpp`/`rpmsg_endpoints.cpp` also in `sim/CMakeLists.txt:29-41` |
-| `targets/allwinner_e906/include/hal/{ccu,clic,crash,dma,i2c,msgbox,pio,pmp,rpmsg,rpmsg_endpoints,spi,timer,trace,uart}.hpp` | keep | e.g. `apps/e906_repl_app/src/e906_periph.cpp:15-18`, `targets/allwinner_e906/src/io_processor.cpp:19`, `sim/test_e906_rpmsg_endpoints.cpp:16` |
+| `targets/allwinner_e906/include/hal/{ccu,clic,crash,dma,i2c,msgbox,pio,pmp,rpmsg,rpmsg_endpoints,spi,timer,trace,uart}.hpp` | keep | e.g. `apps/e906_repl_app/src/imu_drdy.cpp:15-18` (2026-11-05; was `e906_periph.cpp`), `targets/allwinner_e906/src/io_processor.cpp:19`, `sim/test_e906_rpmsg_endpoints.cpp:16` |
 | `targets/allwinner_e906/include/memory_map.h`, `resource_table.h` | keep | `apps/e906_repl_app/src/main.cpp:12`, `sim/test_e906_rpmsg_endpoints.cpp:17` |
 | `targets/allwinner_e906/include/hal/spsc_queue.hpp` | **remove** | no includer; `hal::` SPSC queue superseded by `include/spsc_tlp_ring.hpp` |
 | `targets/allwinner_e906/include/ipc_protocol.hpp` | **remove** | no includer; `fc::ipc` namespace from the earlier flight-controller design |
