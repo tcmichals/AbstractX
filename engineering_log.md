@@ -2896,7 +2896,7 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 |---|---|---|---|---|---|
 | EL-1027-13 | RTL Zynq | `top_qmtech_zynq7020` fails Verilator lint: router `s_pio_stream_*` unconnected (also at `2dfa62a`) | `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv:254` | connect or tie off as part of EL-1027-20 | `rtl-lint` |
 | EL-1027-15 | RTL | `asp_uart_core.sv` (new in `c5a1eaa`): egress TLP payload hard-wired zero and RX FIFO never drained, so it sends empty TLPs forever once 40 B arrive; ingress `s_tlp_tdata` accepted and dropped; IRQ flags never set; error flags never cleared; default divisor 14 at 27 MHz = 4.4% baud error; no cocotb test | `rtl/serial/asp_uart_core.sv:406,451`; instantiated `rtl/asp_top.sv:358` | remove (all-PIO direction, EL-1027-20); confirm the other PC has no newer version first | `cocotb-regression`, `rtl-lint` |
-| EL-1027-16 | Zynq C++ | `ZynqUioBridge::write_tlp`/`read_tlp` send DWORD 0 first, which lands in bits [31:0]; RTL decodes type/channel from [511:480] (`asp_axi_lite_bridge.sv:238`, `asp_wishbone_master.sv:106`); Python `zynq_diagnostics.py` matches the RTL. Every C++ TLP is misrouted | `targets/zynq7000/include/abstractx/target/zynq_uio.hpp:132,142` | spec the word order, fix C++, make the mock check order | `hw-sw-register-parity`, host test |
+| EL-1027-16 | Zynq C++ (wider: see 2026-11-05 entry, two TLP byte orders; owner decision A/B/C) | `ZynqUioBridge::write_tlp`/`read_tlp` send DWORD 0 first, which lands in bits [31:0]; RTL decodes type/channel from [511:480] (`asp_axi_lite_bridge.sv:238`, `asp_wishbone_master.sv:106`); Python `zynq_diagnostics.py` matches the RTL. Every C++ TLP is misrouted | `targets/zynq7000/include/abstractx/target/zynq_uio.hpp:132,142` | spec the word order, fix C++, make the mock check order | `hw-sw-register-parity`, host test |
 | EL-1027-17 | Zynq C++ | UIO interrupt unmasked only when `egress_count()==0` after a drain, so it can stay masked; `ingress_rx_ring->push()` result ignored (packet lost silently) | `zynq_uio.hpp` `ack_interrupt`, `targets/zynq7000/src/io_processor.cpp` | spec + fix | `ipc-transport-audit` |
 | EL-1027-18 | Linux/Zynq | `platform_idle_wait` now `sched_yield()`: an idle core spins at 100% | `targets/zynq7000/src/hal_platform.cpp:65` | wait on the UIO fd / eventfd with a timeout | review |
 | EL-1027-19 | Zynq tests | `sim/test_zynq_target.cpp` `@verifies` SPEC-ZYNQ-02 / -06 but never runs poll/ack or timestamps; checks are `assert()` with side effects (vanish under NDEBUG); no 1000-cycle test | `sim/test_zynq_target.cpp` | rewrite with CHECK, drive poll/ack | `--check-verifies` |
@@ -3868,4 +3868,22 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Also found (`process-gap`)**: `tools/boundary_review.py --check` failed on `main` since `c4cca33` (2026-11-01): `g_stop` in `e906_rpmsg_studio_bridge.cpp` had no `// shared:` note. Fixed (signal handler writes, the one host thread reads; `volatile sig_atomic_t`). Not caught because `tools/gate.sh` does not run `boundary_review.py`; it is only in the skill and `full_audit.py`.
 * **Also found (`process-gap`, agent miss)**: a `git stash` / `stash pop` while `tools/gate.sh` was building left the TSan test object compiled from the stashed (old) source but newer than the restored file, so the next gate counted it up to date: TSan "passed" without the new case. Caught by grepping each build's `LastTest.log` for the new case name. Lesson: never change the working tree while the gate builds; check that a new test case appears in each build's log, not only the pass count.
 * **Evidence**: gate, E906 layout and `analyze_elf_size.sh` quoted in the commit message.
+
+## [2026-11-05] - EL-1027-16 is wider than the Zynq word order: two TLP byte orders
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `include/asp_tlp64.hpp`, every C++ -> FPGA transport, `rtl/`
+* **Category**: `product-bug` (not yet fixed; owner decision needed)
+* **Symptoms**: EL-1027-16 says `ZynqUioBridge::write_tlp` sends DWORD 0 first (it lands in bits [31:0]) while the RTL decodes type/tag/channel from [511:480]. Checking the fix showed a second, wider mismatch.
+
+### 2. Root Cause & Lesson Learned
+* **Two wire byte orders exist.** RTL (`asp_wishbone_master.sv:106-112`, `asp_router.sv:66`), the cocotb tests (`test_asp_tlp_64b_cocotb.py:40`: `struct.pack(">BBBBIHHQ40s")`) and `zynq_diagnostics.py` treat the 64 bytes as big-endian: byte 0 at bits [511:504], `target_address`, `length_dw`, `sequence`, `timestamp_ns` most-significant byte first. The C++ struct `asp_tlp64_t` stores those fields native (little-endian on every target) and nothing swaps them (no `bswap`/`htobe` in `include/ src/ targets/ applib/ apps/`). The software tools (`tools/abstractx_wire.py:16`, `board_studio_bridge.py`, `flight_plugin.py`, `ctf_schema_loader.py`) use `"<BBBBIHHQ"`; `abstractx_studio.py:1366-1367` unpacks both orders. `make_mem_write` puts the payload value big-endian, so only the payload agrees with the RTL.
+* **Consequence**: any C++-built TLP sent to the FPGA (Zynq AXI-Lite, and the E906/TN20K Dual-SPI path) carries a byte-swapped address, length, sequence and timestamp, in addition to the Zynq word order. Software-to-software paths (RPMsg, Linux) agree because both ends use the same struct.
+* **Which check should have caught it**: `[SPEC-TLP-01]` lists the fields and sizes but no byte order or bit position; `check_register_parity.py` does not check TLP layout (EL-1027-21); no test sends a C++ `Tlp64` through RTL.
+
+### 3. Decision needed (before the spec)
+* **A**: the wire is big-endian everywhere; C++ gets accessors, the Python tools switch to `>`.
+* **B (smallest)**: memory/software format stays little-endian; each FPGA transport converts at one boundary (`to_fpga_words` / `from_fpga_words` in `asp_tlp64.hpp`: header fields to big-endian, byte 0 at bit 511, 16 DWORDs DW0 = bits [511:480]). Zynq `write_tlp` sends DW15 first because the bridge packs the first write into [31:0].
+* **C**: change the RTL and cocotb to little-endian.
+* Also check `asp_axi_dma.sv:311`: beat 0 = bits [511:448] goes to DDR bytes 0..7 as a little-endian 64-bit beat, so DW0 lands at bytes 4..7.
 
