@@ -22,7 +22,7 @@ public:
     void delay_us(uint32_t us) override {
         struct timespec req{};
         req.tv_sec = us / 1'000'000;
-        req.tv_nsec = (us % 1'000'000) * 1'000;
+        req.tv_nsec = static_cast<long>(us % 1'000'000) * 1'000;  // < 1e9
         ::nanosleep(&req, nullptr);  // boot-only ([SPEC-HAL-05])
     }
 

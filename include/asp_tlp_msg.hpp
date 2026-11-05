@@ -17,6 +17,8 @@
 #include <array>
 #include <string_view>
 
+// Compact processor-side TLP forms; checked by sim/test_tlp_msg.cpp.
+// @impl [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md
 namespace abstractx {
 
 // Common 20-Byte TLP Header shared identically across FPGA & Processor targets
@@ -84,11 +86,11 @@ struct __attribute__((packed)) TlpVar {
     uint8_t   payload[MaxPayload];
 
     constexpr size_t total_size() const noexcept {
-        return sizeof(TlpHeader) + (header.length_dw * 4);
+        return sizeof(TlpHeader) + (static_cast<size_t>(header.length_dw) * 4U);
     }
 
     constexpr std::span<const uint8_t> get_payload() const noexcept {
-        size_t len = header.length_dw * 4;
+        size_t len = static_cast<size_t>(header.length_dw) * 4U;
         if (len > MaxPayload) len = MaxPayload;
         return std::span<const uint8_t>{payload, len};
     }
@@ -99,7 +101,7 @@ struct __attribute__((packed)) TlpVar {
 // Passes memory buffers without copying data bytes through the ring
 // -----------------------------------------------------------------------------
 struct TlpDescriptor {
-    TlpHeader      header;
+    TlpHeader      header{};
     const uint8_t* payload_ptr{nullptr};
     size_t         payload_len{0};
     void*          user_context{nullptr}; // e.g. custom buffer deallocator / pool handle

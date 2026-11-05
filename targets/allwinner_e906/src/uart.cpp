@@ -153,7 +153,7 @@ bool E906Uart::start_rx_dma() noexcept {
     for (uint32_t i = 0; i < kN; ++i) {
         const uint32_t next_pa = ::hal::DmaController::pa(&bufs_.rx_lli[(i + 1U) & (kN - 1U)]);
         bufs_.rx_lli[i] = ::hal::DmaController::make_periph2mem(
-            port_.base + kRbr, bufs_.dma_rx + i * kBuf, kBuf, port_.drq,
+            port_.base + kRbr, bufs_.dma_rx + static_cast<size_t>(i) * kBuf, kBuf, port_.drq,
             ::hal::DMA_BURST_1, ::hal::DMA_WIDTH_8, next_pa);
     }
     reg(kIir) = 0x8FU;       // FCR: FIFO on, reset both, DMA mode 1, RX trigger half full

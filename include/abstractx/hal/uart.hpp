@@ -255,7 +255,7 @@ public:
     // @impl [SPEC-HAL-10] docs/DESIGN_SPECIFICATION.md
     struct AsyncBreakAwaiter {
         AsyncUartDriver& driver;
-        uint32_t         us;
+        uint32_t         us{0};
         UartTxRequest    request{};
         UartResult       result{};
 

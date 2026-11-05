@@ -3925,3 +3925,21 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `sim/test_zynq_target.cpp` `test_full_ingress_ring_backpressure`: ring full, egress 5, 1000 `step(0)` calls all return 0, no callback; one slot freed -> exactly one packet moves. **Old code**: `Assertion 'io_proc.step(0) == 0 && "nothing may be taken from the FPGA while the ring is full"' failed`; new code passes. Also `#undef NDEBUG` in that test (its asserts carry the calls under test; part of EL-1027-19).
 * **Limit**: the mock register file cannot see reads of `REG_TLP_OUT_PORT`, so the test observes the return value and the callback, not the port reads themselves.
 
+## [2026-11-05] - Full audit (no hardware): static analysis and coverage stages were red
+
+### 1. Mistake / Bug Observed
+* **Category**: `tool-bug` (coverage), `process-gap` (static analysis)
+* `tools/full_audit.py` on `5c3b8f3`: gate PASS, trace 9/9 PASS, e906 PASS; **static FAIL** (19 new clang-tidy findings over the shrink-only baseline), **coverage FAIL** (`gcovr failed`, `GCOV returncode was 3`), and gcovr left ~30 `*.gcov` files in the repository root.
+
+### 2. Root Cause & Lesson Learned
+* **Coverage**: `/usr/bin/c++` is GCC 14 but gcovr ran the default `gcov` (13): mismatched note/data formats, gcov exit 3. With `gcov-14`, gcov then reported negative branch counts (GCC PR 68080) because the host tests run threads and the plain profile counters race; gcovr aborted, and an aborted gcovr does not delete its `*.gcov` intermediates (hence the files in the root).
+* **Static**: nobody runs `run_static_analysis.py` per change (the gate does not), so findings piled up after the baseline was written (`a0791a0`).
+* Real findings among the 19: none was a runtime bug. The `bind()` of the bridge's control port was ignored (now reported); `getenv` read twice (analyzer null-pointer warning). The rest: implicit widening in index/MMIO arithmetic (host-only on the 32-bit E906), member init, single-threaded `getenv`/`exit` (`NOLINT` with the reason), a deliberate no-op copy assignment, an optional read without a check (now traps, [SPEC-ARCH-09] style).
+* **cppcheck (advisory)**: 5 findings, all false alarms: `p ? *p : get()` returns an lvalue reference, not a temporary (`platform.hpp:98,104,111`); placement-new in `tracer.hpp:543` breaks its parser; `RequestState::operator=` is the deliberate no-op above.
+* **Agent miss**: I deleted `include/asp_tlp_msg.hpp` as "unused" after reading a grep cut to 10 lines; `io_engine.hpp` and four sim tests include it. The build caught it at once; restored and tagged `[SPEC-TLP-01]` (it is checked by `sim/test_tlp_msg.cpp`). Lesson: never cut a "who uses this" search before deleting.
+
+### 3. Fix
+* `full_audit.py`: `matching_gcov()` picks `gcov-<major>` of `CMAKE_CXX_COMPILER`; coverage build with `-fprofile-update=atomic`; stale `*.gcda` deleted before ctest; gcovr runs in the build directory with absolute filters.
+* `tests/test_full_audit.py::test_coverage_uses_gcov_of_the_compiler_version` (fake compiler 99 -> `gcov-99`, fallback `gcov`).
+* **Evidence**: coverage stage now REPORT: lines 85.3% (3188/3739), functions 85.1% (516/606), branches 66.4% (1993/3001); no files left in the root. `run_static_analysis.py`: `[PASS] 0 known, no new`.
+

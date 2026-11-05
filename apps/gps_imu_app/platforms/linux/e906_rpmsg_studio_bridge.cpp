@@ -100,7 +100,7 @@ bool find_rpmsg_node(const char* target_name, char* out_dev, size_t out_cap) {
         return false;
     }
     struct dirent* ent = nullptr;
-    while ((ent = readdir(dir)) != nullptr) {
+    while ((ent = readdir(dir)) != nullptr) {  // NOLINT(concurrency-mt-unsafe): own DIR*, one thread
         if (std::strncmp(ent->d_name, "rpmsg", 5) != 0) {
             continue;
         }
@@ -309,7 +309,7 @@ void decode_and_emit_imu(const uint8_t* raw14, bool auto_dma_flag) {
     imu_tlp.wire.payload[14] = 1; // ICM42688P
     imu_tlp.wire.payload[15] = 0;
     for (int i = 0; i < 7; ++i) {
-        pack_le16(&imu_tlp.wire.payload[16 + i * 2], unpack_be16(&raw14[i * 2]));
+        pack_le16(&imu_tlp.wire.payload[16U + static_cast<size_t>(i) * 2U], unpack_be16(&raw14[static_cast<size_t>(i) * 2U]));
     }
     imu_tlp.wire.crc32 = 0xEFBEADDEU;
     emit_studio_tlp(imu_tlp);
@@ -662,20 +662,21 @@ int main(int argc, char** argv) {
     std::signal(SIGTERM, on_signal);
 
     const char* ctrl_path = "/dev/rpmsg_ctrl0";
-    const char* host_ip = std::getenv("STUDIO_HOST_IP");
+    // Environment is read once at start-up, before any thread exists.
+    const char* host_ip = std::getenv("STUDIO_HOST_IP");  // NOLINT(concurrency-mt-unsafe): single-threaded start-up
     if (!host_ip || !*host_ip) {
         host_ip = "127.0.0.1";
     }
     int studio_port = 9870;
-    if (const char* env_port = std::getenv("STUDIO_PORT")) {
+    if (const char* env_port = std::getenv("STUDIO_PORT")) {  // NOLINT(concurrency-mt-unsafe): single-threaded start-up
         int p = std::atoi(env_port);
         if (p > 0 && p < 65536) {
             studio_port = p;
         }
     }
     int listen_port = 9872;
-    bool exit_on_stdin_eof = (std::getenv("EXIT_ON_STDIN_EOF") != nullptr &&
-                              std::strcmp(std::getenv("EXIT_ON_STDIN_EOF"), "1") == 0);
+    const char* env_eof = std::getenv("EXIT_ON_STDIN_EOF");  // NOLINT(concurrency-mt-unsafe): single-threaded start-up
+    bool exit_on_stdin_eof = (env_eof != nullptr && std::strcmp(env_eof, "1") == 0);
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--ctrl") == 0 && i + 1 < argc) {
@@ -729,7 +730,10 @@ int main(int argc, char** argv) {
     listen_addr.sin_family = AF_INET;
     listen_addr.sin_port = htons(static_cast<uint16_t>(listen_port));
     listen_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    (void)bind(in_sock, reinterpret_cast<struct sockaddr*>(&listen_addr), sizeof(listen_addr));
+    if (bind(in_sock, reinterpret_cast<struct sockaddr*>(&listen_addr), sizeof(listen_addr)) != 0) {
+        std::fprintf(stderr, "[bridge] control port %d not bound (%s): Auto-DMA control disabled\n", listen_port,
+                     std::strerror(errno));  // NOLINT(concurrency-mt-unsafe): single-threaded start-up
+    }
 
     send_hello(tlp_fd);
     send_hello(trace_fd);

@@ -61,7 +61,7 @@ public:
     // One waiter at a time ([SPEC-E906-CORO-01]): await_suspend() returns false
     // (no suspend) if another coroutine already holds the wake slot.
     struct AsyncRxAwaiter {
-        IRpmsg *driver;
+        IRpmsg *driver{nullptr};
         void   *registered{nullptr};
         bool await_ready() const noexcept;
         bool await_suspend(std::coroutine_handle<> handle) noexcept;

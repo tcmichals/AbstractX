@@ -169,6 +169,7 @@ public:
         }
 
         bool await_ready() noexcept {
+            // NOLINTNEXTLINE(bugprone-branch-clone): two NotSupported causes, checked in priority order
             if (ring == nullptr) {
                 refused = UartStatus::NotSupported;          // driver has no receive ring
             } else if (min_bytes == 0 || min_bytes > ring->max_read_bytes()) {

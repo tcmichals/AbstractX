@@ -37,7 +37,7 @@ inline volatile uint8_t* ctl(uint32_t line) noexcept {
 // Host builds (sim tests compile the RPMsg driver): a RAM stand-in, never MMIO.
 inline volatile uint8_t* ctl(uint32_t line) noexcept {
     static uint8_t regs[kNumLines * 4]{};
-    return &regs[4U * line];
+    return &regs[static_cast<size_t>(line) * 4U];
 }
 #endif
 

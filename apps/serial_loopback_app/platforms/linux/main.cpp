@@ -105,7 +105,7 @@ Task<void> sitl_queue_swap_task(hal::ITimer& timer) {
 
     printf("\n[SITL SUCCESS] 2-Queue in-memory loopback completed: %u/%u echoes verified with zero loss!\n",
            total_echoed, ping_seq);
-    std::exit(0);
+    std::exit(0);  // NOLINT(concurrency-mt-unsafe): SITL demo ends the process from its only thread
 }
 
 Task<void> app_main() {

@@ -52,7 +52,7 @@ public:
         }
 
         const char* uio_dev = "/dev/uio0";
-        if (const char* env_dev = ::getenv("ABSTRACTX_UIO_DEV")) {
+        if (const char* env_dev = ::getenv("ABSTRACTX_UIO_DEV")) {  // NOLINT(concurrency-mt-unsafe): read in start(), before step() runs
             uio_dev = env_dev;
         }
 

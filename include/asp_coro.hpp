@@ -92,6 +92,13 @@ template <typename Handle>
 inline void require_frame(Handle h) noexcept {
     if (!h) on_pool_exhausted();
 }
+
+// A finished Task<T> always holds its co_return value; an empty one is a broken coroutine: trap.
+template <typename Opt>
+inline auto& require_value(Opt& o) noexcept {
+    if (!o.has_value()) __builtin_trap();
+    return *o;  // NOLINT(bugprone-unchecked-optional-access): checked on the line above
+}
 } // namespace detail
 
 // @impl [SPEC-ARCH-09] docs/DESIGN_SPECIFICATION.md#spec-arch-09
@@ -322,11 +329,11 @@ public:
 
     T await_resume() noexcept {
         detail::require_frame(handle_);
-        return std::move(*handle_.promise().result_);
+        return std::move(detail::require_value(handle_.promise().result_));
     }
 
-    const T& get_result() const { detail::require_frame(handle_); return *handle_.promise().result_; }
-    T& get_result() { detail::require_frame(handle_); return *handle_.promise().result_; }
+    const T& get_result() const { detail::require_frame(handle_); return detail::require_value(handle_.promise().result_); }
+    T& get_result() { detail::require_frame(handle_); return detail::require_value(handle_.promise().result_); }
 
     handle_type handle() const noexcept { return handle_; }
 
@@ -363,7 +370,7 @@ public:
             }
             T await_resume() const {
                 detail::require_frame(handle_);
-                return *handle_.promise().result_;
+                return detail::require_value(handle_.promise().result_);
             }
         };
         return Awaiter{handle_};

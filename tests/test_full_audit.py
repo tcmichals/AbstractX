@@ -68,9 +68,30 @@ def test_gate_stops_on_build_error_before_ctest():
         assert not marker.exists(), "ctest ran after a failed build"
 
 
+def test_coverage_uses_gcov_of_the_compiler_version():
+    # A GCC 14 build read by gcov 13 fails (gcov exit 3); pick gcov-<major> of CMAKE_CXX_COMPILER.
+    with tempfile.TemporaryDirectory() as d:
+        cxx = Path(d, "fake-c++")
+        cxx.write_text("#!/bin/sh\necho 99.1.0\n")
+        gcov = Path(d, "gcov-99")
+        gcov.write_text("#!/bin/sh\nexit 0\n")
+        for p in (cxx, gcov):
+            p.chmod(p.stat().st_mode | stat.S_IEXEC)
+        Path(d, "CMakeCache.txt").write_text(f"CMAKE_CXX_COMPILER:FILEPATH={cxx}\n")
+        saved = os.environ["PATH"]
+        os.environ["PATH"] = f"{d}:{saved}"
+        try:
+            assert fa.matching_gcov(Path(d)) == "gcov-99"
+            gcov.unlink()
+            assert fa.matching_gcov(Path(d)) == "gcov", "falls back when gcov-<major> is missing"
+        finally:
+            os.environ["PATH"] = saved
+
+
 if __name__ == "__main__":
     test_failing_stage_fails_the_audit()
     test_timeout_is_not_a_pass()
     test_missing_tool_is_skipped_not_passed()
     test_gate_stops_on_build_error_before_ctest()
+    test_coverage_uses_gcov_of_the_compiler_version()
     print("[PASS] full_audit / gate: failures fail, timeouts and missing tools never pass, build error stops ctest")

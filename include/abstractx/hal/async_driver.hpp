@@ -61,7 +61,8 @@ struct RequestState {
 
     RequestState() = default;
     RequestState(const RequestState&) noexcept {}
-    RequestState& operator=(const RequestState&) noexcept { return *this; }
+    // Copies never carry the in-flight state: a request is armed in place (no-op, self included).
+    RequestState& operator=(const RequestState&) noexcept { return *this; }  // NOLINT(bugprone-unhandled-self-assignment)
     ~RequestState() { if (driver) abandon_request(*driver, word); }
 
     void arm(ICancellable& d) noexcept {

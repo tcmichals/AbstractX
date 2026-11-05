@@ -491,7 +491,7 @@ bool poll(Transport &t) {
             if (hdr == nullptr || msg_len > buf_len - kHdr) {
                 t.ring_errors.fetch_add(1, std::memory_order_relaxed);
             } else {
-                RpmsgMessage msg;
+                RpmsgMessage msg{};
                 msg.src = hdr->src;
                 msg.dst = hdr->dst;
                 msg.len = msg_len;

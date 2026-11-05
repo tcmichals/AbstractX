@@ -34,7 +34,7 @@ namespace hal {
 #define DMA_IRQ_CPU_EN_REG          (*(volatile uint32_t *)(SUNXI_DMA_BASE + 0x0034))  // channel IRQ -> Linux
 #define DMA_IRQ_MCU_EN_REG          (*(volatile uint32_t *)(SUNXI_DMA_BASE + 0x0038))  // channel IRQ -> E906
 
-#define DMA_CHAN_BASE(ch)           (SUNXI_DMA_BASE + 0x0100 + ((ch) * 0x0040))
+#define DMA_CHAN_BASE(ch)           (SUNXI_DMA_BASE + 0x0100 + (static_cast<uintptr_t>(ch) * 0x0040U))
 #define DMA_CHAN_ENABLE_REG(ch)     (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0000))
 #define DMA_CHAN_PAUSE_REG(ch)      (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0004))
 #define DMA_CHAN_LLI_ADDR_REG(ch)   (*(volatile uint32_t *)(DMA_CHAN_BASE(ch) + 0x0008))

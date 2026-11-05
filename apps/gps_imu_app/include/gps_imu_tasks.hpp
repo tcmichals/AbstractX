@@ -101,7 +101,7 @@ inline Tlp64 make_imu_tlp_from_raw(const uint8_t* raw14, uint16_t seq, uint64_t 
     tlp.wire.payload[14]    = 1; // ICM42688P chip code
     tlp.wire.payload[15]    = 0;
     for (int i = 0; i < 7; ++i) {
-        pack_le16(&tlp.wire.payload[16 + i * 2], unpack_be16(&raw14[i * 2]));
+        pack_le16(&tlp.wire.payload[16U + static_cast<size_t>(i) * 2U], unpack_be16(&raw14[static_cast<size_t>(i) * 2U]));
     }
     tlp.wire.crc32 = 0xEFBEADDEU;
     return tlp;

@@ -131,21 +131,41 @@ def stage_static(args) -> Result:
                   "; ".join(parts) or "no analyzer installed", details)
 
 
+def matching_gcov(build_dir: Path) -> str:
+    """gcov of the same major version as the build's C++ compiler. A GCC 14 build read by the
+    default gcov 13 makes gcov exit 3 and gcovr fail (2026-11-05)."""
+    cache = build_dir / "CMakeCache.txt"
+    m = re.search(r"^CMAKE_CXX_COMPILER:\w+=(.+)$", cache.read_text(), re.M) if cache.exists() else None
+    if m:
+        rc, ver = sh([m.group(1).strip(), "-dumpversion"], timeout=60)
+        major = ver.strip().split(".")[0]
+        if rc == 0 and major.isdigit() and have(f"gcov-{major}"):
+            return f"gcov-{major}"
+    return "gcov"
+
+
 def stage_coverage(args) -> Result:
     title = "Coverage of the host suite (core, hosts, Linux target)"
     if not have("gcovr"):
         return Result("coverage", title, SKIPPED, "gcovr not installed")
     d, jobs = ROOT / "build_cov", f"-j{os.cpu_count() or 4}"
     rc, out = sh(["cmake", "-S", ".", "-B", str(d), "-DABSTRACTX_TARGET=host",
-                  "-DCMAKE_CXX_FLAGS=--coverage -O0", "-DCMAKE_EXE_LINKER_FLAGS=--coverage"], timeout=900)
+                  "-DCMAKE_CXX_FLAGS=--coverage -fprofile-update=atomic -O0",
+                  "-DCMAKE_EXE_LINKER_FLAGS=--coverage"], timeout=900)
     if rc == 0:
         rc, out = sh(["cmake", "--build", str(d), jobs], timeout=3600)
     if rc != 0:
         return Result("coverage", title, FAIL, "coverage build failed", tail(out))
+    # Atomic counters: the host tests run threads; plain counters race and gcov then reports
+    # negative hits (GCC PR 68080) that make gcovr abort (2026-11-05).
+    sh(["find", str(d), "-name", "*.gcda", "-delete"], timeout=300)  # no counts from older builds
     sh(["ctest", "--test-dir", str(d), jobs, "--timeout", "300"], timeout=3600)
-    rc, out = sh(["gcovr", "-r", ".", str(d), "--filter", "include/", "--filter", "src/",
-                  "--filter", "hosts/", "--filter", "targets/linux/", "--gcov-ignore-errors=all",
-                  "--sort", "uncovered-percent", "--txt", "-", "--txt-summary"], timeout=1800)
+    # cwd = build dir: gcov writes its *.gcov intermediates in the working directory, never the repo root.
+    rc, out = sh(["gcovr", "-r", str(ROOT), str(d), "--gcov-executable", matching_gcov(d),
+                  "--filter", str(ROOT / "include") + "/", "--filter", str(ROOT / "src") + "/",
+                  "--filter", str(ROOT / "hosts") + "/", "--filter", str(ROOT / "targets/linux") + "/",
+                  "--gcov-ignore-errors=all", "--sort", "uncovered-percent", "--txt", "-", "--txt-summary"],
+                 timeout=1800, cwd=d)
     if rc != 0:
         return Result("coverage", title, FAIL, "gcovr failed", tail(out))
     summary = " ".join(ln.strip() for ln in out.splitlines() if ln.startswith(("lines:", "functions:", "branches:")))
