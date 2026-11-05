@@ -6,6 +6,51 @@ This document is the authoritative roadmap and active engineering task tracker f
 
 ## 🚀 Active In-Flight Roadmap (Milestone 7 Architecture)
 
+### 0. FPGA: all-PIO, AXI-only, little-endian TLP (owner decisions 2026-11-05)
+Decisions: the TLP is always little-endian (byte k at bits [8k+7:8k], fields LE); the dedicated cores and
+`asp_axi_dma` / `asp_ila_trace` are removed; no Wishbone anywhere: AXI4-Lite registers + AXI-Stream data
+(pio2 is already AXI-only); motor failsafe = whatever is easiest (plan: fixed gate on the motor pins);
+commit, do not push. Every sim and build runs under `timeout` (60 s per sim; synthesis only with the
+owner's OK).
+
+- [ ] **A. Remove the old cores, all-PIO `asp_top`** ([SPEC-TLP-07], **in progress, uncommitted**):
+  cores and their tests deleted; router = CONTROL -> registers, every other channel -> PIO tile, egress
+  grant held until accepted (old router changed `tdata` under `tvalid`: shown failing on the old code);
+  shared pin map `rtl/asp_pio_pins.sv` (board ports unchanged); Zynq top gets the same PIO tile;
+  Wishbone master duplicate-completion bug fixed and tested (moot once B lands).
+  Open: `sim/cocotb/test_asp_top_pio_cocotb.py` motor test fails (PIO program does not drive motor 0
+  yet: debug); `check_register_parity.py` still checks the removed IMU core; `zynq_diagnostics.py`,
+  `tools/example_imu_whoami.py`, `hw/zynq7000/testApps/imu_backend_validation_poc/` drive the removed
+  IMU core (mark retired); specs `[SPEC-ZYNQ-03]`, `[SPEC-ZYNQ-04]` (IMU engine), `[SPEC-TN20K-03]`
+  feature table, `rtl/README.md`; WS2812, RC PWM capture and general UART have no PIO program yet.
+- [ ] **B. Wishbone -> AXI4-Lite** (owner: no Wishbone): `asp_tlp_axil_master.sv` replaces
+  `asp_wishbone_master.sv` (MemRead/MemWrite/burst -> AXI4-Lite, one completion per read held until
+  accepted, SLVERR/DECERR -> error status in the completion); Forencich `axil_crossbar` (pio2
+  `third_party/verilog-axi`): SYS `0x400000xx`, PIO `0x400007xx`-`0x400008xx`, else DECERR;
+  `asp_sys_regs` as an AXI4-Lite slave (same map); `asp_pio_wrap` an AXI4-Lite slave serving the TLP-path
+  registers and passing the rest to the tile (no `wbm2axilite`); both tops rewired; source lists.
+  Tests: AXI4-Lite master (random backpressure on all channels, errors, bursts, exactly one completion),
+  sys regs, pio-wrap / pio-tlp-path helpers; optional ZipCPU formal properties. Docs: AGENTS.md section 11
+  ("control plane is Wishbone"), `.agents/rules/silicon-api-atlas.md`, [SPEC-TLP-05], [SPEC-TLP-07], Zynq and
+  Tang specs, `rtl/README.md`, `check_register_parity.py`. Host software unchanged (same TLPs, same addresses).
+- [ ] **C. TLP little-endian everywhere** (EL-1027-16): RTL field positions (router channel byte, SPI
+  frontend byte order, TLP master, `rtl/pio_tlp/`, `asp_axi_lite_bridge` word order), cocotb packers
+  (`<` instead of `>`), `zynq_diagnostics.py`, C++ `make_mem_write` / completion payload byte order,
+  `abstractx_studio.py` (drop the "try both orders" decode), `[SPEC-TLP-01]` states the byte order;
+  `check_register_parity.py` gets a TLP layout check (EL-1027-21). Write B's new modules LE from the start.
+- [ ] **D. Motor failsafe** (P0-01..03): fixed gate on GPIO 0..3 in `asp_top`: ARM bit + heartbeat
+  watchdog in `asp_sys_regs`; disarmed or heartbeat lost -> motor pins forced low; cocotb test.
+- [ ] **E. Tang Nano 20K fit** (`[SPEC-TN20K-03]`): was LUT4 95 %, no placement, with the old cores in;
+  re-measure after A-D (`make tang_nano20k_fit`, minutes: owner OK given); Tang 9K / Primer 20K too.
+- [ ] **F. Later (owner decision)**: `pio2_core` with its SPI link / Zynq adapter replaces the TLP path on
+  the FPGA (pio2 `[SPEC-ICN-11]`); changes the C++ host side.
+
+Other open work from the 2026-11-05 audit (no decision needed): manual audit review document
+(`full-audit` skill: concurrency, buses, GUI, board claims, OS hosting); EL-1027-19 (Zynq test does not
+drive poll/ack), -21, -22, -24..-28, -33, -34, -47, -48; `spectrace_matrix --changes` files a hunk under the
+section of its first context line; `tools/gate.sh` runs neither `boundary_review.py` nor static analysis;
+pio2 commit `92c34c7` (replay test, skip-is-not-pass) is local only (owner: do not push).
+
 ### 1. Unified Master Runtime API (`abstractx::`) `[SPEC-ARCH-06]`
 - [x] **Declare Master Interface**: Created [`include/abstractx/abstractx.hpp`](include/abstractx/abstractx.hpp) with unified `init()`, `spawn()`, `step()`, `step_async()`, and `run()`.
 - [x] **Implement Runtime Orchestrator (`src/runtime.cpp`)**:
