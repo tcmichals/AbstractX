@@ -424,8 +424,17 @@ def parse_requirements(root: Path) -> dict[str, Requirement]:
                 current.body.append(raw)
                 v = VERIFIED_RE.match(raw)
                 if v:
+                    # The bullet continues on indented lines (wrapped text); a skill or a note's
+                    # closing ")" can be on any of them (2026-11-05: only line 1 was read, so a
+                    # note opened on line 1 leaked a test name in as a "skill" and a skill after
+                    # the wrap was lost).
+                    text = v.group(1)
+                    for nxt in lines[idx:]:
+                        if not nxt.strip() or not nxt[:1].isspace() or re.match(r"^\s*[*-]\s", nxt):
+                            break
+                        text += " " + nxt.strip()
                     # Parenthesised notes are evidence detail, not skill names.
-                    names = SKILL_TOKEN_RE.findall(re.sub(r"\([^)]*\)", "", v.group(1)))
+                    names = SKILL_TOKEN_RE.findall(re.sub(r"\([^)]*\)", "", text))
                     current.skills += [s for s in names if s not in current.skills]
                 ref = REFINES_RE.match(raw)
                 if ref:

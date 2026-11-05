@@ -3983,3 +3983,11 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `tools/rtl_lint.sh`: 19/19 files clean. Yosys `check -assert` on `asp_top`, `asp_pio_wrap`: pass.
 * Gate and audits in the commit message.
 
+## [2026-11-05] - spectrace_matrix read only the first line of a Verified by bullet
+
+* **Category**: `tool-bug`
+* **Symptom**: `[SPEC-TLP-05]` showed verdict BROKEN ("unknown skill `sim-test-tlp64-top`"). The parser stripped `( ... )` notes from the first line of the bullet only; a note opened there and closed on the next line leaked a test name in as a skill, and a skill written after the wrap was never read.
+* **Hidden by it**: `[SPEC-ARCH-13]` and `[SPEC-ARCH-14]` named skills that do not exist (`board-tests`, `e906-coprocessor-build`) on wrapped lines; now `e906-board-selftest` and `e906-build-layout`.
+* **Fix**: the bullet's indented continuation lines are joined before notes are stripped. `tests/test_spectrace_matrix.py::test_verified_by_bullet_spans_wrapped_lines`: old parser gives `['host-tests', 'sim-test-x']`, new `['host-tests', 'sanitizer-gate']`.
+* **Evidence**: `--matrix`: BROKEN 0 (was 1 visible, 2 hidden); `--check-skills` 0 problems; `--check-drift` 0; gate PASS.
+

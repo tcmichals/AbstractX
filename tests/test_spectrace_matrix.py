@@ -507,6 +507,22 @@ def test_repo_is_honest():
     assert not (base - now), f"fixed claims still in {base_file.name} (delete them): {sorted(base - now)}"
 
 
+def test_verified_by_bullet_spans_wrapped_lines():
+    # 2026-11-05: a note "(...)" opened on line 1 and closed on line 2 leaked `sim-test-x` in as a
+    # skill (verdict BROKEN), and a skill after the wrap was never read.
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "docs").mkdir()
+        (root / "docs" / "WRAP_SPECIFICATION.md").write_text(
+            "### `[SPEC-WRAP-01]` Wrapped\n"
+            "* **Requirement**: x.\n"
+            "* **Verified by**: `host-tests` (`sim-test-x`: one note that\n"
+            "  wraps), `sanitizer-gate`\n"
+            "* **Implementation Target**: `src/x.cpp`\n")
+        reqs = sm.parse_requirements(root)
+        assert reqs["SPEC-WRAP-01"].skills == ["host-tests", "sanitizer-gate"], reqs["SPEC-WRAP-01"].skills
+
+
 if __name__ == "__main__":
     test_orphan_check_ignores_untracked_files()
     test_matrix_verdicts()
@@ -520,6 +536,7 @@ if __name__ == "__main__":
     test_orphan_test_check()
     test_verifies_claims_need_an_impl_name()
     test_placement_and_board_evidence_source()
+    test_verified_by_bullet_spans_wrapped_lines()
     test_repo_is_honest()
     print("[PASS] spectrace_matrix")
 
