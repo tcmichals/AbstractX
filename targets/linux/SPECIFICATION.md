@@ -151,6 +151,27 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
 * **Verified by**: `host-tests` (`sim/test_platform_ports.cpp`: Linux port list)
 * **Implementation Target**: `targets/linux/include/hal/ports.hpp`, `targets/linux/src/hal_spi.cpp`, `targets/linux/src/hal_i2c.cpp`, `targets/linux/src/hal_uart.cpp`
 
+### `[SPEC-LINUX-HAL-03]` UART Receive Ring for Coroutines (2026-11-06, full-audit buses finding 6)
+* **Goal**: `co_await uart.read_async(min, timeout_us)` works on Linux as on the E906 ([SPEC-HAL-10]),
+  with the same ring type, so an app moves between them unchanged.
+* **Requirement (ring and reader)**: `LinuxUartDriver` owns a `UartRxRing<256, 16>` (4 KB). The first
+  `rx_ring()` call on an open device starts one reader thread, the Linux counterpart of the receive
+  interrupt: it `poll()`s the tty fd and a kick eventfd, `read()`s straight into the ring storage at its
+  write position (no intermediate copy, [SPEC-ARCH-08]), calls `produced_from_isr(n, end_of_frame)` with
+  `end_of_frame` = the kernel buffer is empty after the read (the counterpart of the E906 RX timeout),
+  then `abstractx::wake()`. `close()` and the destructor stop and join it.
+* **Requirement (deadline)**: the ring's deadline hook stores the token and deadline and kicks the
+  thread, whose `poll()` timeout is the time to the deadline; at expiry it calls `deadline_from_isr`
+  once (a stale token is ignored by the ring).
+* **Requirement (one consumer)**: while the reader thread runs, polled `read()` / `read_byte()` return
+  0 ([SPEC-HAL-11]: polled reads are bring-up only).
+* **Requirement (no device)**: no device open -> `rx_ring()` is `nullptr` (`read_async` NotSupported);
+  the synthetic UBX-NAV-PVT stream of polled `read()` runs only with `ABSTRACTX_SIM_BUS=1`
+  ([SPEC-LINUX-HAL-01] no silent simulation).
+* **Verified by**: `host-tests` (`sim/test_linux_uart_rx.cpp`: pseudo-terminal as the device; bytes
+  reach `read_async`, a partial frame ends the read, deadline Timeout, 1000 reads flat), `thread-sanitizer`
+* **Implementation Target**: `targets/linux/include/linux_uart_driver.hpp`, `targets/linux/src/hal_uart.cpp`
+
 ### `[SPEC-LINUX-GPIO-02]` `IGpio` Edge Interrupts Run Their Handler (2026-11-06, full-audit buses finding 7)
 * **Goal**: `IGpio::configure_interrupt` means the same on Linux as on a microcontroller: each edge
   runs the handler once, in interrupt-like context, and wakes the loop.
