@@ -164,7 +164,7 @@ This log chronicles the development, technical decisions, and architecture miles
 ### What was done
 *   **Freestanding C++20 Headers**: Audited and stripped all OS headers (`<mutex>`, `<thread>`, `<condition_variable>`, `<iostream>`, `<queue>`, `<vector>`) from `include/`, ensuring 100% portability to bare-metal ARM GCC and RISC-V GCC toolchains.
 *   **Single-Core ISR Safety Verified (`sim/test_baremetal_isr_spsc.cpp`)**: Proved that SPSC queues are 100% lock-free, wait-free, and re-entrant between a hardware ISR (Producer) and the main flight loop coroutine (Consumer) with zero critical sections (`__disable_irq`).
-*   **Dual-Core AMP Shared SRAM**: Verified lock-free atomic release/acquire memory barriers (`DMB` / `FENCE`) across Core 0 (I/O coprocessor) and Core 1 (Coroutine engine) on RP2350 Pico 2W and ESP32-P4.
+*   **Dual-Core AMP Shared SRAM** (2026-11-06 note, P0-07: not verified on RP2350 or ESP32-P4 hardware; no test runs on either, only host tests): Verified lock-free atomic release/acquire memory barriers (`DMB` / `FENCE`) across Core 0 (I/O coprocessor) and Core 1 (Coroutine engine) on RP2350 Pico 2W and ESP32-P4.
 *   **Dedicated Lock-Free SPSC Channel Array (`sim/test_spsc_channel_array.cpp`)**: Implemented `SpscChannelArray<T, NumChannels>` with zero mutexes and zero runtime heap allocations.
 *   **Documentation Suite Updated**: Added Section 10 to [`docs/ABSTRACTX_SOFTWARE_ENVIRONMENTS.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/docs/ABSTRACTX_SOFTWARE_ENVIRONMENTS.md) and updated [`README.md`](file:///home/tcmichals/ssdData/projects/home/AbstractX/README.md).
 

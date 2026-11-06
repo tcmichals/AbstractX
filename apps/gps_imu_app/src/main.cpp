@@ -25,7 +25,6 @@
 // ============================================================================
 
 // @impl [SPEC-ARCH-03] [SPEC-ARCH-05] [SPEC-ARCH-06] [SPEC-ARCH-07] [SPEC-TRACE-03] [SPEC-TRACE-04] [SPEC-TRACE-05] [SPEC-STUDIO-07] [SPEC-APP-09] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
 int main() {
     // 1. Unified Configuration
     Config config{};

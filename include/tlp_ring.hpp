@@ -51,7 +51,6 @@ namespace abstractx {
 // ---------------------------------------------------------------------------
 
 // @impl [SPEC-TLP-03] docs/DESIGN_SPECIFICATION.md#spec-tlp-03
-// @status Complete
 template <typename T, size_t Capacity = 64>
 class SpscRingBuffer {
     static_assert((Capacity & (Capacity - 1)) == 0, "Capacity MUST be a power of 2");

@@ -259,7 +259,6 @@ struct SpiRequest : public AsyncTransactionMeta<SpiResult> {
 };
 
 // @impl [SPEC-HAL-02] docs/DESIGN_SPECIFICATION.md#spec-hal-02
-// @status Complete
 template <size_t QueueDepth = 16>
 class AsyncSpiDriver : public AsyncDriverBase<SpiRequest, SpiResult, QueueDepth> {
 public:

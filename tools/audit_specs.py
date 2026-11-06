@@ -3,7 +3,7 @@
 """
 AbstractX Design Specification & Implementation Traceability Auditor
 ---------------------------------------------------------------------
-Scans docs/DESIGN_SPECIFICATION.md for [SPEC-*] tags and validates
+Scans every specification file (or the one given) for [SPEC-*] tags and validates
 that every requirement has an @impl tag in code. This is traceability only:
 a tag says nothing about whether the code works. Completion is the
 `python3 tools/spectrace_matrix.py --matrix` verdict ([SPEC-AUDIT-12]).
@@ -103,6 +103,42 @@ def run_traceability_audit(spec_file=None, root_dir=None):
         "specs": specs
     }
 
+def audit_all(root_dir: Path) -> dict:
+    """[SPEC-AUDIT-12] all specifications: per-file results merged, untagged listed with their file."""
+    # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md (all specifications, P0-07)
+    sys.path.insert(0, str(root_dir / "tools"))
+    from spectrace_drift import discover_all_specs
+    total = implemented = planned = 0
+    per_file, untagged = [], []
+    for spec in discover_all_specs(root_dir):
+        if not spec.exists():
+            continue
+        r = run_traceability_audit(spec, root_dir)
+        if r["total"] == 0:
+            continue
+        rel = spec.relative_to(root_dir).as_posix()
+        total, implemented, planned = total + r["total"], implemented + r["implemented"], planned + r["planned"]
+        per_file.append((rel, r["total"], r["implemented"], r["planned"]))
+        untagged += [(rel, k) for k, d in sorted(r["specs"].items()) if not d["implementations"] and not d["planned"]]
+    return {"total": total, "implemented": implemented, "planned": planned,
+            "per_file": per_file, "untagged": untagged}
+
+
+def matrix_line(root_dir: Path) -> str:
+    """The completion figure from spectrace_matrix ([SPEC-AUDIT-07]); read it together with tag coverage."""
+    sys.path.insert(0, str(root_dir / "tools"))
+    import spectrace_matrix as sm
+    reqs, skills, _ = sm.build_matrix(root_dir)
+    counts: dict[str, int] = {}
+    for r in reqs.values():
+        v = r.verdict(set(skills))
+        counts[v] = counts.get(v, 0) + 1
+    done = counts.get("VERIFIED", 0)
+    detail = ", ".join(f"{k} {counts[k]}" for k in sorted(counts))
+    return (f"Complete (implemented AND verified): {done}/{len(reqs)} = {100.0 * done / max(len(reqs), 1):.1f}% "
+            f"({detail}; tools/spectrace_matrix.py --matrix)")
+
+
 def main():
     root_dir = Path(__file__).resolve().parent.parent
     if len(sys.argv) > 2 and sys.argv[1] == "--spec":
@@ -110,7 +146,27 @@ def main():
     elif len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         spec_file = Path(sys.argv[1])
     else:
-        spec_file = root_dir / "docs" / "DESIGN_SPECIFICATION.md"
+        spec_file = None
+
+    if spec_file is None:
+        res = audit_all(root_dir)
+        print("=" * 80)
+        print("        AbstractX Spec-to-Code Traceability (all specifications; tags only)     ")
+        print("=" * 80)
+        for rel, t, i, p in res["per_file"]:
+            print(f"{rel:<62} {i:>3}/{t:<3} tagged  {p} planned")
+        print("-" * 80)
+        for rel, tag in res["untagged"]:
+            print(f"[UNTAGGED] {tag:<26} {rel}  (no @impl, not declared 'Not implemented yet')")
+        print("=" * 80)
+        print(f"Requirements:         {res['total']}")
+        print(f"Tagged in code:       {res['implemented']}")
+        print(f"Planned (declared):   {res['planned']}")
+        print(f"Untagged:             {len(res['untagged'])}")
+        print(f"Tag coverage:         {100.0 * res['implemented'] / max(res['total'], 1):.1f}% (traceability only)")
+        print(matrix_line(root_dir))
+        print("=" * 80)
+        sys.exit(1 if res["untagged"] else 0)
 
     try:
         results = run_traceability_audit(spec_file, root_dir)
@@ -123,7 +179,6 @@ def main():
     implemented_count = results["implemented"]
     coverage = results["coverage"]
 
-    # 3. Print Traceability Matrix
     print("=" * 80)
     print("             AbstractX Spec-to-Code Traceability Audit Matrix                  ")
     print("=" * 80)
@@ -155,14 +210,10 @@ def main():
     if implemented_count + planned_count < total_count:
         print("[WARN] Some specifications are not yet tagged in code and not declared 'Not implemented yet'.")
         sys.exit(1)
-    if planned_count:
-        print(f"[OK] Every specification is tagged in code or declared planned ({planned_count} planned; "
-              "traceability only, not verification; see tools/spectrace_matrix.py --matrix).")
-        sys.exit(0)
-    else:
-        print("[OK] Every specification has an @impl tag (traceability only, not verification; "
-              "see tools/spectrace_matrix.py --matrix).")
-        sys.exit(0)
+    print("[OK] Every specification in this file is tagged in code or declared planned "
+          "(traceability only, not verification; see tools/spectrace_matrix.py --matrix).")
+    sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

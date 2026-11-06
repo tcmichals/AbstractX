@@ -265,7 +265,6 @@ struct TracePoolStorage<PacketSize, 0> {
 // Events are constructed directly in the transport's buffer (emplace), so a
 // traced sample is written once, where it will be sent.
 // @impl [SPEC-TRACE-01] [SPEC-TRACE-02] [SPEC-TRACE-06] [SPEC-TRACE-07] docs/DESIGN_SPECIFICATION.md#spec-trace-07
-// @status Complete
 template <size_t PacketSize = 1024, size_t NumPackets = ABSTRACTX_STATIC_TRACE_PACKETS>
 class CtfTraceEngine : private TracePoolStorage<PacketSize, NumPackets> {
 public:

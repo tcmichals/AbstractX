@@ -92,7 +92,6 @@ constexpr bool operator!=(uint8_t u, Channel c) noexcept { return u != static_ca
 using TlpWire64 = asp_tlp64_t;
 
 // @impl [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md#spec-tlp-01
-// @status Complete
 struct alignas(64) Tlp64 {
     asp_tlp64_t wire;
 

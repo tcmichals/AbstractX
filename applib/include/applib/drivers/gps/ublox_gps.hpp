@@ -42,7 +42,6 @@ using abstractx::sensor::gps::GpsFixType;
 constexpr uint8_t TLP_TAG_GPS = 0x02;
 
 // @impl [SPEC-GPS-01] [SPEC-GPS-02] docs/DESIGN_SPECIFICATION.md#spec-gps-01
-// @status Complete
 class UbloxGps : public IGpsDriver {
 public:
     explicit UbloxGps(hal::IUart& uart_driver) : uart_(uart_driver) {}

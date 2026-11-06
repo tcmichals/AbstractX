@@ -67,7 +67,6 @@ struct Icm42688pConfig {
 constexpr uint8_t TLP_TAG_IMU = 0x01;
 
 // @impl [SPEC-IMU-01] [SPEC-IMU-02] docs/DESIGN_SPECIFICATION.md#spec-imu-01
-// @status Complete
 class Icm42688p : public IImuDriver {
 public:
     explicit Icm42688p(hal::ISpi& spi_driver, Icm42688pConfig cfg = {}) : spi_(spi_driver), cfg_(cfg) {}

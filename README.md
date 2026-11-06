@@ -50,7 +50,7 @@ Traditional embedded systems force an undesirable trade-off: allocate **20+ KB o
 
 AbstractX replaces both approaches with a unified event-driven coroutine architecture:
 * **Stackless C++20 coroutines** instead of thread stacks: a full yield round trip through the event loop measured **10.20 µs (2,040 cycles)** on the E906 at 200 MHz with AbstractX alone, no RTOS (Part 4).
-* **0 Bytes dynamic heap (`0 B`)** on a single shared startup stack (8 KB on the E906).
+* **No heap in AbstractX code** (coroutine frames come from a static pool) on a single shared startup stack (8 KB on the E906). Some apps still link `malloc` through libc / the Pico SDK (EL-1027-31, open), so the binaries are not heap-free yet.
 * **Parallel in-flight sensor ingestion** (8 kHz IMU, 100 Hz Mag, 10 Hz GPS) without locks or spinloops.
 * **Bare-metal MicroPython with native DMA** for interactive hardware REPL and rapid bring-up on coprocessors.
 * **FPGA I/O that is 100% PIO** (pio2): bus work runs in PIO programs with DMA, not on a CPU.
@@ -65,7 +65,7 @@ AbstractX replaces both approaches with a unified event-driven coroutine archite
 
 ```mermaid
 flowchart LR
-    A["<b>1. FAST C++20 COROS</b><br/>• 10.2 µs yield round trip (E906)<br/>• 0 Bytes heap (0 B)<br/>• 1 shared stack<br/>• Zero RTOS jitter"]
+    A["<b>1. FAST C++20 COROS</b><br/>• 10.2 µs yield round trip (E906)<br/>• No heap in AbstractX code<br/>• 1 shared stack<br/>• Zero RTOS jitter"]
     B["<b>2. PARALLEL SENSORS</b><br/>• 8 kHz IMU + Mag + GPS<br/>• co_await when_all<br/>• Primary-Paced channels<br/>• Zero locks or spinloops"]
     C["<b>3. BARE-METAL MICROPYTHON</b><br/>• XuanTie E906 / E902<br/>• Offloading & quick experiments<br/>• Quarantined SRAM heap + DMA<br/>• Python-to-C++ AI skill"]
     D["<b>4. PIO & SYSTEMVERILOG</b><br/>• FPGA PIO tile (RP2040 ISA)<br/>• PIO programs + DMA<br/>• AXI-Stream crossbar router<br/>• 64B hardware framing"]
@@ -80,7 +80,7 @@ flowchart LR
 
 ### 1. ⚡ Fast C++20 with Zero Heap Memory
 * **Cooperative resume**: tasks suspend and resume through compiler-generated state machines; a resume is an indirect call from the dispatcher, with no OS tick and no per-task stack. A full yield round trip through the event loop is **10.20 µs** (2,040 cycles) on the E906 with AbstractX alone (2026-10-31; the `resume()` call itself is not measured).
-* **Zero Dynamic Heap (`0 B`)**: Enforces 100% freestanding C++20. Statically pools coroutine frames in `.bss` (under 120 bytes per task).
+* **No Dynamic Heap in AbstractX**: freestanding C++20; coroutine frames come from a static pool in `.bss` (frame size per task is not published here; `coro_pool_high_water()` reports the pool use at run time). `malloc` is still linked by some apps (EL-1027-31).
 * **One Shared Stack**: all coroutines run on the one startup stack (8 KB on the E906), with no per-task stacks. The same benchmark on FreeRTOS needed 11,688 B more static RAM (task, ISR and idle stacks plus TCBs; [Part 4](docs/articles/linux-vs-freertos-vs-abstractx/README.md), 2026-10-31). Zephyr is not measured.
 
 ```cpp
@@ -143,9 +143,9 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 * **On a Zynq** the A9 reaches pio2 through `generic-uio` only: registers over GP0, streams in DDR
   rings written by pio2's own DMA over HP0, one interrupt. No vendor DMA IP, no kernel driver
   ([`[SPEC-ZYNQ-07]`](hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md)).
-* **Being retired**: the earlier fixed-function cores in `rtl/` (`asp_dshot_core`, `asp_uart_core`,
-  `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`, `asp_axi_dma`) are still in the current
-  tops until the PIO programs replace them (`TODO.md`).
+* **Removed (2026-11-05)**: the earlier fixed-function cores (`asp_dshot_core`, `asp_uart_core`,
+  `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`, `asp_axi_dma`) and Wishbone are gone; both
+  tops are all-PIO with an AXI4-Lite control plane (`[SPEC-TLP-07]`). The Tang Nano 20K fit is open (`TODO.md`).
 * **Nanosecond Hardware Timestamps**: Physical DIO edge triggers latch 64-bit nanosecond hardware timestamps directly into packet headers for end-to-end timing verification.
 
 ---
@@ -309,7 +309,7 @@ cmake --preset e906 && cmake --build build_e906 -j --target e906_repl_app
 
 ### 3. Verify SpecTrace & Architectural Boundaries
 ```bash
-# Verify 100% specification-to-code traceability
+# Tag coverage over every specification, next to the matrix's implemented-and-verified figure
 python3 tools/audit_specs.py
 
 # Verify core framework purity (no concrete drivers in core)

@@ -19,7 +19,6 @@
  */
 
 // @impl [SPEC-ARCH-04] [SPEC-ARCH-13] [SPEC-TRACE-03] [SPEC-E906-IPC-04] [SPEC-APP-11] docs/DESIGN_SPECIFICATION.md#spec-trace-03 apps/gps_imu_app/SPECIFICATION.md#spec-app-11
-// @status Complete
 
 #include "abstractx/abstractx.hpp"
 #include "abstractx/hal/io_processor.hpp"

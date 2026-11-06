@@ -40,7 +40,6 @@ struct MailboxTxRequest : public AsyncTransactionMeta<MailboxResult> {
 using MailboxCallback = void (*)(uint32_t channel, uint32_t message, void* context);
 
 // @impl [SPEC-HAL-04] docs/DESIGN_SPECIFICATION.md#spec-hal-04
-// @status Complete
 template <size_t QueueDepth = 16>
 class AsyncMailboxDriver : public AsyncDriverBase<MailboxTxRequest, MailboxResult, QueueDepth> {
 public:

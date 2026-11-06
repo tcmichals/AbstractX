@@ -13,7 +13,6 @@
 #define ASP_CORO_HPP
 
 // @impl [SPEC-ARCH-02] docs/DESIGN_SPECIFICATION.md#spec-arch-02
-// @status Complete
 
 #include "asp_tlp64.hpp"
 #include "tlp_ring.hpp"

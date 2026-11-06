@@ -129,7 +129,6 @@ struct AsyncTransactionMeta {
  * - QueueDepth : Capacity of Request and Completion rings (must be power of 2)
  */
 // @impl [SPEC-ARCH-01] [SPEC-HAL-01] docs/DESIGN_SPECIFICATION.md#spec-hal-01
-// @status Complete
 template <typename TRequest, typename TResult, size_t QueueDepth = 16>
 class AsyncDriverBase : public ICancellable {
 public:

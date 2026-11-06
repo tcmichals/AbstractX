@@ -110,7 +110,6 @@ struct UartRxRequest : public AsyncTransactionMeta<UartResult> {
 };
 
 // @impl [SPEC-HAL-03] docs/DESIGN_SPECIFICATION.md#spec-hal-03
-// @status Complete
 template <size_t QueueDepth = 32>
 class AsyncUartDriver : public AsyncDriverBase<UartTxRequest, UartResult, QueueDepth> {
 public:

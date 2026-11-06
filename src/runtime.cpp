@@ -236,7 +236,6 @@ uint64_t status_deadline_us() noexcept {
 }
 
 // @impl [SPEC-ARCH-06] [SPEC-TRACE-04] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
 bool init(const Config& config) noexcept {
     g_config = config;
 
@@ -294,7 +293,6 @@ bool spawn(coro::Task<void> task, const char* name) noexcept {
 }
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
 bool spawn(coro::Task<void> task) noexcept {
     if (task.done()) {
         return false;
@@ -344,7 +342,6 @@ uint32_t longest_ready_run(bool reset) noexcept {
 }
 
 // @impl [SPEC-ARCH-06] [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
 uint64_t step() noexcept {
     // 0. Sleeps the host must poll for ([SPEC-ARCH-15]); a no-op when the timer wakes us itself
     auto& timer = hal::get_timer_driver();
@@ -406,13 +403,11 @@ void StepAwaiter::await_suspend(std::coroutine_handle<> h) noexcept {
 }
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
 StepAwaiter step_async() noexcept {
     return {};
 }
 
 // @impl [SPEC-ARCH-06] [SPEC-TRACE-04] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
 coro::Task<void> service_task() noexcept {
     auto& io_proc = hal::get_target_io_processor();
     auto& timer   = hal::get_timer_driver();
@@ -426,7 +421,6 @@ coro::Task<void> service_task() noexcept {
 
 
 // @impl [SPEC-ARCH-06] docs/DESIGN_SPECIFICATION.md#spec-arch-06
-// @status Complete
 void run(coro::Task<void> main_app_task) {
     if (!g_initialized) {
         init();

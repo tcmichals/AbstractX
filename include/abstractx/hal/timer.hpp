@@ -34,7 +34,6 @@ struct TimerResult {
 };
 
 // @impl [SPEC-HAL-05] docs/DESIGN_SPECIFICATION.md#spec-hal-05
-// @status Complete
 class AsyncTimerDriver {
 public:
     // What the target's alarm does for the earliest deadline.

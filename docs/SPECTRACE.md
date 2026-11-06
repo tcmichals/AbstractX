@@ -264,6 +264,12 @@ where its evidence goes. SpecTrace connects them: requirement → code
   as missing (2026-10-31). Build files are not otherwise audited.
 * **Requirement**: `tools/audit_specs.py` reports tag coverage as *traceability only*. It never
   prints "verified" or "100% implemented"; completion is the `--matrix` verdict.
+* **Requirement (all specifications, P0-07, 2026-11-06)**: run without a file argument,
+  `audit_specs.py` scans every specification `discover_all_specs` finds (not only
+  `docs/DESIGN_SPECIFICATION.md`: it reported 58 requirements and "98.3%" while the repository had 244),
+  lists each untagged requirement with its file, exits 1 when one is neither tagged nor declared
+  "Not implemented yet", and prints the matrix figure next to it: "Complete (implemented AND verified):
+  N/total" with the verdict counts, so the two numbers are always read together.
 * **Requirement**: `python3 tools/spectrace_matrix.py --check-drift` exits 1 when an implemented
   requirement names a function (`` `name(` `` in its text) that occurs in no code file of the
   repository (tests excluded; a binding prefix such as `MP_QSTR_name` or `abstractx_name`
