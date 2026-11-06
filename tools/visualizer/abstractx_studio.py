@@ -1051,9 +1051,11 @@ class TelemetryState:
                         "flash_used_bytes": v.get("flash_used_bytes", 0),
                         "flash_total_bytes": v.get("flash_total_bytes", 4194304),
                         "sections": {sec_k: sec_v for sec_k, sec_v in v.get("sections", {}).items() if sec_k != "Total"},
-                        "zero_heap_compliant": v.get("zero_heap_compliant", True),
-                        "heap_status": v.get("heap_status", "Zero dynamic heap references (Verified)"),
-                        "membrowse_budget_ok": True,
+                        # No result is not a pass ([SPEC-STUDIO-10]).
+                        "zero_heap_compliant": v.get("zero_heap_compliant", False),
+                        "heap_status": v.get("heap_status", "not checked"),
+                        "heap_policy": v.get("heap_policy", "strict"),
+                        "membrowse_budget_ok": v.get("ram_used_bytes", 0) <= v.get("ram_total_bytes", 0),
                     }
                 if live_metrics:
                     self.selected_mem_target = list(self.mem_targets.keys())[0]
@@ -1063,20 +1065,33 @@ class TelemetryState:
             except Exception as e:
                 self.membrowse_status_msg = f"Failed to load metrics: {e}"
 
-    def run_membrowse_analysis(self):
-        """Executes track_memory_footprint.py locally to regenerate memory_metrics.json and refresh state."""
+    # @impl [SPEC-STUDIO-10] tools/visualizer/SPECIFICATION.md
+    def run_membrowse_analysis(self, script_path=None):
+        """Runs track_memory_footprint.py and reloads memory_metrics.json. Exit 1 means the audit ran
+        and found failures ([SPEC-AUDIT-19]): reload and show them; only another code is an error."""
         import subprocess, sys
-        script_path = Path(__file__).resolve().parents[2] / "tools" / "track_memory_footprint.py"
-        if not script_path.exists():
-            script_path = Path(__file__).resolve().parents[2] / "tools" / "track_memory_membrowse.py"
+        if script_path is None:
+            script_path = Path(__file__).resolve().parents[2] / "tools" / "track_memory_footprint.py"
         try:
-            subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True, check=True)
-            self.load_membrowse_metrics()
-            self.membrowse_status_msg = "Memory audit completed successfully!"
-            self.add_log("MEM", "Memory", "Local memory audit completed. memory_metrics.json refreshed.")
+            res = subprocess.run([sys.executable, str(script_path), "--allow-missing"],
+                                 capture_output=True, text=True, timeout=120)
         except Exception as e:
             self.membrowse_status_msg = f"Analysis error: {e}"
-            self.add_log("WARN", "Memory", f"Failed to run track_memory_footprint.py: {e}")
+            self.add_log("WARN", "Memory", f"Failed to run {Path(script_path).name}: {e}")
+            return
+        if res.returncode not in (0, 1):
+            self.membrowse_status_msg = f"Analysis error: exit {res.returncode}"
+            self.add_log("WARN", "Memory", f"{Path(script_path).name} exit {res.returncode}: {res.stderr.strip()[-300:]}")
+            return
+        self.load_membrowse_metrics()
+        failing = [n for n, t in self.mem_targets.items()
+                   if not t.get("zero_heap_compliant") and t.get("heap_policy") != "report"]
+        if res.returncode == 0:
+            self.membrowse_status_msg = "Memory audit passed."
+            self.add_log("MEM", "Memory", "Memory audit passed; memory_metrics.json refreshed.")
+        else:
+            self.membrowse_status_msg = f"Memory audit: FAIL ({', '.join(failing) or 'see report'})"
+            self.add_log("WARN", "Memory", f"Memory audit failed: {', '.join(failing) or 'see report'}")
 
     def run_spectrace_dashboard(self):
         """Executes track_quality_trends.py locally to refresh quality trends and running profile."""
@@ -2673,8 +2688,12 @@ def _render_level1_memory():
         f_col = imgui.ImVec4(0.2, 0.8, 1.0, 1.0) if f_pct <= 90.0 else imgui.ImVec4(1.0, 0.3, 0.3, 1.0)
         imgui.text_colored(f_col, f"{f_used // 1024} / {f_tot // 1024} KB ({f_pct:.1f}%)")
         imgui.next_column()
-        if t_info.get("zero_heap_compliant", True):
+        if t_info.get("zero_heap_compliant", False):
             imgui.text_colored(imgui.ImVec4(0.2, 1.0, 0.4, 1.0), "✔ PASS (0 B Heap)")
+        elif t_info.get("heap_status") == "not checked":
+            imgui.text_colored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "? not checked")
+        elif t_info.get("heap_policy") == "report":
+            imgui.text_colored(imgui.ImVec4(1.0, 0.75, 0.2, 1.0), "● REPORT (heap allowed)")
         else:
             imgui.text_colored(imgui.ImVec4(1.0, 0.3, 0.3, 1.0), "✘ FAIL (Heap ref)")
         imgui.next_column()

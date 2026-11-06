@@ -89,6 +89,16 @@ def heap_symbols_in(elf_path: Path) -> list:
     return sorted(found)
 
 
+# @impl [SPEC-STUDIO-10] tools/visualizer/SPECIFICATION.md
+def window_bytes(elf_path: Path, region: dict):
+    """(bytes loaded inside the budget window, loaded bytes outside it) from `size -A`."""
+    sys.path.insert(0, str(REPO_ROOT / "tools"))
+    from trac_lib import size_perf as sp
+    text = subprocess.run(["size", "-A", str(elf_path)], stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True, check=True).stdout
+    return sp.region_bytes(sp.parse_size_A_addr(text), region)
+
+
 # @impl [SPEC-AUDIT-19] docs/SPECTRACE.md
 def audit_zero_heap(elf_path: Path):
     """(ok, message). A missing or unreadable ELF is not a pass ([SPEC-AUDIT-19])."""
@@ -161,6 +171,13 @@ def run_analysis(allow_missing: bool = False):
                 ram_bytes += s_size
             elif any(k in s_name for k in [".text", ".rodata", ".ARM", ".binary_info"]):
                 flash_bytes += s_size
+        outside_bytes = None
+        if "budget_region" in target:
+            # Flash-less target (E906): RAM used = everything loaded into the budget window, code
+            # included; flash 0 ([SPEC-AUDIT-20], [SPEC-STUDIO-10]).
+            ram_bytes, outside_bytes = window_bytes(elf_path, target["budget_region"])
+            flash_bytes = 0
+            flash_budget = 0
 
         is_embedded = "linux" not in target.get("architecture", "") and "x86" not in target.get("architecture", "")
         heap_ok, heap_msg = audit_zero_heap(elf_path) if is_embedded else (True, "POSIX Host Runtime (N/A)")
@@ -170,7 +187,7 @@ def run_analysis(allow_missing: bool = False):
         if not heap_ok and not heap_report_only:
             failures += 1
         ram_pct = (ram_bytes / ram_budget) * 100.0
-        flash_pct = (flash_bytes / flash_budget) * 100.0
+        flash_pct = (flash_bytes / flash_budget) * 100.0 if flash_budget else 0.0
 
         print(f"  RAM Usage  : {ram_bytes:,} / {ram_budget:,} B ({ram_pct:5.1f}%)")
         print(f"  Flash Usage: {flash_bytes:,} / {flash_budget:,} B ({flash_pct:5.1f}%)")
@@ -190,6 +207,7 @@ def run_analysis(allow_missing: bool = False):
             "flash_used_bytes": flash_bytes,
             "flash_total_bytes": flash_budget,
             "sections": sections,
+            "outside_budget_bytes": outside_bytes,
             "zero_heap_compliant": heap_ok,
             "heap_policy": target.get("heap_policy", "strict"),
             "heap_status": heap_msg

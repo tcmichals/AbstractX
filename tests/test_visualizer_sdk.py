@@ -8,6 +8,7 @@ Verifies that:
 """
 
 import pytest
+from pathlib import Path
 from tools.visualizer.sdk.plugin import AbstractXStudioPlugin
 from tools.visualizer.flight_plugin import FlightVisualizerPlugin
 import tools.visualizer.abstractx_studio as studio
@@ -927,3 +928,38 @@ def test_studio_udp_receiver_ingests_live_datagrams():
         assert abs(state.roll_deg - 12.34) < 1e-6 and abs(state.pitch_deg + 5.67) < 1e-6
         tags = {p["tag"] for p in state.recent_tlp_packets}
         assert tags == {2, 4}, f"both TLPs of a batched datagram, and nothing else, reach the TLP debugger: {tags}"
+
+
+def _fake_audit(tmp_path, code: int) -> Path:
+    script = tmp_path / f"fake_audit_{code}.py"
+    script.write_text(f"import sys\nsys.exit({code})\n")
+    return script
+
+
+def test_membrowse_button_reloads_when_the_audit_fails(tmp_path):
+    """Exit 1 = the audit ran and found failures: reload and show FAIL, not "Analysis error".
+    The old handler (check=True) raised on exit 1 and never reloaded.
+    @verifies [SPEC-STUDIO-10] tools/visualizer/SPECIFICATION.md (run_membrowse_analysis)"""
+    state = studio.TelemetryState()
+    state.mem_targets = {}
+    state.run_membrowse_analysis(script_path=_fake_audit(tmp_path, 1))
+    assert state.membrowse_status_msg.startswith("Memory audit: FAIL"), state.membrowse_status_msg
+    assert len(state.mem_targets) > 0, "metrics were not reloaded"
+
+    state.run_membrowse_analysis(script_path=_fake_audit(tmp_path, 0))
+    assert state.membrowse_status_msg == "Memory audit passed."
+
+    state.run_membrowse_analysis(script_path=_fake_audit(tmp_path, 3))
+    assert state.membrowse_status_msg.startswith("Analysis error"), state.membrowse_status_msg
+
+
+def test_membrowse_missing_heap_result_is_not_a_pass(tmp_path, monkeypatch):
+    """A target without a zero-heap result shows "not checked", never PASS ([SPEC-STUDIO-10])."""
+    import json
+    fake_dir = tmp_path / "visualizer"
+    fake_dir.mkdir()
+    (fake_dir / "memory_metrics.json").write_text(json.dumps({"t": {"display_name": "T", "ram_used_bytes": 1, "ram_total_bytes": 2}}))
+    monkeypatch.setattr(studio, "__file__", str(fake_dir / "abstractx_studio.py"))
+    state = studio.TelemetryState()
+    assert state.mem_targets["T"]["zero_heap_compliant"] is False
+    assert state.mem_targets["T"]["heap_status"] == "not checked"
