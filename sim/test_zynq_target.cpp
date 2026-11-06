@@ -287,6 +287,78 @@ void test_full_ingress_ring_backpressure() {
     std::printf("  -> full ring backpressure passed.\n");
 }
 
+// [SPEC-ZYNQ-03] one user of the TLP ports (EL-1027-22): a second open_uio on the same device is
+// refused while the first holds it, and succeeds once it closed.
+void test_uio_single_user() {
+    std::printf("[TEST] Second user of the UIO device is refused (flock)...\n");
+    MockUioEnvironment env;
+    env.set_reg(ZynqUioBridge::REG_HARDWARE_ID, ZynqUioBridge::HARDWARE_MAGIC);
+    ZynqUioBridge first;
+    ZynqUioBridge second;
+    assert(first.open_uio(env.path));
+    assert(!second.open_uio(env.path) && "device is held: refused");
+    assert(!second.is_open());
+    first.close_uio();
+    assert(second.open_uio(env.path) && "free again: opens");
+    second.close_uio();
+    std::printf("  -> single user passed.\n");
+}
+
+// EL-1027-19: 1000 request / completion cycles through step(): every TLP crosses with its 16 words in
+// order (DW0 first, [SPEC-ZYNQ-03]), each completion is pushed once, nothing piles up; then one
+// step(timeout) runs the poll / interrupt-taken / re-arm path ([SPEC-ZYNQ-02]). The mock device is a
+// plain file, so poll() always reports it readable and the wait itself is not tested; the UIO "unmask"
+// write() also lands in the file (offset 8 = REG_IRQ_STATUS here), so the final check shows the path ran
+// and ended armed, not which of the two writes set the bit. The real wait needs the board.
+void test_steady_state_1000_and_poll_path() {
+    std::printf("[TEST] 1000 request/completion cycles, then the poll/ack path...\n");
+    MockUioEnvironment env;
+    env.set_reg(ZynqUioBridge::REG_HARDWARE_ID, ZynqUioBridge::HARDWARE_MAGIC);
+    env.set_reg(ZynqUioBridge::REG_ING_FREE, 128);
+    env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 0);
+    ::setenv("ABSTRACTX_UIO_DEV", env.path, 1);
+
+    MpscTlpRing<> egress_tx_ring{};
+    static MpscTlpRing<> ingress_rx_ring{};
+    struct Count { int n{0}; void on_pushed() { ++n; } } count;
+    IoProcessorSetup setup{};
+    setup.egress_tx_ring = &egress_tx_ring;
+    setup.ingress_rx_ring = &ingress_rx_ring;
+    setup.on_rx_pushed = etl::delegate<void()>::create<Count, &Count::on_pushed>(count);
+    IIoProcessor& io_proc = get_target_io_processor();
+    Tlp64 drain{};
+    while (ingress_rx_ring.pop(drain)) {}
+    assert(io_proc.configure(setup) && io_proc.start());
+
+    for (uint32_t i = 0; i < 1000; ++i) {
+        const Tlp64 req = Tlp64::make_mem_write(0x40000008u, 0xA5000000u | i, static_cast<uint8_t>(1 + i % 255));
+        assert(egress_tx_ring.push(req));
+        assert(io_proc.step(0) == 1 && "one request out");
+        const auto* w = reinterpret_cast<const uint32_t*>(&req.wire);
+        assert(env.get_reg(ZynqUioBridge::REG_TLP_IN_PORT) == w[15] && "DW15 is the last word written");
+        assert((w[0] & 0xFFU) == 0x02U && w[1] == 0x40000008u && "DW0 = type..channel, DW1 = address");
+
+        env.set_reg(ZynqUioBridge::REG_TLP_OUT_PORT, 0x03000000u | i);   // the completion's words
+        env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 1);
+        assert(io_proc.step(0) == 1 && "one completion in");
+        env.set_reg(ZynqUioBridge::REG_EGR_COUNT, 0);
+        Tlp64 got{};
+        assert(ingress_rx_ring.pop(got));
+        assert(reinterpret_cast<const uint32_t*>(&got.wire)[15] == (0x03000000u | i));
+        assert(!ingress_rx_ring.pop(got) && egress_tx_ring.size() == 0 && "nothing piles up");
+    }
+    assert(count.n == 1000 && "on_rx_pushed once per completion");
+
+    // poll / interrupt-taken / re-arm: nothing to do, timeout > 0 -> poll, read the event, drain, re-arm
+    env.set_reg(ZynqUioBridge::REG_IRQ_STATUS, 0);
+    assert(io_proc.step(1) == 0);
+    assert(env.get_reg(ZynqUioBridge::REG_IRQ_STATUS) == 0x01 && "egress empty: W1C written, re-armed");
+
+    io_proc.stop();
+    ::unsetenv("ABSTRACTX_UIO_DEV");
+    std::printf("  -> 1000 cycles and poll/ack passed.\n");
+}
+
 int main() {
     std::printf("==============================================================================\n");
     std::printf(" Zynq-7000 Target HAL & IoProcessor Unit Verification\n");
@@ -297,6 +369,8 @@ int main() {
     test_uio_irq_rearm_after_burst();
     test_zynq_io_processor_reactor_loop();
     test_full_ingress_ring_backpressure();
+    test_uio_single_user();
+    test_steady_state_1000_and_poll_path();
 
     std::printf("------------------------------------------------------------------------------\n");
     std::printf("[SUCCESS] 100%% Zynq-7000 Target Data Plane Loops Verified.\n");
