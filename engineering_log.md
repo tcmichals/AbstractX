@@ -4129,3 +4129,23 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 ### 4. Implementation & Regression Test
 * `targets/linux/include/bus_sim.hpp` (`linux_bus_sim_allowed`), used by both workers and the sync I2C calls. The four host tests that run the workers without hardware set `ABSTRACTX_SIM_BUS=1` in ctest; the SITL HOWTO sets it.
 * `sim/test_linux_bus_no_sim.cpp`: without the variable, 1000 SPI transfers -> `BusError` / 0 bytes, async I2C -> `BusError`, sync read / write -> `false`. On the old code the same calls returned `Ok` (the existing tests [2] and [4] asserted exactly that).
+
+## [2026-11-06] - Linux libgpiod v2 code was never compiled: every GPIO edge was simulated
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/linux/include/gpio_gpiod.hpp` (also built for Zynq), Linux `IGpio`
+* **Category**: `product-bug` (found while giving `LinuxGpioDriver` real pin I/O)
+* **Symptoms**: `ABSTRACTX_HAS_LIBGPIOD_V2` was set by `#if defined(GPIOD_LINE_DIRECTION_INPUT)`. In libgpiod v2 that name is an enum value, not a macro, so the test was always false: the gpiod code (line requests, edge events, timestamps) was compiled out of every Linux build, including on the board. `GpiodV2Monitor::open_pin_interrupt` always returned the simulated eventfd, so the I/O processor's DRDY channel could never see a real edge, while [SPEC-LINUX-GPIO-01] promised "no silent simulation". CMake linked libgpiod 2.3 all along. `IGpio` pin I/O only touched an in-memory array.
+* **Not claimed**: the A5E "bank-I edges never reach Linux" observation was made with `gpiomon`, independent of this code.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: feature detection by a preprocessor test on a name the library defines as an enumerator. No test asserted that the real path was compiled, and every host test used a missing chip, where real and compiled-out code behave the same.
+* **Lesson**: detect library versions in the build (pkg-config), and have a test fail when the build found the library but the code path is off.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-LINUX-GPIO-01]` "libgpiod v2 detected by the build"; `[SPEC-LINUX-GPIO-02]` "pin I/O" (gpiod output / input requests; no chip -> nothing, counted in `io_errors()`; memory levels only with `ABSTRACTX_SIM_BUS=1`; `Alternate` / `Analog` refused).
+
+### 4. Implementation & Regression Test
+* `targets/linux/CMakeLists.txt` and `targets/zynq7000/CMakeLists.txt`: `ABSTRACTX_HAS_LIBGPIOD_V2=1` (PUBLIC) when pkg-config finds libgpiod >= 2; the header includes `<gpiod.h>` only then. `LinuxGpioDriver` requests lines for pin I/O.
+* `sim/test_linux_gpio_edges.cpp`: fails if pkg-config found v2 but the code is compiled out (`ABSTRACTX_EXPECT_LIBGPIOD_V2` from CMake); missing chip: pin I/O counted as errors, `read_pin` false, `Alternate` refused. Old header: v2 code compiled out (shown with a compile check).
+* Not checked: a real gpiochip line (this PC has `/dev/gpiochip0`; tests deliberately never request its lines); the A5E.

@@ -8,11 +8,10 @@
 #ifndef ABSTRACTX_TARGET_GPIO_GPIOD_HPP
 #define ABSTRACTX_TARGET_GPIO_GPIOD_HPP
 
-#if __has_include(<gpiod.h>)
+// ABSTRACTX_HAS_LIBGPIOD_V2 comes from the build (pkg-config libgpiod >= 2, [SPEC-LINUX-GPIO-01]):
+// the v2 header defines its constants as enum values, so it cannot be detected here.
+#if defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2
 #include <gpiod.h>
-#if defined(GPIOD_LINE_DIRECTION_INPUT)
-#define ABSTRACTX_HAS_LIBGPIOD_V2 1
-#endif
 #endif
 
 #if !(defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2)

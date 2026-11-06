@@ -22,9 +22,17 @@ target_include_directories(abstractx_target_linux PUBLIC
     ${CMAKE_SOURCE_DIR}/include
 )
 
-if(LIBGPIOD_FOUND)
-    target_include_directories(abstractx_target_linux PRIVATE ${LIBGPIOD_INCLUDE_DIRS})
+# @impl [SPEC-LINUX-GPIO-01] targets/linux/SPECIFICATION.md (libgpiod v2 detected by the build)
+if(LIBGPIOD_FOUND AND LIBGPIOD_VERSION VERSION_GREATER_EQUAL 2)
+    target_include_directories(abstractx_target_linux PUBLIC ${LIBGPIOD_INCLUDE_DIRS})
+    target_link_directories(abstractx_target_linux PUBLIC ${LIBGPIOD_LIBRARY_DIRS})
     target_link_libraries(abstractx_target_linux PUBLIC ${LIBGPIOD_LIBRARIES})
+    target_compile_definitions(abstractx_target_linux PUBLIC ABSTRACTX_HAS_LIBGPIOD_V2=1)
+    message(STATUS "AbstractX Linux: libgpiod ${LIBGPIOD_VERSION} (v2 API) enabled")
+    set(ABSTRACTX_LIBGPIOD_V2 ON CACHE INTERNAL "libgpiod v2 found for the Linux target")
+else()
+    message(STATUS "AbstractX Linux: libgpiod v2 not found; GPIO edges are simulated")
+    set(ABSTRACTX_LIBGPIOD_V2 OFF CACHE INTERNAL "libgpiod v2 found for the Linux target")
 endif()
 
 

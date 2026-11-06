@@ -183,10 +183,16 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
   contract: it never resumes a coroutine (AGENTS §3). `configure_interrupt` stops a running thread
   before it re-opens the line; the destructor stops and joins it. Before this, the events were read
   only in `dispatch_interrupt_events()`, which nothing called, so no handler ever ran.
-* **Not covered**: `write_pin` / `read_pin` / `configure_pin` still only keep levels in memory (no
-  gpiod output or input request): GPIO output through `IGpio` does not reach a pin on Linux.
+* **Requirement (pin I/O, 2026-11-06)**: `configure_pin(pin, Output|Input, pull)` requests the line from
+  the chip (libgpiod v2, one request per line, consumer `AbstractX`); `write_pin` / `toggle_pin` set an
+  output line (a line not yet configured is requested as output on first write), `read_pin` reads it.
+  `Alternate` / `Analog` are not Linux GPIO functions: refused (counted). When the chip or line cannot
+  be requested, the operation does nothing, `read_pin` returns `false`, and `io_errors()` counts it;
+  levels are kept in memory instead only with `ABSTRACTX_SIM_BUS=1` ([SPEC-LINUX-HAL-01] no silent
+  simulation). Before, every pin call only touched an in-memory array.
 * **Verified by**: `host-tests` (`sim/test_linux_gpio_edges.cpp`: 1000 simulated edges -> 1000 handler
-  calls from the edge thread, none while disabled, clean stop), `thread-sanitizer`
+  calls from the edge thread, none while disabled, clean stop; missing chip: pin I/O fails and is counted,
+  simulated levels only on request), `thread-sanitizer`, `board-bringup` (a real line: not run)
 * **Implementation Target**: `targets/linux/include/linux_gpio_driver.hpp`, `targets/linux/src/hal_gpio.cpp`
 
 ### `[SPEC-LINUX-GPIO-01]` GPIO-Edge Auto Channel: Which Line, Which spidev, No Silent Simulation
@@ -206,6 +212,12 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
   bad offset), `init_channel` returns false and `configure()` fails. Simulation is used only when
   libgpiod is not built in or the chip does not exist (host / SITL), and `linux_trigger_simulated()`
   says so.
+* **Requirement (libgpiod v2 detected by the build, 2026-11-06)**: CMake defines
+  `ABSTRACTX_HAS_LIBGPIOD_V2=1` (PUBLIC on the Linux target) when pkg-config finds libgpiod >= 2, and
+  `gpio_gpiod.hpp` includes `<gpiod.h>` only then. The header used to test
+  `defined(GPIOD_LINE_DIRECTION_INPUT)`, which is an enum value in libgpiod v2, not a macro, so the gpiod
+  code was never compiled: every Linux build, on a board too, ran the simulated edge eventfd and never
+  requested a line. (The A5E bank-I observation below was made with `gpiomon`, independent of this.)
 * **Requirement**: edge timestamps are `CLOCK_MONOTONIC` ns: the kernel's
   `gpiod_edge_event_get_timestamp_ns()` on hardware (monotonic by default), `clock_gettime` for a
   simulated edge. Each simulated edge (`linux_simulate_edge(pin)`, SITL only) is delivered as one
@@ -218,8 +230,8 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
   thread safely wakes `poll_events()` without use-after-close.
 * **Not known yet**: on the Cubie A5E with kernel 7.1, bank-I edges latch `EINT_STA` but never
   reach Linux's GIC ([SPEC-E906-IRQ-07] "Not yet known"), so the hardware column is blocked.
-* **Verified by**: `host-tests` (`sim/test_linux_drdy_auto.cpp`), `sanitizer-gate`, `thread-sanitizer`
-* **Implementation Target**: `targets/linux/src/io_processor.cpp`, `targets/linux/include/gpio_gpiod.hpp`, `targets/linux/include/linux_io.hpp`
+* **Verified by**: `host-tests` (`sim/test_linux_drdy_auto.cpp`; `sim/test_linux_gpio_edges.cpp`: the build has libgpiod v2 when pkg-config finds it), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `targets/linux/src/io_processor.cpp`, `targets/linux/include/gpio_gpiod.hpp`, `targets/linux/include/linux_io.hpp`, `targets/linux/CMakeLists.txt`
 
 ### 2.5 Timer Subsystem (`CLOCK_MONOTONIC` & `timerfd`)
 * **Resolution**: Monotonic nanosecond hardware clock (`CLOCK_MONOTONIC`).

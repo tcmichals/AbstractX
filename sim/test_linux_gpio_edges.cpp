@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Tim Michals
 // SPDX-License-Identifier: GPL-3.0-or-later
 // @verifies [SPEC-LINUX-GPIO-02] targets/linux/SPECIFICATION.md (LinuxGpioDriver configure_interrupt edge_loop)
+// @verifies [SPEC-LINUX-GPIO-01] targets/linux/SPECIFICATION.md (libgpiod v2 detected by the build: GpiodV2Monitor)
 // A missing chip gives the simulated edge eventfd ([SPEC-LINUX-GPIO-01]); each edge must reach the
 // handler from the edge thread. Before 2026-11-06 nothing read the events, so the handler never ran.
 #include "linux_gpio_driver.hpp"
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <cstdio>
 #include <thread>
+#include <cstdlib>
 
 using namespace abstractx::hal;
 
@@ -47,6 +49,15 @@ bool wait_for(uint32_t n) {
 } // namespace
 
 int main() {
+#if defined(ABSTRACTX_EXPECT_LIBGPIOD_V2) && ABSTRACTX_EXPECT_LIBGPIOD_V2 && \
+    !(defined(ABSTRACTX_HAS_LIBGPIOD_V2) && ABSTRACTX_HAS_LIBGPIOD_V2)
+    CHECK(false, "pkg-config found libgpiod v2 but the gpiod code is compiled out ([SPEC-LINUX-GPIO-01])");
+#endif
+    {   // the monitor itself: a missing chip gives the simulated line ([SPEC-LINUX-GPIO-01])
+        abstractx::target::GpiodV2Monitor m;
+        CHECK(m.open_pin_interrupt("/nonexistent/gpiochip-test", 5, true, false) && m.is_simulated(),
+              "missing chip must open the simulated line");
+    }
     g_main_id = std::this_thread::get_id();
     LinuxGpioDriver gpio{"/nonexistent/gpiochip-test"};
     CHECK(gpio.configure_interrupt(20, EdgeTrigger::Rising, &on_edge, nullptr), "configure");
@@ -79,6 +90,17 @@ int main() {
     gpio.monitor().trigger_simulated_edge();
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     CHECK(g_calls.load() == 1001, "handler ran after stop (%u)", g_calls.load());
+
+    // pin I/O on a missing chip, no simulation asked for: nothing happens, every call is counted
+    ::unsetenv("ABSTRACTX_SIM_BUS");
+    LinuxGpioDriver out{"/nonexistent/gpiochip-test"};
+    out.configure_pin(3, PinMode::Output);
+    out.write_pin(3, true);
+    CHECK(!out.read_pin(3), "read_pin on a missing chip must not report a level it never read");
+    CHECK(out.io_errors() >= 3, "io_errors=%u", out.io_errors());
+    const uint32_t e0 = out.io_errors();
+    out.configure_pin(4, PinMode::Alternate);
+    CHECK(out.io_errors() == e0 + 1, "Alternate is not a Linux GPIO function");
 
     std::printf("%s: %d failure(s)\n", g_fail ? "FAIL" : "PASS", g_fail);
     return g_fail ? 1 : 0;
