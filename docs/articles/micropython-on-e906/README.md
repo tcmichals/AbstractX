@@ -4,7 +4,7 @@
 
 **One Cubie A5E, two kinds of processor, Python on both: check out new hardware and run experiments in seconds, with no compile in the loop.**
 
-The Radxa Cubie A5E is a small board with a surprise inside. Its Allwinner T527 runs Linux on eight ARM Cortex-A55 cores, and next to them sits a 200 MHz XuanTie E906 RISC-V core that Linux never uses. In this part we put MicroPython on that RISC-V core and drive it from Python on Linux. You type a line, the E906 reads a compass over I²C or a GPS over a UART, and the answer comes back over the link between the two processors. No firmware rebuild, no reflash, no reboot between experiments. While it runs, **AbstractX Studio**—our native desktop engineering workbench running on your PC—provides real-time visibility into the coprocessor: CPU utilization, per-interrupt microsecond costs, line-by-line source profiling, and an interactive prompt, all without stalling hard real-time execution.
+The Radxa Cubie A5E is a small board with a surprise inside. Its Allwinner T527 runs Linux on eight ARM Cortex-A55 cores, and next to them sits a 200 MHz XuanTie E906 RISC-V core that Linux never uses. In this part we put MicroPython on that RISC-V core and drive it from Python on Linux. You type a line, the E906 reads a compass over I²C or a GPS over a UART, and the answer comes back over the link between the two processors. No firmware rebuild, no reflash, no reboot between experiments. While it runs, **AbstractX Studio**—our native desktop engineering workbench running on your PC—provides real-time visibility into the coprocessor: CPU utilization, per-interrupt microsecond costs, line-by-line source profiling, and an interactive prompt, while the sensor stream keeps running.
 
 <figure>
 <img src="assets/studio-cpu.gif" alt="AbstractX Studio’s CPU tab, live: busy percentage, the coroutine table and per-interrupt costs updating once a second from the E906" />
@@ -12,6 +12,8 @@ The Radxa Cubie A5E is a small board with a surprise inside. Its Allwinner T527 
 </figure>
 
 *Live from the board: AbstractX Studio displays the E906’s real-time heartbeat. Once a second it updates CPU load, per-task execution percentages, and exact per-interrupt microsecond costs using sub-microsecond non-intrusive binary telemetry.*
+
+> **Status, 2026-11-06.** The measurements are from 2026-10-21 to 2026-10-23 (section 11 says which are in the evidence ledger). Since then the drivers moved out of the app into the E906 target (`e906_periph.cpp` no longer exists), the DMA driver uses channels 11–15 only, and `SRAM_FAST` use dropped to 73 %. This version corrects those facts and removes claims that were never measured (marked in section 13). The numbers were not re-measured.
 
 ### In short
 
@@ -69,7 +71,7 @@ That overlay ([`cubie-a5e-flight-stack-e906.dtso`](https://github.com/tcmichals/
 
 - **UART3, I²C1 and SPI1 go to `generic-uio`.** Linux still sets the pin multiplexing, turns on the clocks and releases the resets, but it attaches no driver, so the E906 has the registers to itself.
 - **The message box and `remoteproc` are enabled**, with the firmware name `riscv-firmware.elf` and the memory region for the shared rings.
-- **The DMA controller is split:** `dma-channels = <8>` tells Linux it has only channels 0-7, so channels 8-15 are free for the E906 (section 10).
+- **The DMA controller is split:** `dma-channels = <8>` tells Linux it has only channels 0-7. Channels 8-15 are left to the E906, which uses 11-15 (section 10).
 - **Pins are documented in the file**, header pin by header pin.
 
 Changing the hardware split is therefore an edit, a compile and a reboot:
@@ -169,7 +171,7 @@ busy 0.3% {'rpmsg_rx': 0.0, 'repl_rx': 0.0, 'repl_tx': 0.0} {'timer': 1001, 'uar
 busy 0.4% {'rpmsg_rx': 0.0, 'repl_rx': 0.0, 'repl_tx': 0.0} {'timer': 1001, 'uart3': 30, 'msgbox': 1, 'twi1': 0, 'irq88': 0}
 ```
 
-The E906 is 0.3 % busy, the timer interrupts 1,001 times a second (the profiler’s sample clock, section 7), and UART3 takes about 30 interrupts a second from the GPS. No compile happened anywhere: a Python script on Linux is reading the E906 firmware’s own counters, live, from the other processor.
+The E906 is 0.3 % busy, the timer interrupts 1,001 times a second (the profiler’s sample clock, section 7), and UART3 takes about 30 interrupts a second from the GPS. `irq88` is the DMA controller’s line (CLIC 88). No compile happened anywhere: a Python script on Linux is reading the E906 firmware’s own counters, live, from the other processor.
 
 ## 5. MicroPython on the E906, with AbstractX underneath
 
@@ -182,7 +184,7 @@ The E906 is 0.3 % busy, the timer interrupts 1,001 times a second (the profiler�
 
 Notice how the three tiers divide the engineering labor: 1. **The Development PC**: Runs **AbstractX Studio**, rendering rich 60 FPS Dear ImGui observability instruments, decoding binary telemetry, and parsing DWARF ELF symbols so the embedded silicon never wastes compute or SRAM on GUI rendering or string formatting. 2. **The Cortex-A55 Linux Cores**: Act as a transparent high-bandwidth bridge, routing RPMsg message streams and binary trace buffers over SSH or network sockets to your PC. 3. **The XuanTie E906 RISC-V Core**: Runs the lightweight, freestanding AbstractX event loop and MicroPython, driving I²C and UART hardware peripherals in real time.
 
-The firmware on the E906 is [AbstractX](https://github.com/tcmichals/AbstractX): an event loop that runs small cooperative tasks (C++20 coroutines, Part 4) and interrupt-driven drivers, with no heap. This firmware ([`apps/e906_repl_app`](https://github.com/tcmichals/AbstractX/tree/main/apps/e906_repl_app)) runs three tasks:
+The firmware on the E906 is [AbstractX](https://github.com/tcmichals/AbstractX): an event loop that runs small cooperative tasks (C++20 coroutines, Part 4) and interrupt-driven drivers. Its own code allocates nothing at run time, but newlib’s `malloc` and `free` are still linked into the image (pulled in by `operator delete`; open as EL-1027-31, and the zero-heap check now reports it). This firmware ([`apps/e906_repl_app`](https://github.com/tcmichals/AbstractX/tree/main/apps/e906_repl_app)) runs three tasks:
 
 - `rpmsg_rx`: receives RPMsg messages from Linux,
 - `repl_rx`: **MicroPython**, which runs whatever you send it, and
@@ -191,66 +193,60 @@ The firmware on the E906 is [AbstractX](https://github.com/tcmichals/AbstractX):
 MicroPython is not the firmware; it is one task inside it. That has three consequences you will see in the experiments:
 
 - **Interrupts keep running under Python.** The GPS UART and the compass I²C bus are handled by AbstractX interrupt handlers. When Python waits for the bus, the E906 sleeps (`wfi`) until the interrupt wakes it; it never spins.
-- **Python cannot break the firmware’s memory.** MicroPython’s heap lives in the RAM of the chip’s unused HiFi4 DSP (128 KB), separate from the firmware.
+- **Python’s heap is separate from the firmware’s memory.** MicroPython’s heap lives in the RAM of the chip’s unused HiFi4 DSP (128 KB), so a script that fills it cannot overwrite firmware data (`poke()` can still write any register you point it at).
 - **Python’s cost can be measured.** AbstractX counts CPU time per task and per interrupt, so the price of running Python shows up as the `repl_rx` task.
 
 Scripts reach the hardware through one built-in module, `abstractx` ([`modabstractx.c`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/modabstractx.c)):
 
-<figure>
-<img src="assets/table4-modabstractx-api.svg" alt="Hardware Peripheral &amp; Telemetry C-Binding Functions" />
-<figcaption aria-hidden="true">Hardware Peripheral &amp; Telemetry C-Binding Functions</figcaption>
-</figure>
+| Function | What it does |
+| --- | --- |
+| `i2c_init([hz])`, `i2c_scan()` | set up TWI1 (I²C1); list the 7-bit addresses that answer |
+| `i2c_read(addr, reg, n)`, `i2c_read_into(addr, reg, buf)`, `i2c_write(addr, reg, data)` | one register transfer; up to 3 tries; empty / 0 on NACK or timeout (20 ms default) |
+| `i2c_timeouts()`, `i2c_recoveries()` | error counters |
+| `uart_init([baud])`, `uart_read([n])`, `uart_read_into(buf)`, `uart_write(data)`, `uart_stop()` | UART3 (GPS); reads return what the interrupt handler or the DMA ring already holds and never wait |
+| `uart_dma(on)`, `uart_status()`, `uart_dropped()` | circular receive DMA on or off; FIFO and error state; bytes dropped |
+| `spi_init(...)`, `spi_xfer(...)`, `spi_xfer_into(...)` | SPI1 on PB11–PB14 |
+| `imu_drdy_start/stop/read_into/stats` | IMU data-ready pin → DMA capture ([SPEC-E906-IRQ-07]) |
+| `sleep_ms(ms)`, `ticks_ms()`, `cycles()` | sleep in `wfi`; millisecond and 200 MHz cycle counters |
+| `peek(addr)`, `peek_hex(addr)`, `poke(addr, val)` | read or write a 32-bit register (address-checked) |
+| `irq_stats()`, `spurious()`, `doorbells()`, `mtvec()`, `alive()` | interrupt counters and health |
+| `trace(task_id, state[, msg])` | a binary trace event on endpoint 1025 |
+| `tlp_send(buf)`, `tlp_push(...)`, `tlp_poll_into(buf)`, `tlp_dropped()` | 64-byte TLPs on endpoint 1024 |
+| `console_read([n])`, `console_read_into(buf)` | raw REPL input |
+| `dma_bench(n[, port])` | DMA vs CPU copy timing (section 10) |
+| `version()` | firmware version string |
 
 The board’s MicroPython is a minimal build: `bytes.decode` and `bytes.fromhex` do not exist (use `str(b, "ascii")` and `int(h, 16)`), and there is no filesystem, so scripts arrive over RPMsg and are compiled in memory.
 
-### 5.1 Concurrency in Python: Why AbstractX Coroutines Instead of `uasyncio`?
+### 5.1 Concurrency in Python: `abstractx_coro.py` instead of `uasyncio`
 
-A natural question when looking at concurrent I/O in Python is: **“Python has `asyncio` (and MicroPython has `uasyncio`), so why aren’t we using that? Is `asyncio` flawed? Or did `uasyncio` miss what microcontrollers actually need?”**
+This MicroPython build leaves out `async` / `await` and `uasyncio` to save space in `SRAM_FAST`. For scripts that run several sensors at once there is a small pure-Python scheduler, [`abstractx_coro.py`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/abstractx_coro.py), built on plain generators. It copies the shape of the C++ API so a proven script maps onto C++ coroutines:
 
-#### Is Python’s `asyncio` Flawed?
-
-**No, `asyncio` is not flawed for its intended domain.**
-
-Python’s `asyncio` was designed for network applications—web servers (FastAPI, aiohttp), database connection pools, and microservices on Linux and cloud servers with gigabytes of RAM. In that domain: - Waiting 10–50 ms for an HTTP response or a database query over TCP is typical. - Allocating 500 bytes of memory per `Task` is completely unnoticeable. - A 50-microsecond garbage collection pause causes no issues whatsoever.
-
-#### The Historical Mismatch: Why `uasyncio` Should Have Been Built Differently
-
-MicroPython is called **MICRO**Python. Yet when `uasyncio` was created, the project prioritized **desktop CPython compatibility** over **microcontroller physics**: - *“If someone writes `asyncio` code on their PC, it should copy-paste onto an ESP32 or PyBoard.”*
-
-By mimicking CPython’s desktop API, `uasyncio` inherited all of its desktop assumptions: 1. **Dynamic Heap Allocation on Every Step**: Every `async def`, `Task`, `Future`, and `await asyncio.sleep()` in MicroPython allocates objects on the Python heap. 2. **The 10 ms Garbage Collection Freeze**: MicroPython uses a mark-and-sweep Garbage Collector. When the heap fragments or fills up, `gc.collect()` freezes CPU execution for **5 to 15 milliseconds**. On an embedded drone or robot balancing an 8 kHz gyroscope and 200 Hz compass, a 15 ms freeze means lost sensor packets, missed attitude corrections, and flight instability. 3. **ROM & Symbol Table Footprint**: Supporting full `async/await` syntax requires enabling `MICROPY_PY_ASYNC_AWAIT = 1` and large QSTR symbol tables (`__aiter__`, `__anext__`, `StopAsyncIteration`), which exceed the lean 192 KB `SRAM_FAST` budget.
-
-An embedded coroutine engine *should never have been a desktop socket scheduler*. It should have been designed for silicon: static channels, zero allocation in the loop pass, and direct hardware interrupt sleep.
-
-#### What an Embedded Coroutine Engine Actually Looks Like (`abstractx_coro.py`)
-
-<figure>
-<img src="assets/table5-async-concurrency.svg" alt="Desktop Python vs MicroPython vs AbstractX Coroutines" />
-<figcaption aria-hidden="true">Desktop Python vs MicroPython vs AbstractX Coroutines</figcaption>
-</figure>
-
-Rather than relying on heap-allocating task wrappers, AbstractX brings the exact C++20 coroutine model into MicroPython:
+| Python (`abstractx_coro`) | C++ (AbstractX) |
+| --- | --- |
+| a generator function | a `coro::Task<void>` coroutine |
+| `yield abstractx_coro.sleep_ms(20)` | `co_await sleep_ms(20)` |
+| `AsyncQueue(16)`: `try_push`, `try_pop`, `yield q.pop()` | `AsyncQueue<T, 16>`: `try_push`, `try_pop`, `co_await q.pop()` |
+| `Dispatcher().spawn(...)`, `.run(timeout_ms=...)` | `spawn(...)`, the host calling `abstractx::step()` |
 
 ``` sourceCode
-# The AbstractX Coroutine Pattern: 0 Heap Allocations in Steady State
 import abstractx
 import abstractx_coro
 
-mag_channel = abstractx_coro.AsyncQueue(16)  # Pre-allocated fixed ring buffer
-buf = bytearray(6)                           # Reusable zero-copy buffer
+mag_channel = abstractx_coro.AsyncQueue(16)  # fixed capacity
+buf = bytearray(6)                           # reused for every read
 
 def compass_task(channel):
     while True:
-        # Hardware interrupt reads into pre-allocated buffer
-        n = abstractx.i2c_read_into(0x1E, 0x03, buf)
+        n = abstractx.i2c_read_into(0x1E, 0x03, buf)   # sleeps in wfi while the bus works
         if n == 6:
             channel.try_push(bytes(buf))
-        # Yields execution; E906 enters wfi sleep (0.01% CPU)
         yield abstractx_coro.sleep_ms(20)
 ```
 
-- **0 bytes allocated** during steady-state execution <span class="math inline">→</span> **0 Garbage Collection pauses**.
-- **Wakes on hardware interrupts**: `abstractx.sleep_ms()` calls `wfi`, letting the core sleep while UART DMA and I2C hardware state machines run in parallel.
-- **Direct 1:1 Mapping to C++20**: When the prototype is proven, running the `micropython-to-cpp` skill translates the Python generator coroutine directly into a native C++20 `coro::Task<void>` with zero conceptual friction.
+What it does **not** do: avoid the heap. It is plain Python, so `bytes(buf)`, each `sleep_ms()` token and the dispatcher’s task list all allocate, and MicroPython’s garbage collector still runs (in the separate DSP-RAM heap, so it cannot touch the firmware). It allocates less than a design that creates a task object per wait, but we have not measured how much less, or how long the collections take on this board. When a loop needs timing you can rely on, it belongs in C++ on the same drivers (the `micropython-to-cpp` skill does the first translation).
+
+The file is not built into the firmware (there is no filesystem on the E906), so a script that uses it must send it first, for example by putting both files into one script for `run_e906_script.py`.
 
 ## 6. Experiments without compiling
 
@@ -369,7 +365,7 @@ A command travels from Studio over ssh to a bridge script on Linux, then over th
 
 ### 6.7 Parallel Multi-Rate Sensor Ingestion (The Coroutine Way)
 
-Instead of sequential polling scripts that waste bus time, the **AbstractX Coroutine Pattern** lets developers orchestrate multiple sensors running at different rates concurrently:
+With `abstractx_coro.py` (section 5.1), several sensors at different rates run as separate producers, and one consumer is paced by the primary sensor, the same pattern as the C++ apps ([`example_parallel_flight_coros.py`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/example_parallel_flight_coros.py) is the full version):
 
 ``` sourceCode
 # parallel_sensor_coros.py: Multi-rate concurrent sensor ingestion on the E906
@@ -392,17 +388,15 @@ gps_channel = abstractx_coro.AsyncQueue(16)
 def compass_producer(channel):
     buf = bytearray(6)
     while True:
-        # Hardware interrupt reads into pre-allocated buffer
-        n = abstractx.i2c_read_into(0x1E, 0x03, buf)
+        n = abstractx.i2c_read_into(0x1E, 0x03, buf)   # sleeps in wfi while the bus works
         if n == 6:
             channel.try_push(bytes(buf))
-        # Yields for 20 ms; E906 enters wfi sleep (0.01% CPU)
         yield abstractx_coro.sleep_ms(20)
 
 def gps_producer(channel):
     buf = bytearray(512)
     while True:
-        # Autonomous DMA ring drained in zero heap allocations
+        # drain what the DMA ring holds; bytes(...) allocates
         n = abstractx.uart_read_into(buf)
         if n > 0:
             channel.try_push(bytes(buf[:n]))
@@ -441,192 +435,58 @@ dispatcher.spawn(flight_fusion_task(mag_channel, gps_channel))
 dispatcher.run(timeout_ms=10000)
 ```
 
-Running this on the board gives sub-millisecond epoch accuracy, 0% CPU waste during bus phases, and 0 dropped GPS sentences.
+Not measured: we have no recorded board run of this script, so there are no numbers for its timing, CPU use or dropped GPS bytes. The C++ version of the same pattern is in the [GPS + compass article](https://github.com/tcmichals/AbstractX/blob/main/docs/articles/gps-compass-straight-line-async/README.md).
 
 ------------------------------------------------------------------------
 
-## 7. Watching the E906 Work: Inside AbstractX Studio
+## 7. Watching the E906 work: AbstractX Studio
 
-When developing software for an asymmetric multi-core processor (AMP)—where Linux runs on high-performance application cores while a bare-metal coprocessor handles real-time I/O—the single biggest obstacle is **observability**.
+A bare-metal core has no `top`, and `printf` over a serial port is too slow to use inside a fast loop (one 100-character line at 115,200 baud takes 8.7 ms). So the E906 firmware sends binary counters and trace events over the trace endpoint (1025), Linux forwards them, and **AbstractX Studio** ([`tools/visualizer`](https://github.com/tcmichals/AbstractX/tree/main/tools/visualizer)), a Dear ImGui desktop app on the PC, decodes and draws them. The firmware never formats text for it. Studio’s design is in its [specification](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/SPECIFICATION.md); a separate article on Studio is planned. These are the parts used in this article:
 
-On Linux, developers take a rich suite of diagnostic tools for granted: `top`, `htop`, `perf`, `ftrace`, `gdb`, core dumps, and syslog. But on a bare-metal RISC-V coprocessor, developers are usually **flying blind**: - **No OS means no `top`**: Without an operating system scheduler slicing threads, there is no built-in way to know whether your coprocessor is 5% busy or 99% busy, or how much CPU time MicroPython’s garbage collector is consuming relative to hardware drivers. - **The `printf` trap & Heisenbugs**: Inserting debug `printf()` calls over a serial port stalls execution. At 115,200 baud, printing a single 100-character line takes **8.7 milliseconds**. In a 1 kHz sensor loop, that delay is fatal—it causes I²C arbitration timeouts, overflows UART FIFOs, and completely distorts the timing you were attempting to measure. The bug disappears or mutates the moment you try to observe it. - **JTAG halts break real-time physics**: Halting the CPU with a traditional JTAG hardware breakpoint stops the core, but external hardware (the compass, GPS, and DMA controllers) keeps running. Registers overflow and communication interfaces time out, making live debugging impossible.
-
-To eliminate this blindness, AbstractX includes **AbstractX Studio** ([`tools/visualizer`](https://github.com/tcmichals/AbstractX/tree/main/tools/visualizer)): a unified desktop engineering workbench and observability cockpit designed specifically for bare-metal and heterogeneous systems.
-
-### 7.1 What is AbstractX Studio?
-
-AbstractX Studio is a native desktop application written in Python ([`tools/visualizer/abstractx_studio.py`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/abstractx_studio.py)) powered by **`imgui-bundle`** (**Dear ImGui**, **ImPlot**, and **HelloImGui** C++ bindings). It runs on your development PC (Linux, macOS, or Windows) at a silky 60 FPS and connects to the Cubie A5E over a standard SSH connection or network socket.
-
-The workbench is **fully customizable**: developers can drag, re-dock, split horizontally or vertically, and stack tabs anywhere on the canvas. With multi-viewport docking enabled by default, any tool can be torn off into its own independent OS window on a second monitor with a 1-click `Pop In` button to re-dock. Crucially, Studio is not a fixed dashboard—it allows developers to **embed their own custom tabs and instruments** directly into the workbench using an open Python plugin architecture.
-
-Instead of heavy text logging or intrusive polling, Studio relies on **zero-copy Common Trace Format (CTF 1.8) binary telemetry**. The E906 firmware writes compact 64-byte binary Transaction Layer Packets (TLPs) into lock-free shared SRAM rings (`.sram_c`).
-
-Emitting a binary trace packet takes only **4 to 12 RISC-V instructions** (~20 to 60 nanoseconds). The coprocessor spends less than **0.4% CPU overhead** reporting its internal state, completely eliminating the probe effect.
-
-Linux on the Cortex-A55 cores simply forwards the raw binary ring buffers over SSH to your workstation. AbstractX Studio on the PC does all the heavy lifting: unpacking binary frames, reading the firmware’s ELF DWARF debug symbols to resolve addresses to source lines, and rendering real-time graphs and swimlanes.
-
-### 7.2 The Four Studio Instruments
-
-Studio translates this binary stream into four real-time observability instruments, giving bare-metal developers the same visibility Linux developers expect:
-
-#### 1. CPU & Driver Telemetry (Bare-Metal `top`)
-
-Studio’s CPU tab updates once a second, displaying: - A real-time CPU busy meter and rolling history graph. - A task table (`rpmsg_rx`, `repl_rx`, `repl_tx`) showing exact cycle percentages consumed by MicroPython versus message routing. - An interrupt driver table covering every physical CLIC interrupt line (Timer 92, UART3 90, TWI1 91, Msgbox 88), displaying its trigger frequency (Hz), exact execution cost per interrupt in microseconds (e.g. 1.5 µs for I²C, 25 µs for UART byte handler, 2.1 µs for circular DMA), and hardware error counters. - Memory pool high-water marks, verifying zero memory leaks in steady state.
+**CPU tab (a bare-metal `top`).** Once a second: busy percentage, a task table (`rpmsg_rx`, `repl_rx`, `repl_tx`) and a driver table with interrupts per second and microseconds per interrupt for each line: timer (CLIC 7), message box (CLIC 17), DMA (CLIC 88), UART3 (CLIC 90), TWI1 (CLIC 91).
 
 <figure>
 <img src="assets/studio-cpu.png" alt="Studio’s CPU tab: busy percentage over time, the task table, the driver table with uart3 and twi1, and pool usage" />
 <figcaption aria-hidden="true">Studio’s CPU tab: busy percentage over time, the task table, the driver table with uart3 and twi1, and pool usage</figcaption>
 </figure>
 
-*Captured from the live board with the sensor streamer running: the E906 is about 8 % busy; the timer line takes about 1,000 interrupts a second (the profiler’s samples), UART3 costs about 25 µs per interrupt and TWI1 about 1.5 µs. In DMA mode (`abstractx.uart_dma(True)`), UART3 drops 0 bytes even during continuous 115200-baud GPS streaming bursts (section 10).*
+*Captured from the board with the sensor streamer running: the E906 is about 8 % busy; the timer line takes about 1,000 interrupts a second (the profiler’s samples). The per-interrupt costs on the screen depend on the firmware of the day; the recorded ones are in section 11.*
 
-#### 2. Live Statistical Source-Line Profiler (Bare-Metal `perf`)
-
-To find performance bottlenecks without modifying code: - A 1,000 Hz hardware timer interrupt samples the E906 Program Counter (PC). - If the core is sleeping in `wfi`, the ISR samples the idle loop and returns immediately to sleep, preserving the low-power idle state without waking up the event loop. - On the PC, Studio cross-references the sampled addresses against the firmware ELF binary’s DWARF symbol table, displaying a live sorted table of hot functions and source lines. - You can instantly see where CPU cycles go: e.g. 92% in `wfi` idle sleep, 4% in MicroPython’s bytecode dispatch (`mp_execute_bytecode`), 2% in garbage collection (`gc_alloc`), and \<1% in hardware drivers. Clicking any line links directly to source code.
+**Profiler (a bare-metal `perf`).** A 1 kHz timer interrupt samples the program counter. A sample taken while the core sleeps in `wfi` counts as idle and returns straight to the `wfi`. Studio maps the addresses to functions and source lines with the firmware ELF.
 
 <figure>
 <img src="assets/studio-source.png" alt="Studio’s hot-function table from the live profiler" />
 <figcaption aria-hidden="true">Studio’s hot-function table from the live profiler</figcaption>
 </figure>
 
-*Captured from the live board, 5 seconds of samples. The top line (92 %) is the E906 sleeping in its idle `wfi`; it is listed under `now_cycles()` because the lookup reports the innermost inlined function at that address. The rest is MicroPython’s interpreter (`qstr_find_strn`, `gc_alloc`, `mp_execute_bytecode`), each line clickable to its source.*
+*Captured from the board, 5 seconds of samples. The top line (92 %) is the E906 sleeping in its idle `wfi`; it is listed under `now_cycles()` because the lookup reports the innermost inlined function at that address. The rest is MicroPython’s interpreter (`qstr_find_strn`, `gc_alloc`, `mp_execute_bytecode`).*
 
-#### 3. Software Logic Analyzer Timeline (Microsecond Swimlanes)
-
-Like an oscilloscope or logic analyzer for software execution: - Displays synchronized horizontal swimlanes on a shared 200 MHz CPU cycle clock. - Shows when tasks run, when each physical interrupt line fires (as microsecond-accurate tick marks), and when the core sleeps in `wfi`. - Allows sub-microsecond inspection of bus events (e.g. seeing the 11 individual CLIC interrupt pulses of an I²C transaction unfold over time while UART DMA packets arrive in parallel).
+**Timeline.** Swimlanes on the E906’s cycle clock: when each task runs, each interrupt (as a tick), and idle.
 
 <figure>
 <img src="assets/studio-timeline.gif" alt="Studio’s timeline, animated: swimlanes for idle and each interrupt line on the E906 cycle clock, 100 ms window" />
 <figcaption aria-hidden="true">Studio’s timeline, animated: swimlanes for idle and each interrupt line on the E906 cycle clock, 100 ms window</figcaption>
 </figure>
 
-*Captured from the live board, last 100 ms: the long grey bar is the E906 idle, each tick is one interrupt (the timer and UART3 here); a task gets its own lane when it runs inside the window.*
+*Captured from the board, last 100 ms: the long grey bar is the E906 idle, each tick is one interrupt (the timer and UART3 here).*
 
-#### 4. Interactive REPL & System CLI (Live Command & Inspection)
-
-Studio includes a dedicated terminal tab connected directly to the E906 over RPMsg (shown in [Section 6.6](#66-python-beside-a-running-stream-meet-abstractx-studios-cli)): - Allows developers to execute Python one-liners, inspect global variables, and query system diagnostics (`ps`, `drivers`, `irq_stats`, `mem`) live on the coprocessor. - Operates concurrently with ongoing sensor streaming and control loops—you can poke registers and inspect state without stopping or restarting the stream. - Commands travel over SSH and RPMsg, returning output in approximately 55 ms with variables preserved between statements.
-
-### 7.3 How Studio is Programmed: Declarative JSON Schemas & Python Plugins
-
-A common limitation of embedded diagnostic GUIs is rigidity: they are compiled binary monoliths with hardcoded packet parsers and static layouts. If an engineer adds a magnetometer axis, swaps an IMU, or changes a telemetry rate, someone has to modify C++ GUI parsing code and recompile the desktop application.
-
-AbstractX Studio takes a completely different approach: it is **declarative and programmable**.
-
-#### 1. Dynamic barectf & CTF 1.8 Telemetry Schemas (`trace_schema.json` & `barectf_config.yaml`)
-
-Telemetry streams in AbstractX are governed by **barectf**—an open-source generator that produces ultra-fast, zero-allocation ANSI C tracers emitting the standardized Common Trace Format (CTF 1.8).
-
-Instead of burning cycles on string formatting or JSON serialization on the microcontroller, the E906 firmware bit-packs trace events directly into shared SRAM rings in 4 to 12 instructions. Furthermore, MicroPython scripts on the E906 can call `abstractx.trace(task_id, state, "msg")` to emit structured barectf binary events into this exact same stream!
-
-On the host PC, Python tools and AbstractX Studio decode these binary streams dynamically using external schemas rather than hardcoded struct offsets:
-
-``` sourceCode
-{
-  "application": "gps_imu_app",
-  "wire_protocol": { "frame_size_bytes": 64, "header_size_bytes": 20, "payload_size_bytes": 40 },
-  "streams": {
-    "1": {
-      "name": "telemetry",
-      "events": {
-        "1": {
-          "name": "imu_sample",
-          "rate_hz": 8000,
-          "source_device": "ICM-42688-P (SPI1)",
-          "unpack_format": "<i6h",
-          "fields": [
-            { "name": "sample_seq", "type": "int32", "scale": 1.0, "display_name": "Sequence" },
-            { "name": "accel_x_mg", "type": "int16", "unit": "g", "scale": 0.001, "widget": "oscilloscope" },
-            { "name": "gyro_z_dps", "type": "int16", "unit": "deg/s", "scale": 0.1, "widget": "oscilloscope" }
-          ]
-        },
-        "2": {
-          "name": "mag_sample",
-          "rate_hz": 50,
-          "source_device": "HMC5883L (I2C1)",
-          "unpack_format": "<3hH",
-          "fields": [
-            { "name": "mag_x_mgauss", "type": "int16", "unit": "mG", "scale": 1.0 },
-            { "name": "heading_cdeg", "type": "uint16", "unit": "deg", "scale": 0.01, "widget": "compass" }
-          ]
-        }
-      }
-    }
-  }
-}
-```
-
-When Studio or a Python tool connects to a stream: 1. **Dynamic barectf Unpack Compilation**: Studio’s `CtfSchemaLoader` (`tools/visualizer/ctf_schema_loader.py`) reads the barectf YAML or JSON configuration and compiles the `unpack_format` (e.g. `<i6h` or `<3hH`) into native Python `struct.unpack` byte decoders on the fly. 2. **Automatic Unit Scaling**: Raw integer values from hardware ADCs are automatically scaled into human-readable engineering units using the `"scale"` multiplier (e.g. `0.001` converts milligauss or milli-<span class="math inline">*g*</span> to <span class="math inline">*g*</span>, and `0.01` converts centidegrees to degrees). 3. **Automatic UI Widget Binding**: The `"widget"` tag binds decoded signals directly to Studio’s visualization components—routing high-rate accelerometer and gyroscope data to the 8 kHz oscilloscope, magnetic heading to the vector compass dial, or altitude to the altimeter—without writing any UI wiring code.
-
-#### 2. Declarative Hardware Profiles (`profiles/*.json`)
-
-Hardware profiles describe the physical target board and its interconnect topology:
-
-``` sourceCode
-{
-  "profile_id": "cubie_a5e_pure",
-  "platform_name": "Allwinner Cubie A5E (Pure Silicon)",
-  "board_ip": "192.168.1.13",
-  "udp_port": 9870,
-  "active_cores": [
-    {"id": 0, "role": "Host Linux ARM64", "task": "Flight Supervisor & Telemetry", "clock_mhz": 1400},
-    {"id": 1, "role": "XuanTie E906 RISC-V", "task": "Real-Time I/O Reactor & Sensors", "clock_mhz": 200}
-  ],
-  "hardware_accels": ["UART3 Circular DMA (GPS)", "TWI1 I2C (Compass)", "sun6i-msgbox"],
-  "schema_file": "apps/gps_imu_app/trace_schema.json"
-}
-```
-
-Switching Studio between targets—from the bare-metal XuanTie E906 on the Cubie A5E, to an ESP32-P4, a Raspberry Pi Pico 2 W, or a desktop SITL simulator—is simply a matter of passing `--profile profiles/<target>.json`. Studio automatically reconfigures its core topology views, network endpoints, and telemetry parsers.
-
-#### 3. Customizing Windows & Embedding Your Own Tabs (`AbstractXStudioPlugin`)
-
-A hallmark of AbstractX Studio is that developers are never forced into a single pre-baked layout or rigid set of tools.
-
-Every engineering project has unique telemetry needs—a robotics team needs motor demand bars and Joint PID curves; a drone project needs artificial horizons and compass roses; a battery management system needs cell voltage heatmaps.
-
-Studio makes it trivial for users to **customize their workspace and embed their own tabs directly into the workbench** using the Python Plugin SDK ([`tools/visualizer/sdk/plugin.py`](https://github.com/tcmichals/AbstractX/blob/main/tools/visualizer/sdk/plugin.py)):
-
-``` sourceCode
-from visualizer.sdk.plugin import AbstractXStudioPlugin
-from imgui_bundle import imgui, implot
-
-class CustomSensorDashboard(AbstractXStudioPlugin):
-    def __init__(self):
-        super().__init__("Custom Dashboard", "1.0")
-        self.latest_heading = 0.0
-
-    def on_tlp_packet(self, header, payload_dict):
-        # Asynchronously invoked when relevant telemetry packets arrive
-        if "heading_cdeg" in payload_dict:
-            self.latest_heading = payload_dict["heading_cdeg"] * 0.01
-
-    def render_ui(self, delta_time, state):
-        # Rendered at 60 FPS inside Studio's dockable tab
-        imgui.text_colored(imgui.ImVec4(0.3, 0.85, 1.0, 1.0), "Custom Flight Deck")
-        imgui.text(f"Live Magnetic Heading: {self.latest_heading:.1f}°")
-        
-        # Interactive controls sending commands to E906 over RPMsg
-        if imgui.button("Zero Compass Bias"):
-            state.send_cli("abstractx.compass_calibrate()")
-```
-
-By subclassing `AbstractXStudioPlugin`, your custom tool becomes a **first-class citizen on the workbench**: - **Automatic Docking & Layout Customization**: Your tab can be dragged, nested into tab groups, or split side-by-side with CPU gauges, the timeline, or the memory inspector. - **Multi-Monitor “Pop to Canvas”**: Any embedded tab gets a native OS window tear-off button (`🗖 Pop to Canvas`). You can pull your custom dashboard onto a second monitor, resize it, and dock it back with 1 click (`🗗 Pop In`). - **Direct Real-Time Target Interaction**: Through `state.send_cli(...)`, your custom tab can send Python expressions, calibrate sensors, or tweak control gains on the live E906 coprocessor while streaming continues uninterrupted. - **Zero GUI Boilerplate**: No OpenGL shaders, GLFW event loops, or thread synchronizers. You write high-level ImGui and ImPlot Python code, and Studio handles the rendering at 60 FPS.
+**CLI tab.** The REPL from section 6.6.
 
 ## 8. Under the hood: how one call reaches the hardware
 
 <figure>
-<img src="assets/call-path.png" alt="The path of abstractx.i2c_read(0x1E, 0x03, 6): Python in repl_rx, modabstractx.c, e906_periph.cpp starting the I²C transfer, a wfi wait loop, one TWI1 interrupt per bus step, and the measurement hooks along the way" />
-<figcaption aria-hidden="true">The path of abstractx.i2c_read(0x1E, 0x03, 6): Python in repl_rx, modabstractx.c, e906_periph.cpp starting the I²C transfer, a wfi wait loop, one TWI1 interrupt per bus step, and the measurement hooks along the way</figcaption>
+<img src="assets/call-path.png" alt="The path of abstractx.i2c_read(0x1E, 0x03, 6): Python in repl_rx, modabstractx.c, the I²C binding starting the transfer, a wfi wait loop, one TWI1 interrupt per bus step, and the measurement hooks along the way" />
+<figcaption aria-hidden="true">The path of abstractx.i2c_read(0x1E, 0x03, 6): Python in repl_rx, modabstractx.c, the I²C binding starting the transfer, a wfi wait loop, one TWI1 interrupt per bus step, and the measurement hooks along the way</figcaption>
 </figure>
 
-*Follow the left column top to bottom; the green box is what happens between the `wfi` and the wake; the amber box shows where Studio’s numbers come from.*
+*Follow the left column top to bottom; the green box is what happens between the `wfi` and the wake; the amber box shows where Studio’s numbers come from. The diagram was drawn when the driver lived in `e906_periph.cpp`; the steps are the same, the files are now those listed below.*
 
 One compass read, `abstractx.i2c_read(0x1E, 0x03, 6)`, step by step:
 
 1.  **Python** calls a built-in C function. Everything from here runs inside the `repl_rx` task, which is why its time is reported under that name.
 2.  **[`modabstractx.c`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/modabstractx.c)** converts the arguments and calls the I²C driver.
-3.  **[`e906_periph.cpp`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/e906_periph.cpp)** copies the request into a static record (so an interrupt can never write into a stack frame that a Ctrl-C has already unwound) and tells the I²C block to send START.
-4.  **The wait**: arm a 20 ms timeout, let pending work run, then sleep in `wfi`. The loop never reads an I²C register.
+3.  **[`i2c.cpp`](https://github.com/tcmichals/AbstractX/blob/main/apps/e906_repl_app/src/i2c.cpp)** (the app’s binding) copies the request into static buffers (so an interrupt can never write into a stack frame that a Ctrl-C has already unwound) and calls the E906 target’s TWI driver ([`targets/allwinner_e906/src/i2c.cpp`](https://github.com/tcmichals/AbstractX/blob/main/targets/allwinner_e906/src/i2c.cpp)), which sends START. A NACK or bus error is retried up to 3 times.
+4.  **The wait**: the driver arms a 20 ms timeout; the binding’s wait hook lets pending work run, then sleeps in `wfi`. The loop never reads an I²C register.
 5.  **The interrupt**: each bus step raises the I²C interrupt (CLIC line 91). The handler takes exactly one step: send the address, send the register, repeated START, address with the read bit, store a byte, or STOP. A 6-byte register read is 11 steps.
 6.  **Back in Python**: the bytes come back as a `bytes` object. On a timeout the driver sends STOP, counts the error (it shows in Studio’s driver table) and Python gets `b''`.
 
@@ -646,7 +506,7 @@ The E906 runs entirely from on-chip SRAM; nothing is in DRAM (Part 1 maps the wi
 <figcaption aria-hidden="true">SRAM Space Partitioning for RISC-V Firmware &amp; MicroPython</figcaption>
 </figure>
 
-Space 0 had filled to 99.3 %. Moving the MicroPython compiler (only needed while a script is being compiled) into Space 1 brought it to 85 %; with the profiler and DMA code added since, it is at 89.6 %.
+Space 0 had filled to 99.3 %. Moving the MicroPython compiler (only needed while a script is being compiled) into Space 1 brought it to 85 %. Later all of MicroPython’s own code moved to Space 1 too; on 2026-11-06 `e906_repl_app` uses 140.5 KB of the 192 KB `SRAM_FAST` (73.2 %, `analyze_elf_size.sh`), and every load segment is in SRAM Space 0 or 1 (`check_e906_layout.py`), none in DRAM.
 
 ## 10. DMA, shared with Linux
 
@@ -654,11 +514,11 @@ Reading a UART one byte at a time costs about 0.29 µs per register read on the 
 
 The T527 has one main DMA controller with 16 channels, normally all Linux’s. Sharing it takes three things:
 
-- **Channels:** the overlay’s `dma-channels = <8>` (section 2) leaves channels 8-15 to the E906.
+- **Channels:** the overlay’s `dma-channels = <8>` (section 2) leaves channels 8-15 to the E906. Of those, 8, 9 and 10 do not fetch descriptors when the E906 starts them (we believe a security firewall; not confirmed), so the driver hands out 11-15 only.
 - **Interrupts:** two registers decide which processor sees each channel’s “done” interrupt. Both default to “everyone”. The E906 routes 8-15 to itself and away from Linux before using them; otherwise Linux would get interrupts it cannot clear.
 - **Addresses:** the DMA controller uses physical addresses, which differ from the E906’s view by a fixed offset; the driver converts them.
 
-What it buys, measured with `abstractx.dma_bench()` (SRAM to SRAM):
+What it buys, measured with `abstractx.dma_bench()` (SRAM to SRAM, 2026-10-22; in the engineering log, not in the evidence ledger):
 
 <figure>
 <img src="assets/table7-dma-benchmark.svg" alt="Hardware DMA Engine vs XuanTie E906 CPU memcpy" />
@@ -667,16 +527,23 @@ What it buys, measured with `abstractx.dma_bench()` (SRAM to SRAM):
 
 DMA has a fixed cost of about 4.4 µs, and the CPU is free during the transfer: the “done” interrupt itself costs 1.33 µs. The rule we adopted: **a transfer bigger than the peripheral’s hardware FIFO uses DMA; one that fits uses the FIFO.**
 
-UART receive streams are always bigger than the FIFO, so we implemented **circular UART receive by DMA into a 16×64-byte ring buffer (1,024 B total in `.sram_c`)** with hardware RX timeout triggers (`IIR = 0x0C`) to deliver partial NMEA frames immediately. At 115,200 baud, this 1,024-byte ring provides **88.8 ms of buffer headroom**, completely absorbing any temporary MicroPython GC pauses without dropping a single byte or corrupting checksums. You can query or toggle it live from Python with `abstractx.uart_dma(True)`.
+UART receive streams are always bigger than the FIFO, so we implemented **circular UART receive by DMA into a 16×64-byte ring buffer (1,024 B total in `.sram_c`)** with hardware RX timeout triggers (`IIR = 0x0C`) to deliver partial NMEA frames immediately. At 115,200 baud the 1,024-byte ring holds about 89 ms of data, so Python can be busy (or collecting garbage) for that long before bytes are lost. We have not measured dropped bytes under a long garbage collection. You can query or toggle it live from Python with `abstractx.uart_dma(True)`.
 
 ## 11. Measured on the board
 
 All on the Cubie A5E with the E906 at 200 MHz, 2026-10-21 to 2026-10-23:
 
-<figure>
-<img src="assets/table8-measured-results.svg" alt="Silicon Timings, Interrupt Latency &amp; Resource Utilization" />
-<figcaption aria-hidden="true">Silicon Timings, Interrupt Latency &amp; Resource Utilization</figcaption>
-</figure>
+| What | Measured | Where it is recorded |
+| --- | --- | --- |
+| Idle firmware, busy share | 0.01 % (`wfi`); 0.3–0.4 % with the 1 kHz profiler on | ledger, `e906-board-selftest`, `e6bd00f`, 2026-10-22 (idle); engineering log (profiler) |
+| TWI1 (compass) interrupt | 1.43 µs per interrupt; 11 interrupts per 6-byte register read | ledger, same record |
+| UART3 (GPS) interrupt | 38.9 µs per interrupt (byte-by-byte reads) | ledger, same record. Other values in our notes (25, 31.8, 50 µs) come from different firmware and load and are not in the ledger |
+| One UART register read | about 0.29 µs (58 cycles at 200 MHz) | engineering log |
+| DMA “done” interrupt | 1.33 µs | engineering log |
+| MicroPython sensor streamer (100 ms period) | `repl_rx` about 7.6 % CPU | Studio screenshot (section 6.6) |
+| MicroPython tight compass + GPS loop | `repl_rx` about 90 % CPU | engineering log |
+| Studio CLI round trip | about 55 ms | engineering log |
+| Board self-test | 26 passed, 0 failed, 2 skipped | ledger, `e6bd00f`, 2026-10-22 |
 
 The two lessons: the interpreter, not the drivers, is where the time goes in Python; and register access from this core is expensive enough that DMA matters at high data rates.
 
@@ -688,26 +555,28 @@ The two lessons: the interpreter, not the drivers, is where the time goes in Pyt
 >
 > **The DMA bring-up & the “last byte” trap.** Getting hardware DMA working across asymmetric processors took days of grueling bring-up. First, Linux claimed all 16 DMA channels by default, so we had to patch the device tree (`dma-channels = <8>`) and reprogram interrupt routing registers so the Linux kernel wouldn’t panic on unhandled coprocessor interrupts. Second, the E906 views SRAM through its local core addresses (`0x3FFC0000` / `0x40000000`), but the system DMA controller requires physical bus addresses (`0x00020000`); passing raw C++ pointers silently caused DMA bus errors. But the most insidious bug was the **“last byte” issue**: UART GPS sentences are variable in length (e.g. 73 bytes). If you configure DMA to transfer 64 or 512 bytes, the transfer only triggers when the block completes—leaving the **trailing bytes of a sentence trapped in the hardware FIFO indefinitely** until the next burst arrived! The fix was pairing **circular DMA mode** (a 16×64-byte ring buffer in shared SRAM) with the UART’s hardware **character timeout interrupt** (`IIR = 0x0C`, `UART_DMA_REQ_EN` bit 2). When the line goes idle for 4 character times, the timeout interrupt flushes the pipeline and delivers the trailing bytes to Python immediately.
 >
-> **Studio pop-outs, multi-viewports & the disappearing canvas.** Giving AbstractX Studio multi-monitor pop-out capabilities took three iterations to get right. Our first attempt was a crude hack: clicking “Pop Out” spawned an external Python subprocess (`flight_display.py`). Clicking it repeatedly spawned an avalanche of rogue Python processes that didn’t share memory, and clicking “Pop In” was a broken no-op. When we moved to native Dear ImGui multi-viewports (`enable_viewports = True`), three subtle bugs hit: 1. *The Auto-Merge Trap*: ImGui’s default `io.config_viewports_no_auto_merge = False` automatically swallowed any floating window that overlapped the main workbench back into the main OS window, making pop-out look completely broken. 2. *Pruned Dock Nodes*: When a window was popped out, ImGui dynamically pruned its parent dock split. Calling `dock_builder_dock_window()` on a pruned node failed silently. A naive fallback called `restore_default_layout()`, which reset *every* window globally—inadvertently slamming the user’s flight instruments back into the main window and destroying their layout! We had to detect pruned nodes, re-split the parent node independently (`dock_builder_split_node`), and call `dock_builder_finish()` to stage and commit docking changes cleanly. 3. *The Sizing Bar Minimum Width Clamp*: Preset buttons (800×600, 1024×720) were chained on a single horizontal line measuring 1,345 pixels wide. Because ImGui windows can never shrink smaller than their content, clicking the 800×600 preset did nothing until the sizing bar was wrapped into multiple rows.
+> **Studio pop-outs.** Moving Studio’s panels into their own windows took three tries. The first spawned a separate process per click; the second used Dear ImGui viewports but the default auto-merge swallowed the window back, and re-docking a window whose dock node had been pruned reset every window’s layout. A later click-through test (2026-11-06) found two more: Show TLP / Show Log crashed Studio, and layout presets changed copies of the windows instead of the windows themselves ([SPEC-STUDIO-16]).
 
 These problems did not show up in simulation or static analysis. They were found on the physical board and during real workbench testing, and are fully recorded in the [engineering log](https://github.com/tcmichals/AbstractX/blob/main/engineering_log.md).
 
 ## 13. Limits and what is not done yet
 
-Several early bring-up friction points noted in previous drafts have now been fully resolved in the AbstractX tree:
+Done since the first draft (each with a board run in October; none re-run after the November driver changes):
 
-- **UART Receive DMA is live:** Circular DMA (`abstractx.uart_dma(True)`) is now fully operational on E906 with a 16×64-byte circular ring in shared SRAM and hardware character timeout interrupts (`IIR = 0x0C`), dropping CPU UART load to 0.4 %.
-- **Dual-Mode SPI1 DMA Engine is live:** Hardware SPI1 on Port B (PB11..PB14) is fully operational with Single-SPI 1-bit and Dual-SPI 2-bit burst (`BCC[28]`) streaming (`abstractx.spi_init()`, `abstractx.spi_xfer()`, `abstractx.spi_xfer_into()`). Transfers <span class="math inline"> ≤ 64</span> B use direct FIFO MMIO while bulk transfers use dual-channel DMA.
-- **DMA Physical Address Translation & Firewall Handling:** All bus drivers (`spi.cpp`, `uart.cpp`, `i2c.cpp`) translate E906 addresses through `DmaController::pa()` and stage descriptors in SRAM Space 1 (`.sram_c`). Channels 9 and 10 are identified as hardware-firewalled by SoC security policy, reserving channels 8 and 11..15 for autonomous coprocessor DMA.
-- **Native Binary Telemetry & Trace are built:** Scripts no longer rely solely on printing text over the console. `abstractx.tlp_send(buf)` streams raw 64-byte binary telemetry frames directly across RPMsg endpoint 1024, and `abstractx.trace(task_id, state, msg)` emits CTF 1.8 binary events directly over endpoint 1025.
-- **Profiler Idle Attribution is fixed:** The profiler classification was patched to accept both `wfi` and `wfi + 4` return addresses (`live_profile.py`), correctly mapping idle CPU time to `idle` across Studio’s gauges and timeline swimlanes.
+- **UART receive DMA**: circular, 16 × 64 bytes, with the UART’s receive-timeout interrupt delivering a partial sentence (`abstractx.uart_dma(True)`).
+- **SPI1** on PB11–PB14, single and dual mode; transfers of up to 64 bytes use the FIFO, larger ones DMA.
+- **DMA address translation**: the drivers convert E906 addresses with `DmaController::pa()` and keep descriptors in `.sram_c`; channels 11–15.
+- **Binary telemetry from Python**: `abstractx.tlp_send()` (endpoint 1024) and `abstractx.trace()` (endpoint 1025).
+- **Profiler idle**: a sample at `wfi` or `wfi + 4` counts as idle.
 
-### Remaining Boundaries & Next Horizons
+Not done, or not measured:
 
-- **UART APB1 Clock Ceiling:** The UART clock (APB1) is fixed at 24 MHz on this board, limiting standard integer divisors to 1.5 Mbit/s. Pushing past this to 3.0 or 6.0 Mbit/s requires patching the Linux clock tree driver to reconfigure the parent APB1 PLL.
-- **MicroPython in Tight Loops (The Interpreter Tax):** Interpreted Python bytecode consumes ~90 % CPU when executing tight polling loops (e.g. busy-waiting on I2C/UART). MicroPython is designed for rapid interactive bring-up, peripheral prototyping, and scriptable instrumentation; flight-critical real-time control loops (such as 8 kHz IMU fusion) belong in freestanding C++20 coroutines on the exact same HAL drivers (\< 1 % CPU).
-- **Automated Script-to-Coro Migration:** Tooling is being expanded (see the `micropython-to-cpp` workflow) to translate proven MicroPython async tasks directly into freestanding C++20 coroutines, bridging the gap between interactive REPL experimentation and hardened bare-metal deployment.
-- **Full FPGA Switch Fabric Loopback:** Exercising physical loopback tests between the E906 Dual-SPI burst DMA engine and the Tang Primer 20K FPGA crossbar (`asp_router.sv`) on real hardware headers.
+- **Heap in the firmware image**: `malloc` / `free` are linked (not called by our code); EL-1027-31.
+- **`abstractx_coro.py` on the board**: no recorded run; allocation and garbage-collection pauses not measured (section 5.1).
+- **No re-measurement since 2026-10-23**: the drivers moved into the E906 target and the UART, SPI and I²C code changed (deadlines, async I²C). Section 11 is October’s firmware.
+- **UART clock**: UART3’s clock is 24 MHz here, so integer dividers stop at 1.5 Mbit/s; faster needs a different parent clock from Linux.
+- **The interpreter cost**: a tight Python polling loop takes about 90 % of the E906. Python is for trying things; loops that need timing go to C++ on the same drivers.
+- **FPGA link**: the E906 SPI1 to FPGA loopback has not been run (FPGA work is paused).
 
 ## 14. Where to go next
 
