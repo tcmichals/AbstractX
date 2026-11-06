@@ -970,8 +970,9 @@ def review_changes(root: Path, base: str, prompt: bool, strict: bool, staged: bo
             staged_text[path] = git(root, "show", f":{path}").splitlines()
         return staged_text[path]
 
+    spec_files = {r.spec for r in reqs.values()}   # every file that holds requirements (e.g. docs/SPECTRACE.md)
     for h in hunks:
-        if h.path.endswith("SPECIFICATION.md"):
+        if h.path.endswith("SPECIFICATION.md") or h.path in spec_files:
             last = h.start + max(h.count, 1) - 1
             if staged:
                 for tag, first, end in spec_sections(staged_lines(h.path)):

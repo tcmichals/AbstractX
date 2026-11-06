@@ -549,6 +549,20 @@ def test_staged_review_uses_staged_line_numbers():
         assert "SPEC-FIX-01" not in out.split("Requirements whose text changed")[1].split("[SPEC CHANGED]")[0], out
 
 
+def test_requirement_file_not_named_specification():
+    """A requirement in a file not named *SPECIFICATION.md (docs/SPECTRACE.md) is still reported."""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        (root / "docs" / "FIX_SPECIFICATION.md").rename(root / "docs" / "SPECTRACE.md")
+        run(["git", "add", "-A"], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "rename"], root)
+        doc = root / "docs" / "SPECTRACE.md"
+        doc.write_text(doc.read_text().replace("does another thing.", "does another thing, now."))
+        _, out = review(root)
+        assert "[SPEC CHANGED] SPEC-FIX-02" in out, out
+
+
 if __name__ == "__main__":
     test_orphan_check_ignores_untracked_files()
     test_matrix_verdicts()
@@ -564,6 +578,7 @@ if __name__ == "__main__":
     test_placement_and_board_evidence_source()
     test_verified_by_bullet_spans_wrapped_lines()
     test_staged_review_uses_staged_line_numbers()
+    test_requirement_file_not_named_specification()
     test_repo_is_honest()
     print("[PASS] spectrace_matrix")
 
