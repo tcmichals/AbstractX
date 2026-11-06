@@ -484,10 +484,14 @@ python3 tools/run_adversarial_audit.py --all
 * **Requirement (one command on the board)**: `tools/run_e906_unit_tests.py` copies the firmware to
   `/lib/firmware`, restarts remoteproc0 with it, reads `trace0` until the `UNIT:` line (time limit),
   restores the previous firmware, and with `--record` adds a `source: board` ledger record.
+* **Requirement (Pico 2 W)**: the same table builds into `apps/pico_unit_tests` (`pico_stdlib` only: no
+  Wi-Fi, no target library), which prints the results on the stdio console (UART1, GP8 / GP9, 115200,
+  [SPEC-PICO-HAL-03]) once a second. Load the `.uf2` with `picotool load -x` (BOOTSEL) or the SWD probe and
+  read UART1; a script for this waits for the board setup to be fixed (probe or USB).
 * **Verified by**: `host-tests` (`sim/test_unit_host.cpp`; `tests/test_run_e906_unit_tests.py`: output
   parser and commands, no board), `e906-build-layout` (the firmware links and fits), `board-bringup`
   (a run on the A5E: not run yet)
-* **Implementation Target**: `include/abstractx/test/unit.hpp`, `tests/unit/`, `apps/e906_unit_tests/`, `tools/run_e906_unit_tests.py`
+* **Implementation Target**: `include/abstractx/test/unit.hpp`, `tests/unit/`, `apps/e906_unit_tests/`, `apps/pico_unit_tests/`, `tools/run_e906_unit_tests.py`
 
 ### `[SPEC-AUDIT-16]` Block Diagrams Are SVG, Generated From a Source File
 * **Requirement**: a block diagram (boxes joined by arrows or nesting: architecture, dataflow,
