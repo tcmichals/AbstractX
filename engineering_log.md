@@ -2911,7 +2911,7 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-28 | **reviewed 2026-11-06: Spi0 gone, Port C writes removed, CS1 refused; Port B RMW / hardware CS open** E906 SPI | `E906IoProcessor` calls `fc::hal::Spi0::init` but the header routes only SPI1 ([SPEC-E906-HAL-03]); target SPI0/SPI1 and `platform.cpp` adapter classes (`E906SpiDriver`, `E906TimerDriver`, `E906GpioDriver`) not yet reviewed against one-file-per-driver | `targets/allwinner_e906/src/io_processor.cpp:55`, `platform.cpp` | review SPI next, same method as TWI/UART | `e906-board-selftest` |
 | EL-1027-29 | E906 size | `get_*_port` in `platform.cpp` links every port driver into every app (UART3 +3.9 KB text in apps that never use it); `e906_repl_app` SRAM_FAST 94.8% | `[SPEC-E906-HAL-04]` rule 4 | accept or split port lookup | `memory-footprint` |
 | EL-1027-30 | board | not run on hardware: GPS on UART3 (`abstractx.uart_*`, DMA and IRQ modes), `serial_loopback_app` on header pins 16/31, compass on TWI1 (and its new bus clock, EL-1027-07), async I2C timeout | | run on the Cubie A5E | `e906-board-selftest` |
-| EL-1027-31 | E906 heap | `_malloc_r` / `_sbrk` linked into e906_repl_app, gps_imu_app, serial_loopback_app, e906_bench_app (already at `2dfa62a`) | `riscv-none-elf-nm` | deferred by the project owner (2026-10-27) | `memory-footprint` (`nm -u`) |
+| EL-1027-31 | E906 heap | `_malloc_r` / `_sbrk` linked into e906_repl_app, gps_imu_app, serial_loopback_app, e906_bench_app (already at `2dfa62a`) | `riscv-none-elf-nm` | deferred by the project owner (2026-10-27) | `memory-footprint` (whole symbol table since 2026-11-06, [SPEC-AUDIT-19]; it now fails on every E906 and Pico image) |
 | EL-1027-32 | process | `--check-verifies`: 64 unbacked `@verifies` claims; `boundary_review.py --check`: 20 shared variables without an ownership note (both pre-existing) | tool output | work down the lists | the tools |
 | EL-1027-33 | **done 2026-11-06 for Pico / Linux / Zynq ([SPEC-PICO-HAL-04], [SPEC-LINUX-HAL-02]); ESP32-P4 still a stub** other targets | Pico 2 W, ESP32-P4, Linux, Zynq have no `hal/ports.hpp` / `get_*_port` ([SPEC-HAL-15] status) | `[SPEC-HAL-15]` | per target | build per target |
 | EL-1027-34 | INAV repo | `flightcode/inav` `docs/ARCHITECTURE.md:369` and `TODO.md:137-145` point to the removed `AbstractX/apps/inav_e906_app` and claim "100% VERIFIED LIVE … 0 Heap"; `src/target/linux_sbc/a5e_riscv_target.hpp` is a stub (empty RPMsg write, `std::thread`). INAV `CLAUDE.md` forbids commits without the owner's instruction | INAV repo | owner decides; E906 runs generic AbstractX firmware (decided 2026-10-27) | n/a |
@@ -4191,3 +4191,27 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * Article: status lists what changed and what was not re-measured; §2 describes the old and today's FreeRTOS wait; §6 shows the `e159de6` and today's sizes side by side; the FreeRTOS cyclic row is labeled "old tick-hook model, `d4c2b8f`"; rows for today's `WAIT` host and `F` read "not measured"; htimers "planned, not started"; Reproduce adds `--cyclic`, `--native-cyclic`, the timer-mode option and the board-clock step.
 * TODO 2b: re-measure, and a new one-way test from an E906 event to a Linux app (owner request).
 * No regression check added: there is no automatic link from code to article text.
+
+## [2026-11-06] - The zero-heap check could never fail (found twice before, fixed now)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/track_memory_footprint.py` (`memory-footprint` skill, CI step "Zero-Heap Symbol Audit")
+* **Category**: `tool-bug`, `process-gap`
+* **Symptoms**: `audit_zero_heap()` ran `nm -u`, which lists only undefined symbols. Firmware links newlib statically, so `free`, `_malloc_r` and `_sbrk` are *defined* in the ELF and were never seen. A missing ELF returned "Binary not found" as a pass, `except Exception: pass` hid an `nm` failure, and `run_analysis()` returned 0 whatever it found. EL-1027-31 (heap linked into the E906 apps) passed this check for weeks.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: the check was written to look for *references* to the heap, which is right for a dynamically linked host binary and wrong for a static firmware image. No test fed it an image that links `malloc`; its only test asserted that a missing file passes.
+* **Process gap**: the same gap was written down on 2026-10-21 (this log, "newlib free Linked into Every E906 ELF": "the check must also look for defined `malloc`/`_malloc_r`/`free`") and in `docs/reviews/2026-10-22-handoff-todo.md`, and was not fixed or tracked as its own TODO item. It was found a third time by the 2026-11-06 article review.
+* **Lesson**: a check that has never been shown to fail is not a check. Every check needs a test that feeds it the bad case.
+* **Root cause of the linked heap (map file, `e906_repl_app`, not fixed)**: `imu_drdy.cpp.obj` (and in other images `runtime.cpp.obj`) references the sized `operator delete(void*, unsigned int)` (deleting destructors of classes with virtual destructors); that pulls `libstdc++_nano del_ops.o` → `del_op.o` → newlib `free`, and `libc_a-malloc.o` (which holds `free`) → `mallocr.o` (`_malloc_r`, `_sbrk`).
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/SPECTRACE.md`
+* **Requirement Tag Added**: `[SPEC-AUDIT-19]` The zero-heap check reads defined symbols and can fail.
+* **Contract**: whole symbol table, exact names (`malloc`, `free`, `calloc`, `realloc`, `_r` forms, `_sbrk`, `_sbrk_r`, global `operator new` / `delete`); a missing ELF fails unless `--allow-missing` (then `SKIPPED`); non-zero exit on any failure; `--elf` for any image.
+
+### 4. Implementation & Regression Test
+* `tools/track_memory_footprint.py`: `heap_symbols_in()`, `audit_zero_heap()`, `--allow-missing`, `--elf`, exit code. CI passes `--allow-missing` (it builds only the host, so the E906 / Pico targets are `SKIPPED`, not passed).
+* `tests/test_membrowse_tracking.py`: an object that defines `_malloc_r`, one that defines `_Znwj`, a missing ELF, a clean object, `--elf` exit codes. **Old checker: 4 of 5 tests fail. New: 5 of 5 pass.**
+* Today's images (all built earlier today, not rebuilt): every E906 image (`e906_repl_app`, `e906_bench_app`, `e906_freertos_app`, `e906_unit_tests`, `gps_imu_app`, `serial_loopback_app`) and the Pico `gps_imu_app.elf` **fail**: `free`, `_free_r`, `operator delete`, and except `e906_unit_tests` also `_malloc_r`, `_sbrk`. That is EL-1027-31, still open and deferred by the owner.
+* AGENTS.md §6, `.agents/rules/e906-memory-tracking.md`, `.agents/rules/toolchain-standardization.md` and the skill no longer say `nm -u`.

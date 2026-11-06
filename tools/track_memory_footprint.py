@@ -8,11 +8,13 @@ AbstractX SpecTrace Embedded Memory Observability & Static Budget Auditor
 Automates continuous RAM, SRAM, and Flash memory footprint tracking across targets:
 1. Parses targets defined in tools/memory_targets.json (or fallback tools/membrowse-targets.json).
 2. Extracts exact ELF section allocations (.text, .rodata, .data, .bss, .stack, .trace_buffer).
-3. Verifies Freestanding C++20 Invariants (Zero Heap, no malloc/new/free in bare-metal targets).
+3. Zero heap: no malloc/free/_sbrk/operator new in the symbol table, defined or not ([SPEC-AUDIT-19]).
 4. Emits memory_metrics.json for live visualization in AbstractX Studio & GitHub Actions.
 
 Usage:
-  python3 tools/track_memory_footprint.py
+  python3 tools/track_memory_footprint.py                  # configured targets; exit 1 on any failure
+  python3 tools/track_memory_footprint.py --allow-missing  # unbuilt targets SKIPPED, not failed
+  python3 tools/track_memory_footprint.py --elf build_e906/apps/*/e906_repl_app
 """
 
 import os
@@ -53,25 +55,64 @@ def inspect_elf_sections(elf_path: Path):
 
     return sections
 
+HEAP_SYMBOLS = {
+    "malloc", "free", "calloc", "realloc",
+    "_malloc_r", "_free_r", "_calloc_r", "_realloc_r", "_sbrk", "_sbrk_r",
+}
+# Global operator new / delete (any size_t width, array and sized forms).
+HEAP_PREFIXES = ("_Znw", "_Zna", "_ZdlPv", "_ZdaPv")
+
+
+def _nm_tool() -> str:
+    """GNU nm reads the symbol table of RISC-V and ARM ELFs too; use the target's if it is on PATH."""
+    for name in ("riscv-none-elf-nm", "arm-none-eabi-nm", "nm"):
+        tool = shutil.which(name)
+        if tool:
+            return tool
+    return "nm"
+
+
+def heap_symbols_in(elf_path: Path) -> list:
+    """Every forbidden heap symbol in the ELF, defined (T/t/W) or undefined (U)."""
+    res = subprocess.run([_nm_tool(), str(elf_path)],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+    found = set()
+    for line in res.stdout.splitlines():
+        parts = line.split()
+        if not parts:
+            continue
+        sym = parts[-1]
+        if sym in HEAP_SYMBOLS or sym.startswith(HEAP_PREFIXES):
+            found.add(sym)
+    return sorted(found)
+
+
+# @impl [SPEC-AUDIT-19] docs/SPECTRACE.md
 def audit_zero_heap(elf_path: Path):
-    """Audits the ELF symbol table to verify zero heap dynamic allocations."""
+    """(ok, message). A missing or unreadable ELF is not a pass ([SPEC-AUDIT-19])."""
     if not elf_path.exists():
-        return True, "Binary not found"
-
-    forbidden = ["malloc", "free", "_malloc_r", "_free_r", "calloc", "realloc", "_Znwm", "_Znam", "_ZdlPv"]
-    cmd = ["nm", "-u", str(elf_path)] # list undefined symbols
+        return False, "Binary not found"
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        undefined = res.stdout
-        for sym in forbidden:
-            if sym in undefined:
-                return False, f"Violation: Forbidden heap symbol '{sym}' referenced"
-    except Exception:
-        pass
+        found = heap_symbols_in(elf_path)
+    except (OSError, subprocess.CalledProcessError) as e:
+        return False, f"nm failed: {e}"
+    if found:
+        return False, "Violation: heap symbols linked: " + ", ".join(found)
+    return True, "No heap symbols in the symbol table"
 
-    return True, "Zero dynamic heap references (Verified)"
 
-def run_analysis():
+def check_elfs(paths) -> int:
+    """--elf mode: zero-heap check only, on the given ELFs. Returns the number of failures."""
+    failures = 0
+    for p in paths:
+        ok, msg = audit_zero_heap(Path(p))
+        print(f"{'PASS' if ok else 'FAIL'}  {p}: {msg}")
+        failures += 0 if ok else 1
+    return failures
+
+
+def run_analysis(allow_missing: bool = False):
+    failures = 0
     cfg_file = CONFIG_PATH if CONFIG_PATH.exists() else FALLBACK_CONFIG
     if not cfg_file.exists():
         print(f"Error: Config {cfg_file} not found.")
@@ -97,12 +138,17 @@ def run_analysis():
         print(f"  Binary: {bin_rel}")
 
         if not elf_path.exists():
-            print("  [NOT BUILT] Binary does not exist on disk.\n")
+            if allow_missing:
+                print("  [SKIPPED] Binary does not exist on disk (--allow-missing).\n")
+            else:
+                print("  [NOT BUILT] Binary does not exist on disk: FAIL (use --allow-missing to skip).\n")
+                failures += 1
             continue
 
         sections = inspect_elf_sections(elf_path)
         if not sections:
-            print("  [ERROR] Failed to inspect ELF sections.\n")
+            print("  [ERROR] Failed to inspect ELF sections: FAIL.\n")
+            failures += 1
             continue
 
         # Categorize sections into RAM and Flash
@@ -116,6 +162,8 @@ def run_analysis():
 
         is_embedded = "linux" not in target.get("architecture", "") and "x86" not in target.get("architecture", "")
         heap_ok, heap_msg = audit_zero_heap(elf_path) if is_embedded else (True, "POSIX Host Runtime (N/A)")
+        if not heap_ok:
+            failures += 1
         ram_pct = (ram_bytes / ram_budget) * 100.0
         flash_pct = (flash_bytes / flash_budget) * 100.0
 
@@ -146,7 +194,21 @@ def run_analysis():
         json.dump(results, f, indent=2)
 
     print(f"Saved memory observability metrics to {METRICS_OUTPUT}")
-    return 0
+    print(f"Result: {'FAIL' if failures else 'PASS'} ({failures} failing target(s))")
+    return 1 if failures else 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--allow-missing", action="store_true",
+                    help="report a configured target whose ELF is not built as SKIPPED instead of failing")
+    ap.add_argument("--elf", nargs="+", metavar="PATH",
+                    help="zero-heap check only, on these ELFs (instead of the configured targets)")
+    args = ap.parse_args(argv)
+    if args.elf:
+        return 1 if check_elfs(args.elf) else 0
+    return run_analysis(allow_missing=args.allow_missing)
+
 
 if __name__ == "__main__":
-    sys.exit(run_analysis())
+    sys.exit(main())

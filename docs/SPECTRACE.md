@@ -493,6 +493,25 @@ python3 tools/run_adversarial_audit.py --all
   (a run on the A5E: not run yet)
 * **Implementation Target**: `include/abstractx/test/unit.hpp`, `tests/unit/`, `apps/e906_unit_tests/`, `apps/pico_unit_tests/`, `tools/run_e906_unit_tests.py`
 
+### `[SPEC-AUDIT-19]` The Zero-Heap Check Reads Defined Symbols and Can Fail (2026-11-06)
+* **Why**: `tools/track_memory_footprint.py` ran `nm -u`, which lists only *undefined* symbols. A
+  firmware links newlib statically, so `_malloc_r`, `_free_r` and `_sbrk` are *defined* in the ELF and
+  were never seen: EL-1027-31 (`malloc` linked into four E906 apps) passed the check for weeks. A
+  missing ELF also passed ("Binary not found"), and the script exited 0 whatever it found. Found by
+  the 2026-11-06 article review.
+* **Requirement (what counts)**: the check reads the whole symbol table (`nm`, defined and undefined)
+  and fails if any of these names is present, by exact name: `malloc`, `free`, `calloc`, `realloc`,
+  `_malloc_r`, `_free_r`, `_calloc_r`, `_realloc_r`, `_sbrk`, `_sbrk_r`, or a global `operator new` /
+  `operator delete` (mangled names starting `_Znw`, `_Zna`, `_ZdlPv`, `_ZdaPv`).
+* **Requirement (no silent pass)**: a configured target whose ELF is missing is reported `NOT BUILT`
+  and fails, unless `--allow-missing` is given; then it is reported `SKIPPED`, never `PASS`.
+  The script exits non-zero when any target fails.
+* **Requirement (any ELF)**: `--elf PATH...` checks the given ELFs instead of the configured targets
+  (for example every `build_e906/apps/*` image).
+* **Verified by**: `memory-footprint` (`tests/test_membrowse_tracking.py`: an object that defines
+  `_malloc_r` fails the new check and passed the old one; a missing ELF fails; exit code)
+* **Implementation Target**: `tools/track_memory_footprint.py`
+
 ### `[SPEC-AUDIT-16]` Block Diagrams Are SVG, Generated From a Source File
 * **Requirement**: a block diagram (boxes joined by arrows or nesting: architecture, dataflow,
   topology, memory layout, pipeline) in any tracked Markdown file is an SVG image, not ASCII or

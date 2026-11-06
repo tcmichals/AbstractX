@@ -12,12 +12,14 @@ description: "Check skill. ELF section sizes per target stay inside their memory
 ## How to run
 
 ```bash
-python3 tools/track_memory_footprint.py   # targets in tools/membrowse-targets.json
+python3 tools/track_memory_footprint.py                  # targets in tools/membrowse-targets.json
+python3 tools/track_memory_footprint.py --allow-missing  # unbuilt targets SKIPPED instead of failed
+python3 tools/track_memory_footprint.py --elf build_e906/apps/*/e906_repl_app   # zero-heap check on any ELF
 ```
 
 ## Pass criteria
 
-Every target is under `ram_budget_bytes` and grows less than `max_allowed_growth_bytes` per commit. Budgets must match the real memory map (E906 firmware window is 192 KB of SRAM Space 0, [SPEC-E906-MEM-01]).
+The script exits 0. It exits 1 when a configured ELF is missing (unless `--allow-missing`) or contains a heap symbol: `malloc`, `free`, `calloc`, `realloc`, their `_r` forms, `_sbrk`, `_sbrk_r`, or global `operator new` / `delete`, defined or undefined ([SPEC-AUDIT-19]). Budgets are printed, not enforced by the exit code yet: every target should be under `ram_budget_bytes` and grow less than `max_allowed_growth_bytes` per commit. Budgets must match the real memory map (E906 firmware window is 192 KB of SRAM Space 0, [SPEC-E906-MEM-01]).
 
 ## Evidence
 

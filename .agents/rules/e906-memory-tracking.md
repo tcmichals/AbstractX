@@ -14,7 +14,7 @@ This rule mandates memory footprint tracking and linker symbol analysis for all 
 
 2. **Zero Dynamic Heap (`0 B malloc / new`)**:
    - Firmware must not invoke `malloc`, `free`, `calloc`, `realloc`, or global `new`/`delete`.
-   - Verified via `nm -u` / `check_e906_layout.py`.
+   - Verified by `python3 tools/track_memory_footprint.py --elf <elf>` ([SPEC-AUDIT-19]: the whole symbol table, defined and undefined; `nm -u` alone misses a statically linked `_malloc_r`). Open: EL-1027-31.
 
 ---
 

@@ -128,7 +128,8 @@ jobs:
 
       - name: Static Memory Footprint & Zero-Heap Symbol Audit
         run: |
-          python3 tools/track_memory_membrowse.py
+          # CI builds only the host: E906 / Pico targets are reported SKIPPED ([SPEC-AUDIT-19]).
+          python3 tools/track_memory_membrowse.py --allow-missing
 
       - name: SpecTrace Embedded Dashboard & Running Profile Engine
         run: |

@@ -8,9 +8,11 @@ Verifies:
 """
 
 import json
+import shutil
+import subprocess
 import pytest
 from pathlib import Path
-from tools.track_memory_membrowse import audit_zero_heap
+from tools.track_memory_membrowse import audit_zero_heap, main
 
 def test_membrowse_targets_configuration(repo_root):
     """
@@ -36,9 +38,52 @@ def test_membrowse_targets_configuration(repo_root):
             assert "flash_budget_bytes" in target, f"Target {target['name']} missing flash_budget_bytes"
             assert target["flash_budget_bytes"] > 0
 
-def test_zero_heap_symbol_audit_detection(repo_root, tmp_path):
-    """Verifies that audit_zero_heap correctly identifies clean binaries vs forbidden heap calls."""
-    # Test on a non-existent binary returns True, "Binary not found"
-    clean, msg = audit_zero_heap(tmp_path / "nonexistent.elf")
-    assert clean is True
+# @verifies [SPEC-AUDIT-19] docs/SPECTRACE.md
+def _object_defining(tmp_path, body: str) -> Path:
+    """A relocatable object whose symbol table *defines* the given function (as a static newlib does)."""
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if not cc:
+        pytest.skip("no C compiler to build the test object")
+    src = tmp_path / "heap.c"
+    src.write_text(body)
+    obj = tmp_path / "heap.o"
+    subprocess.run([cc, "-c", "-o", str(obj), str(src)], check=True)
+    return obj
+
+
+def test_zero_heap_missing_elf_fails(tmp_path):
+    """A missing ELF is not a pass (the old check returned True, "Binary not found")."""
+    ok, msg = audit_zero_heap(tmp_path / "nonexistent.elf")
+    assert ok is False
     assert "not found" in msg
+
+
+def test_zero_heap_flags_defined_malloc(tmp_path):
+    """EL-1027-31: newlib's _malloc_r is defined in the firmware, so `nm -u` never listed it."""
+    obj = _object_defining(tmp_path, "void *_malloc_r(void *r, unsigned long n) { (void)r; (void)n; return 0; }\n")
+    ok, msg = audit_zero_heap(obj)
+    assert ok is False
+    assert "_malloc_r" in msg
+    # The old check (`nm -u`, substring match) passed this object.
+    undefined = subprocess.run(["nm", "-u", str(obj)], stdout=subprocess.PIPE, text=True, check=True).stdout
+    assert "_malloc_r" not in undefined
+
+
+def test_zero_heap_flags_operator_new_and_passes_clean(tmp_path):
+    obj = _object_defining(tmp_path, "void _Znwj(void) {}\nint freelist_count(void) { return 0; }\n")
+    ok, msg = audit_zero_heap(obj)
+    assert ok is False and "_Znwj" in msg and "freelist_count" not in msg
+    clean = _object_defining(tmp_path, "int freelist_count(void) { return 0; }\nint main(void) { return 0; }\n")
+    ok, msg = audit_zero_heap(clean)
+    assert ok is True, msg
+
+
+def test_zero_heap_elf_mode_exit_code(tmp_path):
+    """--elf exits non-zero on a violation or a missing file and 0 on a clean object."""
+    bad = _object_defining(tmp_path, "void _sbrk(void) {}\n")
+    assert main(["--elf", str(bad)]) == 1
+    assert main(["--elf", str(tmp_path / "missing.elf")]) == 1
+    good_dir = tmp_path / "good"
+    good_dir.mkdir()
+    good = _object_defining(good_dir, "int f(void) { return 1; }\n")
+    assert main(["--elf", str(good)]) == 0
