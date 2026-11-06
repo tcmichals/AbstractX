@@ -24,18 +24,22 @@ flowchart LR
 ## Requirements
 
 ### [SPEC-AC7020C-01] Standalone reproducible hardware
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The AbstractX target MUST regenerate its XPR, bitstream and XSA from files within `hw/zynq7000/alinx_ac7020c`; it MUST NOT require a sibling ALINX repository at build time.
 
 ### [SPEC-AC7020C-02] Processing-system clock and memory
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The PS input clock MUST be 33.333333 MHz. DDR MUST use the `MT41J256M16 RE-125` compatible preset for U7/U8 `H5TQ4G63AFR-PBI`, 32-bit bus, 533.333333 MHz, and expose 1 GiB through address `0x3fffffff`.
 
 ### [SPEC-AC7020C-03] Boot and communication peripherals
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The PS MUST enable QSPI on MIO1..6, GEM0 RGMII on MIO16..27 with MDIO on MIO52..53, USB0 ULPI on MIO28..39 with active-low reset on MIO46, SD0 on MIO40..45 with card detect on MIO47, and UART1 on MIO48..49.
 
 ### [SPEC-AC7020C-04] Voltage standards and USB PHY
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 PS MIO bank 0 MUST be 3.3 V and bank 1 MUST be 1.8 V. Linux MUST describe the USB3320C as `usb-nop-xceiv`, active-low reset on MIO46, and USB0 host mode; software MUST NOT attempt to override PS bank voltage.
 
@@ -44,14 +48,17 @@ PS MIO bank 0 MUST be 3.3 V and bank 1 MUST be 1.8 V. Linux MUST describe the US
 The PS LED on MIO0 and PL LED on package pin R19 are active low. The baseline PL design MUST expose a one-bit AXI GPIO at `0x41200000` controlling R19, defaulting off.
 
 ### [SPEC-AC7020C-06] Bootloader initialization
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 FSBL or U-Boot SPL MUST initialize PS/DDR using files generated from this target's XSA. Another board's `ps7_init_gpl.c` MUST NOT be used for release hardware.
 
 ### [SPEC-AC7020C-07] External software trees
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The target-owned out-of-tree Buildroot configuration MUST consume `linux-cubie` and `u-boot-zynq` through local source overrides, while permitting those repositories to remain independently buildable.
 
 ### [SPEC-AC7020C-08] Linux revision and GPIO tools
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The ALINX AC7020C Buildroot defconfig MUST pin the Linux source revision and
 custom kernel headers to `cubie-linux-7.1` and Linux 7.1 respectively. It MUST
@@ -60,6 +67,7 @@ the kernel GPIO utility is explicitly selectable. The shared kernel fragment
 MUST enable `CONFIG_GPIOLIB` and `CONFIG_GPIO_CDEV`.
 
 ### [SPEC-AC7020C-09] PS-only base device tree
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The default Buildroot image uses U-Boot SPL without loading an FPGA bitstream.
 Its `zynq-ac7020c.dtb` MUST therefore describe only physically available PS
@@ -69,6 +77,7 @@ matching bitstream is loaded, through a bitstream-specific device-tree overlay
 or a boot image that explicitly couples the bitstream and device tree.
 
 ### [SPEC-AC7020C-10] Built-in SD root filesystem
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The Buildroot SD-card image stores `/` as an ext4 filesystem on partition 2.
 The Linux kernel MUST build ext4 and its journal support into the kernel image,

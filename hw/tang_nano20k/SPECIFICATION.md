@@ -19,6 +19,7 @@ not guessed.
 ## 1. A5E ↔ FPGA Link (board-independent)
 
 ### `[SPEC-A5E-LINK-01]` Physical Link
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 * **Requirement**: 5 signals plus ground between the Cubie A5E 40-pin header and the
   FPGA, 3.3 V LVCMOS on both sides, FPGA powered from its own USB:
 
@@ -45,6 +46,7 @@ not guessed.
   **Status**: implemented in RTL; simulation passes.
 
 ### `[SPEC-A5E-LINK-03]` Linux Host Side
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 * **Requirement**: A5E Linux reaches the FPGA through `spidev` on the header SPI
   controller and receives `INT_REQ` as a GPIO edge interrupt (libgpiod); no
   blocking poll of the FPGA in the AbstractX loop (`[SPEC-ARCH-01]`).
@@ -73,6 +75,7 @@ not guessed.
 ## 2. Tang Nano 20K Board
 
 ### `[SPEC-TN20K-01]` Device and Toolchain
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 * **Device**: Gowin GW2AR-LV18QN88C8/I7 (GW2A-18C family; GW2A-18 die plus
   64 Mbit SDRAM), 27 MHz on-board oscillator.
 * **Toolchain** (open source, `~/.tools/oss-cad-suite`): `yosys synth_gowin`,
@@ -133,6 +136,7 @@ not guessed.
   **Status**: met. Re-measure once real pins are assigned.
 
 ### `[SPEC-TN20K-04]` Bench Bring-up Test
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 * **Requirement**: from A5E Linux, (1) read the `asp_sys_regs` ID register over the
   link and get `0xABF10164`, (2) write and read back the scratch register,
   (3) see `INT_REQ` fire on IMU DRDY and read an IMU auto-DMA TLP, (4) run 10 000

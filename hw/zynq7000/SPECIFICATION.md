@@ -28,6 +28,7 @@ flowchart LR
 ## Requirements
 
 ### [SPEC-ZYNQ-PLATFORM-01] Shared Buildroot userspace
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Every supported Zynq-7000 board defconfig MUST enable Buildroot's
 `BR2_PACKAGE_LIBGPIOD2` and `BR2_PACKAGE_LIBGPIOD2_TOOLS` for GPIO userspace,
@@ -41,6 +42,7 @@ hardware interfaces by themselves. Serial, SPI, and I²C device nodes must be
 exposed by the relevant kernel drivers and board device tree.
 
 ### [SPEC-ZYNQ-PLATFORM-06] Shared PS SPI and I²C bus exposure
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The QMTECH XC7Z020, ALINX AC7010C, and ALINX AC7020C Linux device trees MUST
 enable PS I²C0 on MIO14/MIO15 and PS SPI1 on MIO10/MIO11/MIO12 with chip select
@@ -53,6 +55,7 @@ that endpoint. QSPI remains dedicated to boot flash and MUST NOT be treated as
 the general-purpose `spidev` bus.
 
 ### [SPEC-ZYNQ-PLATFORM-02] RTL88x2BU USB Wi-Fi adapter
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Every supported Zynq-7000 board MUST build the in-tree Linux `rtw88` 8822BU
 USB driver for USB ID `0bda:b812` and install its `rtw88/rtw8822b_fw.bin`
@@ -61,6 +64,7 @@ through the shared Linux platform configuration fragment, and its firmware MUST 
 selected from Buildroot's `linux-firmware` package.
 
 ### [SPEC-ZYNQ-PLATFORM-03] Buildroot source-tree isolation
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Buildroot MUST use the `linux-cubie` and `u-boot-zynq` checkouts as local source
 overrides while keeping generated kernel and U-Boot build output in the
@@ -70,12 +74,14 @@ Zynq defconfig MUST select custom Linux 7.1 headers to match the pinned
 `cubie-linux-7.1` kernel revision.
 
 ### [SPEC-ZYNQ-PLATFORM-04] GPIO character-device support
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Every supported Zynq-7000 Linux kernel MUST enable `CONFIG_GPIOLIB` and
 `CONFIG_GPIO_CDEV`, exposing GPIO controllers through `/dev/gpiochipN` for
 libgpiod 2 userspace tools.
 
 ### [SPEC-ZYNQ-PLATFORM-05] Board-compatible overlay defaults
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The generated `/boot/config.txt` MUST keep every board PS-only by default and
 MUST NOT apply an AbstractX PL overlay before its matching bitstream is loaded.
@@ -86,6 +92,7 @@ to recover the PS-only baseline. The image-generation step MUST fail for an
 unknown board DTB rather than silently selecting an incompatible configuration.
 
 ### [SPEC-ZYNQ-PLATFORM-07] Executable Buildroot hooks
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Every script configured as a Buildroot post-build or post-image hook MUST be
 stored as an executable regular file in source control so Buildroot can invoke
@@ -94,6 +101,7 @@ configured hook that lacks any execute bit.
 * **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ### [SPEC-ZYNQ-PLATFORM-08] Shared fully preemptible realtime kernel
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Every Zynq-7000 Buildroot defconfig MUST consume the shared Linux platform
 configuration fragment. That fragment MUST select the fully preemptible
@@ -130,6 +138,7 @@ mode; software MUST NOT infer or switch the memory model silently.
 * **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ### [SPEC-ZYNQ-PLATFORM-10] CppUTest target library
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Every supported Zynq Buildroot defconfig MUST select the external
 `BR2_PACKAGE_CPPUTEST` package pinned to CppUTest v4.0. The package MUST install
@@ -138,6 +147,7 @@ it MUST NOT alias the unrelated cpptest or Google Highway libraries.
 * **Verified by**: `host-tests` (`tests/test_zynq_buildroot_config.py`)
 
 ### [SPEC-ZYNQ-PLATFORM-11] Runtime bitstream loading
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Every supported Zynq Buildroot image MUST include `xilinx-fpgautil` so external
 automation can SSH into a PS-only system, load a selected bitstream through

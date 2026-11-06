@@ -118,7 +118,7 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 ### 2a-bis. Full audit 2026-11-06 follow-ups (`docs/reviews/2026-11-06-full-audit.md`)
 - [x] **Linux SPI/I2C invent data on a missing device and report success**: fixed 2026-11-06 (`ABSTRACTX_SIM_BUS=1` opt-in, [SPEC-LINUX-HAL-01]).
 - [ ] Re-check and fix or close buses candidates 2, 4-7, 9, 10 (E906 SPI awaiter FIFO spin, Pico I2C deadline, Pico UART full queue, Linux UART RX, Linux IGpio dispatch, E906 serial_xfer, Pico SPI no-channel).
-- [ ] Triage the 26 untagged FPGA requirements (`audit_specs.py` exits 1 until then).
+- [x] The 26 untagged FPGA requirements are declared "Not implemented yet" (FPGA paused, 2026-11-06); `audit_specs.py` exits 0. Triage them when FPGA work restarts.
 - [ ] Board runs for today's changes (E906 UART deadline, SPI1 CS0-only, engine async I2C, Zynq lock / word order, little-endian SPI link).
 - [x] Manual checklists gui and platforms answered (`tests/test_studio_gui_clicks.py`; `docs/reviews/2026-11-06-platforms.md`; Boost.Asio host `hosts/asio`).
 - [ ] Platforms follow-ups: Zephyr and ChibiOS hosts (need their SDK + the six conformance checks on qemu or a board); Dispatcher priorities (P1-02); init levels; SPI deadlines on Pico / E906; optional: Linux drivers on Asio handlers instead of threads.

@@ -439,6 +439,7 @@ ODR, and the same 14-byte payload beginning at `0x1D`; both MUST use one common
 parser and correctness rules.
 
 ### `[SPEC-ZYNQ-IMU-POC-05]` Safe ring/interrupt ownership
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 The PL backend MUST configure the reserved noncached DMA ring before enabling
 Auto-DMA, copy complete records before releasing slots, detect gaps/overruns,
@@ -446,6 +447,7 @@ ack UIO IRQs correctly, report records drained but not yet parsed at shutdown,
 and stop PL acquisition on every exit path.
 
 ### `[SPEC-ZYNQ-IMU-POC-06]` Comparable metrics
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 Results MUST report throughput, sample loss, process CPU cost, Linux
 event-to-data latency, FPGA DRDY-to-SPI-complete latency, and host record
@@ -460,6 +462,7 @@ Hardware integration failures MUST be explicit and nonzero.
 * **Verified by**: `host-tests` (`hw/zynq7000/testApps/imu_backend_validation_poc/test_imu_validation.py`), `cocotb-regression` ((was `sim/cocotb/test_asp_imu_auto_dma_cocotb.py`, removed 2026-11-05))
 
 ### `[SPEC-ZYNQ-IMU-POC-08]` Evidence-based article
+* **Not implemented yet**: FPGA work is paused (owner, 2026-11-05); not built or triaged. Checked again when FPGA work restarts.
 
 An accompanying article MUST be written after both real backend runs exist. It
 MUST document wiring, board/kernel/bitstream revisions, setup, workload, raw
