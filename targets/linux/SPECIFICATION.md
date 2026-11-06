@@ -128,6 +128,23 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
 * **Epoll Integration**: Line request file descriptor (`gpiod_line_request_get_fd()`) is added to `epoll`.
 * **Nanosecond Timestamps**: On trigger, extracts `gpiod_edge_event_get_timestamp_ns()` for hardware-level nanosecond correlation into `Tlp64::timestamp_ns`.
 
+### `[SPEC-LINUX-HAL-02]` Port Table and Port List (`[SPEC-HAL-15]`, EL-1027-33; Linux and Zynq)
+* **Requirement**: on Linux a port is a device file. The default paths live in one header,
+  `targets/linux/include/hal/ports.hpp`; `hal_spi.cpp`, `hal_i2c.cpp` and the I/O processor take them from
+  there. The Zynq target compiles the same Linux HAL files, so the same table applies (a Zynq image with
+  other device names changes the header, not the drivers).
+* **Port list** (`get_*_port`):
+
+  | Call | Port | Device |
+  | :--- | :--- | :--- |
+  | `get_spi_port(0)`, `get_spi_port(1)`, `get_spi_driver()` | SPI1 CS0 | `/dev/spidev1.0` (A5E header SPI1) |
+  | `get_i2c_port(0)`, `get_i2c_port(1)`, `get_i2c_driver()` | I2C1 | `/dev/i2c-1` |
+  | `get_uart_port(0)`, `get_uart_driver()` | the UART the app opens | path given to `linux_uart_open()` at run time |
+
+  Any other number returns `nullptr`.
+* **Verified by**: `host-tests` (`sim/test_platform_ports.cpp`: Linux port list)
+* **Implementation Target**: `targets/linux/include/hal/ports.hpp`, `targets/linux/src/hal_spi.cpp`, `targets/linux/src/hal_i2c.cpp`, `targets/linux/src/hal_uart.cpp`
+
 ### `[SPEC-LINUX-GPIO-01]` GPIO-Edge Auto Channel: Which Line, Which spidev, No Silent Simulation
 * **Why**: the Linux A55 column of the sensor latency comparison (`TODO.md` 2a) runs the same
   channel as the E906 bench `A` ([SPEC-E906-BENCH-05]): DRDY edge -> SPI read -> TLP in the

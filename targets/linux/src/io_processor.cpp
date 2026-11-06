@@ -8,6 +8,7 @@
  * its host notification onto an eventfd.
  */
 
+#include "hal/ports.hpp"
 #include "abstractx/hal/io_engine.hpp"
 #include "epoll_reactor.hpp"
 #include "eventfd.hpp"
@@ -66,7 +67,7 @@ public:
         if (ch.bus_type == hal::BusType::Spi) {
             if (!spi_.is_running()) start_spi(ch.bus_index, static_cast<uint8_t>(ch.cs_pin), ch.bus_speed_hz);
         } else if (ch.bus_type == hal::BusType::I2c) {
-            if (!i2c_.is_running()) i2c_.start("/dev/i2c-1");
+            if (!i2c_.is_running()) i2c_.start(::hal::ports::kI2c1Dev);
         }
         return true;
     }
@@ -105,7 +106,7 @@ public:
             req.callback = etl::delegate<void(const hal::SpiResult&)>::create<Job, &Job::spi_done>(*j);
             ok = spi_.submit(req);
         } else if (x.bus == hal::BusType::I2c) {
-            if (!i2c_.is_running()) i2c_.start("/dev/i2c-1");
+            if (!i2c_.is_running()) i2c_.start(::hal::ports::kI2c1Dev);
             hal::I2cRequest req{};
             req.slave_addr = x.device;
             req.tx_data = x.tx;

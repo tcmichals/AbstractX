@@ -1127,8 +1127,9 @@ sequenceDiagram
   controller are two objects, never two copies of the code.
 * **Requirement (access)**: apps reach ports only through `get_uart_port(n)` / `get_i2c_port(n)`
   ([SPEC-HAL-10]); each target lists its port numbers in its own specification.
-* **Status (2026-10-27)**: E906 TWI0/TWI1 follow this; E906 UART2/UART3 next. Pico 2 W, ESP32-P4,
-  Linux and Zynq do not implement `get_*_port` yet and have no `ports.hpp`.
+* **Status (2026-11-06)**: E906 (TWI0/TWI1, UART3, SPI1; [SPEC-E906-HAL-04]), Pico 2 W
+  ([SPEC-PICO-HAL-04]) and Linux / Zynq ([SPEC-LINUX-HAL-02]) have `ports.hpp` and implement `get_*_port`.
+  ESP32-P4 is a stub (no drivers, no ESP-IDF build here) and has neither.
 * **Requirement (copies of the facts are checked, EL-1027-27, 2026-11-06)**: agent rule files repeat
   silicon facts so agents need not look them up (`.agents/rules/silicon-api-atlas.md`); every base address,
   interrupt number and DMA request they list for a target with a port table is compared with that target's

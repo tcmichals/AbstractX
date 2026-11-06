@@ -304,6 +304,22 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   UART0 transmits no console text)
 * **Implementation Target**: `targets/pico2w_rp2350/CMakeLists.txt`
 
+### [SPEC-PICO-HAL-04] Port Table and Port List (`[SPEC-HAL-15]`, EL-1027-33)
+* **Requirement**: the controller instances and pins the drivers use live in one header,
+  `targets/pico2w_rp2350/include/hal/ports.hpp` (instance number, pins, IRQ, name); `hal_uart.cpp`,
+  `hal_i2c.cpp` and `hal_spi.cpp` take them from there, never as literals.
+* **Port list** (`get_*_port`):
+
+  | Call | Port | Pins |
+  | :--- | :--- | :--- |
+  | `get_uart_port(0)`, `get_uart_driver()` | UART0 (GPS, [SPEC-PICO-HAL-03]) | GP0 TX / GP1 RX |
+  | `get_i2c_port(0)`, `get_i2c_driver()` | I2C0 | GP4 SDA / GP5 SCL |
+  | `get_spi_port(0)`, `get_spi_port(1)`, `get_spi_driver()` | SPI1 | GP10 SCK / GP11 MOSI / GP12 MISO, CS GP13 ([SPEC-PICO-HAL-02]) |
+
+  Any other number returns `nullptr`. UART1 (GP8/GP9) is the stdio console ([SPEC-PICO-HAL-03]), not a port.
+* **Verified by**: `memory-footprint` (the Pico build links), `hw-sw-register-parity`
+* **Implementation Target**: `targets/pico2w_rp2350/include/hal/ports.hpp`, `targets/pico2w_rp2350/src/hal_platform.cpp`
+
 ### [SPEC-PICO-NET-01] Non-Blocking Wi-Fi Join with Retry; LED Shows Link State
 * **Why**: until 2026-11-03 `platform_init()` made one blocking 15 s
   `cyw43_arch_wifi_connect_timeout_ms()` call and never tried again. On the bench

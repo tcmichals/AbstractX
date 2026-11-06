@@ -59,6 +59,12 @@ ITimer& get_timer_driver() noexcept {
     return g_pico_timer;
 }
 
+// Port list ([SPEC-PICO-HAL-04]): SPI 0/1 -> SPI1, UART 0 -> UART0 (GPS), I2C 0 -> I2C0; else null.
+// @impl [SPEC-PICO-HAL-04] targets/pico2w_rp2350/SPECIFICATION.md
+ISpi* get_spi_port(uint8_t index) noexcept { return (index == 0 || index == 1) ? &g_pico_spi : nullptr; }
+IUart* get_uart_port(uint8_t index) noexcept { return index == 0 ? &g_pico_uart : nullptr; }
+II2c* get_i2c_port(uint8_t index) noexcept { return index == 0 ? &get_i2c_driver() : nullptr; }
+
 // ---------------------------------------------------------------------------
 // Core 1 -> Core 0 frame rings ([SPEC-PICO-CORE-01])
 // ---------------------------------------------------------------------------

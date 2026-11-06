@@ -12,6 +12,7 @@
  */
 
 #include "abstractx_pico.hpp"
+#include "hal/ports.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "hardware/dma.h"
@@ -35,8 +36,8 @@ static void dma_spi_irq_handler() {
     if (g_spi_rx_dma_chan >= 0 && dma_channel_get_irq0_status(g_spi_rx_dma_chan)) {
         dma_channel_acknowledge_irq0(g_spi_rx_dma_chan);
 
-        // De-assert CS (GP13 = 1)
-        gpio_put(13, 1);
+        // De-assert CS
+        gpio_put(::hal::ports::kSpi1.cs_pin, 1);
 
         if (g_active_spi_instance) {
             g_active_spi_instance->on_dma_complete_from_isr();
@@ -62,13 +63,15 @@ bool PicoSpi::init(const SpiConfig& config) {
     spi_init(spi1, config.frequency_hz);
     spi_set_format(spi1, 8, cpol, cpha, SPI_MSB_FIRST);
 
-    gpio_set_function(10, GPIO_FUNC_SPI); // SCK
-    gpio_set_function(11, GPIO_FUNC_SPI); // TX / MOSI
-    gpio_set_function(12, GPIO_FUNC_SPI); // RX / MISO
+    static_assert(::hal::ports::kSpi1.instance == 1, "spi1 below is ports::kSpi1");
+    constexpr auto& port = ::hal::ports::kSpi1;   // [SPEC-PICO-HAL-04]
+    gpio_set_function(port.sck_pin, GPIO_FUNC_SPI);
+    gpio_set_function(port.mosi_pin, GPIO_FUNC_SPI);
+    gpio_set_function(port.miso_pin, GPIO_FUNC_SPI);
 
-    gpio_init(13); // CS
-    gpio_set_dir(13, GPIO_OUT);
-    gpio_put(13, 1);
+    gpio_init(port.cs_pin);
+    gpio_set_dir(port.cs_pin, GPIO_OUT);
+    gpio_put(port.cs_pin, 1);
 
     // 2. Claim dedicated hardware DMA channels for SPI1
     if (g_spi_rx_dma_chan < 0) {
@@ -92,7 +95,7 @@ bool PicoSpi::init(const SpiConfig& config) {
 
 void PicoSpi::select(bool active) {
 #ifdef PICO_ON_DEVICE
-    gpio_put(13, active ? 0 : 1);
+    gpio_put(::hal::ports::kSpi1.cs_pin, active ? 0 : 1);
 #else
     (void)active;
 #endif
@@ -105,8 +108,8 @@ void PicoSpi::start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len)
 
     busy_ = true;
 
-    // Asserts active-low CS (GP13 = 0)
-    gpio_put(13, 0);
+    // Asserts active-low CS
+    gpio_put(::hal::ports::kSpi1.cs_pin, 0);
 
     // Provide dummy buffer if tx is null
     static const uint8_t dummy_tx = 0xFF;

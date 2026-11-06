@@ -970,13 +970,14 @@ int main() {
             assert(cp[0] == 'C' && cp[1] == 'D' && cp[2] == '\n' && cp[3] == 'F');
         }
 
-        // Ports: 0 is the default driver; the host target has no second port.
+        // Ports ([SPEC-LINUX-HAL-02]): 0 is the default driver; SPI1 also answers to 1; nothing else.
         assert(get_uart_port(0) == &get_uart_driver());
         assert(get_uart_port(1) == nullptr);
         assert(&get_uart_driver(0) == &get_uart_driver());
         assert(&get_uart_driver(1) == &get_uart_driver());
         assert(get_spi_port(0) == &get_spi_driver());
-        assert(get_spi_port(1) == nullptr);
+        assert(get_spi_port(1) == &get_spi_driver());
+        assert(get_spi_port(2) == nullptr);
         assert(&get_spi_driver(0) == &get_spi_driver());
         assert(&get_spi_driver(1) == &get_spi_driver());
     }

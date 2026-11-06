@@ -235,6 +235,10 @@ IUart& get_uart_driver() noexcept {
     return g_linux_uart;
 }
 
+// Port list ([SPEC-LINUX-HAL-02]): 0 is the UART the app opened with linux_uart_open(); else null.
+// @impl [SPEC-LINUX-HAL-02] targets/linux/SPECIFICATION.md
+IUart* get_uart_port(uint8_t index) noexcept { return index == 0 ? &g_linux_uart : nullptr; }
+
 bool linux_uart_open(const char* device_path, uint32_t baudrate) noexcept {
     return g_linux_uart.open(device_path, baudrate);
 }

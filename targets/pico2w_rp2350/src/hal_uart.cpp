@@ -11,6 +11,7 @@
  */
 
 #include "abstractx_pico.hpp"
+#include "hal/ports.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "hardware/uart.h"
@@ -42,8 +43,9 @@ static void uart0_irq_handler() {
 void PicoUart::init(uint32_t baudrate) {
 #ifdef PICO_ON_DEVICE
     uart_init(uart0, baudrate);
-    gpio_set_function(0, GPIO_FUNC_UART); // TX
-    gpio_set_function(1, GPIO_FUNC_UART); // RX
+    static_assert(::hal::ports::kUart0.instance == 0, "uart0 here is ports::kUart0");
+    gpio_set_function(::hal::ports::kUart0.tx_pin, GPIO_FUNC_UART);   // [SPEC-PICO-HAL-04]
+    gpio_set_function(::hal::ports::kUart0.rx_pin, GPIO_FUNC_UART);
 
     uart_set_hw_flow(uart0, false, false);
     uart_set_format(uart0, 8, 1, UART_PARITY_NONE);

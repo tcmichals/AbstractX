@@ -9,6 +9,7 @@
  */
 
 #include "abstractx_pico.hpp"
+#include "hal/ports.hpp"
 
 #ifdef PICO_ON_DEVICE
 #include "hardware/i2c.h"
@@ -26,11 +27,12 @@ bool PicoI2c::init(const I2cConfig& config) {
     uint32_t freq = config.frequency_hz ? config.frequency_hz : 400'000;
     i2c_init(i2c0, freq);
 
-    // GP4 = SDA, GP5 = SCL
-    gpio_set_function(4, GPIO_FUNC_I2C);
-    gpio_set_function(5, GPIO_FUNC_I2C);
-    gpio_pull_up(4);
-    gpio_pull_up(5);
+    static_assert(::hal::ports::kI2c0.instance == 0, "i2c0 here is ports::kI2c0");
+    constexpr auto& port = ::hal::ports::kI2c0;   // [SPEC-PICO-HAL-04]
+    gpio_set_function(port.sda_pin, GPIO_FUNC_I2C);
+    gpio_set_function(port.scl_pin, GPIO_FUNC_I2C);
+    gpio_pull_up(port.sda_pin);
+    gpio_pull_up(port.scl_pin);
 
     // @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
     // Async transfers run from I2C0_IRQ; install it once here, not per request.
