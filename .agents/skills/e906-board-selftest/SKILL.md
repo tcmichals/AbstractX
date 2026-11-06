@@ -22,13 +22,14 @@ From the repository root on the PC:
 Set the board first: `export ABSTRACTX_BOARD_IP=192.168.1.13` (the A5E on Wi-Fi since 2026-10-31; `192.168.3.3` is now the Cubie A7A). Host tools that change board state check `/proc/device-tree/model` for `Cubie A5E` ([SPEC-AUDIT-13], `tools/board_target.py`).
 
 ```bash
-ssh root@$ABSTRACTX_BOARD_IP mkdir -p /root/abstractx_board_tests
-scp -O tests/board/*.py tools/abstractx_wire.py tools/e906_rpmsg_bridge.py tools/visualizer/runtime_stats.py tools/visualizer/event_streams.py \
-       apps/e906_repl_app/raw_sensor_streamer.py apps/e906_repl_app/run_e906_script.py \
-       apps/e906_repl_app/sensor_contract.py tools/board_studio_bridge.py root@$ABSTRACTX_BOARD_IP:/root/abstractx_board_tests/
-ssh root@$ABSTRACTX_BOARD_IP "cd /root/abstractx_board_tests && python3 run_board_tests.py --json /tmp/e906_selftest.json"
-scp -O root@$ABSTRACTX_BOARD_IP:/tmp/e906_selftest.json docs/verification/evidence/
+python3 tools/run_e906_board_suite.py --record          # check board, copy, run, fetch JSON, ledger record
+python3 tools/run_e906_board_suite.py -k uart           # one test
+python3 tools/run_e906_board_suite.py --dry-run         # print the ssh / scp commands only
 ```
+
+The script ([SPEC-E906-REPL-15] one command) replaces the hand-copied ssh / scp steps; the JSON lands
+in `docs/verification/evidence/<YYYY-MM>/` and `--record` adds a `source: board` ledger record (commit
+the ledger file). Record from a clean tree: a dirty tree never counts as evidence.
 
 Run one test with `-k <substring>`. Set `E906_FIRMWARE` if a different firmware name is expected.
 

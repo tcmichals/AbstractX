@@ -109,7 +109,8 @@ def main(argv) -> int:
     print(f"\n{counts['PASS']} passed, {counts['FAIL']} failed, {counts['SKIP']} skipped")
     if json_out:
         record = {"check": "board:e906:selftest", "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                  "uname": os.uname().release, "counts": counts, "results": results}
+                  "uname": os.uname().release, "firmware": read_text(RPROC + "/firmware"),
+                  "counts": counts, "results": results}
         with open(json_out, "w") as f:
             json.dump(record, f, indent=1)
         print(f"evidence: {json_out}")

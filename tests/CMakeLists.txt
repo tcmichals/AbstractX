@@ -105,6 +105,9 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-ZYNQ-03] Zynq diagnostics: TLP word order (little-endian), kept TLPs, UIO lock (no board)
     add_test(NAME py_test_zynq_diagnostics
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_zynq_diagnostics.py)
+    # [SPEC-E906-REPL-15] one-command board suite runner (no board)
+    add_test(NAME py_test_run_e906_board_suite
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_run_e906_board_suite.py)
     add_test(NAME py_test_run_cocotb
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_run_cocotb.py)
     # [SPEC-E906-IPC-04] Linux-side RPMsg <-> UDP bridge (no hardware needed)

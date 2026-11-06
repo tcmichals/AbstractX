@@ -345,8 +345,13 @@ flowchart TD
 * **Rationale**: on 2026-10-20 trace never reached Studio, compass and GPS stopped updating,
   and an earlier checkout passed on host-synthesised TLPs (engineering log entry 15). None of
   that is visible to `host-tests`, and pytest is not on the board image.
-* **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_board_suite_local.py`: decoders and runner, off-board)
-* **Implementation Target**: `tests/board/`, `tools/abstractx_wire.py`
+* **Requirement (one command, 2026-11-06)**: `tools/run_e906_board_suite.py` runs the suite from the PC:
+  checks the board is the Cubie A5E ([SPEC-AUDIT-13]), copies the suite, runs it under an overall time
+  limit, fetches the JSON into `docs/verification/evidence/<YYYY-MM>/`, and with `--record` appends one
+  `source: board` record (commit, dirty flag, firmware, counts) to the evidence ledger, so the matrix
+  sees board evidence without hand-copied steps. `--dry-run` prints the commands without a board.
+* **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_board_suite_local.py`: decoders and runner, off-board; `tests/test_run_e906_board_suite.py`: file list, record, dry run)
+* **Implementation Target**: `tests/board/`, `tools/abstractx_wire.py`, `tools/run_e906_board_suite.py`
 
 
 ### `[SPEC-E906-REPL-16]` Interrupt-Driven Bindings and No Polling in the Event Loop
