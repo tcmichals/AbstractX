@@ -151,6 +151,23 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
 * **Verified by**: `host-tests` (`sim/test_platform_ports.cpp`: Linux port list)
 * **Implementation Target**: `targets/linux/include/hal/ports.hpp`, `targets/linux/src/hal_spi.cpp`, `targets/linux/src/hal_i2c.cpp`, `targets/linux/src/hal_uart.cpp`
 
+### `[SPEC-LINUX-GPIO-02]` `IGpio` Edge Interrupts Run Their Handler (2026-11-06, full-audit buses finding 7)
+* **Goal**: `IGpio::configure_interrupt` means the same on Linux as on a microcontroller: each edge
+  runs the handler once, in interrupt-like context, and wakes the loop.
+* **Requirement**: `LinuxGpioDriver` (`linux_gpio_driver.hpp`, chip path a constructor argument,
+  default `/dev/gpiochip0`) runs one edge thread, the Linux counterpart of the GPIO interrupt. The
+  thread `poll()`s the gpiod line-request fd (or the simulated edge eventfd when the chip does not
+  exist, [SPEC-LINUX-GPIO-01]) and a stop eventfd; for each edge, while `enable_interrupt(pin, true)`,
+  it calls the handler with the line, then calls `abstractx::wake()`. The handler follows the ISR
+  contract: it never resumes a coroutine (AGENTS §3). `configure_interrupt` stops a running thread
+  before it re-opens the line; the destructor stops and joins it. Before this, the events were read
+  only in `dispatch_interrupt_events()`, which nothing called, so no handler ever ran.
+* **Not covered**: `write_pin` / `read_pin` / `configure_pin` still only keep levels in memory (no
+  gpiod output or input request): GPIO output through `IGpio` does not reach a pin on Linux.
+* **Verified by**: `host-tests` (`sim/test_linux_gpio_edges.cpp`: 1000 simulated edges -> 1000 handler
+  calls from the edge thread, none while disabled, clean stop), `thread-sanitizer`
+* **Implementation Target**: `targets/linux/include/linux_gpio_driver.hpp`, `targets/linux/src/hal_gpio.cpp`
+
 ### `[SPEC-LINUX-GPIO-01]` GPIO-Edge Auto Channel: Which Line, Which spidev, No Silent Simulation
 * **Why**: the Linux A55 column of the sensor latency comparison (`TODO.md` 2a) runs the same
   channel as the E906 bench `A` ([SPEC-E906-BENCH-05]): DRDY edge -> SPI read -> TLP in the

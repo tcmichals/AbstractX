@@ -38,6 +38,7 @@ add_abstractx_sim(test_linux_drdy_auto     test_linux_drdy_auto.cpp)
 # [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results
 add_abstractx_sim(test_linux_hal_completion test_linux_hal_completion.cpp)
 add_abstractx_sim(test_linux_bus_no_sim    test_linux_bus_no_sim.cpp)
+add_abstractx_sim(test_linux_gpio_edges    test_linux_gpio_edges.cpp)
 # [SPEC-LINUX-HAL-01] these run the Linux workers with no device: simulation on request only
 set_tests_properties(sim_test_linux_hal_completion sim_test_linux_drdy_auto sim_test_tlp_msg sim_test_io_processor
                      PROPERTIES ENVIRONMENT "ABSTRACTX_SIM_BUS=1")
