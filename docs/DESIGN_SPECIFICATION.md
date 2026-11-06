@@ -194,8 +194,16 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `TICK_HOOK` (opt-in: the application's `vApplicationTickHook` calls `freertos_host::tick_from_isr()`,
   which only compares the tick count with the stored deadline and wakes; it walks no timer list).
   Build option `ABX_FREERTOS_TIMER`; details per target in `[SPEC-E906-RTOS-03]`.
-* **Not covered yet**: the Boost.Asio host (`hosts/asio/`, the Linux host) and the ESP32-P4 FreeRTOS
-  loop. The Linux timer is `Polled` since 2026-11-04 (`[SPEC-HAL-05]`): no thread.
+* **Requirement (Boost.Asio host, 2026-11-06)**: `hosts/asio/` (`abstractx::asio_host`) drives AbstractX
+  from an `asio::io_context` with completion handlers only: a *pump* handler calls `step()`; `kNow` posts
+  the pump again (so other handlers interleave), a deadline arms one `asio::steady_timer` (same
+  `CLOCK_MONOTONIC` as the Linux timer driver) whose handler runs the pump, `kNever` arms nothing. The wake
+  hook posts the pump with `asio::post`, at most one pending post (an atomic flag), so a burst of wakes is
+  one pump. `attach(io_context&)` lets an application that already runs Asio share its loop; `run_until`
+  / `run` / `stop` / `waits` match the POSIX host so the same conformance checks run on it. No Asio
+  coroutine (`awaitable`, `co_spawn`) is used ([SPEC-ARCH-15] no mixing; `coro-contract-lint` check 7).
+* **Not covered yet**: the ESP32-P4 FreeRTOS loop; Zephyr and ChibiOS hosts (no SDK here). The Linux timer
+  is `Polled` since 2026-11-04 (`[SPEC-HAL-05]`): no thread.
 * **Verified by**: `coro-contract-lint` (`tools/audit_coro_contracts.py` check 7: no foreign
   coroutine runtime; `tests/test_coro_contracts.py`), `host-tests` (`sim/test_host_drive.cpp`:
   step return values, wake routing from another thread 1000x, `next_period`, longest ready run;
@@ -327,7 +335,7 @@ sequenceDiagram
   timer / wake model rewritten five times in five days because it was designed one change at a time.
   This requirement fixes the whole model first; implementation follows it.
 * **Verified by**: `host-tests` (`sim/test_host_conformance_posix.cpp`: the six conformance checks on the
-  POSIX host; `sim/test_executor.cpp`: a custom executor receives every post, a refused post is
+  POSIX host; `sim/test_host_conformance_asio.cpp`: the same checks on the Boost.Asio host; `sim/test_executor.cpp`: a custom executor receives every post, a refused post is
   reported; `tests/test_coro_contracts.py`: no direct Dispatcher post; planned: per-driver request / stream / cancel / drop tests), `thread-sanitizer`,
   `board-bringup` (planned: E906, Pico 2 W)
 * **Implementation Target** (planned): `include/abstractx/`, `src/`, `hosts/`, every target's drivers
