@@ -1,0 +1,356 @@
+# @impl [SPEC-AUDIT-20] [SPEC-AUDIT-09] [SPEC-AUDIT-13] [SPEC-AUDIT-15] docs/SPECTRACE.md
+# CI: independent jobs that each run every check and fail on their own; firmware is built and sized.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write        # github-action-benchmark pushes graphs to gh-pages (main only)
+  pull-requests: write   # PR comment from the report job
+
+env:
+  XPACK_RISCV: 15.2.0-1
+  XPACK_ARM: 15.2.1-1.1
+  PICO_SDK_TAG: 2.3.0
+
+jobs:
+  # ---------------------------------------------------------------------------------------------
+  firmware-e906:
+    name: Firmware E906 (build, layout, zero heap, size)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Cache xPack RISC-V toolchain
+        id: cache-riscv
+        uses: actions/cache@v4
+        with:
+          path: ~/.tools/xpack-riscv-none-elf-gcc-${{ env.XPACK_RISCV }}
+          key: xpack-riscv-${{ env.XPACK_RISCV }}
+
+      - name: Install xPack RISC-V toolchain
+        if: steps.cache-riscv.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.tools && cd ~/.tools
+          curl -fsSL -o riscv.tgz "https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/download/v${XPACK_RISCV}/xpack-riscv-none-elf-gcc-${XPACK_RISCV}-linux-x64.tar.gz"
+          tar xzf riscv.tgz && rm riscv.tgz
+
+      - name: Host packages
+        run: sudo apt-get update && sudo apt-get install -y cmake binutils python3
+
+      # The post-build steps of every E906 image run the layout check and the zero-heap check
+      # ([SPEC-E906-MEM-01], [SPEC-E906-MEM-03]): a violation fails this step.
+      - name: Build every E906 image
+        run: |
+          cmake --preset e906
+          cmake --build --preset e906 -j
+
+      - name: Memory report per image
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p ci_out/e906
+          for elf in build_e906/apps/*/e906_* build_e906/apps/gps_imu_app/gps_imu_app build_e906/apps/serial_loopback_app/serial_loopback_app; do
+            [ -f "$elf" ] && [ -x "$elf" ] || continue
+            ./tools/analyze_elf_size.sh "$elf" targets/allwinner_e906/bsp/e906_sram.ld | tee "ci_out/e906/$(basename "$elf").size.txt"
+          done
+
+      - name: Size records (SRAM_FAST budget)
+        if: ${{ !cancelled() }}
+        run: |
+          python3 tools/trac.py size --record \
+            --elf e906=build_e906/apps/gps_imu_app/gps_imu_app \
+            --elf e906/repl=build_e906/apps/e906_repl_app/e906_repl_app \
+            --elf e906/bench=build_e906/apps/e906_bench_app/e906_bench_app \
+            --elf e906/freertos=build_e906/apps/e906_freertos_app/e906_freertos_app \
+            --elf e906/unit_tests=build_e906/apps/e906_unit_tests/e906_unit_tests \
+            --elf e906/serial_loopback=build_e906/apps/serial_loopback_app/serial_loopback_app
+
+      - name: Collect new evidence records
+        if: ${{ !cancelled() }}
+        run: tools/ci/collect_new_records.sh ci_out/records-firmware-e906.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: firmware-e906
+          path: |
+            build_e906/apps/*/e906_*
+            build_e906/apps/*/*.map
+            build_e906/apps/gps_imu_app/gps_imu_app
+            ci_out/
+
+  # ---------------------------------------------------------------------------------------------
+  firmware-pico:
+    name: Firmware Pico 2 W (build, size; heap reported)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Cache xPack ARM toolchain and Pico SDK
+        id: cache-arm
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.tools/xpack-arm-none-eabi-gcc-${{ env.XPACK_ARM }}
+            ~/.tools/pico/pico-sdk
+          key: xpack-arm-${{ env.XPACK_ARM }}-pico-sdk-${{ env.PICO_SDK_TAG }}
+
+      - name: Install xPack ARM toolchain and Pico SDK
+        if: steps.cache-arm.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.tools/pico && cd ~/.tools
+          curl -fsSL -o arm.tgz "https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v${XPACK_ARM}/xpack-arm-none-eabi-gcc-${XPACK_ARM}-linux-x64.tar.gz"
+          tar xzf arm.tgz && rm arm.tgz
+          git clone --depth 1 --branch "${PICO_SDK_TAG}" --recurse-submodules --shallow-submodules \
+            https://github.com/raspberrypi/pico-sdk.git pico/pico-sdk
+
+      - name: Host packages (the SDK builds picotool)
+        run: sudo apt-get update && sudo apt-get install -y cmake binutils python3 libusb-1.0-0-dev pkg-config
+
+      - name: Build every Pico 2 W image
+        run: |
+          export PICO_SDK_PATH=~/.tools/pico/pico-sdk
+          cmake --preset pico2w
+          cmake --build --preset pico2w -j
+
+      - name: Zero-heap report (not a failure on the Pico, [SPEC-AUDIT-19])
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p ci_out/pico
+          python3 tools/track_memory_footprint.py --elf build_pico2w/apps/*/*.elf | tee ci_out/pico/heap_report.txt || true
+
+      - name: Size records
+        if: ${{ !cancelled() }}
+        run: |
+          python3 tools/trac.py size --record \
+            --elf pico2w=build_pico2w/apps/gps_imu_app/gps_imu_app.elf \
+            --elf pico2w/serial_loopback=build_pico2w/apps/serial_loopback_app/serial_loopback_app.elf \
+            --elf pico2w/unit_tests=build_pico2w/apps/pico_unit_tests/pico_unit_tests.elf
+
+      - name: Collect new evidence records
+        if: ${{ !cancelled() }}
+        run: tools/ci/collect_new_records.sh ci_out/records-firmware-pico.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: firmware-pico
+          path: |
+            build_pico2w/apps/*/*.elf
+            build_pico2w/apps/*/*.uf2
+            build_pico2w/apps/*/*.map
+            ci_out/
+
+  # ---------------------------------------------------------------------------------------------
+  host:
+    name: Host tests (${{ matrix.build }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build: plain
+            dir: build_host
+            flags: ""
+            prefix: ""
+            advisory: false
+          - build: asan
+            dir: build_asan
+            flags: "-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+            prefix: ""
+            advisory: false
+          - build: tsan
+            dir: build_tsan
+            flags: "-fsanitize=thread -O1 -g"
+            prefix: "setarch -R"
+            advisory: true   # first TSan run in CI not yet triaged ([SPEC-AUDIT-15])
+    continue-on-error: ${{ matrix.advisory }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3-pip binutils
+          python3 -m pip install pytest numpy
+
+      - name: Build
+        run: |
+          cmake -S . -B ${{ matrix.dir }} -DABSTRACTX_TARGET=host \
+            -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" \
+            -DCMAKE_EXE_LINKER_FLAGS="${{ matrix.flags != '' && format('-fsanitize={0}', matrix.build == 'tsan' && 'thread' || 'address,undefined') || '' }}"
+          cmake --build ${{ matrix.dir }} -j
+
+      - name: ctest (60 s per test)
+        run: ${{ matrix.prefix }} ctest --test-dir ${{ matrix.dir }} --timeout 60 --output-on-failure
+
+      - name: Test records
+        if: ${{ !cancelled() }}
+        run: python3 tools/trac.py test --record --ctest ${{ matrix.build == 'plain' && 'debug' || matrix.build }}=${{ matrix.dir }}
+
+      - name: Collect new evidence records
+        if: ${{ !cancelled() }}
+        run: tools/ci/collect_new_records.sh ci_out/records-host-${{ matrix.build }}.jsonl
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: host-${{ matrix.build }}
+          path: ci_out/
+
+  # ---------------------------------------------------------------------------------------------
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build python3-pip binutils clang-tidy
+          python3 -m pip install pytest
+
+      - name: Compile database
+        run: |
+          cmake --preset host -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build --preset host -j
+
+      - name: Coroutine contracts ([SPEC-ARCH-15])
+        if: ${{ !cancelled() }}
+        run: python3 tools/audit_coro_contracts.py
+
+      - name: Adversarial invariant suite
+        if: ${{ !cancelled() }}
+        run: python3 -m pytest -q tests/test_adversarial_invariants.py
+
+      - name: IPC transport audit
+        if: ${{ !cancelled() }}
+        continue-on-error: true  # advisory: audit_ipc_invariants.py added 2026-10-26, never run in CI
+        run: python3 tools/audit_ipc_invariants.py
+
+      - name: clang-tidy (new findings over baseline)
+        if: ${{ !cancelled() }}
+        continue-on-error: true  # advisory: waits on the first triage and tools/static_analysis_baseline.txt
+        run: python3 tools/run_static_analysis.py --build-dir build_host -j 4
+
+      - name: Shared-state ownership notes
+        if: ${{ !cancelled() }}
+        continue-on-error: true  # advisory: most shared globals have no '// shared:' note yet
+        run: python3 tools/boundary_review.py --check
+
+  # ---------------------------------------------------------------------------------------------
+  docs:
+    name: Requirements and docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+
+      - name: Host packages
+        run: python3 -m pip install pytest pyyaml
+
+      - name: Every requirement tagged in code or declared not implemented
+        if: ${{ !cancelled() }}
+        run: python3 tools/audit_specs.py
+
+      - name: Skills layout
+        if: ${{ !cancelled() }}
+        run: python3 tools/spectrace_matrix.py --check-skills
+
+      - name: Test claims (@verifies backed by @impl)
+        if: ${{ !cancelled() }}
+        run: python3 tools/spectrace_matrix.py --check-verifies
+
+      - name: Block diagrams generated and no ASCII box art ([SPEC-AUDIT-16])
+        if: ${{ !cancelled() }}
+        run: python3 tools/render_diagrams.py --check
+
+      - name: Traceability matrix (report)
+        if: ${{ !cancelled() }}
+        run: python3 tools/spectrace_matrix.py --matrix
+
+  # ---------------------------------------------------------------------------------------------
+  rtl:
+    name: RTL lint
+    runs-on: ubuntu-latest
+    continue-on-error: true  # advisory: rtl-lint never green in CI; distro verilator vs oss-cad-suite
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - name: Verilator
+        run: sudo apt-get update && sudo apt-get install -y verilator
+      - name: Lint every module
+        run: |
+          rc=0
+          for f in rtl/*.sv rtl/*/*.sv; do
+            [ -f "$f" ] || continue
+            verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+              -Wno-PINCONNECTEMPTY -Irtl "$f" --top-module "$(basename "$f" .sv)" || rc=1
+          done
+          exit $rc
+
+  # ---------------------------------------------------------------------------------------------
+  report:
+    name: Report
+    runs-on: ubuntu-latest
+    needs: [firmware-e906, firmware-pico, host, static, docs, rtl]
+    if: ${{ always() }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Job results
+        run: |
+          {
+            echo "## CI results"
+            echo
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| firmware-e906 | ${{ needs.firmware-e906.result }} |"
+            echo "| firmware-pico | ${{ needs.firmware-pico.result }} |"
+            echo "| host (plain, asan, tsan) | ${{ needs.host.result }} |"
+            echo "| static | ${{ needs.static.result }} |"
+            echo "| docs | ${{ needs.docs.result }} |"
+            echo "| rtl (advisory) | ${{ needs.rtl.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/download-artifact@v4
+        with: { path: ci_artifacts }
+
+      - name: Merge records into the ledger view and print the report
+        run: |
+          mkdir -p docs/verification/evidence/ci
+          cat ci_artifacts/*/records-*.jsonl ci_artifacts/*/ci_out/records-*.jsonl 2>/dev/null \
+            > docs/verification/evidence/ci/run.jsonl || true
+          python3 tools/trac.py report | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 tools/trac.py export-benchmark --of size > benchmark_size.json
+          python3 tools/trac.py export-benchmark --of test > benchmark_test.json
+
+      - name: Publish firmware size graph (main)
+        if: github.ref == 'refs/heads/main'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: AbstractX Firmware Size
+          tool: customSmallerIsBetter
+          output-file-path: benchmark_size.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          benchmark-data-dir-path: benchmarks_size
+
+      - name: Publish test time graph (main)
+        if: github.ref == 'refs/heads/main'
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: AbstractX Test Execution
+          tool: customSmallerIsBetter
+          output-file-path: benchmark_test.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          benchmark-data-dir-path: benchmarks_test

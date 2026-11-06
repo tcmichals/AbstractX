@@ -30,6 +30,33 @@ def parse_size_A(text: str) -> dict:
     return sections
 
 
+def parse_size_A_addr(text: str) -> dict:
+    """`size -A` output -> {section: (bytes, address)}; address 0 = not loaded (debug info)."""
+    out = {}
+    for line in text.splitlines():
+        m = ELF_SECTIONS_RE.match(line)
+        if m and m.group(1) != "Total":
+            out[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+    return out
+
+
+# @impl [SPEC-AUDIT-20] docs/SPECTRACE.md
+def region_bytes(addr_sections: dict, region: dict) -> tuple[int, int]:
+    """(bytes inside [start, end), loaded bytes outside it). For targets whose image spans more
+    than one memory window (E906: SRAM_FAST in Space 0, cold code in Space 1), only the budget
+    window counts against ram_budget_bytes."""
+    start, end = int(str(region["start"]), 0), int(str(region["end"]), 0)
+    inside = outside = 0
+    for _name, (size, addr) in addr_sections.items():
+        if addr == 0 or size == 0:
+            continue
+        if start <= addr < end:
+            inside += size
+        else:
+            outside += size
+    return inside, outside
+
+
 def classify(sections: dict) -> dict:
     out = {"text": 0, "data": 0, "bss": 0}
     for name, size in sections.items():

@@ -76,6 +76,10 @@ def run_size(args, records) -> list[dict]:
         text = subprocess.run([resolve_tool(t["size_tool"]), "-A", str(elf)],
                               capture_output=True, text=True, check=True).stdout
         metrics = sp.size_metrics(sp.parse_size_A(text), t["memory_model"])
+        if "budget_region" in t:  # [SPEC-AUDIT-20]: only the budget window counts (E906 SRAM_FAST)
+            inside, outside = sp.region_bytes(sp.parse_size_A_addr(text), t["budget_region"])
+            metrics["ram_bytes"] = inside
+            metrics["outside_budget_bytes"] = outside
         prev = ledger.previous(records, f"elf:{name}")
         result, notes = sp.judge_size(metrics, t, prev["metrics"] if prev else None)
         rec = ledger.make_record(ROOT, "size", f"elf:{name}", result, metrics, t.get("requirements", []),

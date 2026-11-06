@@ -46,6 +46,15 @@ def test_size_parsing_and_models():
     assert m2["flash_bytes"] == 72380 + 340 and m2["ram_bytes"] == 340 + 114096
 
 
+def test_size_budget_region_counts_only_its_window():
+    """E906: Space 1 sections (.trace_buffer at 0x40000044) do not count against SRAM_FAST.
+    @verifies [SPEC-AUDIT-20] docs/SPECTRACE.md"""
+    addr = sp.parse_size_A_addr(SIZE_A)
+    inside, outside = sp.region_bytes(addr, {"start": "0x3FFC0000", "end": "0x3FFF0000"})
+    assert inside == 380 + 72000 + 340 + 110000
+    assert outside == 4096, ".comment (address 0) is not loaded"
+
+
 def test_size_budget_and_growth():
     t = {"ram_budget_bytes": 196608, "max_allowed_growth_bytes": 2048}
     ok = {"ram_bytes": 186000, "flash_bytes": 0}

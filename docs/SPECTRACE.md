@@ -423,7 +423,7 @@ python3 tools/run_adversarial_audit.py --all
   of it was in code that every gate passed. TSan and RTL lint existed as skills but did not run in
   CI, and no compiler warnings were enabled on host or ARM builds.
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`), `static-analysis`, `boundary-race-review`, `ipc-transport-audit`
-* **Implementation Target**: `.github/workflows/spectrace_dashboard.yml`, `CMakeLists.txt`, `cmake/toolchains/arm-none-eabi.cmake`, `.clang-tidy`, `tools/run_static_analysis.py`, `tools/boundary_review.py`, `tools/spectrace_matrix.py`
+* **Implementation Target**: `.github/workflows/ci.yml`, `CMakeLists.txt`, `cmake/toolchains/arm-none-eabi.cmake`, `.clang-tidy`, `tools/run_static_analysis.py`, `tools/boundary_review.py`, `tools/spectrace_matrix.py`
 
 ### `[SPEC-AUDIT-17]` Full Audit: One Gate That Cannot Be Skipped, Measured Tests, Findings Become Tests
 * **Requirement (gate)**: `tools/gate.sh` builds and runs the host suite plain, with ASan/UBSan
@@ -516,6 +516,35 @@ python3 tools/run_adversarial_audit.py --all
 * **Verified by**: `memory-footprint` (`tests/test_membrowse_tracking.py`: an object that defines
   `_malloc_r` fails the new check and passed the old one; a missing ELF fails; exit code)
 * **Implementation Target**: `tools/track_memory_footprint.py`
+
+### `[SPEC-AUDIT-20]` CI: Separate Jobs, Every Check Runs, Firmware Built and Sized (2026-11-06)
+* **Why**: CI was one job of about 20 steps. The first failing step (`audit_specs.py`, every run)
+  stopped the job, so the steps after it (zero-heap check, dashboard, PR comment) never ran and a
+  red run said nothing new. CI built only the host: no E906 or Pico image existed in CI, so the
+  firmware size graph was fed only by records someone made by hand.
+* **Requirement (jobs)**: `.github/workflows/ci.yml` has independent jobs that run in parallel and
+  fail on their own: `firmware-e906`, `firmware-pico`, `host` (one per build: plain, ASan/UBSan,
+  TSan), `static`, `docs`, `rtl`, and `report`.
+* **Requirement (every check runs)**: inside a job, each check step runs even when an earlier one
+  failed (`if: ${{ !cancelled() }}`); the job fails if any of them failed. A check that is not yet
+  triaged is marked advisory (`continue-on-error: true`) with a comment saying what it waits on.
+* **Requirement (firmware)**: `firmware-e906` installs the xPack RISC-V toolchain (cached), builds
+  every E906 image with the `e906` preset (the post-build layout and zero-heap checks fail the build,
+  [SPEC-E906-MEM-03]), and records sizes with `trac.py size` against the `SRAM_FAST` window.
+  `firmware-pico` does the same with the xPack ARM toolchain and Pico SDK 2.3.0; its heap is
+  reported, not failed. Both upload the ELF, map file and size records as run artifacts.
+* **Requirement (size accounting)**: a target with a `budget_region` in
+  `tools/membrowse-targets.json` counts only the sections inside that address window against
+  `ram_budget_bytes` and reports the rest as `outside_budget_bytes`. The E906 image spans SRAM
+  Space 0 (`SRAM_FAST`, the 192 KB budget) and Space 1 (MicroPython's code, `.sram_c`); adding both
+  reported the REPL app as 262 KB against a 192 KB budget when `SRAM_FAST` held 136.6 KB.
+* **Requirement (report)**: `report` runs after all jobs, also when they failed. It writes one
+  table to the run summary (each job: success / failure / skipped), merges the jobs' size and test
+  records, and on `main` publishes them to the GitHub Pages benchmark graphs. CI never commits to
+  the repository: the evidence ledger in git is still written from PCs and boards.
+* **Verified by**: `host-tests` (`tests/test_trac.py`: budget window), `spec-change-review`; a CI run
+  on GitHub (not run from here: the workflow is checked only by building the same commands locally)
+* **Implementation Target**: `.github/workflows/ci.yml`, `tools/trac.py`, `tools/trac_lib/size_perf.py`, `tools/membrowse-targets.json`
 
 ### `[SPEC-AUDIT-16]` Block Diagrams Are SVG, Generated From a Source File
 * **Requirement**: a block diagram (boxes joined by arrows or nesting: architecture, dataflow,

@@ -76,7 +76,7 @@ names `include/mpsc_isr_queue.hpp` as an Implementation Target although no code 
 | `.gitignore`, `.gitmodules` | keep | see `.gitignore` notes below |
 | `.claude/skills` (symlink) | keep | `AGENTS.md` "`.claude/skills` -> `.agents/skills`" |
 | `.vscode/{launch,settings,tasks}.json` | keep | `targets/pico2w_rp2350/HOWTO.md` refers to the tasks; personal paths hard-coded (`/home/tcmichals/.tools/...`) |
-| `.github/workflows/spectrace_dashboard.yml` | keep | CI |
+| `.github/workflows/ci.yml` | keep | CI (replaced `spectrace_dashboard.yml` 2026-11-06, [SPEC-AUDIT-20]) |
 | `.github/prompts/spectrace-review.prompt.md` | keep | Copilot `/spectrace-review` slash command (`.agents/rules/spectrace-review.md` §2) |
 | `.agents/rules/*.md` (6), `.agents/skills/*/SKILL.md` (16) | keep | included by `CLAUDE.md`; skills named in `Verified by` lines |
 | `trace/barectf_config.yaml` | keep | `tools/visualizer/ctf_schema_loader.py:257` |
@@ -233,7 +233,7 @@ progress, out of scope).
 | Path | Verdict | Evidence |
 | --- | --- | --- |
 | `tools/audit_specs.py`, `spectrace.py`, `spectrace_matrix.py`, `spectrace_drift.py`, `spectrace_dedupe.py`, `run_adversarial_audit.py`, `audit_baseline.txt`, `log_mistake.py`, `create_app_spec.py`, `git-hooks/pre-commit` | keep | `AGENTS.md` §1, §9; `docs/SPECTRACE.md:305,312`; `.agents/skills/spec-change-review/SKILL.md:15-17` |
-| `tools/trac.py`, `trac_lib/*` (4) | keep | `.github/workflows/spectrace_dashboard.yml:49-55`; `tests/test_trac.py` |
+| `tools/trac.py`, `trac_lib/*` (4) | keep | `.github/workflows/ci.yml`; `tests/test_trac.py` |
 | `tools/track_memory_footprint.py`, `track_memory_membrowse.py`, `track_quality_trends.py`, `membrowse-targets.json`, `analyze_elf_size.sh`, `analyze_map.py`, `check_e906_layout.py` | keep | `.agents/rules/e906-memory-tracking.md:27-40`; workflow lines 89, 93 |
 | `tools/run_cocotb.py`, `setup_venv.sh` | keep | `.agents/skills/cocotb-regression/SKILL.md:16`; `README.md:899` |
 | `tools/abstractx_wire.py`, `e906_rpmsg_bridge.py`, `board_studio_bridge.py`, `test_board_system_checkout.py`, `test_e906_repl_system.py`, `test_e906_sensors_board.py`, `seed_cubie_a5e_gps.py` | keep | `.agents/skills/e906-board-selftest/SKILL.md:24-26`; `apps/e906_repl_app/README.md:668-690`; GPS guide line 121. Note: three `test_*.py` board scripts live in `tools/` while the rest are in `tests/board/` (move candidate) |
