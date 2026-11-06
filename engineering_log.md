@@ -4171,3 +4171,23 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `_runner_window` / `_show_dockable`; presets update the runner window and the seed object; Bring to Front through `focus_canvas` + `set_next_window_focus`.
 * `tests/test_studio_gui_clicks.py` (Dear ImGui Test Engine, headless, `ini_disable`): tabs, Pop to Canvas / Pop In (one copy), Bring to Front, View menu hide / reopen TLP Bus Debugger, Show Log / Show TLP, Flight Focus / Balanced presets, Connection menu. **Old Studio code: the run segfaults.** All `tests/test_visualizer_sdk.py` runs set `ini_disable`.
 * Note for the user: the repo-root `AbstractX_Studio___User_Domain_Workbench.ini` (git-ignored) may hold windows hidden by test runs; Studio's "Restore Defaults" or deleting the file resets it.
+
+## [2026-11-06] - Part 4 article described code that had changed since it was measured
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `docs/articles/linux-vs-freertos-vs-abstractx/README.md`
+* **Category**: `process-gap`
+* **Symptoms**: the article said every number came from `e159de6` and that AbstractX on FreeRTOS waits in `ulTaskNotifyTake(pdTRUE, portMAX_DELAY)` with sleeps served from `vApplicationTickHook`. Since then the FreeRTOS app runs the shared FreeRTOS host (`WAIT` mode by default, wait = `step()` deadline in ticks), and the E906 interrupt, UART, SPI, I²C and RPMsg code changed. The FreeRTOS `C` rows (815 / 913 µs) were measured with the firmware of `d4c2b8f`, not `e159de6`. It called the htimer move "being migrated"; it has not started. The footprint numbers were 6 days and ~30 commits old; today's bench images are about twice the size (the bench grew) and the FreeRTOS one uses 99.1 % of `SRAM_FAST`.
+* **Also my miss**: in reviewing it I first called the 815 µs explanation ("fixed phase offset") likely wrong. The commit that recorded it (`d4c2b8f`) shows the evidence and the explanation are consistent: two 1 ms grids on the same 24 MHz clock, under 0.5 µs of variation.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: nothing links an article to the code it describes; changes to `hosts/freertos` and `apps/e906_freertos_app` never pointed at it.
+* **Lesson**: an article states the commit of every number, and says which parts were not re-measured after the code changed. Check the commit that recorded a number before doubting or repeating it.
+
+### 3. Specification Update (SSOT Defense)
+* None: the article is not a spec. The bench requirements ([SPEC-E906-BENCH-06], [SPEC-E906-RTOS-03]) were already right.
+
+### 4. Implementation & Regression Test
+* Article: status lists what changed and what was not re-measured; §2 describes the old and today's FreeRTOS wait; §6 shows the `e159de6` and today's sizes side by side; the FreeRTOS cyclic row is labeled "old tick-hook model, `d4c2b8f`"; rows for today's `WAIT` host and `F` read "not measured"; htimers "planned, not started"; Reproduce adds `--cyclic`, `--native-cyclic`, the timer-mode option and the board-clock step.
+* TODO 2b: re-measure, and a new one-way test from an E906 event to a Linux app (owner request).
+* No regression check added: there is no automatic link from code to article text.
