@@ -86,7 +86,12 @@ presets and jumps changed copies of the windows), fixed with [SPEC-STUDIO-16] "r
 
 ### platforms
 
-Not answered this session. `hosts/` has FreeRTOS and bare metal; Zephyr, ChibiOS and Linux (Boost.Asio) hosts do not exist.
+Answered 2026-11-06 in `docs/reviews/2026-11-06-platforms.md`:
+
+- **Per-OS mapping:** loop, wake, completions, and who owns timers and IRQs, for bare metal, FreeRTOS, Linux POSIX, Linux Boost.Asio, Zephyr and ChibiOS.
+- **Services comparison** and **port cost**.
+- **The Boost.Asio host now exists** (`hosts/asio`, `7e68b94`) and passes the six conformance checks.
+- **Zephyr and ChibiOS are design only** (no SDK here).
 
 ## 3. Buses review: findings and status
 
