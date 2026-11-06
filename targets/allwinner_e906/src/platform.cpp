@@ -27,56 +27,6 @@ extern "C" const struct rpmsg_resource_table global_resource_table;
 
 namespace abstractx::hal {
 
-// @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
-// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
-// SPI HAL Adapter for E906
-class E906SpiDriver final : public ISpi {
-public:
-    E906SpiDriver() = default;
-
-    bool init(const SpiConfig& config) override {
-        fc::hal::Spi1::init(config.frequency_hz ? config.frequency_hz : 10'000'000);
-        return true;
-    }
-
-    void select(bool active) override {
-        fc::hal::Pio::set_cs0(active);
-    }
-
-
-protected:
-    // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
-    // @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
-    void start_hardware_transfer_from_isr(const SpiRequest& req) noexcept override {
-        active_req_ = req;
-        const size_t len = req.tx_data.empty() ? req.rx_data.size() : req.tx_data.size();
-        const bool dual = req.is_dual_spi;
-        if (!fc::hal::Spi1::start_dma_transfer(
-            0 /* CS0: PB11 */,
-            req.tx_data.data(),
-            req.rx_data.data(),
-            len,
-            etl::delegate<void(bool)>::create<E906SpiDriver, &E906SpiDriver::on_dma_done>(*this),
-            dual
-        )) {
-            on_dma_done(false);
-        }
-    }
-
-private:
-    SpiRequest active_req_{};
-
-    void on_dma_done(bool success) noexcept {
-        SpiResult res{};
-        res.status = success ? SpiStatus::Ok : SpiStatus::DmaError;
-        res.transferred_bytes = active_req_.tx_data.empty() ? active_req_.rx_data.size() : active_req_.tx_data.size();
-        res.timestamp_us = ::hal::Timer::get_time_us();
-        push_completion_from_isr(active_req_, res);
-        active_req_ = {};
-        set_hardware_idle_from_isr();
-    }
-};
-
 // Timer HAL Adapter for E906
 class E906TimerDriver final : public ITimer {
 public:
@@ -132,18 +82,19 @@ private:
     ::hal::Timer::SleepAwaiter alarm_{};
 };
 
-// GPIO HAL Adapter for E906
+// GPIO HAL Adapter for E906: only the header pins the E906 owns ([SPEC-E906-HAL-04] GPIO).
+// Pin 3 = SPI1 CS0 (PB11, write); pin 8 = IMU DRDY (PI8, read). Edge interrupts: gpio_irq.cpp.
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (GPIO)
 class E906GpioDriver final : public IGpio {
 public:
     E906GpioDriver() = default;
 
     void configure_pin(uint32_t pin, PinMode mode, PinPull pull = PinPull::None) override {
-        (void)pin; (void)mode; (void)pull;
+        (void)pin; (void)mode; (void)pull;   // both pins are fixed by their drivers
     }
 
     void write_pin(uint32_t pin, bool level) override {
         if (pin == 3) fc::hal::Pio::set_cs0(level);
-        else if (pin == 7) fc::hal::Pio::set_cs1(level);
     }
 
     void toggle_pin(uint32_t pin) override {
@@ -151,14 +102,14 @@ public:
     }
 
     bool read_pin(uint32_t pin) override {
-        if (pin == 6) return fc::hal::Pio::get_fpga_frame_ready();
         if (pin == 8) return fc::hal::Pio::get_imu_drdy();
         return false;
     }
 
+    // Not through this adapter: refused, never reported as done.
     bool configure_interrupt(uint32_t pin, EdgeTrigger trigger, GpioInterruptHandler handler, void* context) override {
         (void)pin; (void)trigger; (void)handler; (void)context;
-        return true;
+        return false;
     }
 
     void enable_interrupt(uint32_t pin, bool enable) override {
@@ -166,21 +117,8 @@ public:
     }
 };
 
-static E906SpiDriver   g_e906_spi;
 static E906TimerDriver g_e906_timer;
 static E906GpioDriver  g_e906_gpio;
-
-ISpi& get_spi_driver() noexcept {
-    return g_e906_spi;
-}
-
-// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list)
-ISpi* get_spi_port(uint8_t bus) noexcept {
-    if (bus == 0 || bus == 1) {
-        return &g_e906_spi;
-    }
-    return nullptr;
-}
 
 IUart& get_uart_driver() noexcept {
     return get_e906_uart3();

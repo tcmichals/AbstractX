@@ -2908,7 +2908,7 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-25 | E906 UART | DMA-mode RX handler keeps bounded `nop` waits (up to 1024 x 32 + 64) from the board-proven code | `targets/allwinner_e906/src/uart.cpp` `on_irq` | measure on the board (`irq_stats` cycles), then decide | `hal-concurrency-audit`, board |
 | EL-1027-26 | **partly 2026-11-06: coroutine read through the driver covered; interrupt-mode RX still not** E906 tests | `sim/test_e906_uart.cpp` cannot cover interrupt-mode RX (RFL must drop on an RBR read) or the async write request | test header comment | register model with read side effects | `host-tests` |
 | EL-1027-27 | process | nothing compares `.agents/rules/*.md` facts with the specs / `ports.hpp`; nothing fails on register addresses under `apps/` | EL-1027-12 | add both checks to `audit_boundaries.py` or a new skill | new check: fails on the old atlas |
-| EL-1027-28 | E906 SPI | `E906IoProcessor` calls `fc::hal::Spi0::init` but the header routes only SPI1 ([SPEC-E906-HAL-03]); target SPI0/SPI1 and `platform.cpp` adapter classes (`E906SpiDriver`, `E906TimerDriver`, `E906GpioDriver`) not yet reviewed against one-file-per-driver | `targets/allwinner_e906/src/io_processor.cpp:55`, `platform.cpp` | review SPI next, same method as TWI/UART | `e906-board-selftest` |
+| EL-1027-28 | **reviewed 2026-11-06: Spi0 gone, Port C writes removed, CS1 refused; Port B RMW / hardware CS open** E906 SPI | `E906IoProcessor` calls `fc::hal::Spi0::init` but the header routes only SPI1 ([SPEC-E906-HAL-03]); target SPI0/SPI1 and `platform.cpp` adapter classes (`E906SpiDriver`, `E906TimerDriver`, `E906GpioDriver`) not yet reviewed against one-file-per-driver | `targets/allwinner_e906/src/io_processor.cpp:55`, `platform.cpp` | review SPI next, same method as TWI/UART | `e906-board-selftest` |
 | EL-1027-29 | E906 size | `get_*_port` in `platform.cpp` links every port driver into every app (UART3 +3.9 KB text in apps that never use it); `e906_repl_app` SRAM_FAST 94.8% | `[SPEC-E906-HAL-04]` rule 4 | accept or split port lookup | `memory-footprint` |
 | EL-1027-30 | board | not run on hardware: GPS on UART3 (`abstractx.uart_*`, DMA and IRQ modes), `serial_loopback_app` on header pins 16/31, compass on TWI1 (and its new bus clock, EL-1027-07), async I2C timeout | | run on the Cubie A5E | `e906-board-selftest` |
 | EL-1027-31 | E906 heap | `_malloc_r` / `_sbrk` linked into e906_repl_app, gps_imu_app, serial_loopback_app, e906_bench_app (already at `2dfa62a`) | `riscv-none-elf-nm` | deferred by the project owner (2026-10-27) | `memory-footprint` (`nm -u`) |
@@ -4064,3 +4064,30 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `UartRxRingBase::claimed()` (set by the first accepted `read_async`); `dma_sync()` copies out only while not claimed. `E906Uart::arm_deadline` / `poll_deadline`, `poll_uart_deadlines()` in `platform_poll_network()`.
 * `sim/test_e906_uart.cpp`: read with a 5 ms deadline (wake armed at the deadline, not done one tick before, Timeout at the deadline); 1000 reads satisfied before their deadline, stale deadline wakes nothing, coroutine pool high-water and dropped resumes flat. **Old code**: first read returned `done=1 status=Ok size=0`.
 * Not checked: board run of a `read_async` reader on UART3 (GPS), interrupt-mode receive (EL-1027-26 still open for that).
+
+## [2026-11-06] - EL-1027-28 review: E906 wrote Linux's Port C (CS1, GPIO bridge, LED, dead SPI0 mux)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/` (SPI1 chip select, GPIO adapter, GPIO bridge, `pio.cpp`)
+* **Category**: `product-bug`, `tool-bug` (audit), spec drift
+* **Symptoms** (review, no board run):
+  - SPI1 CS1 was a GPIO on **PC7**: not on the A5E header and on Port C, which Linux owns (eMMC / SPI0). Every CS1 transfer did a read-modify-write of Linux's `PC_DATA` and selected nothing.
+  - The host GPIO bridge (`E906IoBackend::gpio`) set / cleared / toggled any of 32 Port C bits from a TLP (`mask`), and the virtual-BAR LED drove PC1, with the same read-modify-writes. The bridge spec promises "atomic" set/clear; this was neither atomic nor a pin the E906 owns.
+  - `E906GpioDriver` exposed PC6 / PC7 and `configure_interrupt` returned `true` without doing anything.
+  - `pio.cpp` (`Pio::init`, muxing Port C to SPI0) was not compiled and had no caller: dead code that would reconfigure Linux's pins if anyone called it. `using Spi0 = Spi1;` made "SPI0" silently mean SPI1 (no users).
+  - The port table in `[SPEC-E906-HAL-04]` gave SPI1 pins as PD6..PD9; `[SPEC-E906-HAL-03]`, the code and the Linux overlay say PB11..PB14.
+  - `E906SpiDriver` reported the full length as transferred on a failed DMA, and lived in `platform.cpp` (one-file-per-driver rule).
+
+### 2. Root Cause & Lesson Learned
+* **Why**: early bring-up code assumed SPI0 on Port C; when the header turned out to be SPI1 on Port B, the SPI path moved but the Port C helpers stayed and kept being used by CS1, the GPIO adapter and the bridge.
+* **Which check should have caught it**: `hal-concurrency-audit` ("prohibits 32-bit RMW on shared cross-core registers"): its only RMW pattern was `DMA_IRQ_CPU_EN_REG`, so it passed with all of the above in place. `hw-sw-register-parity` does not compare pin tables between specs.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-E906-HAL-03]` chip select: CS0 only; CS1 refused until its pin is board-checked (overlay comment: header pin 26, PI0).
+* `[SPEC-E906-HAL-04]`: port table PB11..PB14; GPIO paragraph (only PB11 write / PI8 read, `configure_interrupt` refuses, nothing touches Port C); GPIO bridge and LED BAR refused on the E906; Verified by names audit check 5 and the SPI1 test.
+
+### 4. Implementation & Regression Test
+* `valid_cs` = CS0 only, CS1 branches removed; `Pio::set_cs1`, `get_fpga_frame_ready`, `PC_DATA_REG`, `Pio::init`, `pio.cpp`, `Spi0` alias removed; GPIO bridge and LED BAR refuse; GPIO adapter honest; `E906SpiDriver` moved to `spi.cpp`, 0 bytes on failure.
+* `tools/audit_hal_invariants.py` check 5: compound write to a pin-port register outside Port B / I in E906 code fails. **Old tree: 16 violations** (pio.hpp, io_processor.cpp); new tree: pass.
+* `sim/test_e906_spi1_ownership.cpp`: CS1 refused with no SPI1 register touched (old code: accepted).
+* **Open**: `set_cs0` is itself a read-modify-write of Port B's data register; Linux keeps UART0 on PB9/PB10 as a pin function (data bits unused), but whether Linux drives any Port B GPIO output is not checked on the board. SPI1's hardware chip select would avoid the GPIO write entirely (needs a board check). The real CS1 / frame-ready pins (PI0, PL13 per the overlay comment) are not confirmed.

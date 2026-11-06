@@ -13,6 +13,7 @@ Enforces low-level concurrency and silicon interaction rules across AbstractX HA
    (e.g. `for (int timeout = 100000; ...) { nop; }`) for bounded wait timeouts;
    they must use hardware counter deadlines (e.g. `Timer::get_ticks()`).
 3. Cross-Domain Register RMW: Shared registers written by multiple operating systems
+   (and, check 5, E906 read-modify-writes of a pin port Linux owns, [SPEC-E906-HAL-04])
    or cores (e.g. `DMA_IRQ_CPU_EN_REG` shared between Linux and E906) must not be
    read-modified-written as 32-bit words, but written with precise sub-word access.
 4. Safe Memory Inspection: Native REPL peek/poke functions must validate 4-byte
@@ -44,6 +45,12 @@ NOP_SPIN_LOOP = re.compile(r"for\s*\([^;]*?timeout\s*=\s*\d+;[^;]*?;\s*--timeout
 
 # 3. 32-bit RMW on cross-domain DMA IRQ register
 DMA_CPU_RMW = re.compile(r"DMA_IRQ_CPU_EN_REG\s*=\s*DMA_IRQ_CPU_EN_REG\s*&")
+
+# 5. E906 writes to a pin port it does not own ([SPEC-E906-HAL-04] GPIO, 2026-11-06): the A5E header
+# pins the E906 drives are on Port B (SPI1, CS0 PB11) and Port I (DRDY PI8, UART3); every other port
+# belongs to Linux (Port C: eMMC / SPI0). A compound write is a read-modify-write of Linux's register.
+E906_OWNED_PORTS = {"PB", "PI"}
+PIN_PORT_RMW = re.compile(r"\b(P[A-Z])_(?:DATA|CFG\d|DRV\d|PULL\d)(?:_REG)?\s*(?:\|=|&=|\^=)")
 
 # 4. Peek/Poke without alignment check
 PEEK_POKE_UNCHECKED = re.compile(r"mod_abstractx_(?:peek|poke)\b(?![\s\S]*?is_valid_e906_addr)")
@@ -91,6 +98,18 @@ def check_hal_file(path: Path) -> list[str]:
             f"    Race: Linux concurrently mutates channels 0..7; 32-bit write clobbers Linux interrupts.\n"
             f"    Fix: Write upper byte/halfword directly or configure statically in init()."
         )
+
+    # Check 5: pin-port RMW outside the ports the E906 owns (E906 target and REPL app only)
+    if "allwinner_e906" in str(path) or "e906_repl_app" in str(path):
+        for m in PIN_PORT_RMW.finditer(text):
+            if m.group(1) in E906_OWNED_PORTS:
+                continue
+            lineno = text[:m.start()].count("\n") + 1
+            violations.append(
+                f"{path}:{lineno}: [HAL-INVARIANT-VIOLATION] read-modify-write of {m.group(1)} pin registers.\n"
+                f"    Race: that port belongs to Linux ([SPEC-E906-HAL-04] GPIO); the write clobbers its pins.\n"
+                f"    Fix: drive only header pins the E906 owns (Port B SPI1, Port I)."
+            )
 
     # Check 4: Unchecked peek/poke in REPL
     if "mod_abstractx_peek" in text or "mod_abstractx_poke" in text:

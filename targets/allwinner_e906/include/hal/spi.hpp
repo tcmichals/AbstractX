@@ -77,8 +77,6 @@ private:
     static bool start_async_transfer(SpiMode mode, int cs_id, const uint8_t *tx, uint8_t *rx, size_t len);
 };
 
-// Backwards-compatibility alias for hardware SPI
-using Spi0 = Spi1;
 
 } // namespace fc::hal
 

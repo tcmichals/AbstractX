@@ -827,9 +827,13 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   * The awaiter keeps its coroutine handle and result in its own object (the coroutine frame) and
     binds the completion callback to that object; there is no file-scope handle or result pointer
     that a second awaiter could overwrite (AGENTS.md §10.4).
-  * **Chip select (2026-11-05)**: SPI1 has two chip selects, CS0 (PB11, the IMU) and CS1. Every
-    path refuses any other `cs_id` before it claims the bus or touches a SPI1 register: the call
-    returns `false` (the awaiter resumes with `false`). A transfer with no device selected is never
+  * **Chip select (2026-11-05, narrowed 2026-11-06)**: SPI1 has one usable chip select on the Cubie A5E:
+    CS0 (PB11, header pin 24, a GPIO driven by the E906). CS1 is refused like any other id until its pin is
+    confirmed on the board: the code drove it on PC7, which is not on the header and is on Port C, which
+    Linux owns, so every CS1 transfer did a read-modify-write of Linux's Port C data register and
+    selected nothing (EL-1027-28 review). The Linux overlay comment names header pin 26 (PI0) as
+    "IMU-CS1"; adding it needs a board check first. Every path refuses any other `cs_id` before it claims
+    the bus or touches a SPI1 register: the call returns `false` (the awaiter resumes with `false`). A transfer with no device selected is never
     clocked and never reported as a success. The host-supplied `cs_pin` reaches this check through
     `IoEngine` ([SPEC-ARCH-13] 3).
 * **Rationale**: 2026-10-30 code review: the FIFO path ignored the busy flag (a DRDY auto-DMA
@@ -870,7 +874,7 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 
   | Call | Port | Driver | Pins (40-pin header) |
   | :--- | :--- | :--- | :--- |
-  | `get_spi_port(0)`, `get_spi_port(1)`, `get_spi_driver()` | SPI1 | `E906SpiDriver` | PD6 CS0 / PD7 SCLK / PD8 MOSI / PD9 MISO |
+  | `get_spi_port(0)`, `get_spi_port(1)`, `get_spi_driver()` | SPI1 | `E906SpiDriver` (`src/spi.cpp`) | PB11 CS0 / PB12 SCLK / PB13 MOSI / PB14 MISO (pins 24, 23, 19, 21), [SPEC-E906-HAL-03]; SPI0 (Port C) is not routed, so both numbers are SPI1 |
   | `get_uart_port(0)`, `get_uart_port(3)`, `get_uart_driver()` | UART3 | `E906Uart` | PI11 TX / PI12 RX (pins 16, 31), function 2, pull-up on RX |
   | `get_uart_port(2)` | none (null) | | UART2's PB0/PB1 are not connected on the Cubie A5E |
   | `get_i2c_port(0)` | TWI0 | `E906I2c` (`get_e906_i2c()`) | none set: not routed to the header |
@@ -879,6 +883,17 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   UART2: the board schematic leaves PB0/PB1 unconnected and header pins 11/13 go to PI9/PI10
   (`apps/e906_repl_app/cubie-a5e-flight-stack-e906.dtso`), so UART2 has no port, `Pio::init` does
   not mux PB0/PB1, and the old `fc::hal::Uart2` driver (interrupt never attached) is removed.
+* **GPIO (2026-11-06)**: `get_gpio_driver()` exposes only what the E906 owns on the header: pin 3 = SPI1
+  CS0 (write), pin 8 = IMU DRDY (PI8, read). Interrupts go through `gpio_irq.cpp` ([SPEC-E906-IRQ-07]);
+  `configure_interrupt` returns `false` instead of claiming success. The Port C pins it used to expose (PC6
+  "FPGA frame ready", PC7 CS1) are not on the header (the overlay names PL13 for frame ready) and belong
+  to Linux; nothing on the E906 touches Port C.
+* **GPIO bridge and LED BAR (2026-11-06)**: the host's GPIO bridge commands (channel `0x08`,
+  `targets/SPECIFICATION.md`) and the virtual-BAR LED are refused on the E906 (`gpio()` returns `false`,
+  so the engine answers with an error status; the LED BAR reads 0 and ignores writes). They used to act
+  on Port C with read-modify-writes of a register Linux owns (any of 32 bits through `mask`, the LED on
+  PC1), which is neither the "atomic" set/clear the bridge promises nor a pin the E906 owns. A bridge
+  pin needs an owned header pin and a board check first.
 * **One driver per controller type, the address passed in** (decided 2026-10-27): a driver is one
   file in `targets/allwinner_e906/src/` and takes a port description (register base, GIC source,
   CCU module, pin register / mask / function). TWI0 and TWI1 are two `E906I2c` objects in
@@ -949,9 +964,10 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Rationale (2026-10-31)**: after a day of remoteproc restarts the compass held SDA low (a
   transfer cut mid-byte) and every scan returned `[]` since Oct 28; one SCL pulse released it
   (measured from Linux). A later scan timeout left the controller holding SCL low.
-* **Verified by**: `e906-build-layout` (every E906 app links and fits), `hal-concurrency-audit`,
-  `host-tests` (`sim/test_e906_twi.cpp`, `sim/test_e906_uart.cpp`: each driver against a register
-  model), `e906-board-selftest` (compass on TWI1, GPS on UART3)
+* **Verified by**: `e906-build-layout` (every E906 app links and fits), `hal-concurrency-audit`
+  (`tools/audit_hal_invariants.py` check 5: no read-modify-write of a pin port other than B and I),
+  `host-tests` (`sim/test_e906_twi.cpp`, `sim/test_e906_uart.cpp`, `sim/test_e906_spi1_ownership.cpp`: each
+  driver against a register model), `e906-board-selftest` (compass on TWI1, GPS on UART3)
 * **Implementation Target**: `targets/allwinner_e906/src/platform.cpp`, `targets/allwinner_e906/src/i2c.cpp`, `targets/allwinner_e906/include/hal/i2c.hpp`, `targets/allwinner_e906/src/uart.cpp`, `targets/allwinner_e906/include/hal/uart.hpp`, `targets/allwinner_e906/src/driver_wait.cpp`, `apps/e906_repl_app/src/i2c.cpp`, `apps/e906_repl_app/src/uart.cpp`
 
 ## 7. Binary Telemetry & Observability (`SPEC-E906-TRACE`)

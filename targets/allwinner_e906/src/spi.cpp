@@ -11,6 +11,8 @@
  */
 
 #include "hal/spi.hpp"
+#include "abstractx/hal/platform.hpp"
+#include "abstractx/hal/spi.hpp"
 #include "abstractx/executor.hpp"
 #include "hal/pio.hpp"
 #include "hal/dma.hpp"
@@ -61,9 +63,10 @@ bool claim_bus() noexcept {
     return true;
 }
 
-// SPI1 has CS0 (PB11) and CS1 only; any other id would clock with no device selected.
+// SPI1 has one usable chip select on the Cubie A5E, CS0 (PB11); CS1's pin is not confirmed on the board
+// (it was PC7: not on the header, on Linux's Port C). Any other id would clock with no device selected.
 // @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
-constexpr bool valid_cs(int cs_id) noexcept { return cs_id == 0 || cs_id == 1; }
+constexpr bool valid_cs(int cs_id) noexcept { return cs_id == 0; }
 
 volatile bool g_sync_dma_ok = false;  // shared: SPI DMA ISR writes, sync wrapper (bus owner) reads; volatile
 
@@ -75,7 +78,6 @@ void on_spi_rx_dma_complete(uint8_t channel, bool success) noexcept {
     (void)channel;
     // Deassert CS
     if (g_active_cs == 0) Pio::set_cs0(false);
-    else if (g_active_cs == 1) Pio::set_cs1(false);
 
     // Disable SPI DRQs (TX bit 24 and RX bit 8)
     SPI1_FCR &= ~((1U << 24) | (1U << 8));
@@ -160,7 +162,6 @@ bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_bu
 
     // 1. Assert Chip Select
     if (cs_id == 0) Pio::set_cs0(true);
-    else if (cs_id == 1) Pio::set_cs1(true);
 
     // 2. Reset FIFOs
     SPI1_FCR = (1U << 31) | (1U << 15);
@@ -188,7 +189,6 @@ bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_bu
     }
     if (SPI1_TCR & (1U << 31)) {
         if (cs_id == 0) Pio::set_cs0(false);
-        else if (cs_id == 1) Pio::set_cs1(false);
         g_spi_busy = false;
         return false;
     }
@@ -201,7 +201,6 @@ bool Spi1::transceive_fifo_sync(int cs_id, const uint8_t *tx_buf, uint8_t *rx_bu
 
     // 9. Deassert Chip Select
     if (cs_id == 0) Pio::set_cs0(false);
-    else if (cs_id == 1) Pio::set_cs1(false);
 
     g_spi_busy = false;
     return true;
@@ -228,7 +227,6 @@ bool Spi1::start_dma_transfer(
 
     // 1. Assert Chip Select
     if (cs_id == 0) Pio::set_cs0(true);
-    else if (cs_id == 1) Pio::set_cs1(true);
 
     // 2. Flush & Reset FIFOs
     SPI1_FCR = (1U << 31) | (1U << 15);
@@ -388,3 +386,75 @@ void Spi1::handle_irq() {
 }
 
 } // namespace fc::hal
+
+// ---------------------------------------------------------------------------
+// ISpi adapter over Spi1: one file per SPI driver ([SPEC-E906-HAL-04]; moved from platform.cpp 2026-11-06)
+// ---------------------------------------------------------------------------
+namespace abstractx::hal {
+
+// @impl [SPEC-HAL-02] targets/SPECIFICATION.md#42-spi-interface-ispi--asyncspidriver
+// @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+// SPI HAL Adapter for E906
+class E906SpiDriver final : public ISpi {
+public:
+    E906SpiDriver() = default;
+
+    bool init(const SpiConfig& config) override {
+        fc::hal::Spi1::init(config.frequency_hz ? config.frequency_hz : 10'000'000);
+        return true;
+    }
+
+    void select(bool active) override {
+        fc::hal::Pio::set_cs0(active);
+    }
+
+
+protected:
+    // @impl [SPEC-E906-HAL-01] targets/allwinner_e906/SPECIFICATION.md
+    // @impl [SPEC-E906-HAL-03] targets/allwinner_e906/SPECIFICATION.md
+    void start_hardware_transfer_from_isr(const SpiRequest& req) noexcept override {
+        active_req_ = req;
+        const size_t len = req.tx_data.empty() ? req.rx_data.size() : req.tx_data.size();
+        const bool dual = req.is_dual_spi;
+        if (!fc::hal::Spi1::start_dma_transfer(
+            0 /* CS0: PB11 */,
+            req.tx_data.data(),
+            req.rx_data.data(),
+            len,
+            etl::delegate<void(bool)>::create<E906SpiDriver, &E906SpiDriver::on_dma_done>(*this),
+            dual
+        )) {
+            on_dma_done(false);
+        }
+    }
+
+private:
+    SpiRequest active_req_{};
+
+    void on_dma_done(bool success) noexcept {
+        SpiResult res{};
+        res.status = success ? SpiStatus::Ok : SpiStatus::DmaError;
+        res.transferred_bytes = !success ? 0U : (active_req_.tx_data.empty() ? active_req_.rx_data.size()
+                                                                           : active_req_.tx_data.size());
+        res.timestamp_us = ::hal::Timer::get_time_us();
+        push_completion_from_isr(active_req_, res);
+        active_req_ = {};
+        set_hardware_idle_from_isr();
+    }
+};
+
+static E906SpiDriver g_e906_spi;
+
+ISpi& get_spi_driver() noexcept {
+    return g_e906_spi;
+}
+
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (port list)
+ISpi* get_spi_port(uint8_t bus) noexcept {
+    if (bus == 0 || bus == 1) {
+        return &g_e906_spi;
+    }
+    return nullptr;
+}
+
+} // namespace abstractx::hal

@@ -109,32 +109,22 @@ public:
         return false;
     }
 
+    // GPIO bridge and LED BAR refused on the E906: they acted on Port C, which Linux owns, with
+    // read-modify-writes; the E906 owns no free header GPIO ([SPEC-E906-HAL-04] GPIO bridge).
+    // @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (GPIO bridge and LED BAR)
     bool gpio(const asp_tlp_gpio_req_header_t& req, uint8_t& level) noexcept override {
-        const uint32_t bits = req.mask ? req.mask : (1U << req.pin);   // pin < 32 checked by the engine
-        switch (req.cmd) {
-        case ASP_GPIO_CMD_SET:   PC_DATA_REG |= bits; return true;
-        case ASP_GPIO_CMD_CLR:   PC_DATA_REG &= ~bits; return true;
-        case ASP_GPIO_CMD_XOR:   PC_DATA_REG ^= bits; return true;
-        case ASP_GPIO_CMD_WRITE:
-            if (req.value) PC_DATA_REG |= (1U << req.pin); else PC_DATA_REG &= ~(1U << req.pin);
-            return true;
-        case ASP_GPIO_CMD_READ:
-            level = (PC_DATA_REG & (1U << req.pin)) ? 1 : 0;
-            return true;
-        default:
-            return false;
-        }
+        (void)req;
+        level = 0;
+        return false;
     }
 
-    // Virtual BAR: the Radxa Cubie A5E status LED (PC1).
     uint32_t read_reg(uint32_t addr) noexcept override {
-        if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) return (PC_DATA_REG & (1U << 1)) ? 1U : 0U;
+        (void)addr;
         return 0;
     }
     void write_reg(uint32_t addr, uint32_t value) noexcept override {
-        if (addr >= bar::LedBase && addr < bar::LedBase + 0x1000) {
-            if (value != 0) PC_DATA_REG |= (1U << 1); else PC_DATA_REG &= ~(1U << 1);
-        }
+        (void)addr;
+        (void)value;
     }
 
     size_t serial_xfer(uint8_t /*port*/, uint32_t baud_hz,

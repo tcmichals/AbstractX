@@ -88,6 +88,7 @@ uint64_t Timer::get_ticks() noexcept {
     reg(kTcr) = reg(kTcr) & ~(1U << 31);
     return g_ticks;
 }
+uint64_t Timer::get_time_us() noexcept { return g_ticks; }   // the ISpi adapter's completion timestamp
 } // namespace hal
 
 namespace {
@@ -164,17 +165,17 @@ void test_steady_state_1000_rounds() {
     assert(Dispatcher::dropped_resumes() == dropped0);
 }
 
-// [SPEC-E906-HAL-03] chip select: only CS0/CS1 exist; any other id is refused before the
-// bus is claimed or a register is written (2026-11-05: it used to clock with no CS asserted).
+// [SPEC-E906-HAL-03] chip select: only CS0 is usable; any other id (CS1 too, 2026-11-06: its pin was PC7 on
+// Linux's Port C) is refused before the bus is claimed or a register is written.
 void test_unknown_chip_select_refused() {
-    for (int cs : {2, 7, -1}) {
+    for (int cs : {1, 2, 7, -1}) {
         reg(kFcr) = 0x5A5AU;
         assert(!Spi1::transceive_fifo_sync(cs, g_tx, g_rx, 4));
         assert(!Spi1::start_dma_transfer(cs, g_tx, g_rx, 100));
         assert(reg(kFcr) == 0x5A5AU);  // no SPI1 register touched
         assert(!Spi1::is_busy());
     }
-    assert(Spi1::transceive_fifo_sync(1, g_tx, g_rx, 4));  // CS1 still works
+    assert(Spi1::transceive_fifo_sync(0, g_tx, g_rx, 4));  // CS0 still works
     assert(!Spi1::is_busy());
 }
 
