@@ -42,6 +42,13 @@ add_abstractx_sim(test_linux_gpio_edges    test_linux_gpio_edges.cpp)
 # [SPEC-LINUX-GPIO-01] the test fails if pkg-config found libgpiod v2 but its code is compiled out
 target_compile_definitions(test_linux_gpio_edges PRIVATE ABSTRACTX_EXPECT_LIBGPIOD_V2=$<BOOL:${ABSTRACTX_LIBGPIOD_V2}>)
 add_abstractx_sim(test_linux_uart_rx       test_linux_uart_rx.cpp)
+# [SPEC-AUDIT-18] portable unit tests, also built into the E906 firmware e906_unit_tests
+add_executable(test_unit_host test_unit_host.cpp
+               ${CMAKE_SOURCE_DIR}/tests/unit/all_tests.cpp ${CMAKE_SOURCE_DIR}/tests/unit/unit_tlp.cpp
+               ${CMAKE_SOURCE_DIR}/tests/unit/unit_ring.cpp)
+target_include_directories(test_unit_host PRIVATE ${CMAKE_SOURCE_DIR}/tests/unit)
+target_link_libraries(test_unit_host PRIVATE abstractx_core)
+add_test(NAME sim_test_unit_host COMMAND test_unit_host)
 # [SPEC-LINUX-HAL-01] these run the Linux workers with no device: simulation on request only
 set_tests_properties(sim_test_linux_hal_completion sim_test_linux_drdy_auto sim_test_tlp_msg sim_test_io_processor
                      PROPERTIES ENVIRONMENT "ABSTRACTX_SIM_BUS=1")

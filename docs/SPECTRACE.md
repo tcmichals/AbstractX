@@ -470,6 +470,25 @@ python3 tools/run_adversarial_audit.py --all
   (`tests/test_full_audit.py`)
 * **Implementation Target**: `tools/gate.sh`, `tools/full_audit.py`, `tools/git-hooks/pre-push`
 
+### `[SPEC-AUDIT-18]` Unit Tests That Run on the Processor Too (2026-11-06)
+* **Why**: every unit test ran on the PC only; code that behaves differently on the target compiler,
+  ABI or memory model (packed TLP layout, atomics on a single-hart RV32, byte order) was never tested
+  where it runs. CppUTest itself needs `malloc` and `printf` (leak detector), which the targets do not
+  have ([SPEC-E906-MEM-01] zero heap).
+* **Requirement (one source, two places)**: portable unit tests live in `tests/unit/` and use
+  `include/abstractx/test/unit.hpp`: a freestanding runner (no heap, no `printf`, no static
+  registration); tests are listed in one table (`tests/unit/all_tests.cpp`), a check records file and
+  line, and results leave through a text callback. The same sources build into
+  `sim/test_unit_host.cpp` (ctest, `printf`) and into the E906 firmware `e906_unit_tests`, which writes
+  the results to remoteproc `trace0` and ends with `UNIT: <n> passed, <m> failed`.
+* **Requirement (one command on the board)**: `tools/run_e906_unit_tests.py` copies the firmware to
+  `/lib/firmware`, restarts remoteproc0 with it, reads `trace0` until the `UNIT:` line (time limit),
+  restores the previous firmware, and with `--record` adds a `source: board` ledger record.
+* **Verified by**: `host-tests` (`sim/test_unit_host.cpp`; `tests/test_run_e906_unit_tests.py`: output
+  parser and commands, no board), `e906-build-layout` (the firmware links and fits), `board-bringup`
+  (a run on the A5E: not run yet)
+* **Implementation Target**: `include/abstractx/test/unit.hpp`, `tests/unit/`, `apps/e906_unit_tests/`, `tools/run_e906_unit_tests.py`
+
 ### `[SPEC-AUDIT-16]` Block Diagrams Are SVG, Generated From a Source File
 * **Requirement**: a block diagram (boxes joined by arrows or nesting: architecture, dataflow,
   topology, memory layout, pipeline) in any tracked Markdown file is an SVG image, not ASCII or

@@ -108,6 +108,9 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-E906-REPL-15] one-command board suite runner (no board)
     add_test(NAME py_test_run_e906_board_suite
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_run_e906_board_suite.py)
+    # [SPEC-AUDIT-18] E906 unit-test board runner (no board)
+    add_test(NAME py_test_run_e906_unit_tests
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_run_e906_unit_tests.py)
     add_test(NAME py_test_run_cocotb
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_run_cocotb.py)
     # [SPEC-E906-IPC-04] Linux-side RPMsg <-> UDP bridge (no hardware needed)
