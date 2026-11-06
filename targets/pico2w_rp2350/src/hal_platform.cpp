@@ -135,7 +135,10 @@ void platform_init() noexcept {
 
 // Core 1: no network work here; Core 0 polls CYW43 ([SPEC-PICO-CORE-01]).
 // @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
-void platform_poll_network() noexcept {}
+// Core 1 has no network stack (Core 0 runs Wi-Fi); this is the per-step driver poll.
+void platform_poll_network() noexcept {
+    poll_pico_i2c_timeouts();   // async I2C deadlines ([SPEC-PICO-HAL-01])
+}
 
 void platform_launch_processing_domain(void (*entry)()) noexcept {
 #ifdef PICO_ON_DEVICE

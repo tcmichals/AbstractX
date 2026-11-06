@@ -15,6 +15,8 @@
 #include "abstractx/hal/io_processor.hpp"
 #include "tlp_ring.hpp"
 
+#include <atomic>
+
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
 #include "pico/time.h"
@@ -72,12 +74,15 @@ public:
     void on_rx_byte_from_isr(uint8_t ch) noexcept;
     void on_tx_ready_from_isr() noexcept;
 
+    uint32_t tx_dropped() const noexcept { return tx_dropped_.load(std::memory_order_relaxed); }
+
 protected:
+    // [SPEC-PICO-HAL-01] UART send queue: completes with the bytes taken, QueueFull if not all fit.
     void start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept override {
-        write(req.data);
+        const size_t taken = write(req.data);
         UartResult result{};
-        result.status = UartStatus::Ok;
-        result.bytes_transferred = req.data.size();
+        result.status = taken == req.data.size() ? UartStatus::Ok : UartStatus::QueueFull;
+        result.bytes_transferred = taken;
         push_completion_from_isr(req, result);
         set_hardware_idle_from_isr();
     }
@@ -85,6 +90,8 @@ protected:
 private:
     abstractx::MpscRingBuffer<uint8_t, 512> rx_queue_{};
     abstractx::MpscRingBuffer<uint8_t, 512> tx_queue_{};
+    std::atomic<uint32_t> tx_dropped_{0};   // shared: any writer increments, any thread reads; atomic
+    bool queue_byte(uint8_t ch) noexcept;   // false: FIFO and queue full, byte dropped and counted
 };
 
 // ----------------------------------------------------------------------------
@@ -194,6 +201,8 @@ public:
     bool read_sync(uint8_t slave_addr, std::span<uint8_t> rx_data) override;
 
     bool is_hardware_busy() const noexcept { return busy_; }
+    // Ends a transfer past its deadline with Timeout ([SPEC-PICO-HAL-01]); main loop only.
+    void poll_timeout() noexcept;
 
 protected:
     void start_hardware_transfer_from_isr(const I2cRequest& req) noexcept override;
@@ -206,15 +215,21 @@ private:
     // Async IRQ state tracking ([SPEC-PICO-HAL-01]); written only by the start path and I2C0_IRQ
     volatile size_t cmd_idx_{0};   // IC_DATA_CMD words queued (tx bytes, then read commands)
     volatile size_t rx_idx_{0};    // bytes drained into active_req_.rx_data
+    // Deadline ([SPEC-PICO-HAL-01] I2C deadline). shared: start path / poll_timeout (under InterruptGuard)
+    // and I2C0_IRQ (completion clears busy_); volatile, single core (Core 1)
+    volatile uint64_t deadline_us_{0};
+    int32_t deadline_alarm_{-1};    // SDK alarm id that wakes a wfe idle at the deadline
 
 public:
 #ifdef PICO_ON_DEVICE
     static void i2c0_irq_handler();
     void on_irq_from_isr() noexcept;
+    static int64_t on_deadline_alarm(alarm_id_t id, void* user_data);
 #endif
 };
 
 PicoI2c& get_pico_i2c() noexcept;
+void poll_pico_i2c_timeouts() noexcept;   // called by platform_poll_network()
 // The one PicoSpi for SPI1 ([SPEC-PICO-HAL-02]); get_spi_driver() returns the same object.
 PicoSpi& get_pico_spi() noexcept;
 II2c& get_i2c_driver() noexcept;

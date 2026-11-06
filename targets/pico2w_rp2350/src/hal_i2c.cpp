@@ -108,6 +108,12 @@ void PicoI2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
     busy_ = true;
     cmd_idx_ = 0;
     rx_idx_ = 0;
+#ifdef PICO_ON_DEVICE
+    // [SPEC-PICO-HAL-01] I2C deadline: poll_timeout() ends it; the alarm only wakes a wfe idle
+    deadline_us_ = time_us_64() + (req.timeout_us ? req.timeout_us : kI2cDefaultTimeoutUs);
+    if (deadline_alarm_ >= 0) (void)cancel_alarm(deadline_alarm_);
+    deadline_alarm_ = add_alarm_at(from_us_since_boot(deadline_us_), &PicoI2c::on_deadline_alarm, nullptr, true);
+#endif
 
 #ifdef PICO_ON_DEVICE
     if (req.tx_data.empty() && req.rx_data.empty()) {
@@ -141,6 +147,36 @@ void PicoI2c::start_hardware_transfer_from_isr(const I2cRequest& req) noexcept {
     set_hardware_idle_from_isr();
 #endif
 }
+
+#ifdef PICO_ON_DEVICE
+int64_t PicoI2c::on_deadline_alarm(alarm_id_t, void*) {
+    __sev();     // wake a wfe idle; poll_timeout() in step() does the work
+    return 0;    // one-shot
+}
+#endif
+
+// @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md (I2C deadline)
+void PicoI2c::poll_timeout() noexcept {
+#ifdef PICO_ON_DEVICE
+    if (!busy_) return;                      // cheap check; re-checked under the guard
+    InterruptGuard guard;                    // the completion interrupt cannot finish it at the same time
+    if (!busy_ || time_us_64() < deadline_us_) return;
+    i2c_hw_t* hw = i2c_get_hw(i2c0);
+    hw->intr_mask = 0;
+    hw->enable = hw->enable | I2C_IC_ENABLE_ABORT_BITS;   // flush and STOP; the next start re-enables
+    (void)hw->clr_intr;
+    busy_ = false;
+    deadline_alarm_ = -1;                    // one-shot, already fired or about to
+    I2cResult result{};
+    result.status = I2cStatus::Timeout;
+    result.transferred_bytes = 0;
+    result.timestamp_us = time_us_64();
+    push_completion_from_isr(active_req_, result);
+    set_hardware_idle_from_isr();
+#endif
+}
+
+void poll_pico_i2c_timeouts() noexcept { get_pico_i2c().poll_timeout(); }
 
 #ifdef PICO_ON_DEVICE
 void PicoI2c::i2c0_irq_handler() {
@@ -219,6 +255,10 @@ void PicoI2c::on_irq_from_isr() noexcept {
         hw->intr_mask = 0;
         (void)hw->clr_intr;
         busy_ = false;
+        if (deadline_alarm_ >= 0) {          // done in time: the deadline wake is not needed
+            (void)cancel_alarm(deadline_alarm_);
+            deadline_alarm_ = -1;
+        }
         result.timestamp_us = time_us_64();
         // Complete the finished request, then start the next one exactly once:
         // set_hardware_idle_from_isr() pops and starts it (and overwrites active_req_).

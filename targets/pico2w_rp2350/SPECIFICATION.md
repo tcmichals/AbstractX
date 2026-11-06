@@ -261,8 +261,21 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   handler then masks all I2C interrupts, clears `TX_ABRT` / `STOP_DET` and completes as above.
   Register usage follows the Pico SDK `i2c_write_blocking_internal` /
   `i2c_read_blocking_internal` (`src/rp2_common/hardware_i2c/i2c.c`).
-* **Not yet covered**: no bus timeout (a slave holding SCL low leaves the request pending); not
-  run on hardware.
+* **Requirement (I2C deadline, 2026-11-06, full-audit buses finding 4)**: an async request has a
+  deadline ([SPEC-HAL-09]): `I2cRequest::timeout_us` (0 = `kI2cDefaultTimeoutUs`) from its start. The
+  start sets one SDK alarm at the deadline whose callback only calls `__sev()` (a `wfe` idle wakes, as
+  for the timer); `platform_poll_network()` (every `step()`) calls `poll_pico_i2c_timeouts()`, which,
+  under `InterruptGuard`, aborts a late transfer (`IC_ENABLE.ABORT`: the controller flushes and sends
+  STOP), masks the I2C interrupts and completes it with `Timeout`, `transferred_bytes = 0`. The guard
+  makes the timeout and the completion interrupt mutually exclusive: the request completes once. The
+  next start disables and re-enables the controller, which clears the abort. No SDK alarm free: the
+  request still runs and completes from the interrupt, with no deadline.
+* **Requirement (UART send queue, 2026-11-06, full-audit buses finding 5)**: `PicoUart` never reports
+  a byte it did not take. A byte that fits neither the hardware FIFO nor the 512-byte send queue is
+  dropped and counted (`tx_dropped()`); `write()` returns the bytes it took and stops at the first
+  that did not fit; the async write (`UartTxRequest`) completes with those bytes and `QueueFull` when
+  not all fit, `Ok` otherwise. It completes when the bytes are queued, not when they leave the pin.
+* **Not yet covered**: not run on hardware.
 * **Refines**: `[SPEC-HAL-01]`, `[SPEC-HAL-02]`
 * **Method**: `Inspection` (cross-build only; no Pico host test harness or board run yet)
 * **Verified by**: `memory-footprint` (Pico cross-build `cmake --build build_pico2w`), `board-bringup` (not run)

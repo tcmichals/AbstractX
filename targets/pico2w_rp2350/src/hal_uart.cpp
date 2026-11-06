@@ -67,24 +67,29 @@ void PicoUart::init(uint32_t baudrate) {
 #endif
 }
 
-// @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
-void PicoUart::write_byte(uint8_t ch) {
+// @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md (UART send queue)
+bool PicoUart::queue_byte(uint8_t ch) noexcept {
 #ifdef PICO_ON_DEVICE
     InterruptGuard lock;
-    // If TX queue is empty and hardware FIFO is writable, write directly
+    // Queue empty and hardware FIFO writable: write directly (keeps byte order with the TX interrupt)
     if (tx_queue_.empty() && uart_is_writable(uart0)) {
         uart_putc_raw(uart0, ch);
-        return;
+        return true;
     }
-
-    // Otherwise enqueue into non-blocking TX ring buffer
-    tx_queue_.push(ch);
-
-    // Enable TX interrupt so ISR can drain the queue
-    uart_set_irq_enables(uart0, true, true);
+    if (!tx_queue_.push(ch)) {               // full: never report a byte that was not taken
+        tx_dropped_.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    uart_set_irq_enables(uart0, true, true); // the TX interrupt drains the queue
+    return true;
 #else
     (void)ch;
+    return true;
 #endif
+}
+
+void PicoUart::write_byte(uint8_t ch) {
+    (void)queue_byte(ch);                    // a dropped byte is counted in tx_dropped()
 }
 
 void PicoUart::puts(const char* str) {
@@ -95,11 +100,14 @@ void PicoUart::puts(const char* str) {
     }
 }
 
+// Returns the bytes taken; stops at the first that does not fit.
 size_t PicoUart::write(std::span<const uint8_t> buffer) {
+    size_t n = 0;
     for (uint8_t b : buffer) {
-        write_byte(b);
+        if (!queue_byte(b)) break;
+        ++n;
     }
-    return buffer.size();
+    return n;
 }
 
 bool PicoUart::read_byte(uint8_t& ch) {
