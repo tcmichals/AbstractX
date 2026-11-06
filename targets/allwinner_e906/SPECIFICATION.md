@@ -761,6 +761,20 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
   from the same spans. For measurement only, a MicroPython switch (`abstractx.uart_dma([enable])`)
   puts a port back on the interrupt receive path, so DMA and interrupt receive can be compared on
   the same stream.
+* **Requirement (one consumer of the ring, 2026-11-06)**: the ring has one consumer. Once a coroutine has
+  called `read_async` on the port (the ring is *claimed*), the driver never moves ring bytes into the
+  polled `read()` buffer; that path is pre-scheduler bring-up only ([SPEC-HAL-11]). Before this rule
+  `dma_sync()` copied the bytes out whenever no reader was waiting, which is also the case right after
+  `produced_from_isr()` woke the reader, so the woken reader found its bytes gone (status Ok, 0 bytes),
+  and bytes that arrived while the reader worked on its last view were lost to the polled buffer.
+* **Requirement (read deadline, EL-1027-24)**: `read_async(min_bytes, timeout_us)` with a timeout is
+  served, not refused. The driver registers a deadline hook on its receive ring
+  (`UartRxRingBase::set_deadline_hook`): the hook stores the read's token and its deadline
+  (`Timer::get_ticks() + timeout_us * TICKS_PER_US`) and calls `Timer::arm_wake(deadline)` so a sleeping
+  loop wakes; `platform_poll_network()` calls `poll_uart_deadlines()`, which, once the deadline has
+  passed, calls `deadline_from_isr(token)` once and disarms. A read satisfied earlier leaves a stale token
+  that the ring ignores. Same method as the async I2C deadline ([SPEC-E906-HAL-04] rule 8): no busy wait,
+  no second hardware timer; resolution is one loop pass after the timer wake.
 * **Requirement (transmit)**: a message that fits the 128-byte FIFO is written into it in one go;
   a larger one is sent by DMA ([SPEC-E906-HAL-01]). Either way the UART sends back-to-back unless
   a gap is configured. The gap between bytes is the UART's own `TX_DELAY` register (+0xCC: idle
@@ -774,7 +788,8 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
 * **Depends on**: E906 DMA working ([SPEC-E906-HAL-01]: physical addresses, CLIC line 88 via
   `DMAC_IRQ_MCU_EN_REG` (+0x38), channels 8..15 owned by the E906 through the overlay).
 * **Verified by**: `e906-board-selftest` (GPS stream on UART3: no drops, per-wake cost from the
-  timeline, DMA vs interrupt comparison)
+  timeline, DMA vs interrupt comparison), `host-tests` (`sim/test_e906_uart.cpp`: read deadline through
+  the driver hook and `poll_uart_deadlines`, 1000 reads)
 * **Implementation Target**: `targets/allwinner_e906/src/dma.cpp`, `targets/allwinner_e906/src/uart.cpp`
 
 ### `[SPEC-E906-HAL-03]` Dual-Mode (Single-SPI 1-Bit & Dual-SPI 2-Bit) DMA Engine on SPI1 (PB11..PB14)

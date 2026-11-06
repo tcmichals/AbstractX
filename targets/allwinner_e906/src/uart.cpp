@@ -39,6 +39,8 @@ E906Uart g_uart3{::hal::ports::kUart3,
 } // namespace
 
 E906Uart& get_e906_uart3() noexcept { return g_uart3; }
+// @impl [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md (read deadline, EL-1027-24)
+void poll_uart_deadlines() noexcept { g_uart3.poll_deadline(); }
 
 // ---------------------------------------------------------------------------
 // Byte ring (SPSC): control indices in .bss, storage in .sram_c.
@@ -75,7 +77,27 @@ E906Uart::E906Uart(const ::hal::ports::UartPort& port, const UartBuffers& bufs) 
       bufs_(bufs),
       dma_ring_(std::span<uint8_t>(bufs.dma_rx, UartBuffers::kDmaRingBytes), UartBuffers::kDmaBufBytes),
       rx_{bufs.rx, static_cast<uint32_t>(UartBuffers::kRxBytes)},
-      tx_{bufs.tx, static_cast<uint32_t>(UartBuffers::kTxBytes)} {}
+      tx_{bufs.tx, static_cast<uint32_t>(UartBuffers::kTxBytes)} {
+    dma_ring_.set_deadline_hook(&E906Uart::arm_deadline, this);
+}
+
+// Read deadline ([SPEC-E906-HAL-02] read deadline, same method as [SPEC-E906-HAL-04] rule 8): the ring
+// calls this when a read with a timeout suspends; poll_deadline() fires it from the main loop.
+// @impl [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md
+void E906Uart::arm_deadline(void* ctx, uint32_t timeout_us, uint32_t token) noexcept {
+    auto* self = static_cast<E906Uart*>(ctx);
+    self->deadline_ticks_ = ::hal::Timer::get_ticks() + static_cast<uint64_t>(timeout_us) * ::hal::Timer::TICKS_PER_US;
+    self->deadline_token_ = token;
+    self->deadline_armed_ = true;
+    ::hal::Timer::arm_wake(self->deadline_ticks_);   // a sleeping loop wakes to run poll_deadline()
+}
+
+// @impl [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md
+void E906Uart::poll_deadline() noexcept {
+    if (!deadline_armed_ || ::hal::Timer::get_ticks() < deadline_ticks_) return;
+    deadline_armed_ = false;
+    dma_ring_.deadline_from_isr(deadline_token_);    // a stale token (read already done) is ignored
+}
 
 // ---------------------------------------------------------------------------
 // Receive DMA ([SPEC-E906-HAL-02])
@@ -116,7 +138,10 @@ void E906Uart::dma_sync(bool end_of_frame) noexcept {
     dma_wr_ = total_written;
     dma_ring_.produced_from_isr(new_bytes, end_of_frame);
 
-    if (!dma_ring_.reader_waiting()) {
+    // One consumer ([SPEC-E906-HAL-02]): once a coroutine reads this ring, the polled buffer gets nothing.
+    // (Testing reader_waiting() here was wrong: produced_from_isr() has just cleared it when it woke the reader.)
+    // @impl [SPEC-E906-HAL-02] targets/allwinner_e906/SPECIFICATION.md (one consumer of the ring)
+    if (!dma_ring_.claimed()) {
         uint8_t tmp[64];
         size_t n = 0;
         while ((n = dma_ring_.copy_out(tmp, sizeof(tmp))) > 0) {

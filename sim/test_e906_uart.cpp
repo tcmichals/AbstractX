@@ -7,13 +7,14 @@
  * model cannot drop RFL on an RBR read): interrupt-mode receive and the async write request.
  *
  * @verifies [SPEC-E906-HAL-04] E906Uart init on_irq read write set_dma
- * @verifies [SPEC-E906-HAL-02] E906Uart dma_sync
+ * @verifies [SPEC-E906-HAL-02] E906Uart dma_sync poll_deadline
  * @verifies [SPEC-HAL-15] UartPort
  */
 
 #include "hal/uart.hpp"
 #include "hal/driver_wait.hpp"
 #include "hal/timer.hpp"
+#include "asp_coro.hpp"
 
 #include <array>
 #include <cstdio>
@@ -36,6 +37,7 @@ using abstractx::hal::UartBuffers;
 // ---------------------------------------------------------------------------
 namespace {
 uint64_t g_ticks = 0;
+uint64_t g_wake = 0;        // last Timer::arm_wake target
 int g_attached = 0;
 bool g_dma_available = false;
 uint32_t g_pkg = 0;        // DMAC_PKG_NUM_REG
@@ -47,7 +49,7 @@ int g_tx_dma_starts = 0;
 namespace hal {
 uint64_t Timer::get_ticks() noexcept { return g_ticks; }
 uint64_t Timer::get_time_us() noexcept { return g_ticks / 24ULL; }
-void Timer::arm_wake(uint64_t) noexcept {}
+void Timer::arm_wake(uint64_t t) noexcept { g_wake = t; }
 void Timer::delay_us(uint32_t us) noexcept { g_ticks += us * TICKS_PER_US; }
 void Ccu::enable_module(BusModule) noexcept {}
 void DmaController::init() noexcept {}
@@ -99,6 +101,12 @@ uint8_t tx_mem[UartBuffers::kTxBytes];
 E906Uart dut{kPort, UartBuffers{dma_rx, rx_lli, tx_dma, &tx_lli, rx_mem, tx_mem}};
 
 void bus_wait(uint64_t) noexcept { g_ticks += 24 * 100; }
+
+abstractx::hal::UartRxView g_view{};
+abstractx::coro::Task<void> reader(size_t min, uint32_t timeout_us) { g_view = co_await dut.read_async(min, timeout_us); }
+void drain() {
+    while (abstractx::Dispatcher::has_pending_resumes()) abstractx::Dispatcher::process();
+}
 
 }  // namespace
 
@@ -172,6 +180,57 @@ int main() {
             for (size_t i = 0; i < n; ++i) CHECK(buf[i] == expect++);
         }
         CHECK(dut.rx_dropped() == 0);
+    }
+
+    // ---- read_async with a deadline (EL-1027-24, [SPEC-E906-HAL-02] read deadline): the driver's hook arms a
+    // timer wake; poll_deadline() (run by poll_uart_deadlines() in platform_poll_network) ends the read with Timeout.
+    {
+        const uint32_t base = ::hal::DmaController::pa(dma_rx);
+        uint32_t written = 37U * 1000U;
+        auto feed = [&](uint32_t n) {
+            for (uint32_t i = 0; i < n; ++i) {
+                dma_rx[written % UartBuffers::kDmaRingBytes] = static_cast<uint8_t>(i);
+                ++written;
+                g_pkg = written / UartBuffers::kDmaBufBytes;
+            }
+            g_cur_dst = base + (written % UartBuffers::kDmaRingBytes);
+            regs[kRfl] = 0;
+            regs[kIir] = 0x0C;   // RX timeout: end of frame
+            dut.on_irq();
+            regs[kIir] = 0x01;
+        };
+        auto t = reader(20, 5000);
+        t.resume();
+        CHECK(!t.done());
+        const uint64_t deadline = g_ticks + 5000ULL * ::hal::Timer::TICKS_PER_US;
+        CHECK(g_wake == deadline);                     // a sleeping loop wakes at the deadline
+        // nothing arrives (a partial frame would end the read at its end of frame, [SPEC-HAL-10])
+        g_ticks = deadline - 1;
+        dut.poll_deadline();   // what poll_uart_deadlines() runs per port
+        drain();
+        CHECK(!t.done());                              // not yet
+        g_ticks = deadline;
+        dut.poll_deadline();   // what poll_uart_deadlines() runs per port
+        drain();
+        CHECK(t.done() && g_view.status == abstractx::hal::UartStatus::Timeout && g_view.size() == 0);
+
+        // 1000 reads satisfied before their deadline: Ok, and the expired stale deadline wakes nothing
+        size_t hw0 = 0;
+        for (int k = 0; k < 1000; ++k) {
+            if (k == 1) hw0 = abstractx::coro::coro_pool_high_water();   // after the first frame exists
+            auto r = reader(4, 1000);
+            r.resume();
+            CHECK(!r.done());
+            feed(4);
+            drain();
+            CHECK(r.done() && g_view.status == abstractx::hal::UartStatus::Ok && g_view.size() == 4);
+            CHECK(dut.release_rx(4) == abstractx::hal::UartStatus::Ok);
+            g_ticks += 2000ULL * ::hal::Timer::TICKS_PER_US;
+            dut.poll_deadline();   // what poll_uart_deadlines() runs per port     // stale token: ignored
+            CHECK(!abstractx::Dispatcher::has_pending_resumes());
+        }
+        CHECK(abstractx::coro::coro_pool_high_water() == hw0);
+        CHECK(abstractx::Dispatcher::dropped_resumes() == 0);
     }
 
     // ---- TX larger than the FIFO goes by DMA in 256 B chunks

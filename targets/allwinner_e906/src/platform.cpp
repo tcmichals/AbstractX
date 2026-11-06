@@ -305,6 +305,7 @@ void platform_poll_network() noexcept {
     g_tlp_channel.flush();
     g_rpmsg.flush_kick();  // a kick the full FIFO refused is retried, never spun on ([SPEC-E906-IPC-02])
     poll_i2c_timeouts();   // async I2C deadlines ([SPEC-E906-HAL-04] rule 8)
+    poll_uart_deadlines(); // UART read deadlines ([SPEC-E906-HAL-02], EL-1027-24)
 }
 
 // shared: telemetry producers increment, platform_poll_network reads; volatile counter

@@ -179,6 +179,7 @@ public:
             } else if (ring->waiter_.load(std::memory_order_acquire) != nullptr) {
                 refused = UartStatus::QueueFull;             // one reader per port
             } else {
+                ring->claimed_.store(true, std::memory_order_release);
                 ring->cancel_req_.store(false, std::memory_order_relaxed);
                 ring->want_.store(static_cast<uint32_t>(min_bytes), std::memory_order_relaxed);
                 if (!ring->satisfied()) {
@@ -259,6 +260,9 @@ public:
     }
 
     bool reader_waiting() const noexcept { return waiter_.load(std::memory_order_acquire) != nullptr; }
+    // A coroutine has read from this ring: the driver's polled read() path must not take its bytes
+    // (one consumer; target specs, e.g. [SPEC-E906-HAL-02]). Set by the first accepted read_async.
+    bool claimed() const noexcept { return claimed_.load(std::memory_order_acquire); }
 
     // Counters since start; bytes already overwritten but not yet seen by the reader included.
     UartRxStats stats() const noexcept {
@@ -410,6 +414,7 @@ private:
     std::atomic<uint32_t> parity_{0};
     std::atomic<uint32_t> breaks_{0};
     uint32_t held_{0};                  // reader-owned
+    std::atomic<bool> claimed_{false};  // shared: reader sets (main), driver ISR reads; atomic
     uint32_t dropped_total_{0};         // reader-owned
     uint32_t dropped_since_view_{0};    // reader-owned
 };

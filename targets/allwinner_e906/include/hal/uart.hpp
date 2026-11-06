@@ -62,6 +62,8 @@ public:
     uint32_t rx_dropped() const noexcept { return rx_dropped_; }
 
     void on_irq() noexcept;
+    // Read deadline ([SPEC-E906-HAL-02], EL-1027-24): fire it once its time has passed. Main loop only.
+    void poll_deadline() noexcept;
 
 protected:
     void start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept override;
@@ -109,8 +111,14 @@ private:
     volatile bool tx_dma_done_{false};
     uint32_t dma_pkg0_{0};
     uint32_t dma_wr_{0};
+    // shared: arm_deadline (read awaiter, main loop) / poll_deadline (main loop); single context, no ISR
+    static void arm_deadline(void* ctx, uint32_t timeout_us, uint32_t token) noexcept;
+    uint64_t deadline_ticks_{0};
+    uint32_t deadline_token_{0};
+    bool deadline_armed_{false};
 };
 
 E906Uart& get_e906_uart3() noexcept;
+void poll_uart_deadlines() noexcept;   // every port; called by platform_poll_network()
 
 } // namespace abstractx::hal
