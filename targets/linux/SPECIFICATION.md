@@ -108,13 +108,19 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
     `stop()` so no request can be enqueued after `stop()` drains the queue. The driver MUST then
     complete a refused request at once through `push_completion_from_isr` with
     `SpiStatus::QueueFull` / `I2cStatus::QueueFull`.
+  - **No silent simulation (2026-11-06, full-audit buses finding 8)**: when the device did not open,
+    a transfer fails (`SpiStatus::BusError` / `I2cStatus::BusError`, `transferred_bytes = 0`). The
+    synthetic data (ICM WHO_AM_I and flight dynamics, compass vector, byte patterns) is produced only
+    when the process asked for it with `ABSTRACTX_SIM_BUS=1` (host tests and SITL set it); before, a
+    missing device returned invented data with `Ok`, so a wiring or permission fault looked like a
+    working sensor.
   - The device path is a constructor argument of the driver class (default `/dev/spidev1.0`,
     `/dev/i2c-1`), and the classes live in `linux_spi_driver.hpp` / `linux_i2c_driver.hpp`, so a
     host test can run the real driver against a device that fails (`/dev/null`).
 * **Refines**: `[SPEC-HAL-01]`, `[SPEC-HAL-02]`
 * **Method**: `Test`
-* **Verified by**: `host-tests` (`sim/test_linux_hal_completion.cpp`), `sanitizer-gate`, `thread-sanitizer`
-* **Implementation Target**: `targets/linux/include/spi_worker.hpp`, `targets/linux/include/i2c_worker.hpp`, `targets/linux/include/linux_spi_driver.hpp`, `targets/linux/include/linux_i2c_driver.hpp`
+* **Verified by**: `host-tests` (`sim/test_linux_hal_completion.cpp`, `sim/test_linux_bus_no_sim.cpp`), `sanitizer-gate`, `thread-sanitizer`
+* **Implementation Target**: `targets/linux/include/bus_sim.hpp`, `targets/linux/include/spi_worker.hpp`, `targets/linux/include/i2c_worker.hpp`, `targets/linux/include/linux_spi_driver.hpp`, `targets/linux/include/linux_i2c_driver.hpp`
 
 ### 2.3 Serial / UART Subsystem (`termios2` with `ASYNC_LOW_LATENCY`)
 * **Interface**: `/dev/ttyX` (`/dev/ttyS*`, `/dev/ttyUSB*`, `/dev/ttyAMA*`).

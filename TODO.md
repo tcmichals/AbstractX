@@ -116,7 +116,7 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 - [x] Code review 2026-10-30 (background agent, read-only): fixed 2026-10-31 (`[SPEC-ARCH-01]`, `[SPEC-ARCH-13]`, `[SPEC-LINUX-HAL-01]`, `[SPEC-LINUX-GPIO-01]`, `[SPEC-ZYNQ-02]`): Linux/Zynq `stop()` from another thread while `run()` is in `poll_events` wakes via dedicated `eventfd` and synchronizes teardown; `SpiWorker::submit` / `I2cWorker::submit` synchronize `running_` check + enqueue with `stop()`; `DMA_CFG` SETUP re-arms `init_channel()` and `configure()` checks `init_channel()` return; `Dispatcher::post` and `has_pending_resumes` always take `InterruptLock`; `LinuxIoBackend` uses `wake_eventfd_` instead of draining `rx_doorbell_`.
 
 ### 2a-bis. Full audit 2026-11-06 follow-ups (`docs/reviews/2026-11-06-full-audit.md`)
-- [ ] **Linux SPI/I2C invent data on a missing device and report success** (confirmed): simulation only when a test / SITL asks for it explicitly, else fail.
+- [x] **Linux SPI/I2C invent data on a missing device and report success**: fixed 2026-11-06 (`ABSTRACTX_SIM_BUS=1` opt-in, [SPEC-LINUX-HAL-01]).
 - [ ] Re-check and fix or close buses candidates 2, 4-7, 9, 10 (E906 SPI awaiter FIFO spin, Pico I2C deadline, Pico UART full queue, Linux UART RX, Linux IGpio dispatch, E906 serial_xfer, Pico SPI no-channel).
 - [ ] Triage the 26 untagged FPGA requirements (`audit_specs.py` exits 1 until then).
 - [ ] Board runs for today's changes (E906 UART deadline, SPI1 CS0-only, engine async I2C, Zynq lock / word order, little-endian SPI link).

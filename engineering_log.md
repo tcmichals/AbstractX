@@ -4111,3 +4111,21 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `tools/audit_hal_invariants.py` check 6: a synchronous bus call in any `targets/*/src/io_processor.cpp` fails. **Old backend: 3 violations** (lines 99-101); new: pass.
 * Not checked: board run of an I2C auto channel; whether the callback context (TWI interrupt) is the one the engine expects for every channel kind (SPI already completes from the DMA interrupt).
 * The review's other 9 findings are candidates, recorded in `docs/reviews/2026-11-06-full-audit.md`.
+
+## [2026-11-06] - Linux SPI / I2C invented sensor data on a missing device (full-audit buses finding 8)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/linux/include/spi_worker.hpp`, `i2c_worker.hpp`, `linux_i2c_driver.hpp` (also built for Zynq)
+* **Category**: `product-bug` (found by the independent buses review, confirmed in code)
+* **Symptoms**: when `/dev/spidev*` or `/dev/i2c-*` did not open, the production workers returned synthetic ICM-42688 flight dynamics, a fixed compass vector or byte patterns with status `Ok`; the sync I2C calls returned `true`. A wiring, overlay or permission fault looked like a working sensor.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: a "mock fallback for host unit tests" lived in the production path, keyed only on the device being absent. `[SPEC-LINUX-GPIO-01]` already said "no silent simulation" for GPIO; the SPI / I2C path was never held to it.
+* **Which check should have caught it**: `host-tests` tested the simulated result as the expected one (`test_linux_hal_completion` [2], [4]); nothing tested the no-device default.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-LINUX-HAL-01]` "no silent simulation": no device -> `BusError`, 0 bytes, sync calls `false`; synthetic data only with `ABSTRACTX_SIM_BUS=1`.
+
+### 4. Implementation & Regression Test
+* `targets/linux/include/bus_sim.hpp` (`linux_bus_sim_allowed`), used by both workers and the sync I2C calls. The four host tests that run the workers without hardware set `ABSTRACTX_SIM_BUS=1` in ctest; the SITL HOWTO sets it.
+* `sim/test_linux_bus_no_sim.cpp`: without the variable, 1000 SPI transfers -> `BusError` / 0 bytes, async I2C -> `BusError`, sync read / write -> `false`. On the old code the same calls returned `Ok` (the existing tests [2] and [4] asserted exactly that).

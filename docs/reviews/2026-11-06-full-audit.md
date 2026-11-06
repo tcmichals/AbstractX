@@ -98,7 +98,7 @@ These are the reviewer's findings. They count as confirmed only once I checked t
 | 5 | Pico UART `write_byte` ignores a full TX queue; async TX reports the full size anyway; no `rx_ring` | Candidate |
 | 6 | Linux UART has no RX completion source (`read_async` is NotSupported) | Candidate (matches the `rx_ring` default) |
 | 7 | Linux `IGpio` edge handlers are never dispatched (`dispatch_interrupt_events` has no caller) | Candidate |
-| 8 | Linux SPI worker / I2C driver invent data and report success when the device did not open (`spi_worker.hpp:159-200`, `linux_i2c_driver.hpp:73-77`) | **Confirmed, open.** Host tests and SITL may depend on it. Fix: simulation only when a test or SITL asks for it explicitly; otherwise fail |
+| 8 | Linux SPI worker / I2C driver invent data and report success when the device did not open (`spi_worker.hpp:159-200`, `linux_i2c_driver.hpp:73-77`) | **Confirmed, fixed** in the commit after `afe0d4f`: `BusError` unless `ABSTRACTX_SIM_BUS=1` ([SPEC-LINUX-HAL-01]); `sim/test_linux_bus_no_sim.cpp` |
 | 9 | E906 `serial_xfer` re-inits the UART on every baud TLP and can wait up to 10 ms on a full TX ring | Candidate |
 | 10 | Pico `start_dma_transfer_raw` returns without completing when no DMA channel is claimed | Candidate |
 

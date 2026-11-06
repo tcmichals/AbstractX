@@ -8,6 +8,7 @@
 #ifndef ABSTRACTX_TARGET_SPI_WORKER_HPP
 #define ABSTRACTX_TARGET_SPI_WORKER_HPP
 
+#include "bus_sim.hpp"
 #include "eventfd.hpp"
 #include "abstractx/hal/spi.hpp"
 #include <etl/queue_spsc_isr.h>
@@ -156,8 +157,12 @@ private:
                     } else {
                         res.transferred_bytes = xfer_len;
                     }
+                } else if (!::abstractx::hal::linux_bus_sim_allowed()) {
+                    // No device and no simulation asked for: fail ([SPEC-LINUX-HAL-01] no silent simulation)
+                    res.status = hal::SpiStatus::BusError;
+                    res.transferred_bytes = 0;
                 } else {
-                    // Simulated / mock fallback for host unit tests
+                    // Simulation, only with ABSTRACTX_SIM_BUS=1 (host tests, SITL)
                     if (!req.rx_data.empty()) {
                         if (!req.tx_data.empty() && (req.tx_data[0] & 0x7F) == 0x75) {
                             // ICM-42688 WHO_AM_I register simulation

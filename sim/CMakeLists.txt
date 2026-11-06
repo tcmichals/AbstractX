@@ -37,6 +37,10 @@ add_test(NAME sim_test_e906_dma_irq COMMAND test_e906_dma_irq)
 add_abstractx_sim(test_linux_drdy_auto     test_linux_drdy_auto.cpp)
 # [SPEC-LINUX-HAL-01] real Linux SPI/I2C drivers deliver their own results
 add_abstractx_sim(test_linux_hal_completion test_linux_hal_completion.cpp)
+add_abstractx_sim(test_linux_bus_no_sim    test_linux_bus_no_sim.cpp)
+# [SPEC-LINUX-HAL-01] these run the Linux workers with no device: simulation on request only
+set_tests_properties(sim_test_linux_hal_completion sim_test_linux_drdy_auto sim_test_tlp_msg sim_test_io_processor
+                     PROPERTIES ENVIRONMENT "ABSTRACTX_SIM_BUS=1")
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
 # [SPEC-ARCH-15] the host drives AbstractX: step() deadline, wake route, steady state
 add_abstractx_sim(test_host_drive          test_host_drive.cpp)

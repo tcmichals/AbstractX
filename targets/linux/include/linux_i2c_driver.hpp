@@ -8,6 +8,7 @@
 #ifndef ABSTRACTX_TARGET_LINUX_I2C_DRIVER_HPP
 #define ABSTRACTX_TARGET_LINUX_I2C_DRIVER_HPP
 
+#include "bus_sim.hpp"
 #include "abstractx/hal/i2c.hpp"
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/trace/tracer.hpp"
@@ -70,7 +71,7 @@ public:
             rdwr.msgs = msgs;
             rdwr.nmsgs = 2;
             ok = (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
-        } else {
+        } else if (::abstractx::hal::linux_bus_sim_allowed()) {   // [SPEC-LINUX-HAL-01] simulation on request only
             for (size_t i = 0; i < rx_data.size(); ++i) {
                 rx_data[i] = static_cast<uint8_t>(0x30 + i);
             }
@@ -98,7 +99,7 @@ public:
             rdwr.nmsgs = 1;
             ok = (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
         } else {
-            ok = true;
+            ok = ::abstractx::hal::linux_bus_sim_allowed();   // [SPEC-LINUX-HAL-01] no device: fail unless simulating
         }
         uint64_t t1 = get_timer_driver().get_time_us();
         trace::g_tracer.trace_hal(3 /* I2C */, static_cast<uint16_t>(tx_data.size()),
@@ -121,7 +122,7 @@ public:
             rdwr.msgs = &msg;
             rdwr.nmsgs = 1;
             ok = (::ioctl(worker_.fd(), I2C_RDWR, &rdwr) >= 0);
-        } else {
+        } else if (::abstractx::hal::linux_bus_sim_allowed()) {   // [SPEC-LINUX-HAL-01] simulation on request only
             for (size_t i = 0; i < rx_data.size(); ++i) {
                 rx_data[i] = static_cast<uint8_t>(0x40 + i);
             }

@@ -97,8 +97,11 @@ cmake --build build --target gps_imu_app -j$(nproc)
 
 Launch the native binary:
 ```bash
-./build/apps/gps_imu_app/gps_imu_app
+ABSTRACTX_SIM_BUS=1 ./build/apps/gps_imu_app/gps_imu_app   # no sensors: ask for simulated buses
 ```
+
+Without `ABSTRACTX_SIM_BUS=1` a missing `/dev/spidev*` or `/dev/i2c-*` fails each transfer instead of returning invented sensor data (`[SPEC-LINUX-HAL-01]`, 2026-11-06), so a wiring or permission fault cannot look like a working sensor.
+
 
 ### Expected Console Output
 ```text

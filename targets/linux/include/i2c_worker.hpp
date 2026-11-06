@@ -8,6 +8,7 @@
 #ifndef ABSTRACTX_TARGET_I2C_WORKER_HPP
 #define ABSTRACTX_TARGET_I2C_WORKER_HPP
 
+#include "bus_sim.hpp"
 #include "eventfd.hpp"
 #include "abstractx/hal/i2c.hpp"
 #include <etl/queue_spsc_isr.h>
@@ -285,8 +286,12 @@ private:
                             res.transferred_bytes = req.rx_data.size();
                         }
                     }
+                } else if (!::abstractx::hal::linux_bus_sim_allowed()) {
+                    // No device and no simulation asked for: fail ([SPEC-LINUX-HAL-01] no silent simulation)
+                    res.status = hal::I2cStatus::BusError;
+                    res.transferred_bytes = 0;
                 } else {
-                    // Simulated / mock fallback for host unit tests
+                    // Simulation, only with ABSTRACTX_SIM_BUS=1 (host tests, SITL)
                     if (!req.rx_data.empty()) {
                         if (req.use_register && req.register_offset == 0xD0) {
                             req.rx_data[0] = 0x58; // BMP280 chip ID
