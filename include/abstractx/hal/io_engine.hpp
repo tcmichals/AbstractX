@@ -519,10 +519,7 @@ private:
         std::span<const uint8_t> tx{};
         if (tlp.wire.type == ASP_TLP_TYPE_MEM_WR) {
             if ((tlp.wire.target_address & 0xFFU) == 0x04U && tlp.wire.length_dw >= 1) {
-                baud_hz = (static_cast<uint32_t>(tlp.wire.payload[0])) |
-                          (static_cast<uint32_t>(tlp.wire.payload[1]) << 8) |
-                          (static_cast<uint32_t>(tlp.wire.payload[2]) << 16) |
-                          (static_cast<uint32_t>(tlp.wire.payload[3]) << 24);
+                baud_hz = tlp.payload_word(0);
             } else {
                 const size_t n = tlp.wire.length_dw <= 40U ? tlp.wire.length_dw : 40U;
                 tx = std::span<const uint8_t>(tlp.wire.payload, n);
@@ -581,11 +578,7 @@ private:
                 continue;
             }
             if (tlp.wire.type == ASP_TLP_TYPE_MEM_WR) {
-                const uint32_t v = (static_cast<uint32_t>(tlp.wire.payload[0]) << 24) |
-                                   (static_cast<uint32_t>(tlp.wire.payload[1]) << 16) |
-                                   (static_cast<uint32_t>(tlp.wire.payload[2]) << 8) |
-                                   static_cast<uint32_t>(tlp.wire.payload[3]);
-                backend_.write_reg(addr, v);
+                backend_.write_reg(addr, tlp.payload_word(0));   // little-endian word ([SPEC-TLP-01])
                 continue;
             }
             if (tlp.wire.type == ASP_TLP_TYPE_MEM_RD) {

@@ -19,6 +19,7 @@
 #include <cstring>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/mman.h>
 #include <poll.h>
 
@@ -53,11 +54,18 @@ public:
     ZynqUioBridge(const ZynqUioBridge&) = delete;
     ZynqUioBridge& operator=(const ZynqUioBridge&) = delete;
 
+    // @impl [SPEC-ZYNQ-03] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md (exclusive lock on the device)
     bool open_uio(const char* dev_path = "/dev/uio0") noexcept {
         if (fd_ >= 0) return true;
 
         fd_ = ::open(dev_path, O_RDWR | O_SYNC | O_NONBLOCK);
         if (fd_ < 0) {
+            return false;
+        }
+        // One user of the TLP ports ([SPEC-ZYNQ-03], EL-1027-22): a second reader steals completions.
+        if (::flock(fd_, LOCK_EX | LOCK_NB) != 0) {
+            ::close(fd_);
+            fd_ = -1;
             return false;
         }
 
@@ -125,7 +133,8 @@ public:
     [[nodiscard]] uint32_t egress_count() const noexcept { return read_reg(REG_EGR_COUNT); }
     [[nodiscard]] uint32_t ingress_free() const noexcept { return read_reg(REG_ING_FREE); }
 
-    // Read a 64-byte TLP from egress BRAM port (16 DWORD reads consume the packet)
+    // Read a 64-byte TLP from egress BRAM port (16 DWORD reads consume the packet).
+    // DW k = TLP bytes 4k..4k+3, little-endian, DW0 first ([SPEC-ZYNQ-03], [SPEC-TLP-01]): copied as is.
     bool read_tlp(Tlp64& tlp) noexcept {
         if (!base_ || egress_count() == 0) return false;
         auto* dwords = reinterpret_cast<uint32_t*>(&tlp.wire);

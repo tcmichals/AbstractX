@@ -32,6 +32,25 @@ AbstractX establishes a universal, symmetrical data plane across FPGAs, microcon
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
+### 1.0 Byte order (owner decisions 2026-11-05 and 2026-11-06; requirement: `[SPEC-TLP-01]`)
+
+The diagram above gives byte offsets; this table says how the bytes are read.
+
+| What | Byte order | Example |
+|---|---|---|
+| Header fields (`target_address`, `length_dw`, `sequence`, `timestamp_ns`) | little-endian | address `0x40000008` = bytes `08 00 00 40` at 4..7 |
+| Register values: the 32-bit words of a CONTROL `MemWrite` and of a `CplD` read reply (AXI4-Lite register contents) | little-endian, word k at payload bytes 4k..4k+3 | `0xCAFEF00D` = bytes `0D F0 FE CA` at 20..23 |
+| Sensor and stream data (PIO FIFO words, SPI / I2C / UART bytes, IMU / mag / GPS samples) | **byte stream in arrival order, in the sensor's own format**; no layer swaps it | ICM-42688-P burst stays big-endian, QMC5883L stays little-endian |
+| PIO FIFO word in a stream TLP (`[SPEC-TLP-05]`) | most significant byte first: bits `[31:24]` = byte 4k | a left-shifting (MSB-first SPI) program delivers sensor bytes in order |
+| CRC32 footer on serial links (`[SPEC-TLP-CRC-01]`) | little-endian (byte 60 = CRC bits 7:0) | |
+
+Where it lives: `rtl/asp_tlp_pkg.sv` (`tlp_word` / `tlp_set_word` for register values, `tlp_stream_word` /
+`tlp_set_stream_word` for stream data; RTL vector byte k at bits `[8k+7:8k]`), `include/asp_tlp64.hpp`
+(`Tlp64::payload_word` / `set_payload_word` for register values; stream and sensor bytes are copied, never
+converted), Python `struct` format `"<BBBBIHHQ40sI"`. Serial links send byte 0 first, each byte MSB first;
+the Zynq GP0 bridge moves DW k = bytes 4k..4k+3 as a little-endian word, DW0 first (`[SPEC-ZYNQ-03]`).
+Checked by `tools/check_register_parity.py` (TLP layout), `sim/test_tlp_wire_order.cpp` and the cocotb suites.
+
 ### 1.1 Transport integrity profiles
 
 The 64-byte shape and field offsets never change: 20-byte header, 40-byte
@@ -104,14 +123,14 @@ their work, and every non-control channel goes to the PIO tile.
 ## 4. Requirement Traceability
 
 ### `[SPEC-TLP-CRC-01]` External SPI CRC and Internal Footer
-* SPI/Dual-SPI ingress frames MUST carry the IEEE 802.3 CRC32 of wire bytes 0–59 in big-endian byte order at bytes 60–63. The receiver MUST validate the CRC before asserting the internal TLP valid signal.
+* SPI/Dual-SPI ingress frames MUST carry the IEEE 802.3 CRC32 of wire bytes 0–59 in little-endian byte order at bytes 60–63 (byte 60 = CRC bits 7:0, the zlib / Ethernet convention; [SPEC-TLP-01]: every TLP field is little-endian, owner decision 2026-11-05). The receiver MUST validate the CRC before asserting the internal TLP valid signal.
 * After successful validation, the receiver MUST pass bytes 0–59 unchanged and replace bytes 60–63 with zeroes, because CRC is limited to the external transport boundary and the internal TLP footer is reserved.
 * SPI/Dual-SPI egress MUST compute the wire CRC over internal bytes 0–59 and transmit it in bytes 60–63, regardless of the internal reserved-footer value.
 * The CRC MUST be computed incrementally, at most one byte (8 bit-steps) per clock: on ingress each received byte updates a running CRC register; on egress each byte updates it as it leaves, and bytes 60–63 come from that register. A single-cycle CRC over all 60 bytes is not allowed: it unrolls 480 bit-steps into one combinational path (measured 2026-10-14 on GW2A-18: Fmax 13.7 MHz, below the Tang Nano 20K's 27 MHz clock).
 * An egress read with no TLP pending returns 64 zero bytes (no CRC), as before.
 * **Refines**: `[SPEC-TLP-01]`
 * **Method**: `Test`
-* **Verified by**: `cocotb-regression` (`test_asp_spi_frontend_cocotb`, `test_asp_tlp_64b_cocotb`: CRC checked against `zlib.crc32`), `fpga-fit` (Fmax)
+* **Verified by**: `cocotb-regression` (`test_asp_spi_frontend_cocotb`, `test_asp_top_pio_cocotb`: CRC checked against `zlib.crc32`, little-endian), `fpga-fit` (Fmax)
 
 ```mermaid
 flowchart LR

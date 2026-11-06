@@ -31,7 +31,7 @@ owner's OK).
   sys regs, pio-wrap / pio-tlp-path helpers; optional ZipCPU formal properties. Docs: AGENTS.md section 11
   ("control plane is Wishbone"), `.agents/rules/silicon-api-atlas.md`, [SPEC-TLP-05], [SPEC-TLP-07], Zynq and
   Tang specs, `rtl/README.md`, `check_register_parity.py`. Host software unchanged (same TLPs, same addresses).
-- [ ] **C. TLP little-endian everywhere** (EL-1027-16): RTL field positions (router channel byte, SPI
+- [x] **C. TLP little-endian everywhere** (done 2026-11-06; header and register values LE, sensor / stream data in sensor format, PIO FIFO words MSB first, `TLP_BUS_SPECIFICATION.md` §1.0) (EL-1027-16): RTL field positions (router channel byte, SPI
   frontend byte order, TLP master, `rtl/pio_tlp/`, `asp_axi_lite_bridge` word order), cocotb packers
   (`<` instead of `>`), `zynq_diagnostics.py`, C++ `make_mem_write` / completion payload byte order,
   `abstractx_studio.py` (drop the "try both orders" decode), `[SPEC-TLP-01]` states the byte order;

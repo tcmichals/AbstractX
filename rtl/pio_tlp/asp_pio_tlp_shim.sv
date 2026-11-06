@@ -74,7 +74,7 @@ module asp_pio_tlp_shim #(
     always_comb begin
         tx_frame = asp_tlp_pkg::tlp_header(8'h10, {4'h0, i_mask}, i_tlp_tag, i_tlp_channel, BASE_ADDR,
                                            {12'd0, count}, seq_num, latched_timestamp);
-        for (int k = 0; k < 10; k++) tx_frame = asp_tlp_pkg::tlp_set_word(tx_frame, k, words[k]);
+        for (int k = 0; k < 10; k++) tx_frame = asp_tlp_pkg::tlp_set_stream_word(tx_frame, k, words[k]);
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -141,9 +141,10 @@ module asp_pio_tlp_shim #(
                 active_sm  = i_sm_active[1] ? 8'd1 : 8'd0;
 
                 // barectf Stream 5 record: type 0xC1, flags 0xFC (magic), tag 5, channel = event type
-                trace_frame_buf <= asp_tlp_pkg::tlp_set_word(
+                trace_frame_buf <= asp_tlp_pkg::tlp_set_stream_word(
                     asp_tlp_pkg::tlp_header(8'hC1, 8'hFC, 8'd5, ev_type, BASE_ADDR, 16'd4, seq_num,
                                             i_sys_timestamp),
+                    // payload bytes 0..3 = active SM, tile id, PC, stalled (stream word, MSB first)
                     0, {active_sm, i_tile_id, 3'd0, i_sm_pc[5*active_sm[1:0] +: 5], 7'd0,
                         i_sm_stalled[active_sm[1:0]]});
                 trace_pending   <= 1'b1;

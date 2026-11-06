@@ -16,8 +16,8 @@ CH_CONTROL = 0x01
 
 
 def make_tlp(channel: int, payload_val: int = 0x12345678) -> int:
-    dw0 = (0x02 << 24) | (channel & 0xFF)
-    return (dw0 << 480) | (payload_val << 320)
+    # little-endian wire ([SPEC-TLP-01]): type byte 0, channel byte 3, payload word 0 at bits [191:160]
+    return 0x02 | ((channel & 0xFF) << 24) | (payload_val << 160)
 
 
 async def reset(dut):
@@ -157,5 +157,5 @@ async def test_random_egress_every_tlp_once_in_order(dut):
     cocotb.start_soon(source("cpl", dut.s_cpl_tvalid, dut.s_cpl_tdata, dut.s_cpl_tready))
     cocotb.start_soon(source("pio", dut.s_pio_stream_tvalid, dut.s_pio_stream_tdata, dut.s_pio_stream_tready))
     await sink()
-    assert [t for t in got if (t >> 480) & 0xFF == CH_CONTROL] == srcs["cpl"]
-    assert [t for t in got if (t >> 480) & 0xFF == 0x40] == srcs["pio"]
+    assert [t for t in got if (t >> 24) & 0xFF == CH_CONTROL] == srcs["cpl"]
+    assert [t for t in got if (t >> 24) & 0xFF == 0x40] == srcs["pio"]

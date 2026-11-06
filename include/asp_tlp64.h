@@ -45,7 +45,7 @@ extern "C" {
 #define ASP_SPI_CMD_WRITE_BURST 0xA1  /* Write 64-byte TLP burst */
 #define ASP_SPI_CMD_READ_BURST  0xA2  /* Read 64-byte TLP burst */
 
-/* Wishbone & Virtual BAR Base Address Map */
+/* Virtual BAR Base Address Map (AXI4-Lite) -- @impl [SPEC-TLP-02] docs/DESIGN_SPECIFICATION.md */
 #define ASP_ADDR_WHO_AM_I       0x40000000
 #define ASP_ADDR_IMU_BASE       0x40000100
 #define ASP_ADDR_SPI_BASE       0x40000180
@@ -192,14 +192,17 @@ typedef struct __attribute__((packed)) {
 
 /*
  * Portable 64-Byte TLP Packed Structure
- * Big-Endian Wire Layout
+ * Little-endian wire layout ([SPEC-TLP-01]): these offsets are the wire byte offsets; multi-byte
+ * fields, register values in the payload and the CRC footer are little-endian (rtl/asp_tlp_pkg.sv: byte k
+ * at [8k+7:8k]); sensor / stream payload bytes keep the sensor's own format (TLP_BUS_SPECIFICATION.md 1.0).
+ * @impl [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md
  */
 typedef struct __attribute__((packed, aligned(64))) {
     uint8_t  type;            /* TLP operation type */
     uint8_t  flags;           /* ACK request / Error bitfield */
     uint8_t  tag;             /* Split-transaction correlation ID */
     uint8_t  channel;         /* Routing plane / AXID */
-    uint32_t target_address;  /* 32-bit Wishbone target address (Device ID) */
+    uint32_t target_address;  /* 32-bit AXI4-Lite target address */
     union {
         uint16_t length_dw;   /* Valid payload length in 32-bit DWORDs */
         uint16_t length;      /* Backward-compatible byte/DW alias */
@@ -207,7 +210,7 @@ typedef struct __attribute__((packed, aligned(64))) {
     uint16_t sequence;        /* Sequence counter */
     uint64_t timestamp_ns;    /* 64-bit nanosecond hardware timestamp */
     uint8_t  payload[40];     /* Data payload (zero-padded if < 40B) */
-    uint32_t crc32;           /* IEEE 802.3 CRC32 checksum */
+    uint32_t crc32;           /* serial links: IEEE 802.3 CRC32 of bytes 0..59, LE; else 0 */
 } asp_tlp64_t;
 
 #ifdef __cplusplus

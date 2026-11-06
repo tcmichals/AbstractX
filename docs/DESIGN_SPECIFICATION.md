@@ -563,11 +563,26 @@ sequenceDiagram
 
 ### `[SPEC-TLP-01]` 64-Byte Wire Format & CTF 1.8 Standard Encapsulation
 * **Requirement**: All inter-core, inter-process, and network messages must strictly match the 64-byte `asp_tlp64_t` layout (`alignas(64)`). All data payloads (telemetry, sensor frames, coroutine lifecycles, and HAL traces) must encapsulate standardized binary **Common Trace Format (CTF 1.8 / barectf)** event structures within the 40-byte TLP payload (`payload[40]`).
-* **Wire Fields**: `type` (1B), `flags` (1B), `tag` (1B), `channel` (1B), `target_address` (4B), `length_dw` (2B), `sequence` (2B), `timestamp_ns` (8B), `payload` (40B CTF binary event), and a 4B transport-integrity footer. Trusted processor↔FPGA paths over SRAM, AXI, BRAM, or DDR MUST write the footer as zero and do not calculate CRC. External SPI/UART serial profiles MUST use that footer for IEEE 802.3 CRC32 over bytes 0..59.
+* **Wire Fields**: `type` (1B), `flags` (1B), `tag` (1B), `channel` (1B), `target_address` (4B), `length_dw` (2B), `sequence` (2B), `timestamp_ns` (8B), `payload` (40B CTF binary event), and a 4B transport-integrity footer.
+* **Byte order (owner decision 2026-11-05: little-endian everywhere)**: wire byte offsets are the
+  `asp_tlp64_t` offsets (type 0, flags 1, tag 2, channel 3, `target_address` 4..7, `length_dw` 8..9,
+  `sequence` 10..11, `timestamp_ns` 12..19, `payload` 20..59, footer 60..63). Every multi-byte field, every
+  32-bit payload word (`MemWrite` data, `CplD` read data: word k at payload bytes 4k..4k+3) and the CRC footer
+  is little-endian. In RTL the 512-bit vector holds byte k at bits `[8k+7:8k]` (`rtl/asp_tlp_pkg.sv`), so
+  `target_address` is bits `[63:32]` and the 16 DWORDs of a Zynq AXI4-Lite transfer are DW k = bits
+  `[32k+31:32k]`, DW0 first. Serial links send byte 0 first, each byte most significant bit first. Software
+  (C++ `asp_tlp64_t`, the Python tools with `"<BBBBIHHQ"`) uses the native layout of its little-endian targets
+  and never swaps.
+* **Payload rule (owner decision 2026-11-06)**: little-endian covers the header and register values (the
+  32-bit words of a CONTROL `MemWrite` / `CplD`, which are AXI4-Lite register contents). Sensor and stream
+  data is a **byte stream in arrival order, in the sensor's own format** (ICM-42688-P burst big-endian,
+  QMC5883L little-endian, ...): no layer swaps it. For the PIO tile this means a FIFO word goes into the
+  payload most significant byte first (bits `[31:24]` = byte 4k), so a program that shifts left (MSB-first
+  SPI) delivers the sensor bytes in order; the host writes TX FIFO data the same way ([SPEC-TLP-05]). Trusted processor↔FPGA paths over SRAM, AXI, BRAM, or DDR MUST write the footer as zero and do not calculate CRC. External SPI/UART serial profiles MUST use that footer for IEEE 802.3 CRC32 over bytes 0..59.
 * **Channel Routing**:
   - `Channel::Telemetry` (`0x02`): CTF Stream 1 (`ImuSamplePayload` 23B, `GpsFixPayload` 35B).
   - `Channel::FlightLog` / `Channel::Debug` (`0x03` / `0x04`): CTF Stream 0 (`CoroEventPayload` 17B), CTF Stream 2 (`HalIoPayload` 16B / `TlpTracePayload` 19B).
-* **Verified by**: `host-tests` (`sim/test_tlp_msg.cpp`), `cocotb-regression` (`sim/cocotb/test_asp_top_pio_cocotb.py`) (was `sim/cocotb/test_asp_tlp_64b_cocotb.py`)
+* **Verified by**: `host-tests` (`sim/test_tlp_msg.cpp`: payload words and offsets), `cocotb-regression` (`sim/cocotb/test_asp_top_pio_cocotb.py`: TLPs built with `"<BBBBIHHQ"` through Dual-SPI) (was `sim/cocotb/test_asp_tlp_64b_cocotb.py`), `hw-sw-register-parity` (`tools/check_register_parity.py`: TLP layout in the package, C header and Python)
 * **Implementation Target**: `include/asp_tlp64.hpp`, `include/asp_tlp64.h`
 
 ### `[SPEC-TLP-02]` Memory-Mapped Virtual Addressing & Routing
@@ -650,8 +665,11 @@ sequenceDiagram
   would not fit in 10 words, or when it holds a word and no round happened for `idle_timeout` clocks.
   Streaming is the same rule with one SM in the mask; gathering (DShot telemetry: mask `0xF`, burst 8)
   uses several.
-* **Wire format** (the `asp_router` 512-bit vector): DW0 `[511:480]` = {type, flags, tag, channel},
-  DW1 address, DW2 {length_dw, sequence}, DW3-DW4 timestamp, payload word `k` = bits `[351-32k -: 32]`.
+* **Wire format** (the `asp_router` 512-bit vector, little-endian, byte k at `[8k+7:8k]`, [SPEC-TLP-01]):
+  type `[7:0]`, flags `[15:8]`, tag `[23:16]`, channel `[31:24]`, address `[63:32]`, length_dw `[79:64]`,
+  sequence `[95:80]`, timestamp `[159:96]`. Payload: FIFO word `k` at payload bytes 4k..4k+3, most
+  significant byte first (byte stream in arrival order, [SPEC-TLP-01] payload rule; `asp_tlp_pkg`
+  `tlp_stream_word` / `tlp_set_stream_word`), in both directions.
   Ingress: `flags[3:0]` = SM mask, `length_dw` = word count (clipped to 10; 0 or an empty mask writes
   nothing). Egress: type `0x10`, `flags[3:0]` = mask, tag and channel from `OUT_CFG`, address = tile
   base, sequence +1 per TLP, timestamp = `i_sys_timestamp` in the clock the first word left the RX FIFOs.

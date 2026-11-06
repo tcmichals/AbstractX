@@ -144,7 +144,13 @@ module asp_spi_frontend #(
     logic        crc_rx_v;
     logic        crc_tx_v;
     logic        tx_empty;     // no TLP pending: send 64 zero bytes, no CRC
-    wire  [31:0] tx_crc_wire = tx_empty ? 32'd0 : ~tx_crc;
+    // Little-endian wire ([SPEC-TLP-01], [SPEC-TLP-CRC-01]): byte 0 is sent first and sits at [511:504] of
+    // the shift registers, the internal TLP holds it at [7:0]; the CRC footer is sent CRC[7:0] first.
+    function automatic logic [31:0] crc_le(input logic [31:0] c);
+        crc_le = {c[7:0], c[15:8], c[23:16], c[31:24]};
+    endfunction
+    wire  [511:0] tx_wire     = asp_tlp_pkg::tlp_bswap(i_tlp_tx_data);
+    wire  [31:0]  tx_crc_wire = tx_empty ? 32'd0 : crc_le(~tx_crc);
 
     wire [511:0] rx_dual_complete =
         {rx_shift_reg[509:0], io1_in_sync[1], io0_in_sync[1]};
@@ -248,7 +254,7 @@ module asp_spi_frontend #(
                                         tx_empty <= !i_tlp_tx_valid;
                                         if (i_tlp_tx_valid) begin
                                             // Bytes 60..63 are sent from tx_crc_out
-                                            tx_shift_reg <= {i_tlp_tx_data[511:32], 32'd0};
+                                            tx_shift_reg <= {tx_wire[511:32], 32'd0};
                                         end else begin
                                             tx_shift_reg <= 512'd0; // Pad if empty
                                         end
@@ -296,9 +302,9 @@ module asp_spi_frontend #(
                                 end
                                 if (clk_pulse_cnt == 9'd255) begin
                                     state <= ST_TLP_COMPLETE;
-                                    if (rx_dual_complete[31:0] == ~rx_crc) begin
+                                    if (rx_dual_complete[31:0] == crc_le(~rx_crc)) begin
                                         if (!o_tlp_rx_valid) begin
-                                            o_tlp_rx_data  <= {rx_dual_complete[511:32], 32'd0};
+                                            o_tlp_rx_data  <= asp_tlp_pkg::tlp_bswap({rx_dual_complete[511:32], 32'd0});
                                             o_tlp_rx_valid <= 1'b1;
                                         end else begin
                                             overflow_flag <= 1'b1;
@@ -317,9 +323,9 @@ module asp_spi_frontend #(
                                 end
                                 if (clk_pulse_cnt == 9'd511) begin
                                     state <= ST_TLP_COMPLETE;
-                                    if (rx_single_complete[31:0] == ~rx_crc) begin
+                                    if (rx_single_complete[31:0] == crc_le(~rx_crc)) begin
                                         if (!o_tlp_rx_valid) begin
-                                            o_tlp_rx_data  <= {rx_single_complete[511:32], 32'd0};
+                                            o_tlp_rx_data  <= asp_tlp_pkg::tlp_bswap({rx_single_complete[511:32], 32'd0});
                                             o_tlp_rx_valid <= 1'b1;
                                         end else begin
                                             overflow_flag <= 1'b1;

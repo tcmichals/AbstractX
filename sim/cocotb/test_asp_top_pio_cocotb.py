@@ -25,12 +25,12 @@ CH_PIO_IN = 0x40
 
 def pack_tlp(tlp_type, flags, tag, channel, addr, len_dw, seq, ts, payload=b""):
     padded = payload[:40].ljust(40, b"\x00")
-    data = struct.pack(">BBBBIHHQ40s", tlp_type, flags, tag, channel, addr, len_dw, seq, ts, padded)
-    return data + zlib.crc32(data).to_bytes(4, "big")
+    data = struct.pack("<BBBBIHHQ40s", tlp_type, flags, tag, channel, addr, len_dw, seq, ts, padded)
+    return data + zlib.crc32(data).to_bytes(4, "little")
 
 
 def unpack_tlp(data):
-    return struct.unpack(">BBBBIHHQ40sI", data)
+    return struct.unpack("<BBBBIHHQ40sI", data)
 
 
 async def sclk_pulse(dut):
@@ -86,7 +86,7 @@ async def read_tlp(dut):
 
 
 async def mem_write(dut, addr, value, seq=0):
-    await send_tlp(dut, pack_tlp(0x02, 0, 0, CH_CONTROL, addr, 1, seq, 0, struct.pack(">I", value)))
+    await send_tlp(dut, pack_tlp(0x02, 0, 0, CH_CONTROL, addr, 1, seq, 0, struct.pack("<I", value)))
 
 
 async def mem_read(dut, addr, tag=0x5A, want_flags=False):
@@ -100,9 +100,9 @@ async def mem_read(dut, addr, tag=0x5A, want_flags=False):
     f = unpack_tlp(await read_tlp(dut))
     assert f[0] == 0x03 and f[2] == tag, f"not our completion: type 0x{f[0]:02X} tag 0x{f[2]:02X}"
     if want_flags:
-        return struct.unpack(">I", f[8][:4])[0], f[1], f[5]
+        return struct.unpack("<I", f[8][:4])[0], f[1], f[5]
     assert f[1] == 0, f"MemRead 0x{addr:08X} failed: flags 0x{f[1]:02X}"
-    return struct.unpack(">I", f[8][:4])[0]
+    return struct.unpack("<I", f[8][:4])[0]
 
 
 async def reset(dut):
@@ -151,7 +151,7 @@ async def test_pio_program_drives_motor_from_pio_channel(dut):
 
     for level in (1, 0, 1):
         # Data TLP on the PIO channel: flags[3:0] = SM mask, one word
-        await send_tlp(dut, pack_tlp(0x02, 0x01, 0, CH_PIO_IN, PIO, 1, 0, 0, struct.pack(">I", level)))
+        await send_tlp(dut, pack_tlp(0x02, 0x01, 0, CH_PIO_IN, PIO, 1, 0, 0, struct.pack(">I", level)))   # stream data: MSB first ([SPEC-TLP-05])
         await ClockCycles(dut.clk, 100)
         assert int(dut.o_motor_pins.value) & 1 == level, f"motor 0 should be {level}"
     assert int(dut.o_motor_pins.value) >> 1 == 0, "motors 1..3 stay idle"

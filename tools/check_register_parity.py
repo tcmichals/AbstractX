@@ -2,6 +2,7 @@
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 # @impl [SPEC-ZYNQ-01] [SPEC-ZYNQ-02] [SPEC-ZYNQ-03] [SPEC-ZYNQ-06] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md
+# @impl [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md (TLP layout: RTL package <-> C header <-> Python formats)
 """
 check_register_parity.py - Hardware-Software Register Contract & Parity Auditor
 ================================================================================
@@ -229,6 +230,86 @@ def check_e906_memory_map(root: Path) -> list[str]:
     return errors
 
 
+C_SIZES = {"uint8_t": 1, "uint16_t": 2, "uint32_t": 4, "uint64_t": 8}
+TLP_FIELD_FN = {"type": "tlp_type", "flags": "tlp_flags", "tag": "tlp_tag", "channel": "tlp_channel",
+                "target_address": "tlp_addr", "length_dw": "tlp_len", "sequence": "tlp_seq",
+                "timestamp_ns": "tlp_ts"}
+
+
+def parse_c_tlp_struct(header: Path) -> dict[str, tuple[int, int]]:
+    """asp_tlp64_t members -> (byte offset, size); packed struct, a union counts as its first member."""
+    text = header.read_text()
+    end = text.find("} asp_tlp64_t;")
+    start = text.rfind("typedef struct", 0, end)
+    if end < 0 or start < 0 or "packed" not in text[start:text.find("{", start)]:
+        return {}
+    fields, off, in_union, union_size = {}, 0, False, 0
+    for line in text[text.find("{", start) + 1:end].splitlines():
+        line = line.split("/*")[0].strip()
+        if line.startswith("union"):
+            in_union, union_size = True, 0
+            continue
+        if line.startswith("}"):
+            in_union, off = False, off + union_size
+            continue
+        m = re.match(r"(uint\d+_t)\s+(\w+)(?:\[(\d+)\])?;", line)
+        if not m:
+            continue
+        size = C_SIZES[m.group(1)] * int(m.group(3) or 1)
+        if in_union:
+            fields.setdefault(m.group(2), (off, size))
+            union_size = max(union_size, size)
+        else:
+            fields[m.group(2)] = (off, size)
+            off += size
+    return fields
+
+
+def parse_sv_tlp_pkg(pkg: Path) -> dict[str, tuple[int, int]]:
+    """asp_tlp_pkg.sv accessor slices -> (byte offset, size), plus 'payload' from tlp_word."""
+    text = pkg.read_text()
+    out = {}
+    for fn in TLP_FIELD_FN.values():
+        m = re.search(rf"function automatic logic \[\d+:0\] {fn}\(.*?{fn} = t\[(\d+):(\d+)\];", text)
+        if m:
+            hi, lo = int(m.group(1)), int(m.group(2))
+            out[fn] = (lo // 8, (hi - lo + 1) // 8) if lo % 8 == 0 and (hi - lo + 1) % 8 == 0 else (-1, -1)
+    m = re.search(r"tlp_word = t\[(\d+) \+ 32 \* k \+: 32\]", text)
+    if m:
+        out["payload"] = (int(m.group(1)) // 8, 4)
+    return out
+
+
+def check_tlp_layout(root: Path) -> list[str]:
+    """[SPEC-TLP-01] one little-endian layout: RTL package slices = C struct offsets; every Python
+    struct format of the TLP header is little-endian (would have caught EL-1027-16)."""
+    errors = []
+    c = parse_c_tlp_struct(root / "include/asp_tlp64.h")
+    sv = parse_sv_tlp_pkg(root / "rtl/asp_tlp_pkg.sv")
+    if not c:
+        return ["asp_tlp64_t not found in include/asp_tlp64.h"]
+    if "crc32" not in c or c["crc32"] != (60, 4) or c.get("payload") != (20, 40):
+        errors.append(f"asp_tlp64_t payload / crc32 at {c.get('payload')} / {c.get('crc32')}, expected (20, 40) / (60, 4)")
+    for field, fn in TLP_FIELD_FN.items():
+        if fn not in sv:
+            errors.append(f"asp_tlp_pkg.sv: no little-endian slice for {fn} (expected t[hi:lo])")
+        elif sv[fn] != c.get(field):
+            errors.append(f"{field}: asp_tlp_pkg.sv {fn} at byte {sv[fn][0]} size {sv[fn][1]}, "
+                          f"asp_tlp64_t at byte {c.get(field, ('?',))[0]} size {c.get(field, (0, '?'))[1]}")
+    if sv.get("payload", (None,))[0] != 20:
+        errors.append(f"asp_tlp_pkg.sv tlp_word: payload word 0 at byte {sv.get('payload', ('?',))[0]}, expected 20")
+    fmt = re.compile(r"""["']([<>!=@]?)BBBBIHHQ""")
+    for py in sorted(list(root.glob("tools/**/*.py")) + list(root.glob("hw/**/*.py")) + list(root.glob("sim/cocotb/*.py"))
+                     + list(root.glob("apps/**/*.py")) + list(root.glob("applib/**/*.py")) + list(root.glob("tests/*.py"))):
+        if "/third_party/" in str(py) or "/build" in str(py):
+            continue
+        for n, line in enumerate(py.read_text(errors="replace").splitlines(), 1):
+            for m in fmt.finditer(line):
+                if m.group(1) != "<":
+                    errors.append(f"{py.relative_to(root)}:{n}: TLP header format '{m.group(1)}BBBBIHHQ' is not little-endian")
+    return errors
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     all_errors = []
@@ -257,6 +338,16 @@ def main() -> int:
             print(f"  {RED}* {e}{RESET}")
     else:
         print(f"[{GREEN}PASS{RESET}] System Register Parity (asp_sys_regs.sv <-> zynq_diagnostics.py)")
+
+    # TLP layout ([SPEC-TLP-01], EL-1027-21)
+    tlp_errs = check_tlp_layout(root)
+    if tlp_errs:
+        all_errors.extend(tlp_errs)
+        print(f"[{RED}FAIL{RESET}] TLP Layout Parity ({len(tlp_errs)} errors)")
+        for e in tlp_errs:
+            print(f"  {RED}* {e}{RESET}")
+    else:
+        print(f"[{GREEN}PASS{RESET}] TLP Layout Parity (asp_tlp_pkg.sv <-> asp_tlp64_t <-> Python '<BBBBIHHQ')")
 
     # Check E906 Memory Map
     e906_errs = check_e906_memory_map(root)

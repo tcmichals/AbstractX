@@ -68,7 +68,7 @@ enum class TlpType : uint8_t {
 
 // Strongly typed Channel / AXID Routing Planes
 enum class Channel : uint8_t {
-    Control   = ASP_CHANNEL_CONTROL,     // Wishbone Gateway (0x01)
+    Control   = ASP_CHANNEL_CONTROL,     // AXI4-Lite control plane (0x01)
     Telemetry = ASP_CHANNEL_TELEMETRY,   // IMU Auto-DMA Stream (0x02)
     FlightLog = ASP_CHANNEL_FC_LOG,      // Flight Log Stream (0x03)
     Debug     = ASP_CHANNEL_DEBUG_TRACE, // Debug Trace (0x04)
@@ -98,6 +98,24 @@ struct alignas(64) Tlp64 {
 
     constexpr Tlp64() noexcept : wire{} {}
 
+    // Register value k (0..9) at payload bytes 4k..4k+3, little-endian ([SPEC-TLP-01]): the data of a CONTROL
+    // MemWrite and of a CplD read reply. Not for sensor / stream data: those bytes are copied in the sensor's
+    // own format (TLP_BUS_SPECIFICATION.md 1.0). Byte-wise, so it is the same on any host byte order.
+    // @impl [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md
+    constexpr uint32_t payload_word(size_t k) const noexcept {
+        const size_t o = k * 4u;
+        return static_cast<uint32_t>(wire.payload[o]) | (static_cast<uint32_t>(wire.payload[o + 1u]) << 8) |
+               (static_cast<uint32_t>(wire.payload[o + 2u]) << 16) |
+               (static_cast<uint32_t>(wire.payload[o + 3u]) << 24);
+    }
+    constexpr void set_payload_word(size_t k, uint32_t v) noexcept {
+        const size_t o = k * 4u;
+        wire.payload[o]      = static_cast<uint8_t>(v);
+        wire.payload[o + 1u] = static_cast<uint8_t>(v >> 8);
+        wire.payload[o + 2u] = static_cast<uint8_t>(v >> 16);
+        wire.payload[o + 3u] = static_cast<uint8_t>(v >> 24);
+    }
+
     // Construct a Memory Read TLP
     static constexpr Tlp64 make_mem_read(uint32_t addr, uint8_t tag = 0u) noexcept {
         Tlp64 packet{};
@@ -117,10 +135,7 @@ struct alignas(64) Tlp64 {
         packet.wire.channel = static_cast<uint8_t>(Channel::Control);
         packet.wire.target_address = addr;
         packet.wire.length_dw = 1;
-        packet.wire.payload[0] = static_cast<uint8_t>(value >> 24);
-        packet.wire.payload[1] = static_cast<uint8_t>(value >> 16);
-        packet.wire.payload[2] = static_cast<uint8_t>(value >> 8);
-        packet.wire.payload[3] = static_cast<uint8_t>(value & 0xFF);
+        packet.set_payload_word(0u, value);
         return packet;
     }
 
@@ -134,13 +149,7 @@ struct alignas(64) Tlp64 {
         packet.wire.target_address = addr;
         uint8_t max_count = (count > 9u) ? 9u : count;
         packet.wire.length_dw = max_count;
-        for (uint8_t i = 0u; i < max_count; ++i) {
-            uint32_t val = values[i];
-            packet.wire.payload[i * 4u + 0u] = static_cast<uint8_t>(val >> 24);
-            packet.wire.payload[i * 4u + 1u] = static_cast<uint8_t>(val >> 16);
-            packet.wire.payload[i * 4u + 2u] = static_cast<uint8_t>(val >> 8);
-            packet.wire.payload[i * 4u + 3u] = static_cast<uint8_t>(val & 0xFF);
-        }
+        for (uint8_t i = 0u; i < max_count; ++i) packet.set_payload_word(i, values[i]);
         return packet;
     }
 
@@ -151,10 +160,7 @@ struct alignas(64) Tlp64 {
         packet.wire.tag = tag;
         packet.wire.channel = static_cast<uint8_t>(ch);
         packet.wire.length_dw = 1;
-        packet.wire.payload[0] = static_cast<uint8_t>(value >> 24);
-        packet.wire.payload[1] = static_cast<uint8_t>(value >> 16);
-        packet.wire.payload[2] = static_cast<uint8_t>(value >> 8);
-        packet.wire.payload[3] = static_cast<uint8_t>(value & 0xFF);
+        packet.set_payload_word(0u, value);
         return packet;
     }
 

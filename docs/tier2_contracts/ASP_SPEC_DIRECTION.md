@@ -1,5 +1,9 @@
 # ASP Specification Direction
 
+> **Byte order (2026-11-06)**: the diagrams below are drawn by DWORD; the authoritative byte order is
+> `TLP_BUS_SPECIFICATION.md` §1.0 and `[SPEC-TLP-01]`: header and register values little-endian (timestamp
+> low word at bytes 12..15), sensor / stream data a byte stream in the sensor's own format.
+
 **ASP** = **AbstractX Switch Protocol**
 
 This document defines protocol direction for AbstractX, specifying the **PCIe-like 64-byte Fixed TLP Architecture (`asp-tlp-64b`)** as the primary normative profile for hardware switch fabric implementations, with legacy `asp-compat-v1` retained for reference.

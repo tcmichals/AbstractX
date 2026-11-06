@@ -1362,45 +1362,14 @@ def udp_receiver_thread(port: int, sim_mode: bool):
                     for off in range(0, len(data) - 63, 64):
                         frame = data[off:off+64]
                         
-                        # Inspect Big-Endian (FPGA Verilator RTL) vs Little-Endian (Software C++20 SITL)
-                        be_type, be_flags, be_tag, be_ch, be_addr, be_len, be_seq, be_ts = struct.unpack(">BBBBIHHQ", frame[:20])
+                        # One byte order: every TLP is little-endian ([SPEC-TLP-01], 2026-11-05). The
+                        # big-endian branch for the removed FPGA IMU auto-DMA core is gone ([SPEC-TLP-07]).
                         le_type, le_flags, le_tag, le_ch, le_addr, le_len, le_seq, le_ts = struct.unpack("<BBBBIHHQ", frame[:20])
 
                         g_state.add_tlp_packet(frame, le_type, le_tag, le_ch, le_seq, le_ts, True)
 
-                        # 1. FPGA Hardware RTL Telemetry (Big-Endian Wire Layout from asp_top.sv)
-                        if be_type == 0x10 and be_ch == 0x02 and be_addr == 0x40000100:
-                            temp, ax, ay, az, gx, gy, gz = struct.unpack(">hhhhhhh", frame[20:34])
-                            ax_g = ax / 2048.0
-                            ay_g = ay / 2048.0
-                            az_g = az / 2048.0
-                            gx_dps = gx / 16.4
-                            gy_dps = gy / 16.4
-                            gz_dps = gz / 16.4
-
-                            roll = float(np.degrees(np.arctan2(ay_g, az_g if az_g != 0 else 1.0)))
-                            pitch = float(np.degrees(np.arctan2(-ax_g, np.sqrt(ay_g**2 + az_g**2))))
-                            
-                            g_state.push_sensor_sample(t, ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps)
-                            with g_state.lock:
-                                g_state.source_mode = "FPGA HARDWARE RTL (asp_top.sv Verilator)"
-                                g_state.fpga_trace = f"UDP: FPGA IMU TLP (big-endian, ch 2) | Seq: #{be_seq}"
-                                g_state.roll_deg = roll
-                                g_state.pitch_deg = pitch
-                                g_state.yaw_deg = float((g_state.yaw_deg + gz_dps * 0.02) % 360.0)
-                                g_state._imu_count += 1
-                                g_state._ahrs_count += 1
-                                u_r = roll * 4.0
-                                u_p = pitch * 4.0
-                                g_state.motors = [
-                                    int(np.clip(500 - u_r + u_p, 100, 1000)),
-                                    int(np.clip(500 + u_r - u_p, 100, 1000)),
-                                    int(np.clip(500 + u_r + u_p, 100, 1000)),
-                                    int(np.clip(500 - u_r - u_p, 100, 1000))
-                                ]
-
-                        # 2. Software C++20 SITL / Live Hardware Telemetry
-                        elif le_type == 0x10 and (le_tag == 4 or le_tag == 5):
+                        # Software C++20 SITL / live hardware telemetry
+                        if le_type == 0x10 and (le_tag == 4 or le_tag == 5):
                             roll_cdeg, pitch_cdeg, yaw_cdeg, alt_mm, spd_cm_s, m1, m2, m3, m4 = struct.unpack("<2hHiH4H", frame[20:40])
                             with g_state.lock:
                                 if le_tag == 5:

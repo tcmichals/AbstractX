@@ -8,6 +8,7 @@ error regions, AXI stability check). Replaces the Wishbone master test (no Wishb
 """
 
 import random
+import struct
 
 import cocotb
 from cocotb.clock import Clock
@@ -20,22 +21,17 @@ PIO = 0x40000700
 
 
 def tlp(typ, tag, addr, length, words=(), seq=0, ts=0, flags=0, channel=0x01):
-    """Same field map as rtl/asp_tlp_pkg.sv."""
-    v = ((typ << 24) | (flags << 16) | (tag << 8) | channel) << 480
-    v |= (addr & 0xFFFFFFFF) << 448
-    v |= ((length & 0xFFFF) << 16 | (seq & 0xFFFF)) << 416
-    v |= (ts & ((1 << 64) - 1)) << 352
-    for k, w in enumerate(words[:10]):
-        v |= (w & 0xFFFFFFFF) << (320 - 32 * k)
-    return v
+    """Same field map as rtl/asp_tlp_pkg.sv: the asp_tlp64_t bytes as one little-endian number."""
+    payload = b"".join(struct.pack("<I", w & 0xFFFFFFFF) for w in words[:10])
+    raw = struct.pack("<BBBBIHHQ40sI", typ, flags, tag, channel, addr & 0xFFFFFFFF, length & 0xFFFF,
+                      seq & 0xFFFF, ts & ((1 << 64) - 1), payload, 0)
+    return int.from_bytes(raw, "little")
 
 
 def parse(v):
-    n = (v >> 432) & 0xFFFF
-    return {"type": (v >> 504) & 0xFF, "flags": (v >> 496) & 0xFF, "tag": (v >> 488) & 0xFF,
-            "addr": (v >> 448) & 0xFFFFFFFF, "len": n, "seq": (v >> 416) & 0xFFFF,
-            "ts": (v >> 352) & ((1 << 64) - 1),
-            "words": [(v >> (320 - 32 * k)) & 0xFFFFFFFF for k in range(min(n, 10))]}
+    typ, flags, tag, _ch, addr, n, seq, ts, payload, _crc = struct.unpack("<BBBBIHHQ40sI", v.to_bytes(64, "little"))
+    return {"type": typ, "flags": flags, "tag": tag, "addr": addr, "len": n, "seq": seq, "ts": ts,
+            "words": [struct.unpack_from("<I", payload, 4 * k)[0] for k in range(min(n, 10))]}
 
 
 class Env:

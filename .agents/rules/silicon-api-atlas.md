@@ -80,4 +80,4 @@ Drivers take these from `targets/allwinner_e906/include/hal/ports.hpp` ([SPEC-HA
 * **Bus Interfaces**:
   * **Data Plane**: AXI-Stream (`tdata[63:0]`, `tvalid`, `tready`, `tlast`).
   * **Control Plane**: AXI4-Lite (control TLPs -> `asp_tlp_axil_master` -> `axil_crossbar`; system registers `0x400000xx`, PIO tile `0x400007xx`-`0x400008xx`, else DECERR). No Wishbone since 2026-11-05.
-  * **TLP Framing**: Strict 64-byte framing (`asp_tlp64_t`, `alignas(64)`), exactly 40-byte payload.
+  * **TLP Framing**: Strict 64-byte framing (`asp_tlp64_t`, `alignas(64)`), exactly 40-byte payload. Header and register values little-endian; sensor / stream data in the sensor's own byte order, PIO FIFO words MSB first (`TLP_BUS_SPECIFICATION.md` §1.0, [SPEC-TLP-01]).

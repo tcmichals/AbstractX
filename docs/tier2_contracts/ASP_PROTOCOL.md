@@ -1,5 +1,9 @@
 # ASP Protocol Specification (ASP/1 - 64-Byte TLP Profile)
 
+> **Byte order (2026-11-06)**: the diagrams below are drawn by DWORD; the authoritative byte order is
+> `TLP_BUS_SPECIFICATION.md` §1.0 and `[SPEC-TLP-01]`: header and register values little-endian (timestamp
+> low word at bytes 12..15), sensor / stream data a byte stream in the sensor's own format.
+
 > **Superseded in part (2026-11-05)**: there is no Wishbone and there are no dedicated peripheral cores in
 > the FPGA any more. Control is AXI4-Lite ([SPEC-TLP-04]), data is AXI-Stream, peripherals are PIO programs
 > ([SPEC-TLP-07]); see `docs/DESIGN_SPECIFICATION.md`. Text below that says otherwise describes the old design.

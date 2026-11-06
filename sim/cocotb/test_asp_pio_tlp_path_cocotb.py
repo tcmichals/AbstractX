@@ -82,21 +82,22 @@ async def init_tile(dut):
 
 def make_tlp(mask, words, channel=CH_IN, length=None):
     length = len(words) if length is None else length
-    v = ((0x02 << 24) | (mask << 16) | channel) << 480
-    v |= (length << 16) << 416
+    # header little-endian ([SPEC-TLP-01]): byte k at bits [8k+7:8k], same as asp_tlp_pkg; stream words are
+    # a byte stream, most significant byte first at payload bytes 4k..4k+3 ([SPEC-TLP-05] payload rule)
+    v = 0x02 | (mask << 8) | (channel << 24) | (length << 64)
     for k, w in enumerate(words[:10]):
-        v |= (w & 0xFFFF_FFFF) << (320 - 32 * k)
+        v |= int.from_bytes((w & 0xFFFF_FFFF).to_bytes(4, "big"), "little") << (160 + 32 * k)
     return v
 
 
 def parse(raw):
-    b = raw.to_bytes(64, "big")
-    n = int.from_bytes(b[8:10], "big")
+    b = raw.to_bytes(64, "little")
+    n = int.from_bytes(b[8:10], "little")
     return {
         "type": b[0], "mask": b[1], "tag": b[2], "channel": b[3],
-        "addr": int.from_bytes(b[4:8], "big"), "len": n,
-        "seq": int.from_bytes(b[10:12], "big"), "ts": int.from_bytes(b[12:20], "big"),
-        "words": [int.from_bytes(b[20 + 4 * k:24 + 4 * k], "big") for k in range(n)],
+        "addr": int.from_bytes(b[4:8], "little"), "len": n,
+        "seq": int.from_bytes(b[10:12], "little"), "ts": int.from_bytes(b[12:20], "little"),
+        "words": [int.from_bytes(b[20 + 4 * k:24 + 4 * k], "big") for k in range(n)],   # stream: MSB first
         "pad": b[20 + 4 * n:60],
     }
 
@@ -356,7 +357,7 @@ async def test_tlp_packetizer_and_trace_stream(dut):
         for _ in range(n):
             await RisingEdge(dut.clk)
             if int(dut.m_tlp_tvalid.value) and int(dut.m_tlp_tready.value):
-                raw = int(dut.m_tlp_tdata.value).to_bytes(64, "big")
+                raw = int(dut.m_tlp_tdata.value).to_bytes(64, "little")
                 (tlps if raw[0] == 0x10 else traces if raw[0] == 0xC1 else []).append(raw)
 
     collector = cocotb.start_soon(collect(200))
@@ -368,7 +369,8 @@ async def test_tlp_packetizer_and_trace_stream(dut):
     assert tlps, "no data TLP"
     p = tlps[0]
     assert (p[0], p[1], p[2], p[3]) == (0x10, 0x02, 5, 2), p[:4].hex()
-    assert int.from_bytes(p[8:10], "big") == 4
-    assert int.from_bytes(p[12:20], "big") == 0x0000000A12345678
+    assert int.from_bytes(p[8:10], "little") == 4
+    assert int.from_bytes(p[12:20], "little") == 0x0000000A12345678
     assert [int.from_bytes(p[20 + 4 * k:24 + 4 * k], "big") for k in range(4)] == [0x11, 0x12, 0x13, 0x14]
+    assert p[20:24] == bytes([0, 0, 0, 0x11]), "stream word 0 most significant byte first"
     assert traces and traces[0][0] == 0xC1 and traces[0][1] == 0xFC, "no Stream 5 trace packet"

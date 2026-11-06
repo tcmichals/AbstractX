@@ -33,7 +33,7 @@ void pump() {
 Task<void> reader(CoroutineIoEngine& io, uint32_t& out, int& resumes) {
     Tlp64 r = co_await io.async_read(0x40000100u);
     ++resumes;
-    out = r.wire.payload[3];
+    out = r.payload_word(0);
 }
 
 Task<void> streamer(CoroutineIoEngine& io, Tlp64& out, int& resumes) {
@@ -91,7 +91,7 @@ int main() {
         io.poll_completions();
         assert(ra == 0);
         pump();
-        assert(ra == 1 && ta.done() && a.wire.payload[3] == 0x77);
+        assert(ra == 1 && ta.done() && a.payload_word(0) == 0x77);
     }
 
     // 3. Steady state: 1000 read round trips, pool and Dispatcher flat.
@@ -136,8 +136,8 @@ int main() {
             }
         }
         assert(tb.done() && resumes == 1 && got == 3);
-        assert(batch[0].wire.payload[3] == 1 && batch[1].wire.payload[3] == 2 &&
-               batch[2].wire.payload[3] == 3);
+        assert(batch[0].payload_word(0) == 1 && batch[1].payload_word(0) == 2 &&
+               batch[2].payload_word(0) == 3);
     }
 
     std::printf("[PASS] CoroutineIoEngine: completions posted, MPSC + batch stream verified, 1000 rounds flat\n");

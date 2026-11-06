@@ -89,7 +89,7 @@ async def test_write_and_read_tlp_bursts(dut):
     # 1. Test Ingress Write (0xA1) with rx_ready=0 to hold valid
     dut.i_tlp_rx_ready.value = 0
     test_data = bytes([i % 256 for i in range(60)])
-    test_payload = test_data + zlib.crc32(test_data).to_bytes(4, "big")
+    test_payload = test_data + zlib.crc32(test_data).to_bytes(4, "little")
     dut.i_cs_n.value = 0
     await ClockCycles(dut.clk, 10)
     await send_cmd_byte(dut, CMD_WRITE_BURST)
@@ -109,7 +109,7 @@ async def test_write_and_read_tlp_bursts(dut):
     await ClockCycles(dut.clk, 5)
     assert dut.o_tlp_rx_valid.value == 1, "o_tlp_rx_valid did not assert!"
     rx_int = int(dut.o_tlp_rx_data.value)
-    expected_int = int.from_bytes(test_data + b"\x00" * 4, byteorder='big')
+    expected_int = int.from_bytes(test_data + b"\x00" * 4, byteorder='little')
     assert rx_int == expected_int, "Ingress TLP payload mismatch!"
     dut._log.info("[SUCCESS] Ingress Dual-SPI Write 64B TLP verified!")
 
@@ -143,8 +143,8 @@ async def test_write_and_read_tlp_bursts(dut):
 
     # 2. Test Egress Read (0xA2)
     tx_internal_payload = bytes([(255 - i) % 256 for i in range(60)]) + b"\x00" * 4
-    tx_test_payload = tx_internal_payload[:60] + zlib.crc32(tx_internal_payload[:60]).to_bytes(4, "big")
-    dut.i_tlp_tx_data.value = int.from_bytes(tx_internal_payload, byteorder='big')
+    tx_test_payload = tx_internal_payload[:60] + zlib.crc32(tx_internal_payload[:60]).to_bytes(4, "little")
+    dut.i_tlp_tx_data.value = int.from_bytes(tx_internal_payload, byteorder='little')
     dut.i_tlp_tx_valid.value = 1
     await ClockCycles(dut.clk, 5)
 
@@ -248,18 +248,18 @@ async def test_incremental_crc_varied_frames(dut):
         for _ in range(5):
             data = bytes(rng.randrange(256) for _ in range(60))
             dut.i_tlp_rx_ready.value = 0
-            await write_frame(dut, data + zlib.crc32(data).to_bytes(4, "big"), half)
+            await write_frame(dut, data + zlib.crc32(data).to_bytes(4, "little"), half)
             assert dut.o_tlp_rx_valid.value == 1, f"good frame rejected (half={half})"
-            assert int(dut.o_tlp_rx_data.value) == int.from_bytes(data + b"\x00" * 4, "big")
+            assert int(dut.o_tlp_rx_data.value) == int.from_bytes(data + b"\x00" * 4, "little")
             dut.i_tlp_rx_ready.value = 1
             await ClockCycles(dut.clk, 2)
             await end_frame(dut)
 
             tx = bytes(rng.randrange(256) for _ in range(60))
-            dut.i_tlp_tx_data.value = int.from_bytes(tx + bytes(rng.randrange(256) for _ in range(4)), "big")
+            dut.i_tlp_tx_data.value = int.from_bytes(tx + bytes(rng.randrange(256) for _ in range(4)), "little")
             dut.i_tlp_tx_valid.value = 1
             got = await read_frame(dut, half)
-            assert got == tx + zlib.crc32(tx).to_bytes(4, "big"), f"egress CRC mismatch (half={half})"
+            assert got == tx + zlib.crc32(tx).to_bytes(4, "little"), f"egress CRC mismatch (half={half})"
     assert (int(dut.o_status_flags.value) & 0x4) == 0, "no CRC error expected"
 
 

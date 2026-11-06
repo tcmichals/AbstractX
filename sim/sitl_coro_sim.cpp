@@ -106,18 +106,12 @@ private:
                     // I2C 400kHz Barometer conversion & read delay = 1500 us (1.5 ms)
                     bus_delay = std::chrono::microseconds(1500);
                     uint32_t pressure_pa = 101325u + static_cast<uint32_t>(rand() % 50); // 1013.25 hPa
-                    resp.wire.payload[0] = static_cast<uint8_t>(pressure_pa >> 24);
-                    resp.wire.payload[1] = static_cast<uint8_t>(pressure_pa >> 16);
-                    resp.wire.payload[2] = static_cast<uint8_t>(pressure_pa >> 8);
-                    resp.wire.payload[3] = static_cast<uint8_t>(pressure_pa & 0xFF);
+                    resp.set_payload_word(0, pressure_pa);
                 } else if (req.target_address() == REG_MAG_HEADING) {
                     // I2C 400kHz Magnetometer read delay = 800 us
                     bus_delay = std::chrono::microseconds(800);
                     uint32_t heading_deg = 180;
-                    resp.wire.payload[0] = static_cast<uint8_t>(heading_deg >> 24);
-                    resp.wire.payload[1] = static_cast<uint8_t>(heading_deg >> 16);
-                    resp.wire.payload[2] = static_cast<uint8_t>(heading_deg >> 8);
-                    resp.wire.payload[3] = static_cast<uint8_t>(heading_deg & 0xFF);
+                    resp.set_payload_word(0, heading_deg);
                 } else {
                     // High-speed SPI Register Read / Write = 10 us
                     bus_delay = std::chrono::microseconds(10);
@@ -191,10 +185,7 @@ Task<void> baro_altitude_task(CoroutineIoEngine& io, FlightStatistics& stats, st
     stats.baro_reads_completed++;
     in_baro_read = false;
 
-    uint32_t raw_pressure = (static_cast<uint32_t>(resp.wire.payload[0]) << 24) |
-                            (static_cast<uint32_t>(resp.wire.payload[1]) << 16) |
-                            (static_cast<uint32_t>(resp.wire.payload[2]) << 8)  |
-                            static_cast<uint32_t>(resp.wire.payload[3]);
+    uint32_t raw_pressure = resp.payload_word(0);
     (void)raw_pressure;
     co_return;
 }
@@ -216,8 +207,8 @@ Task<uint32_t> read_baro_and_mag_concurrent(CoroutineIoEngine& io, FlightStatist
     Tlp64 mag_resp  = co_await io.async_read(REG_MAG_HEADING);
 
     stats.ekf_fusions_completed++;
-    uint32_t pressure = (static_cast<uint32_t>(baro_resp.wire.payload[0]) << 24) | baro_resp.wire.payload[1];
-    uint32_t heading  = (static_cast<uint32_t>(mag_resp.wire.payload[0]) << 24)  | mag_resp.wire.payload[1];
+    uint32_t pressure = baro_resp.payload_word(0);
+    uint32_t heading  = mag_resp.payload_word(0);
     co_return pressure + heading;
 }
 

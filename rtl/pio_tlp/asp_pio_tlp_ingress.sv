@@ -72,7 +72,7 @@ module asp_pio_tlp_ingress #(
             end else begin
                 we    = 1'b1;
                 waddr = {wr_ptr[SW-1:0], wr_idx};
-                wdata = asp_tlp_pkg::tlp_word(s_tlp_tdata, int'(wr_idx));
+                wdata = asp_tlp_pkg::tlp_stream_word(s_tlp_tdata, int'(wr_idx));
                 s_tlp_tready = wr_idx == wr_cnt - 4'd1;
             end
         end

@@ -215,9 +215,21 @@ configuration:
   unconnected: an undriven `tvalid` enters the egress arbiter as X/Z. The QMTECH top has no PIO tile
   yet (pio2 `[SPEC-ICN-11]` plans `pio2_core` with its own Zynq adapter), so its `s_pio_stream_*` is
   tied off (2026-11-05, found by `rtl-lint` `PINMISSING`).
+* **Word order (2026-11-06, [SPEC-TLP-01] little-endian)**: a TLP crosses GP0 as 16 DWORDs on
+  `REG_TLP_IN_PORT` / `REG_TLP_OUT_PORT`, DW0 first; DW k is TLP bytes 4k..4k+3 read as a little-endian
+  word, i.e. bits `[32k+31:32k]` of the router vector. Software copies the `asp_tlp64_t` words as they
+  are (no swap); this fixes EL-1027-16 (C++ sent DW0 first while the big-endian RTL expected it last).
+* **One user (EL-1027-22)**: the TLP ports have one user at a time. A read of `REG_TLP_OUT_PORT` word 15
+  consumes the egress TLP and the ingress word index is shared, so a second process steals completions
+  or interleaves words. Every user (`ZynqUioBridge::open_uio`, `zynq_diagnostics.py`) takes an exclusive
+  non-blocking `flock` on the UIO device and refuses to start while another holds it. A diagnostic read
+  that sees a TLP that is not its completion keeps it (counted, shown by the stream monitor), never
+  drops it silently.
 * **Refines**: `[SPEC-TLP-01]`
 * **Method**: `Test`
-* **Verified by**: `cocotb-regression` (`test_asp_router_cocotb`)
+* **Verified by**: `cocotb-regression` (`test_asp_router_cocotb`, `test_asp_axi_lite_bridge_cocotb`),
+  `host-tests` (`tests/test_zynq_diagnostics.py`: word order against the RTL field map, lock, kept TLPs;
+  `sim/test_zynq_target.cpp`: `ZynqUioBridge` moves the 16 words DW0 first, and refuses a second user)
 
 ### `[SPEC-ZYNQ-07]` Two Transport Paths: Mailbox for Small Messages, DMA for Streams
 * **Decision (project owner, 2026-10-30)**: the FPGA is **100% PIO**: the pio2 tile
@@ -259,10 +271,8 @@ configuration:
   AXI4-Lite slave for registers, and `pio2_ring_dma` on `S_AXI_HP0` with one DDR ring per channel
   for streams (`generic-uio`, uncached carveout). The Xilinx AXI MCDMA plan is dropped. As of pio2
   `89fc1b6` (the submodule pin) `pio2_zynq_adapter` / `pio2_ring_dma` are specified, not yet in RTL.
-* **Open (this repo)**: `rtl/asp_top.sv` and `top_qmtech_zynq7020.sv` still instantiate
-  fixed-function cores (`asp_uart_core`, `asp_dshot_core`, `asp_imu_auto_dma`,
-  `asp_neopixel_core`, `asp_pwm_decoder`) and `rtl/asp_axi_dma.sv` exists; under this decision
-  they are to be removed or replaced by PIO programs (not done).
+* **Done (2026-11-05, `73631b0`)**: the fixed-function cores and `asp_axi_dma.sv` are removed; both tops
+  are all-PIO ([SPEC-TLP-07]).
 * **Verified by**: `cocotb-regression`, `board-bringup`
 * **Implementation Target**: `rtl/pio/`, `rtl/asp_pio_wrap.sv`, `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`, `targets/zynq7000/`
 * **Not implemented yet**: decided 2026-10-30; UART PIO program, DMA path choice and endpoint mapping are open (`TODO.md` section 2a).

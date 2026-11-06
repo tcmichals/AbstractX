@@ -31,7 +31,7 @@ PIO_WRAP_SOURCES = $(TLP_PKG) $(AXIL_IF) $(PIO_WRAP_ONLY)
 CTRL_ONLY = $(RTL_DIR)/asp_tlp_axil_master.sv $(RTL_DIR)/asp_sys_regs.sv $(RTL_DIR)/asp_ctrl_plane.sv
 
 ifeq ($(TOPLEVEL), asp_spi_frontend)
-    VERILOG_SOURCES = $(RTL_DIR)/spi/asp_spi_frontend.sv
+    VERILOG_SOURCES = $(TLP_PKG) $(RTL_DIR)/spi/asp_spi_frontend.sv
 else ifeq ($(TOPLEVEL), asp_router)
     VERILOG_SOURCES = $(TLP_PKG) $(RTL_DIR)/asp_router.sv
 else ifeq ($(TOPLEVEL), asp_sys_regs)
