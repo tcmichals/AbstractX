@@ -41,7 +41,7 @@ public:
     bool init(const SpiConfig& config) override;
     void select(bool active) override;
 
-    void start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len) noexcept;
+    bool start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len) noexcept;   // false: not started
     void on_dma_complete_from_isr() noexcept;
     bool is_hardware_busy() const noexcept { return busy_; }
 

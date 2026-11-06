@@ -275,6 +275,10 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
   dropped and counted (`tx_dropped()`); `write()` returns the bytes it took and stops at the first
   that did not fit; the async write (`UartTxRequest`) completes with those bytes and `QueueFull` when
   not all fit, `Ok` otherwise. It completes when the bytes are queued, not when they leave the pin.
+* **Requirement (SPI start that cannot run, 2026-11-06, full-audit buses finding 10)**: when the SPI
+  transfer cannot start (no DMA channel claimed, or no hardware in a non-device build), the request
+  completes at once with `DmaError`, `transferred_bytes = 0`, and the driver goes idle, so later requests
+  run. Before, the start returned with the driver marked busy and nothing ever completed it.
 * **Not yet covered**: not run on hardware.
 * **Refines**: `[SPEC-HAL-01]`, `[SPEC-HAL-02]`
 * **Method**: `Inspection` (cross-build only; no Pico host test harness or board run yet)

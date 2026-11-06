@@ -102,9 +102,9 @@ void PicoSpi::select(bool active) {
 }
 
 
-void PicoSpi::start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len) noexcept {
+bool PicoSpi::start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len) noexcept {
 #ifdef PICO_ON_DEVICE
-    if (g_spi_rx_dma_chan < 0 || g_spi_tx_dma_chan < 0) return;
+    if (g_spi_rx_dma_chan < 0 || g_spi_tx_dma_chan < 0) return false;   // caller completes with DmaError
 
     busy_ = true;
 
@@ -149,18 +149,28 @@ void PicoSpi::start_dma_transfer_raw(const uint8_t* tx, uint8_t* rx, size_t len)
 
     // Trigger simultaneous full-duplex burst
     dma_start_channel_mask((1u << g_spi_rx_dma_chan) | (1u << g_spi_tx_dma_chan));
+    return true;
 #else
     (void)tx;
     (void)rx;
     (void)len;
     busy_ = false;
+    return false;                                   // no hardware: the caller completes with DmaError
 #endif
 }
 
 void PicoSpi::start_hardware_transfer_from_isr(const SpiRequest& req) noexcept {
     active_req_ = req;
     size_t len = req.tx_data.empty() ? req.rx_data.size() : req.tx_data.size();
-    start_dma_transfer_raw(req.tx_data.data(), req.rx_data.data(), len);
+    // @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md (SPI start that cannot run)
+    if (!start_dma_transfer_raw(req.tx_data.data(), req.rx_data.data(), len)) {
+        busy_ = false;
+        SpiResult result{};
+        result.status = SpiStatus::DmaError;
+        result.transferred_bytes = 0;
+        push_completion_from_isr(active_req_, result);
+        set_hardware_idle_from_isr();               // the next queued request still runs
+    }
 }
 
 // @impl [SPEC-PICO-HAL-01] targets/pico2w_rp2350/SPECIFICATION.md
