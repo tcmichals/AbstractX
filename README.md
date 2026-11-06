@@ -362,7 +362,7 @@ Explore the comprehensive engineering series detailing silicon bring-up, corouti
   * [**Device Tree Overlays: U-Boot & `config.txt` Integration**](https://github.com/tcmichals/cubie-a5e/blob/main/docs/articles/devicetreeOverlay.md) — Dynamic pinmuxing, peripheral arbitration between Linux and E906, and Sunxi DMAC channel reservations.
   * [**Companion Repository: `tcmichals/cubie-a5e`**](https://github.com/tcmichals/cubie-a5e) — Reference repository for Radxa Cubie A5E Linux driver development, kernel buildroot setups, device tree overlays, and E906 coprocessor demo firmware.
 * **Coroutine Concurrency & Zero-Heap Determinism**:
-  * [**Jumpstarting Heterogeneous Silicon: From Python `asyncio` to Freestanding C++20**](docs/articles/INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md) — Architectural pattern for heterogeneous multi-core SoCs, split-transaction drivers, and memory-mapped virtual BARs.
+  * [**Start here: From a Sensor on a Header to a Production Driver**](docs/articles/INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md) — Probe a sensor from MicroPython on the E906, then write the C++20 coroutine driver that ships; Linux never touches the bus.
   * [**Straight-Line Async: Sub-Microsecond C++20 Coroutines on Raspberry Pi Pico 2 W**](docs/articles/gps-compass-straight-line-async/README.md) — 8 kHz IMU, GPS, and compass streaming on RP2350 dual Cortex-M33 with zero RTOS stacks.
 * **FPGA Hardware Switch Fabrics & RTL Acceleration**:
   * [**Polymorphic Silicon: C++ to SystemVerilog FPGA Switch Fabric (QMTech Zynq-7020)**](docs/articles/PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md) — Offloading the C++ I/O processor into SystemVerilog AXI-Stream crossbars and auto-DMA.

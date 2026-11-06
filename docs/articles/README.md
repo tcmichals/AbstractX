@@ -22,6 +22,7 @@ coroutine ~31 µs average, Part 6). Where an article uses Linux `spidev`, it is 
 
 ## Articles & Benchmark Series
 
+- [Start here: From a Sensor on a Header to a Production Driver (AbstractX on the Allwinner T527)](./INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md)
 - [Embedded Firmware Observability on a Budget: Tracking Memory & Traceability Using Pure GitHub](./GITHUB_NATIVE_EMBEDDED_OBSERVABILITY.md)
 - [Deterministic HW/SW Co-Design: Structuring Knowledge Bases for Agentic AI in FPGA & Embedded Systems](./AGENTIC_AI_AND_RAG_COMPARISON.md)
 - [Scaling Beyond Fixed TLPs: Lessons from Open-Source PCIe & AXI-Stream (Alex Forencich Patterns)](./PCIE_AXI_STREAMING_ARCHITECTURAL_LESSONS.md)
@@ -29,5 +30,4 @@ coroutine ~31 µs average, Part 6). Where an article uses Linux `spidev`, it is 
 - [Experiment First, Compile Later: Python on Both Processors of the Allwinner T527 (Part 5: device tree, remoteproc, RPMsg streams, MicroPython on the E906, Studio)](./micropython-on-e906/README.md)
 - [Linux vs FreeRTOS vs AbstractX on the Allwinner T527](./linux-vs-freertos-vs-abstractx/README.md)
 - [Where Should the IMU Live on the T527? Linux on the A55, or the E906? (Part 6, draft: E906 bare-metal column measured, others pending)](./sensor-placement-t527/README.md)
-- [Jumpstarting Heterogeneous Silicon with AbstractX: From Python `asyncio` to Freestanding C++20](./INTRO_ABSTRACTX_HETEROGENEOUS_DEVELOPMENT.md)
 
