@@ -109,12 +109,12 @@ def run_test(args, records) -> list[dict]:
         results.append(ledger.with_delta(rec, prev))
 
     for label, build in pairs(args.ctest):
-        code, out, dur = tc.run(["ctest", "--test-dir", str(build), "-j8", "--timeout", "300"], ROOT)
+        code, out, dur = tc.run(["ctest", "--test-dir", str(build), "-j8", "--timeout", "60"], ROOT)   # 60 s per test, like tools/gate.sh
         m = tc.parse_ctest(out)
         add(f"ctest:{label}", code == 0 and bool(m) and m["failed"] == 0, m, [], dur, "ctest",
             "" if m else "no ctest summary")
     if args.cocotb:
-        code, out, dur = tc.run(["python3", "tools/run_cocotb.py"], ROOT, tc.oss_env())
+        code, out, dur = tc.run(["python3", "tools/run_cocotb.py", "--timeout", "60"], ROOT, tc.oss_env())   # 60 s per sim
         m = tc.parse_cocotb(out)
         add("cocotb:all", code == 0 and bool(m) and m["targets"] == m["targets_passed"], m, [], dur,
             "cocotb", "" if m else "no summary (oss-cad-suite missing?)")
