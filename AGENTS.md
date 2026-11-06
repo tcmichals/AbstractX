@@ -105,7 +105,7 @@ When building applications that ingest multiple sensors running at different rat
 Applications written against `abstractx::` MUST compile and run identically across all supported platforms without target preprocessor conditionals:
 1. **Raspberry Pi Pico 2 W**: Dual ARM Cortex-M33 @ 150 MHz, hardware single-precision FPU, Core 1 coroutine engine, Core 0 PIO/DMA + Wi-Fi.
 2. **Espressif ESP32-P4**: Dual RISC-V RV32IMAFDC @ 400 MHz, hardware FPU, Core 1 coroutines, Core 0 GDMA + Wi-Fi 6.
-3. **Allwinner Cubie A5E (Pure Silicon / No FPGA)**: Quad AArch64 @ 1.4 GHz Linux + XuanTie E906 RISC-V coprocessor, shared SRAM rings + `sun6i-msgbox`, driving on-chip SPI0, TWI0, UART2.
+3. **Allwinner Cubie A5E (Pure Silicon / No FPGA)**: Quad AArch64 @ 1.4 GHz Linux + XuanTie E906 RISC-V coprocessor, shared SRAM rings + `sun6i-msgbox`, driving on-chip SPI1, TWI1, UART3 (the header ports, [SPEC-E906-HAL-04]).
 4. **Allwinner Cubie A5E + FPGA (Hardware X-Fabric)**: Quad AArch64 @ 1.4 GHz + XuanTie E906 + Gowin/Zynq FPGA AXI-Stream crossbar switch fabric (`asp_router.sv`).
 5. **Desktop SITL**: Native Linux x86_64 / AArch64 under GDB/ASan with software loopback.
 
@@ -121,7 +121,7 @@ All bare-metal cross-compilation environments in AbstractX MUST adhere to the st
    - FPGA Tools: `~/.tools/oss-cad-suite/bin`
 2. **Nano Libc Mandate (`--specs=nano.specs`, `--specs=nosys.specs`)**:
    - All bare-metal ARM and RISC-V targets MUST link with `newlib-nano` (`--specs=nano.specs`) to eliminate bloated standard library I/O, heavy string formatting, and dynamic heap stubs.
-   - Combined with `-fno-exceptions`, `-fno-rtti`, `-nostartfiles`, and freestanding C++20, this guarantees sub-16 KB binary footprints and 0 dynamic heap allocations.
+   - Combined with `-fno-exceptions`, `-fno-rtti`, `-nostartfiles`, and freestanding C++20, this keeps binaries small; sizes are measured per build (`analyze_elf_size.sh`, e.g. `e906_repl_app` 141.9 KB of 192 KB `SRAM_FAST` on 2026-11-06), never promised. Zero heap is the rule, checked with `nm -u`; `malloc` is still linked in some E906 and Pico apps (EL-1027-31, open).
 
 ### Hardware Timer & Comparator Ownership (Single Authority Invariant) `[SPEC-E906-RTOS-03]`
 On targets where AbstractX executes alongside or hosted by an RTOS kernel (e.g. FreeRTOS on the XuanTie E906), the hardware core timer comparator (e.g. RISC-V `mtimecmp` at `0xE0004000`) has strictly **one owner**: the RTOS kernel.
@@ -179,7 +179,7 @@ Whenever fixing a bug, addressing an algorithmic refinement, resolving a test fa
 5. **Verification Gate**:
    - Run `python3 tools/audit_specs.py` to confirm 100% spec-to-code traceability.
    - Run the canonical review entry point `python3 tools/spectrace.py --review` (`--module <module>` for changed work; `--base-ref origin/main` for branch diffs; `--all-modules` only for an intentional full maintained-module sweep). Linux host code is excluded unless explicitly selected, and generated/vendor output is pruned.
-   - Run `ctest --test-dir build` / Cocotb regression suites (100% pass rate).
+   - Run `tools/gate.sh` (host suites, sanitizers, static analysis, boundary review) and the cocotb suites; report the numbers they print.
 
 ---
 

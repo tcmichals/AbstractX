@@ -21,10 +21,10 @@ static inline bool is_valid_e906_addr(uintptr_t addr) {
     // SRAM ranges:
     // SRAM Space 0 / 1 / B / C: 0x00020000 - 0x00080000
     // Remoteproc shared SRAM: 0x3FFC0000 - 0x40040000
-    // Peripheral registers: 0x02000000 - 0x08000000
+    // Peripheral registers: 0x02000000 - 0x08000000 (regs-ok: peek/poke bounds, [SPEC-HAL-15])
     if ((addr >= 0x00020000 && addr < 0x00080000) ||
         (addr >= 0x3FFC0000 && addr < 0x40040000) ||
-        (addr >= 0x02000000 && addr < 0x08000000)) {
+        (addr >= 0x02000000 && addr < 0x08000000)) {  /* regs-ok: peek/poke bounds */
         return true;
     }
     return false;

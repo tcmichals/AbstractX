@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # @impl [SPEC-ZYNQ-01] [SPEC-ZYNQ-02] [SPEC-ZYNQ-03] [SPEC-ZYNQ-06] hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md
 # @impl [SPEC-TLP-01] docs/DESIGN_SPECIFICATION.md (TLP layout: RTL package <-> C header <-> Python formats)
+# @impl [SPEC-HAL-15] docs/DESIGN_SPECIFICATION.md (rule facts against the headers, no register addresses in apps/)
 """
 check_register_parity.py - Hardware-Software Register Contract & Parity Auditor
 ================================================================================
@@ -310,6 +311,79 @@ def check_tlp_layout(root: Path) -> list[str]:
     return errors
 
 
+def _hex_defines(path: Path) -> dict[str, int]:
+    out = {}
+    for m in re.finditer(r"#define\s+(\w+)\s+(0x[0-9A-Fa-f]+)", path.read_text()):
+        out[m.group(1)] = int(m.group(2), 16)
+    return out
+
+
+def _constexpr_ints(path: Path) -> dict[str, int]:
+    out = {}
+    for m in re.finditer(r"constexpr\s+\w+\s+(\w+)\s*=\s*(0x[0-9A-Fa-f]+|\d+)U?\s*;", path.read_text()):
+        out[m.group(1)] = int(m.group(2), 0)
+    return out
+
+
+# Atlas table row label -> (memory_map.h define, clic.hpp GIC constant, dma.hpp DRQ constant)
+ATLAS_ROWS = {
+    "UART3": ("UART3_BASE", "kGicUart3", "DRQ_UART3"),
+    "TWI1": ("TWI1_BASE", "kGicTwi1", None),
+    "SPI1": ("SPI1_BASE", None, None),
+    "MSGBOX": ("MSGBOX_BASE", None, None),
+}
+
+
+def check_rule_facts(root: Path) -> list[str]:
+    """[SPEC-HAL-15] copies of the facts: the silicon atlas rule against the E906 headers (EL-1027-27)."""
+    errors = []
+    atlas = root / ".agents/rules/silicon-api-atlas.md"
+    inc = root / "targets/allwinner_e906/include"
+    if not atlas.exists():
+        return [f"{atlas} not found"]
+    defs = _hex_defines(inc / "memory_map.h")
+    clic = _constexpr_ints(inc / "hal/clic.hpp")
+    dma = _constexpr_ints(inc / "hal/dma.hpp")
+    text = atlas.read_text()
+    for label, (base, gic, drq) in ATLAS_ROWS.items():
+        row = re.search(rf"^\|\s*\*\*{label}\b[^|]*\|([^|]*)\|", text, re.M)
+        if not row:
+            errors.append(f"silicon atlas: no row for {label}")
+            continue
+        cell = row.group(1)
+        addr = re.search(r"`(0x[0-9A-Fa-f]+)`", cell)
+        if not addr or int(addr.group(1), 16) != defs.get(base):
+            errors.append(f"silicon atlas {label}: base {addr.group(1) if addr else '?'}, memory_map.h {base} = "
+                          f"{hex(defs[base]) if base in defs else 'missing'}")
+        if gic:
+            m = re.search(r"GIC (\d+)", cell)
+            if not m or int(m.group(1)) != clic.get(gic):
+                errors.append(f"silicon atlas {label}: GIC {m.group(1) if m else '?'}, clic.hpp {gic} = {clic.get(gic)}")
+        if drq:
+            m = re.search(r"DRQ (\d+)", cell)
+            if not m or int(m.group(1)) != dma.get(drq):
+                errors.append(f"silicon atlas {label}: DRQ {m.group(1) if m else '?'}, dma.hpp {drq} = {dma.get(drq)}")
+    m = re.search(r"CLIC at \*\*`(0x[0-9A-Fa-f]+)`\*\*", text)
+    if not m or int(m.group(1), 16) != clic.get("kBase"):
+        errors.append(f"silicon atlas: CLIC base {m.group(1) if m else '?'}, clic.hpp kBase = {clic.get('kBase')}")
+    return errors
+
+
+APP_REG_LITERAL = re.compile(r"\b0x(?:0[2-7][0-9A-Fa-f]{6}|[Ee]0[0-9A-Fa-f]{6})\b")
+
+
+def check_app_register_literals(root: Path) -> list[str]:
+    """[SPEC-HAL-15]: no SoC register address in C/C++ under apps/ (lines marked regs-ok: are allowed)."""
+    errors = []
+    for f in sorted(root.glob("apps/**/*")):
+        if f.suffix not in {".c", ".cpp", ".h", ".hpp"} or "third_party" in f.parts or "micropython" in f.parts:
+            continue
+        for n, line in enumerate(f.read_text(errors="replace").splitlines(), 1):
+            if APP_REG_LITERAL.search(line) and "regs-ok:" not in line:
+                errors.append(f"{f.relative_to(root)}:{n}: register address in an app: {line.strip()[:90]}")
+    return errors
+
+
 def main() -> int:
     root = Path(__file__).resolve().parent.parent
     all_errors = []
@@ -348,6 +422,16 @@ def main() -> int:
             print(f"  {RED}* {e}{RESET}")
     else:
         print(f"[{GREEN}PASS{RESET}] TLP Layout Parity (asp_tlp_pkg.sv <-> asp_tlp64_t <-> Python '<BBBBIHHQ')")
+
+    # Agent rule facts and app register literals ([SPEC-HAL-15], EL-1027-27)
+    rule_errs = check_rule_facts(root) + check_app_register_literals(root)
+    if rule_errs:
+        all_errors.extend(rule_errs)
+        print(f"[{RED}FAIL{RESET}] Rule Facts / App Register Literals ({len(rule_errs)} errors)")
+        for e in rule_errs:
+            print(f"  {RED}* {e}{RESET}")
+    else:
+        print(f"[{GREEN}PASS{RESET}] Rule Facts (silicon atlas <-> E906 headers), no register addresses in apps/")
 
     # Check E906 Memory Map
     e906_errs = check_e906_memory_map(root)

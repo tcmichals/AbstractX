@@ -1129,7 +1129,15 @@ sequenceDiagram
   ([SPEC-HAL-10]); each target lists its port numbers in its own specification.
 * **Status (2026-10-27)**: E906 TWI0/TWI1 follow this; E906 UART2/UART3 next. Pico 2 W, ESP32-P4,
   Linux and Zynq do not implement `get_*_port` yet and have no `ports.hpp`.
-* **Verified by**: `e906-build-layout`, `boundary-enforcement` (no register addresses under `apps/`)
+* **Requirement (copies of the facts are checked, EL-1027-27, 2026-11-06)**: agent rule files repeat
+  silicon facts so agents need not look them up (`.agents/rules/silicon-api-atlas.md`); every base address,
+  interrupt number and DMA request they list for a target with a port table is compared with that target's
+  headers (`memory_map.h`, `hal/clic.hpp`, `hal/dma.hpp`) by `tools/check_register_parity.py`, so a stale
+  copy fails instead of misleading the next change (EL-1027-12: the atlas named UART2 PB0/PB1 for the
+  GPS). C/C++ under `apps/` holds no SoC register address (`0x02000000`-`0x07FFFFFF`, `0xE0xxxxxx` on the
+  E906); a line that needs a range (the REPL's peek/poke bounds) says so with `regs-ok: <reason>`.
+* **Verified by**: `e906-build-layout`, `hw-sw-register-parity` (`tools/check_register_parity.py`: rule
+  facts against the headers, no register addresses in C/C++ under `apps/`)
 * **Implementation Target**: `include/abstractx/hal/platform.hpp`, `targets/allwinner_e906/include/hal/ports.hpp`
 
 ### `[SPEC-HAL-11]` Deprecated Single-Buffer Bus APIs and Their Replacements

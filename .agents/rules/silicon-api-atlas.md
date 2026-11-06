@@ -26,8 +26,8 @@ This rule provides an instant, authoritative reference for the AbstractX C++20 c
 ### Memory Windows (Linux Host PA vs. E906 Core DA)
 | Region Name | E906 Core DA | Host PA | Size | Invariant / Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **SRAM Space 0** (`r_sram`) | `0x3FFC0000` | `0x07280000` | 256 KB | **100% Firmware Pool** (vectors, text, data, bss, stack, trace0). 0 DDR! |
-| **SRAM Space 1** (`r_sram1`) | `0x40000000` | `0x072C0000` | 256 KB | VirtIO vrings, message buffers (`cubie-a5e-rpmsg-sram`). |
+| **SRAM Space 0** (`r_sram`) | `0x3FFC0000` | `0x07280000` | 256 KB | Vectors, code, data, bss, stack in the first 192 KB (`SRAM_FAST`); shared tail `0x3FFF0000` (64 KB): ping channel, DRAM-SPSC control, crash dump. 0 DDR ([SPEC-E906-MEM-01]). |
+| **SRAM Space 1** (`r_sram1`) | `0x40000000` | `0x072C0000` | 256 KB | Lower 128 KB: resource table, trace0, cold code (`.text_cold`), NOLOAD buffers (`.sram_c`). Upper 128 KB (`0x40020000`): Linux RPMsg pool (vrings, buffers); firmware places nothing there. |
 | **Cadence HiFi4 DSP RAM** | `0x00020000` | `0x00020000` | 128 KB | Quarantined MicroPython GC heap (`gc_init`). |
 | **CFG Control Block** | `0x07130000` | `0x07130000` | 4 KB | `0x0204` (`STA_ADD_REG`), `0x0248` (`WORK_MODE_REG`). |
 
@@ -45,7 +45,7 @@ Drivers take these from `targets/allwinner_e906/include/hal/ports.hpp` ([SPEC-HA
 * **1024 (`abstractx-tlp`)**: 64-byte TLPs batched up to 7 per 512B frame (`asp_tlp64_t`).
 * **1025 (`abstractx-trace`)**: Zero-copy binary barectf CTF 1.8 trace frames (up to 496 B).
 * **1026 (`abstractx-repl`)**: MicroPython interactive REPL text streams (`>>> `).
-* **RemoteProc `trace0` (`0x3FFEF08C`, 1 KB)**: Strictly liveness (`[E906] Online`) and crash autopsies (`hal_crash_dispatcher`). Zero general printf.
+* **RemoteProc `trace0` (`0x4000008C` in Space 1 after the resource table, 1 KB; measured in `e906_repl_app` 2026-11-06)**: Strictly liveness (`[E906] Online`) and crash autopsies (`hal_crash_dispatcher`). Zero general printf.
 
 ---
 
