@@ -253,5 +253,32 @@ uint32_t abstractx_tlp_dropped_count(void) {
     return abstractx::hal::g_telemetry_dropped;
 }
 
+// readline's cursor helpers without snprintf ([SPEC-E906-MEM-03]): ESC [ <pos> D and ESC [ K.
+// @impl [SPEC-E906-MEM-03] targets/allwinner_e906/SPECIFICATION.md
+void mp_hal_move_cursor_back(unsigned int pos) {
+    if (pos <= 4) {
+        mp_hal_stdout_tx_strn("\b\b\b\b", pos);
+        return;
+    }
+    char cmd[16];
+    size_t n = 0;
+    cmd[n++] = '\x1b';
+    cmd[n++] = '[';
+    char digits[10];
+    size_t d = 0;
+    do {
+        digits[d++] = static_cast<char>('0' + pos % 10U);
+        pos /= 10U;
+    } while (pos != 0U && d < sizeof(digits));
+    while (d > 0) cmd[n++] = digits[--d];
+    cmd[n++] = 'D';
+    mp_hal_stdout_tx_strn(cmd, n);
+}
+
+void mp_hal_erase_line_from_cursor(unsigned int n_chars_to_erase) {
+    (void)n_chars_to_erase;
+    mp_hal_stdout_tx_strn("\x1b[K", 3);
+}
+
 } // extern "C"
 

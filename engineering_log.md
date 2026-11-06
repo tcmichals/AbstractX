@@ -2911,7 +2911,7 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 | EL-1027-28 | **reviewed 2026-11-06: Spi0 gone, Port C writes removed, CS1 refused; Port B RMW / hardware CS open** E906 SPI | `E906IoProcessor` calls `fc::hal::Spi0::init` but the header routes only SPI1 ([SPEC-E906-HAL-03]); target SPI0/SPI1 and `platform.cpp` adapter classes (`E906SpiDriver`, `E906TimerDriver`, `E906GpioDriver`) not yet reviewed against one-file-per-driver | `targets/allwinner_e906/src/io_processor.cpp:55`, `platform.cpp` | review SPI next, same method as TWI/UART | `e906-board-selftest` |
 | EL-1027-29 | E906 size | `get_*_port` in `platform.cpp` links every port driver into every app (UART3 +3.9 KB text in apps that never use it); `e906_repl_app` SRAM_FAST 94.8% | `[SPEC-E906-HAL-04]` rule 4 | accept or split port lookup | `memory-footprint` |
 | EL-1027-30 | board | not run on hardware: GPS on UART3 (`abstractx.uart_*`, DMA and IRQ modes), `serial_loopback_app` on header pins 16/31, compass on TWI1 (and its new bus clock, EL-1027-07), async I2C timeout | | run on the Cubie A5E | `e906-board-selftest` |
-| EL-1027-31 | E906 heap | `_malloc_r` / `_sbrk` linked into e906_repl_app, gps_imu_app, serial_loopback_app, e906_bench_app (already at `2dfa62a`) | `riscv-none-elf-nm` | deferred by the project owner (2026-10-27) | `memory-footprint` (whole symbol table since 2026-11-06, [SPEC-AUDIT-19]; it now fails on every E906 and Pico image) |
+| EL-1027-31 | E906 heap | `_malloc_r` / `_sbrk` linked into e906_repl_app, gps_imu_app, serial_loopback_app, e906_bench_app (already at `2dfa62a`) | `riscv-none-elf-nm` | deferred by the project owner (2026-10-27) | **closed 2026-11-06** for the E906 ([SPEC-E906-MEM-03]: trapping `operator delete`, hosted-only file trace sink, discarded C stdout, readline cursor without `snprintf`; all 8 E906 images pass and the build checks it). Pico: reported, not failed (owner decision) |
 | EL-1027-32 | process | `--check-verifies`: 64 unbacked `@verifies` claims; `boundary_review.py --check`: 20 shared variables without an ownership note (both pre-existing) | tool output | work down the lists | the tools |
 | EL-1027-33 | **done 2026-11-06 for Pico / Linux / Zynq ([SPEC-PICO-HAL-04], [SPEC-LINUX-HAL-02]); ESP32-P4 still a stub** other targets | Pico 2 W, ESP32-P4, Linux, Zynq have no `hal/ports.hpp` / `get_*_port` ([SPEC-HAL-15] status) | `[SPEC-HAL-15]` | per target | build per target |
 | EL-1027-34 | INAV repo | `flightcode/inav` `docs/ARCHITECTURE.md:369` and `TODO.md:137-145` point to the removed `AbstractX/apps/inav_e906_app` and claim "100% VERIFIED LIVE … 0 Heap"; `src/target/linux_sbc/a5e_riscv_target.hpp` is a stub (empty RPMsg write, `std::thread`). INAV `CLAUDE.md` forbids commits without the owner's instruction | INAV repo | owner decides; E906 runs generic AbstractX firmware (decided 2026-10-27) | n/a |
@@ -4215,3 +4215,28 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `tests/test_membrowse_tracking.py`: an object that defines `_malloc_r`, one that defines `_Znwj`, a missing ELF, a clean object, `--elf` exit codes. **Old checker: 4 of 5 tests fail. New: 5 of 5 pass.**
 * Today's images (all built earlier today, not rebuilt): every E906 image (`e906_repl_app`, `e906_bench_app`, `e906_freertos_app`, `e906_unit_tests`, `gps_imu_app`, `serial_loopback_app`) and the Pico `gps_imu_app.elf` **fail**: `free`, `_free_r`, `operator delete`, and except `e906_unit_tests` also `_malloc_r`, `_sbrk`. That is EL-1027-31, still open and deferred by the owner.
 * AGENTS.md §6, `.agents/rules/e906-memory-tracking.md`, `.agents/rules/toolchain-standardization.md` and the skill no longer say `nm -u`.
+
+## [2026-11-06] - E906 images now link no heap (EL-1027-31 closed); four sources, found one at a time
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906`, `include/abstractx/trace/sink.hpp`, `apps/e906_repl_app`, `apps/gps_imu_app`
+* **Category**: `product-bug`
+* **Symptoms**: the fixed zero-heap check ([SPEC-AUDIT-19]) failed every E906 image: `free`, `_free_r`, `_malloc_r`, `_sbrk`, `operator delete`, and `_realloc_r` in the REPL app.
+
+### 2. Root Cause & Lesson Learned
+* Four separate sources; each fix showed the next one (`ld --trace-symbol` on a hand relink, and callers in `objdump -d`):
+  1. **Deleting destructors**: every class with a virtual destructor makes the compiler emit a call to `operator delete(void*, size_t)`; libstdc++'s version calls `free`, and newlib's `malloc.o` (which holds `free`) brings `_malloc_r` and `_sbrk`.
+  2. **MicroPython readline**: `mp_hal_move_cursor_back()` uses `snprintf`, whose newlib code references `_realloc_r`.
+  3. **AbstractX core**: `abstractx::init()` -> `trace::FileTraceSink::open()` -> `fopen` -> newlib FILE code (`__sfp`, `__smakebuf_r`) -> `_malloc_r`. The file sink is a PC feature; the UDP sink next to it was already hosted-only.
+  4. **`gps_imu_app` `printf` / `puts`**: newlib's stdout allocates its buffer on the first write. On the E906 that text had nowhere to go anyway.
+* **Lesson**: the map file lists every member the linker pulled in, including code `--gc-sections` later drops; the final ELF's call graph is what counts. Also: a failed post-build step makes `make` delete the ELF, so tracing needs a hand relink to a scratch file.
+* **Owner decision**: strict zero heap is the E906's rule (the model platform); the Pico 2 W may link a heap and is reported.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-E906-MEM-03]` No heap in the image (targets/allwinner_e906/SPECIFICATION.md): the four fixes and the build guard.
+* `[SPEC-AUDIT-19]`: `operator delete` is no longer a heap symbol (it cannot allocate without `free`, which is listed); `"heap_policy": "report"` for non-strict targets.
+
+### 4. Implementation & Regression Test
+* `targets/allwinner_e906/src/no_heap.cpp` (INTERFACE source: trapping `operator delete`; `printf`, `iprintf`, `vprintf`, `puts`, `putchar` discard); `FileTraceSink` hosted-only; REPL `MICROPY_HAL_HAS_VT100 = 0` with its own cursor helpers; the E906 post-build hook runs `track_memory_footprint.py --elf` next to the layout check, so a heap symbol fails the build (shown: the first rebuild failed 8 of 8 images, the last passes 8 of 8).
+* `SRAM_FAST` (`analyze_elf_size.sh`): `e906_repl_app` 140.5 -> 133.4 KB (69.5 %); `e906_bench_app` 165.1 KB (86.0 %); `e906_freertos_app` 185.1 KB (96.4 %). All layouts ok.
+* Not run on a board: a discarded `printf` and a trapping `delete` change nothing that was used, but no board run confirms it.

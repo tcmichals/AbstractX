@@ -501,11 +501,16 @@ python3 tools/run_adversarial_audit.py --all
   the 2026-11-06 article review.
 * **Requirement (what counts)**: the check reads the whole symbol table (`nm`, defined and undefined)
   and fails if any of these names is present, by exact name: `malloc`, `free`, `calloc`, `realloc`,
-  `_malloc_r`, `_free_r`, `_calloc_r`, `_realloc_r`, `_sbrk`, `_sbrk_r`, or a global `operator new` /
-  `operator delete` (mangled names starting `_Znw`, `_Zna`, `_ZdlPv`, `_ZdaPv`).
+  `_malloc_r`, `_free_r`, `_calloc_r`, `_realloc_r`, `_sbrk`, `_sbrk_r`, or a global `operator new`
+  (mangled names starting `_Znw`, `_Zna`). `operator delete` is not listed: libstdc++'s calls `free`
+  (caught), and a target's own trapping `delete` cannot allocate ([SPEC-E906-MEM-03]).
 * **Requirement (no silent pass)**: a configured target whose ELF is missing is reported `NOT BUILT`
   and fails, unless `--allow-missing` is given; then it is reported `SKIPPED`, never `PASS`.
   The script exits non-zero when any target fails.
+* **Requirement (which targets are strict, 2026-11-06)**: a configured target fails on a heap symbol
+  unless it has `"heap_policy": "report"` in `tools/membrowse-targets.json`; then its heap symbols are
+  printed as `REPORT` and do not fail the run. The E906 is strict (the model platform,
+  [SPEC-E906-MEM-03]); the Pico 2 W reports (its SDK, Wi-Fi driver and lwIP may allocate).
 * **Requirement (any ELF)**: `--elf PATH...` checks the given ELFs instead of the configured targets
   (for example every `build_e906/apps/*` image).
 * **Verified by**: `memory-footprint` (`tests/test_membrowse_tracking.py`: an object that defines

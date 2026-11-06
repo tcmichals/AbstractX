@@ -51,6 +51,10 @@ public:
     FileTraceSink() = default;
     ~FileTraceSink() override { close(); }
 
+    // Hosted only, like UdpTraceSink: on bare metal there is no filesystem, and newlib's
+    // fopen links its allocator ([SPEC-E906-MEM-03]).
+    // @impl [SPEC-E906-MEM-03] targets/allwinner_e906/SPECIFICATION.md
+#if defined(__linux__) || defined(__unix__) || defined(__APPLE__)
     bool open(const char* target) override {
         close();
         const char* path = (target && target[0] != '\0') ? target : "trace.ctf";
@@ -82,6 +86,13 @@ public:
 
 private:
     std::FILE* file_{nullptr};
+#else
+    bool open(const char* /*target*/) override { return false; }
+    void write(const uint8_t* /*data*/, size_t /*len*/) override {}
+    void flush() override {}
+    void close() override {}
+    bool is_open() const noexcept override { return false; }
+#endif
 };
 
 // UDP Sink (Network stream to Visualizer Studio on UDP port 9870)

@@ -70,9 +70,10 @@ def test_zero_heap_flags_defined_malloc(tmp_path):
 
 
 def test_zero_heap_flags_operator_new_and_passes_clean(tmp_path):
-    obj = _object_defining(tmp_path, "void _Znwj(void) {}\nint freelist_count(void) { return 0; }\n")
+    obj = _object_defining(tmp_path, "void _Znwj(void) {}\nvoid _ZdlPvj(void) {}\nint freelist_count(void) { return 0; }\n")
     ok, msg = audit_zero_heap(obj)
     assert ok is False and "_Znwj" in msg and "freelist_count" not in msg
+    assert "_ZdlPvj" not in msg  # a trapping operator delete cannot allocate ([SPEC-E906-MEM-03])
     clean = _object_defining(tmp_path, "int freelist_count(void) { return 0; }\nint main(void) { return 0; }\n")
     ok, msg = audit_zero_heap(clean)
     assert ok is True, msg

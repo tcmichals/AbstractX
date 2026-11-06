@@ -15,7 +15,9 @@
       "short": "pico2w",
       "memory_model": "flash_ram",
       "size_tool": "arm-none-eabi-size",
-      "requirements": []
+      "requirements": [],
+      "heap_policy": "report",
+      "heap_note": "Pico SDK pico_malloc / CYW43 / lwIP may allocate; heap symbols are reported, not failed (owner decision 2026-11-06; strict rule is the E906's, SPEC-E906-MEM-03)"
     },
     {
       "name": "allwinner_e906_gps_imu_app",
@@ -32,7 +34,12 @@
       "requirements": [
         "SPEC-E906-MEM-01"
       ],
-      "budget_note": "E906 has no flash: text+data+bss load into the 192 KB SRAM_FAST window (SPEC-E906-MEM-01)"
+      "budget_note": "E906 has no flash: the budget is the 192 KB SRAM_FAST window in Space 0; code and buffers in SRAM Space 1 are reported as outside_budget_bytes (SPEC-E906-MEM-01, SPEC-AUDIT-20)",
+      "budget_region": {
+        "name": "SRAM_FAST",
+        "start": "0x3FFC0000",
+        "end": "0x3FFF0000"
+      }
     },
     {
       "name": "desktop_sitl_gps_imu_app",

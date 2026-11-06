@@ -59,8 +59,10 @@ HEAP_SYMBOLS = {
     "malloc", "free", "calloc", "realloc",
     "_malloc_r", "_free_r", "_calloc_r", "_realloc_r", "_sbrk", "_sbrk_r",
 }
-# Global operator new / delete (any size_t width, array and sized forms).
-HEAP_PREFIXES = ("_Znw", "_Zna", "_ZdlPv", "_ZdaPv")
+# Global operator new (any size_t width, array and aligned forms). operator delete is not listed:
+# libstdc++'s delete calls free (caught above), and a target's own trapping delete cannot allocate
+# ([SPEC-E906-MEM-03]).
+HEAP_PREFIXES = ("_Znw", "_Zna")
 
 
 def _nm_tool() -> str:
@@ -162,14 +164,18 @@ def run_analysis(allow_missing: bool = False):
 
         is_embedded = "linux" not in target.get("architecture", "") and "x86" not in target.get("architecture", "")
         heap_ok, heap_msg = audit_zero_heap(elf_path) if is_embedded else (True, "POSIX Host Runtime (N/A)")
-        if not heap_ok:
+        # Strict zero heap is the E906's rule (model platform, [SPEC-E906-MEM-03]); a target with
+        # "heap_policy": "report" lists its heap symbols without failing ([SPEC-AUDIT-19]).
+        heap_report_only = target.get("heap_policy") == "report"
+        if not heap_ok and not heap_report_only:
             failures += 1
         ram_pct = (ram_bytes / ram_budget) * 100.0
         flash_pct = (flash_bytes / flash_budget) * 100.0
 
         print(f"  RAM Usage  : {ram_bytes:,} / {ram_budget:,} B ({ram_pct:5.1f}%)")
         print(f"  Flash Usage: {flash_bytes:,} / {flash_budget:,} B ({flash_pct:5.1f}%)")
-        print(f"  Zero-Heap  : {'PASS' if heap_ok else 'FAIL'} ({heap_msg})")
+        heap_word = "PASS" if heap_ok else ("REPORT" if heap_report_only else "FAIL")
+        print(f"  Zero-Heap  : {heap_word} ({heap_msg})")
         print("  Top Sections:")
         sorted_secs = sorted(sections.items(), key=lambda x: x[1], reverse=True)[:5]
         for s_name, s_size in sorted_secs:
@@ -185,6 +191,7 @@ def run_analysis(allow_missing: bool = False):
             "flash_total_bytes": flash_budget,
             "sections": sections,
             "zero_heap_compliant": heap_ok,
+            "heap_policy": target.get("heap_policy", "strict"),
             "heap_status": heap_msg
         }
 

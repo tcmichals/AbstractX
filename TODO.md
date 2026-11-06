@@ -125,7 +125,8 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 
 ### 2b. Articles (`docs/articles/`)
 - [x] **Zero-heap check cannot fail**: fixed 2026-11-06 ([SPEC-AUDIT-19]; whole symbol table, missing ELF fails, exit code; old checker fails 4 of 5 new tests). It now fails on every E906 and Pico image (EL-1027-31).
-- [ ] **EL-1027-31 heap linked** (owner deferred 2026-10-27): the sized `operator delete` from deleting destructors pulls `del_ops.o` → `free` → `malloc.o`; a trapping global `operator delete` (or no virtual destructors) should remove it; then the check passes. CI still builds only the host, so the check runs on embedded ELFs only locally.
+- [x] **EL-1027-31 heap linked**: closed for the E906 2026-11-06 ([SPEC-E906-MEM-03]); all 8 E906 images pass and the build fails on a heap symbol. Pico 2 W heap is reported, not failed (owner decision: the E906 is the model platform).
+- [ ] `tests/test_studio_gui_clicks.py` fails since the afternoon of 2026-11-06, also on an untouched checkout of `639a831` (Flight Focus preset leaves TLP / Log windows visible); it passed in the first gate run that day. Cause not found.
 - [ ] Article review 2026-11-06 (four read-only reviewers; findings to be checked before editing):
   - [x] Part 5 (MicroPython) corrected 2026-11-06: CLIC lines, `e906_periph.cpp` → `i2c.cpp` + target driver, `SRAM_FAST` 73.2 %, DMA 11-15, measured table from the ledger (UART3 38.9 µs), `abstractx_coro.py` no longer called heap-free, plugin code removed, Studio section cut to what the article uses. Endpoint 1030 is the bench app's, not Part 5's (not a gap). Open: re-measure on today's firmware; a board run of `abstractx_coro.py`; the `call-path` diagram still names `e906_periph.cpp` (caption says so); `micropython_on_e906.docx` is the old text; a separate Studio article.
   - GPS + compass (Pico): driver paths moved to `applib/`, producers in `gps_imu_tasks.hpp`, console is UART1 GP8/GP9, heap caveat, board numbers need evidence links and an "out of date" banner.
@@ -240,7 +241,7 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
   - [x] Initialize and push orphan `origin/gh-pages` branch for `benchmark-action/github-action-benchmark`.
 - [ ] **Python Package Management Modernization with `uv`**:
   - [ ] Update `tools/setup_venv.sh` to auto-detect and use `uv` for sub-second virtualenv creation.
-  - [ ] Adopt `uv` in `.github/workflows/spectrace_dashboard.yml` to reduce dependency installation time.
+  - [ ] Adopt `uv` in `.github/workflows/ci.yml` to reduce dependency installation time.
 - [ ] **Dear ImGui Oscilloscope Optimization**:
   - [ ] Benchmark and verify 60-120 FPS real-time plotting under high data rates (8 kHz IMU stream).
 - [ ] **GPS 3D Track Visualization**:

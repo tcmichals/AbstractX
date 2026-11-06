@@ -40,4 +40,4 @@ Bare-metal firmware MUST NOT link standard full-size `glibc` or default `newlib`
    All embedded targets compile with:
    `-fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-threadsafe-statics -ffunction-sections -fdata-sections -Wl,--gc-sections`
 4. **Symbol Level Zero-Heap Audit**:
-   Every ELF binary is checked by `tools/track_memory_footprint.py` ([SPEC-AUDIT-19]): no `malloc`, `free`, `_sbrk` or global `operator new` / `delete` in the symbol table, defined or undefined. It fails today on every E906 and Pico image (EL-1027-31, open).
+   Every ELF binary is checked by `tools/track_memory_footprint.py` ([SPEC-AUDIT-19]): no `malloc`, `free`, `_sbrk` or global `operator new` / `delete` in the symbol table, defined or undefined. Strict on the E906 (every image passes; the build runs it after linking, [SPEC-E906-MEM-03]); the Pico 2 W is reported, not failed (`heap_policy: report`).

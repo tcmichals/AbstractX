@@ -126,6 +126,43 @@ sequenceDiagram
 * **Verified by**: `e906-build-layout` (`tools/analyze_elf_size.sh`: DRAM 0.00 MB used)
 * **Implementation Target**: `targets/allwinner_e906/bsp/e906_ddr.ld` (was `include/dram_spsc_protocol.h`, removed in `4273f95`)
 
+### `[SPEC-E906-MEM-03]` No Heap in the Image (the Model Platform, 2026-11-06)
+* **Requirement**: no E906 firmware image contains a heap symbol: `malloc`, `free`, `calloc`,
+  `realloc`, their `_r` forms, `_sbrk`, `_sbrk_r`, or a global `operator new` ([SPEC-AUDIT-19] list). This is stricter than "our code never allocates": the
+  library code must not be linked either. Owner decision 2026-11-06: the E906 is the model platform
+  and keeps this rule; other targets may link a heap and are reported, not failed.
+* **Requirement (deleting destructors)**: the E906 target defines the global
+  `operator delete(void*)` and `operator delete(void*, std::size_t)` itself, as a trap
+  (`__builtin_trap()`, reported by the crash handler, [SPEC-E906-CRASH-01]). The compiler emits a
+  call to them from the deleting destructor of every class with a virtual destructor, even when
+  nothing is ever created with `new`; libstdc++'s versions call `free` and bring in newlib's
+  allocator. `operator new` is **not** defined: a real `new` must fail the check, not trap later.
+  The definitions are compiled into every E906 executable (an `INTERFACE` source), so link order
+  can never pick libstdc++'s copy.
+* **Requirement (MicroPython readline)**: the REPL app's port moves the cursor itself
+  (`MICROPY_HAL_HAS_VT100 = 0`, `mp_hal_move_cursor_back()` in `mphalport.cpp`); MicroPython's
+  version calls `snprintf`, whose newlib code references `_realloc_r`.
+* **Requirement (no stdio files)**: `trace::FileTraceSink` writes files only on hosted targets
+  (Linux, Unix, macOS), like `UdpTraceSink`; on bare metal `open()` returns false. Its `fopen` was
+  linked through `abstractx::init()` and brought newlib's FILE code (`__sfp`, `__smakebuf_r`), which
+  calls `_malloc_r`.
+* **Requirement (no stdout)**: the E906 has no console for C `printf`: `trace0` is only for boot and
+  crash text ([SPEC-E906-REPL-07]), and data leaves through trace and TLP endpoints. The target defines
+  `printf`, `iprintf`, `vprintf`, `puts` and `putchar` as functions that discard the text and return 0,
+  so a portable app (`gps_imu_app` prints a status line) does not link newlib's stdout, whose first
+  write allocates a buffer (`__swsetup_r` -> `__smakebuf_r` -> `_malloc_r`).
+* **Requirement (build guard)**: every E906 executable runs the zero-heap check after linking
+  (`tools/track_memory_footprint.py --elf`, in the E906 post-build hook next to the layout
+  check), so the build that adds a heap symbol fails.
+* **Rationale**: EL-1027-31: `free`, `_malloc_r` and `_sbrk` were linked into every E906 image
+  through `operator delete` (map: `imu_drdy.cpp.obj` / `runtime.cpp.obj` / `bench.cpp.obj` ->
+  `del_ops.o` -> `del_op.o` -> `free` -> `malloc.o` -> `mallocr.o`), and `_realloc_r` into the REPL
+  app through `readline.c` -> `snprintf`. Removing `delete` showed the next source: `abstractx::init()` ->
+  `FileTraceSink::open` -> `fopen` -> `__sfp` / `__smakebuf_r` -> `_malloc_r` (`ld --trace-symbol`).
+* **Verified by**: `memory-footprint` (`tools/track_memory_footprint.py --elf` on every E906 image),
+  `e906-build-layout` (the images build with the guard on)
+* **Implementation Target**: `targets/allwinner_e906/src/no_heap.cpp`, `targets/allwinner_e906/CMakeLists.txt`, `include/abstractx/trace/sink.hpp`, `apps/e906_repl_app/include/mphalport.h`, `apps/e906_repl_app/src/mphalport.cpp`
+
 ---
 
 ## 3. Hardware Cache Pipeline (`SPEC-E906-CACHE`)

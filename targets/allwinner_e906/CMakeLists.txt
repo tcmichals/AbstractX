@@ -35,6 +35,11 @@ target_link_libraries(abstractx_target_e906 PUBLIC
     etl
 )
 
+# No heap in any E906 image ([SPEC-E906-MEM-03]): the trapping operator delete is compiled into every
+# executable that links the target (INTERFACE source), so libstdc++'s delete -> free is never linked.
+# @impl [SPEC-E906-MEM-03] targets/allwinner_e906/SPECIFICATION.md
+target_sources(abstractx_target_e906 INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src/no_heap.cpp)
+
 # Export default linker script (512K SRAM A3 + 1M DRAM carveout)
 set(E906_LDSCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/bsp/e906_ddr.ld" CACHE FILEPATH "E906 Linker Script")
 # Coroutine frame pool: right-sized for E906 from measured gps_imu_app high-water mark
@@ -78,6 +83,14 @@ function(abstractx_e906_check_layout target)
         COMMAND ${E906_PYTHON3} ${PROJECT_SOURCE_DIR}/tools/check_e906_layout.py
                 --readelf ${E906_READELF} $<TARGET_FILE:${target}>
         COMMENT "Checking ${target} load segments against remoteproc windows"
+        VERBATIM
+    )
+    # No heap symbols in the image; fails the build ([SPEC-E906-MEM-03], [SPEC-AUDIT-19]).
+    # @impl [SPEC-E906-MEM-03] targets/allwinner_e906/SPECIFICATION.md
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${E906_PYTHON3} ${PROJECT_SOURCE_DIR}/tools/track_memory_footprint.py
+                --elf $<TARGET_FILE:${target}>
+        COMMENT "Zero-heap check: ${target}"
         VERBATIM
     )
 endfunction()
