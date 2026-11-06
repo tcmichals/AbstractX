@@ -60,6 +60,9 @@ public:
     bool attached() const noexcept { return attached_; }
     uint32_t line_status() const noexcept { return reg(kLsr) & 0xFFU; }
     uint32_t rx_dropped() const noexcept { return rx_dropped_; }
+    // Queue what fits in the TX ring, never wait; the rest is dropped and counted ([SPEC-E906-HAL-04] rule 10).
+    size_t queue_tx(std::span<const uint8_t> data) noexcept;
+    uint32_t tx_dropped() const noexcept { return tx_dropped_; }
 
     void on_irq() noexcept;
     // Read deadline ([SPEC-E906-HAL-02], EL-1027-24): fire it once its time has passed. Main loop only.
@@ -103,6 +106,7 @@ private:
     ByteRing rx_;
     ByteRing tx_;
     volatile uint32_t rx_dropped_{0};
+    volatile uint32_t tx_dropped_{0};   // shared: queue_tx (main) increments, any reads; volatile, single hart
     bool attached_{false};
     bool dma_want_{true};
     bool dma_active_{false};

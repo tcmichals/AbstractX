@@ -142,18 +142,17 @@ public:
     size_t serial_xfer(uint8_t /*port*/, uint32_t baud_hz,
                        std::span<const uint8_t> tx,
                        std::span<uint8_t> rx) noexcept override {
+        // @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (rule 10: never waits)
         auto& uart = hal::get_e906_uart3();
-        if (baud_hz != 0) {
-            uart.init(baud_hz);
+        const uint32_t want = baud_hz != 0 ? baud_hz : (uart_ready_ ? uart_baud_ : 115200U);
+        if (!uart_ready_ || want != uart_baud_) {   // re-program only on a change (keeps the RX ring)
+            uart.init(want);
             uart.set_dma(true);
-            uart_ready_ = true;
-        } else if (!uart_ready_) {
-            uart.init(115200);
-            uart.set_dma(true);
+            uart_baud_ = want;
             uart_ready_ = true;
         }
         if (!tx.empty()) {
-            (void)uart.write(tx);
+            (void)uart.queue_tx(tx);                // what does not fit is counted in tx_dropped()
         }
         if (!rx.empty()) {
             return uart.read(rx);
@@ -250,6 +249,7 @@ private:
     bool spi_ready_{false};
     bool i2c_ready_[2]{false, false};
     bool uart_ready_{false};
+    uint32_t uart_baud_{0};
     bool drdy_bound_{false};
     uint32_t drdy_pin_{0};
     etl::delegate<void(const hal::IoResult&)> spi_done_{};   // shared: SPI DMA ISR clears; one transfer in flight

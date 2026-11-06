@@ -947,6 +947,12 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
      `write_sync`. An auto channel starts from the DRDY edge handler, where interrupts are masked: a
      synchronous wait there held the interrupt for up to the 20 ms deadline and could not receive the
      TWI completion interrupt it waited for. A full job pool refuses the start (`false`), it never waits.
+  10. **The engine's serial tunnel never waits (2026-11-06, full-audit buses finding 9)**:
+     `E906IoBackend::serial_xfer` queues the TX bytes with `E906Uart::queue_tx` (what fits in the TX
+     ring; the rest is dropped and counted in `tx_dropped()`), never the blocking `write()`, and
+     re-programs the UART only when the requested baud differs from the current one. Before, every
+     baud TLP re-initialised the UART (restarting the RX DMA ring and losing its bytes) and a full TX
+     ring waited in `driver_wait` with no overall bound.
 * **Rules for every port driver** (2026-10-27, after `c5a1eaa`):
   1. Interrupt- or DMA-driven ([SPEC-E906-HAL-01]); `start_hardware_transfer_from_isr` starts the
      transfer and returns. It never waits on a status bit, and no wait anywhere is unbounded.

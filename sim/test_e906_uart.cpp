@@ -6,7 +6,7 @@
  * DesignWare 8250 and a fake DMA controller. Runs on the host. Not covered here (the plain-memory
  * model cannot drop RFL on an RBR read): interrupt-mode receive and the async write request.
  *
- * @verifies [SPEC-E906-HAL-04] E906Uart init on_irq read write set_dma
+ * @verifies [SPEC-E906-HAL-04] E906Uart init on_irq read write set_dma queue_tx
  * @verifies [SPEC-E906-HAL-02] E906Uart dma_sync poll_deadline
  * @verifies [SPEC-HAL-15] UartPort
  */
@@ -231,6 +231,19 @@ int main() {
         }
         CHECK(abstractx::coro::coro_pool_high_water() == hw0);
         CHECK(abstractx::Dispatcher::dropped_resumes() == 0);
+    }
+
+    // ---- queue_tx (engine serial tunnel, [SPEC-E906-HAL-04] rule 10): queue what fits, never wait
+    {
+        static std::array<uint8_t, UartBuffers::kTxBytes + 50> big{};
+        const uint64_t t0 = g_ticks;
+        const uint32_t drop0 = dut.tx_dropped();
+        const size_t n = dut.queue_tx(big);
+        CHECK(n < big.size() && n <= UartBuffers::kTxBytes);
+        CHECK(dut.tx_dropped() - drop0 == big.size() - n);
+        CHECK(g_ticks == t0);                       // no driver_wait: the clock did not move
+        CHECK(dut.queue_tx(std::span<const uint8_t>(big.data(), 1)) == 0);   // still full: dropped at once
+        CHECK(g_ticks == t0);
     }
 
     // ---- TX larger than the FIFO goes by DMA in 256 B chunks

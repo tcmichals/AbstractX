@@ -466,17 +466,25 @@ void E906Uart::flush() {
     }
 }
 
+// @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (rule 10: queue, never wait)
+size_t E906Uart::queue_tx(std::span<const uint8_t> data) noexcept {
+    abstractx::InterruptGuard guard;
+    size_t n = 0;
+    while (n < data.size() && tx_.push(data[n])) {
+        ++n;
+    }
+    tx_dropped_ = tx_dropped_ + static_cast<uint32_t>(data.size() - n);
+    reg(kIer) = reg(kIer) | kIerTx;  // THR-empty interrupt drains the ring
+    return n;
+}
+
 // Async write: queue what fits in the TX ring, never wait ([SPEC-E906-HAL-04] rule 1).
 void E906Uart::start_hardware_transfer_from_isr(const UartTxRequest& req) noexcept {
     UartResult res{};
     if (req.break_us != 0) {
         res.status = UartStatus::NotSupported;
     } else {
-        size_t n = 0;
-        while (n < req.data.size() && tx_.push(req.data[n])) {
-            ++n;
-        }
-        reg(kIer) = reg(kIer) | kIerTx;
+        const size_t n = queue_tx(req.data);
         res.bytes_transferred = n;
         res.status = n == req.data.size() ? UartStatus::Ok : UartStatus::QueueFull;
     }
