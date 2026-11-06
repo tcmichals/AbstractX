@@ -472,28 +472,51 @@ def scan_anchors(root: Path, files: list[str]) -> dict[str, list[Anchor]]:
         path = root / rel
         if not is_code(rel) or not path.is_file():
             continue
-        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-        found = []
-        for i, raw in enumerate(lines):
-            if "@impl" in raw:
-                kind = "impl"
-            elif "@verifies" in raw:
-                kind = "verifies"
-            else:
-                continue
-            tags = [t for t in TAG_RE.findall(raw) if t not in IGNORED_TAGS]
-            if not tags:
-                continue
-            status = "Complete"
-            for nxt in lines[i + 1:i + 4]:
-                s = STATUS_RE.search(nxt)
-                if s:
-                    status = s.group(1)
-                    break
-            found.append(Anchor(i + 1, tags, status, kind))
+        found = anchors_in_lines(path.read_text(encoding="utf-8", errors="ignore").splitlines())
         if found:
             anchors[rel] = found
     return anchors
+
+
+def anchors_in_lines(lines: list[str]) -> list[Anchor]:
+    """The @impl / @verifies anchors of one file's lines (scan_anchors per file)."""
+    found = []
+    for i, raw in enumerate(lines):
+        if "@impl" in raw:
+            kind = "impl"
+        elif "@verifies" in raw:
+            kind = "verifies"
+        else:
+            continue
+        tags = [t for t in TAG_RE.findall(raw) if t not in IGNORED_TAGS]
+        if not tags:
+            continue
+        status = "Complete"
+        for nxt in lines[i + 1:i + 4]:
+            s = STATUS_RE.search(nxt)
+            if s:
+                status = s.group(1)
+                break
+        found.append(Anchor(i + 1, tags, status, kind))
+    return found
+
+
+def spec_sections(lines: list[str]) -> list[tuple[str, int, int]]:
+    """(tag, first line, last line) of each requirement section, as parse_requirements cuts them."""
+    out: list[tuple[str, int, int]] = []
+    current: list | None = None
+    for idx, raw in enumerate(lines, 1):
+        m = SPEC_PATTERN.match(raw.strip())
+        if m or (current and HEADING_RE.match(raw)):
+            if current:
+                current[2] = idx - 1
+                out.append(tuple(current))
+                current = None
+        if m and m.group(1) not in IGNORED_TAGS:
+            current = [m.group(1), idx, len(lines)]
+    if current:
+        out.append(tuple(current))
+    return out
 
 
 def tracked_files(root: Path) -> list[str]:
@@ -938,15 +961,31 @@ def review_changes(root: Path, base: str, prompt: bool, strict: bool, staged: bo
     untraced: list[Hunk] = []
     spec_changed: dict[str, list[Hunk]] = {}
 
+    # --staged: hunk line numbers are the staged file's, so sections and anchors come from the staged
+    # file too; the working tree may have unstaged edits that shift every line (2026-11-06).
+    staged_text: dict[str, list[str]] = {}
+
+    def staged_lines(path: str) -> list[str]:
+        if path not in staged_text:
+            staged_text[path] = git(root, "show", f":{path}").splitlines()
+        return staged_text[path]
+
     for h in hunks:
         if h.path.endswith("SPECIFICATION.md"):
-            for r in reqs.values():
-                if r.spec == h.path and r.line <= h.start + max(h.count, 1) - 1 and h.start <= r.end_line:
-                    spec_changed.setdefault(r.tag, []).append(h)
+            last = h.start + max(h.count, 1) - 1
+            if staged:
+                for tag, first, end in spec_sections(staged_lines(h.path)):
+                    if first <= last and h.start <= end and tag in reqs:
+                        spec_changed.setdefault(tag, []).append(h)
+            else:
+                for r in reqs.values():
+                    if r.spec == h.path and r.line <= last and h.start <= r.end_line:
+                        spec_changed.setdefault(r.tag, []).append(h)
             continue
         if not is_code(h.path):
             continue
-        a = governing(anchors.get(h.path, []), h.start, h.count)
+        file_anchors = anchors_in_lines(staged_lines(h.path)) if staged else anchors.get(h.path, [])
+        a = governing(file_anchors, h.start, h.count)
         if a is None:
             untraced.append(h)
         else:

@@ -196,6 +196,10 @@ where its evidence goes. SpecTrace connects them: requirement → code
   pre-commit hook `tools/git-hooks/pre-commit` runs `--changes --staged --strict`
   and refuses a commit containing untraced code (enable once per clone with
   `git config core.hooksPath tools/git-hooks`).
+* **Requirement (2026-11-06)**: with `--staged`, a hunk is mapped with the staged file (`git show :<path>`):
+  requirement sections and `@impl` anchors are cut from the same text the hunk's line numbers come
+  from. Mapping with the working tree put a staged `[SPEC-MAG-01]` edit under `[SPEC-HAL-05]` while
+  unstaged edits higher up shifted the file (2026-11-05).
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `tools/spectrace_matrix.py`
 

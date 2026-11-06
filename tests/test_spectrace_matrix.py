@@ -523,6 +523,32 @@ def test_verified_by_bullet_spans_wrapped_lines():
         assert reqs["SPEC-WRAP-01"].skills == ["host-tests", "sanitizer-gate"], reqs["SPEC-WRAP-01"].skills
 
 
+def test_staged_review_uses_staged_line_numbers():
+    """--staged (the pre-commit hook) maps hunks with the staged file, not the working tree: an
+    unstaged edit higher up shifted every line, and a [SPEC-MAG-01] edit was reported as [SPEC-HAL-05]
+    (engineering_log 2026-11-05, open until 2026-11-06)."""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        spec = root / "docs" / "FIX_SPECIFICATION.md"
+        spec.write_text(SPEC.replace("does another thing.", "does another thing, staged."))   # FIX-02
+        a = root / "src" / "a.cpp"
+        a.write_text(A_CPP.replace("return 2;", "return 222;"))                              # FIX-02 code
+        run(["git", "add", "-A"], root)
+        # unstaged: 12 lines pushed in near the top of both files
+        pad = "".join(f"* padding line {i}\n" for i in range(12))
+        spec.write_text(spec.read_text().replace("# Fixture Specification\n", "# Fixture Specification\n" + pad))
+        a.write_text("".join(f"// pad {i}\n" for i in range(12)) + a.read_text())
+        out_io = io.StringIO()
+        with contextlib.redirect_stdout(out_io):
+            sm.review_changes(root, "", False, False, staged=True)
+        out = out_io.getvalue()
+        assert "[SPEC CHANGED] SPEC-FIX-02" in out, out
+        assert "[SPEC CHANGED] SPEC-FIX-01" not in out, "hunk mapped with working-tree line numbers"
+        assert "SPEC-FIX-02 Implemented, no verifying skill  <- src/a.cpp:9" in out, out
+        assert "SPEC-FIX-01" not in out.split("Requirements whose text changed")[1].split("[SPEC CHANGED]")[0], out
+
+
 if __name__ == "__main__":
     test_orphan_check_ignores_untracked_files()
     test_matrix_verdicts()
@@ -537,6 +563,7 @@ if __name__ == "__main__":
     test_verifies_claims_need_an_impl_name()
     test_placement_and_board_evidence_source()
     test_verified_by_bullet_spans_wrapped_lines()
+    test_staged_review_uses_staged_line_numbers()
     test_repo_is_honest()
     print("[PASS] spectrace_matrix")
 
