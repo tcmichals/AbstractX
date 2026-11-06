@@ -67,7 +67,10 @@ See section 3.
 
 ### gui
 
-Not reviewed. There are still only frame-render smoke tests, and no click tests.
+Answered 2026-11-06 (after the run): `tests/test_studio_gui_clicks.py` clicks through the real widgets
+with the Dear ImGui Test Engine (tabs, Pop to Canvas / Pop In, Bring to Front, View menu, Show TLP / Show
+Log, layout presets, Connection menu). It found two product bugs (Show TLP / Show Log crashed Studio;
+presets and jumps changed copies of the windows), fixed with [SPEC-STUDIO-16] "real windows".
 
 ### board
 

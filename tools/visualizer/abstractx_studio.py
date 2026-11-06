@@ -276,6 +276,7 @@ class TelemetryState:
         self.cpu_view_mode = "standard"  # "standard" or "chart_focus"
 
         # Floating canvas window states (so user can pop any tab out onto canvas as a movable window)
+        self.focus_canvas = None   # canvas window to focus when next drawn ([SPEC-STUDIO-16])
         self.canvas_windows = {
             "coro": False,
             "cpu": False,
@@ -1563,9 +1564,12 @@ def apply_docking_layout(preset: str):
     g_state.active_layout_preset = preset
     core, user, tlp, log, tab = LAYOUT_PRESETS[preset]
     for key, visible in (("core", core), ("user", user), ("tlp", tlp), ("log", log)):
-        w = g_dockable_windows.get(key)
-        if w:
+        w = _runner_window(key)            # the window on screen (Studio running)
+        if w is not None:
             w.is_visible = visible
+        seed = g_dockable_windows.get(key)  # the object the runner copies at the next start
+        if seed is not None:
+            seed.is_visible = visible
     if tab:
         g_state.requested_studio_tab = tab
     if preset == "studio_workbench":
@@ -1906,8 +1910,8 @@ def _render_status_bar():
     membrowse_lbl = "MemBrowse CI: 0 B Heap (Pass)" if g_state.mem_targets else "MemBrowse CI: no metrics"
     if imgui.small_button(membrowse_lbl):
         g_state.requested_studio_tab = "memory"
-        w_core = g_dockable_windows.get("core")
-        if w_core:
+        w_core = _runner_window("core")
+        if w_core is not None:
             w_core.is_visible = True
 
     # Dynamic Window Layout Preset Chips
@@ -3305,11 +3309,38 @@ def available_tools():
     return [t for t in STUDIO_TOOLS if tool_available(t[4])]
 
 
+DOCK_LABELS = {"core": "AbstractX Core Studio", "user": "User Domain Instruments",
+               "tlp": "TLP Bus Debugger", "log": "System Event Log"}
+
+
+def _runner_window(key: str):
+    """The runner's own DockableWindow for a key (the runner holds copies of the Python objects, so
+    changing g_dockable_windows does nothing on screen)."""
+    # @impl [SPEC-STUDIO-01] tools/visualizer/SPECIFICATION.md
+    try:
+        return hello_imgui.get_runner_params().docking_params.dockable_window_of_name(DOCK_LABELS[key])
+    except Exception:
+        return None
+
+
+def _show_dockable(label: str) -> None:
+    """Show and focus a docked window ([SPEC-STUDIO-02] jump requests). It changes the runner's own
+    DockableWindow (the runner holds copies of the Python objects), and asks hello_imgui to focus it on
+    the next frame: imgui.set_window_focus(name) on a docked window from inside another window's frame
+    crashed Studio (2026-11-06)."""
+    # @impl [SPEC-STUDIO-02] tools/visualizer/SPECIFICATION.md
+    key = next((k for k, v in DOCK_LABELS.items() if v == label), None)
+    win = _runner_window(key) if key else None
+    if win is not None:
+        win.is_visible = True
+        win.focus_window_at_next_frame = True
+
+
 def _render_popped_tab_placeholder(display_name: str, key: str, window_title: str):
     """Placeholder for a tab whose tool is popped out to a canvas window ([SPEC-STUDIO-16])."""
     imgui.text_colored(imgui.ImVec4(0.3, 0.85, 1.0, 1.0), f"🗖 {display_name} is open in a floating canvas window.")
     if imgui.button(f"Bring to Front##focus_{key}"):
-        imgui.set_window_focus(f"{window_title}##CanvasWin")
+        g_state.focus_canvas = key   # focused when its window is drawn (set_next_window_focus)
     imgui.same_line(0, 16)
     if imgui.button(f"🗗 Pop In##dock_{key}"):
         g_state.canvas_windows[key] = False
@@ -3323,6 +3354,9 @@ def _render_floating_canvas_windows():
         if not g_state.canvas_windows.get(key, False):
             continue
         imgui.set_next_window_size(imgui.ImVec2(1100, 680), imgui.Cond_.first_use_ever)
+        if getattr(g_state, "focus_canvas", None) == key:
+            imgui.set_next_window_focus()
+            g_state.focus_canvas = None
         expanded, opened = imgui.begin(f"{title}##CanvasWin", True)
         if expanded:
             def _make_pop_in(k=key):
@@ -3432,24 +3466,9 @@ def _render_core_studio_window():
     _render_connection_bar("core")
     imgui.separator()
 
-    # Handle requested window activations for TLP / Log
-    if g_state.requested_studio_tab == "tlp":
-        w_tlp = g_dockable_windows.get("tlp")
-        if w_tlp:
-            w_tlp.is_visible = True
-        try:
-            imgui.set_window_focus("TLP Bus Debugger")
-        except Exception:
-            pass
-        g_state.requested_studio_tab = None
-    elif g_state.requested_studio_tab == "log":
-        w_log = g_dockable_windows.get("log")
-        if w_log:
-            w_log.is_visible = True
-        try:
-            imgui.set_window_focus("System Event Log")
-        except Exception:
-            pass
+    # Handle requested window activations for TLP / Log ([SPEC-STUDIO-02])
+    if g_state.requested_studio_tab in ("tlp", "log"):
+        _show_dockable("TLP Bus Debugger" if g_state.requested_studio_tab == "tlp" else "System Event Log")
         g_state.requested_studio_tab = None
 
     requested = g_state.requested_studio_tab

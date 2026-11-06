@@ -4149,3 +4149,25 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `targets/linux/CMakeLists.txt` and `targets/zynq7000/CMakeLists.txt`: `ABSTRACTX_HAS_LIBGPIOD_V2=1` (PUBLIC) when pkg-config finds libgpiod >= 2; the header includes `<gpiod.h>` only then. `LinuxGpioDriver` requests lines for pin I/O.
 * `sim/test_linux_gpio_edges.cpp`: fails if pkg-config found v2 but the code is compiled out (`ABSTRACTX_EXPECT_LIBGPIOD_V2` from CMake); missing chip: pin I/O counted as errors, `read_pin` false, `Alternate` refused. Old header: v2 code compiled out (shown with a compile check).
 * Not checked: a real gpiochip line (this PC has `/dev/gpiochip0`; tests deliberately never request its lines); the A5E.
+
+## [2026-11-06] - Studio: Show TLP / Show Log crashed; presets and jumps changed copies of the windows (full-audit gui checklist)
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/visualizer/abstractx_studio.py`
+* **Category**: `product-bug` (two), `process-gap` (tests)
+* **Symptoms**:
+  - Studio's "Show TLP" / "Show Log" buttons (and every `requested_studio_tab = "tlp"/"log"` jump) segfaulted Studio: `imgui.set_window_focus(name)` on a docked window from inside another window's frame (reproduced without the test engine; stubbing the call removed the crash).
+  - Layout presets, Show TLP / Show Log and the MemBrowse jump set `is_visible` on `g_dockable_windows`, which are the Python objects; `docking_params.dockable_windows = [...]` copies them into the runner, so nothing on screen changed.
+  - The GUI tests wrote layout `.ini` files into the repo root (the user's own Studio layout file included) and later runs restored windows an earlier run had hidden.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: the GUI tests only rendered frames and inspected Python state, never clicked; a test that checks the Python object cannot see that the runner holds a copy. pybind11 copies a list into a C++ vector.
+* **Which check should have caught it**: the full-audit "gui" checklist ("tests that click"), open since it was written.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-STUDIO-16]` "clicked, not only rendered" and "real windows" (runner windows via `dockable_window_of_name`; focus with `focus_window_at_next_frame` / `set_next_window_focus`).
+
+### 4. Implementation & Regression Test
+* `_runner_window` / `_show_dockable`; presets update the runner window and the seed object; Bring to Front through `focus_canvas` + `set_next_window_focus`.
+* `tests/test_studio_gui_clicks.py` (Dear ImGui Test Engine, headless, `ini_disable`): tabs, Pop to Canvas / Pop In (one copy), Bring to Front, View menu hide / reopen TLP Bus Debugger, Show Log / Show TLP, Flight Focus / Balanced presets, Connection menu. **Old Studio code: the run segfaults.** All `tests/test_visualizer_sdk.py` runs set `ini_disable`.
+* Note for the user: the repo-root `AbstractX_Studio___User_Domain_Workbench.ini` (git-ignored) may hold windows hidden by test runs; Studio's "Restore Defaults" or deleting the file resets it.

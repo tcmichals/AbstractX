@@ -166,6 +166,10 @@ if(Python3_Interpreter_FOUND)
         add_test(NAME py_test_visualizer_sdk
                  COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_visualizer_sdk.py
                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+        # [SPEC-STUDIO-16] [SPEC-STUDIO-02] clicks through the real widgets (Dear ImGui Test Engine, headless)
+        add_test(NAME py_test_studio_gui_clicks
+                 COMMAND ${Python3_EXECUTABLE} -m pytest -q ${CMAKE_CURRENT_SOURCE_DIR}/test_studio_gui_clicks.py
+                 WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
     else()
         message(STATUS "py_test_visualizer_sdk skipped: pytest or imgui_bundle not installed")
     endif()

@@ -65,6 +65,7 @@ def test_studio_gui_render_flight_tab():
 
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -90,6 +91,7 @@ def test_studio_gui_render_platform_tab():
 
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -115,6 +117,7 @@ def test_studio_gui_render_memory_tab():
 
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -200,6 +203,7 @@ def test_studio_docking_workbench_headless_run():
 
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -226,6 +230,7 @@ def test_studio_coroutine_and_simple_trace_render():
 
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -435,6 +440,7 @@ def _render_panels(state, frames=2):
     runner.callbacks.show_gui = step_gui
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -599,6 +605,7 @@ def test_studio_live_runtime_status_panel():
     runner.callbacks.show_gui = step_gui
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -634,6 +641,7 @@ def _run_frames(show, frames=2, size=(1400, 900)):
     runner.callbacks.show_gui = step_gui
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -731,6 +739,7 @@ def test_studio_real_docking_layout_renders_every_tool(sim):
     runner.callbacks.pre_new_frame = count
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()
@@ -842,6 +851,7 @@ def test_popout_and_popin_dock_window():
     runner.callbacks.custom_background = on_frame
     implot.create_context()
     try:
+        runner.ini_disable = True   # never write a layout .ini into the repo (it is the user's Studio layout)
         immapp.run(runner)
     finally:
         implot.destroy_context()

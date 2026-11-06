@@ -333,7 +333,17 @@ The visualizer MUST provide a Flow Integrity & Pacing Eye tab (within `CoreStudi
 * **Rationale**: on 2026-10-22 the live workbench showed the TLP debugger and event log twice,
   a second source window from the "Source Code" preset, and tabs that could never have data on
   the target; each had its own hand-written tab, canvas and preset code.
-* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`)
+* **Requirement (clicked, not only rendered, 2026-11-06)**: the GUI behaviour is tested by clicking the
+  real widgets with the Dear ImGui Test Engine, headless, with no layout `.ini` read or written: every
+  available tab opens; Pop to Canvas / Pop In move a tool and leave one copy; Bring to Front; the View menu
+  hides and reopens the TLP Bus Debugger; Show TLP / Show Log reopen a closed window; layout presets show
+  and hide the docked windows; the Connection menu offers Connect.
+* **Requirement (real windows)**: every change to a docked window's visibility or focus goes to the
+  runner's own `DockableWindow` (`dockable_window_of_name`): the runner holds copies of the Python objects,
+  so changing `g_dockable_windows` did nothing (layout presets, Show TLP / Show Log and the MemBrowse jump
+  never showed or hid anything). Focus uses `focus_window_at_next_frame` / `set_next_window_focus`, never
+  `imgui.set_window_focus(name)` from inside another window, which crashed Studio (Show TLP / Show Log).
+* **Verified by**: `host-tests` (`tests/test_visualizer_sdk.py`, `tests/test_studio_gui_clicks.py`)
 * **Implementation Target**: `tools/visualizer/abstractx_studio.py`
 
 ### `[SPEC-STUDIO-17]` Timeline: Coroutine Resumes, Interrupts and Idle
