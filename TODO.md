@@ -111,7 +111,7 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 - [ ] Shrink `run_imu` (13 KB `.text`, mostly inlined `Report` calls).
 - [x] `spi.cpp` one owner of SPI1 (FIFO paths ignored `g_spi_busy`, sync wrappers ignored a refused start, awaiter globals written before the busy check): fixed 2026-10-30, [SPEC-E906-HAL-03], `sim/test_e906_spi1_ownership` (host only; board run open).
 - [ ] Board: run a FIFO SPI transfer while the DRDY channel is armed; expect `busy_drops`, no corrupt samples ([SPEC-E906-HAL-03]).
-- [ ] Static analysis: 16 findings not in `tools/static_analysis_baseline.txt` on 2026-10-30 (same with and without the SPI change): triage, fix or baseline with reasons.
+- [x] Static analysis: 16 findings not in the baseline (2026-10-30) are gone: `run_static_analysis.py` 0 new on 2026-11-06, and the full gate now runs it ([SPEC-AUDIT-17]).
 - [x] Zynq UIO interrupt left masked after a burst: re-armed on the first drained `step()` ([SPEC-ZYNQ-02], 2026-10-30, host test only).
 - [x] Code review 2026-10-30 (background agent, read-only): fixed 2026-10-31 (`[SPEC-ARCH-01]`, `[SPEC-ARCH-13]`, `[SPEC-LINUX-HAL-01]`, `[SPEC-LINUX-GPIO-01]`, `[SPEC-ZYNQ-02]`): Linux/Zynq `stop()` from another thread while `run()` is in `poll_events` wakes via dedicated `eventfd` and synchronizes teardown; `SpiWorker::submit` / `I2cWorker::submit` synchronize `running_` check + enqueue with `stop()`; `DMA_CFG` SETUP re-arms `init_channel()` and `configure()` checks `init_channel()` return; `Dispatcher::post` and `has_pending_resumes` always take `InterruptLock`; `LinuxIoBackend` uses `wake_eventfd_` instead of draining `rx_doorbell_`.
 

@@ -420,6 +420,11 @@ python3 tools/run_adversarial_audit.py --all
   (`-fno-sanitize-recover=all`) and with TSan (under `setarch -R`). A build error stops it before any
   ctest runs, so a stale binary can never pass for a test that no longer compiles. `--quick` runs the
   plain build only. It is the command behind AGENTS §10.2 and the pre-push hook.
+* **Requirement (review layers in the gate, 2026-11-06)**: the full gate (not `--quick`) also runs
+  `tools/run_static_analysis.py` (clang-tidy against the shrink-only baseline, ~25 s) and
+  `tools/boundary_review.py --check` (every shared variable has an ownership note, every wake handshake
+  is fenced), the two AGENTS §10.9 review layers that until now ran only when someone remembered. A tool
+  that is not installed is reported `[SKIP]` with the reason, never as passing.
 * **Requirement (ctest builds first, 2026-11-04)**: in the host build, ctest's first test
   (`build_tree`) runs `cmake --build` on the tree, and every other test requires it (CTest fixture
   `abx_build`); when the build fails, every test is reported Not Run and ctest fails. A plain

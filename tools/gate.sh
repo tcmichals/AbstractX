@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # @impl [SPEC-AUDIT-17] docs/SPECTRACE.md (gate)
 #
-# The AGENTS §10.2 gate: host suite plain, ASan/UBSan and TSan. A build error stops the run
-# before ctest, so a stale binary can never pass for a test that no longer compiles.
+# The AGENTS §10.2 gate: host suite plain, ASan/UBSan and TSan, then static analysis and the boundary
+# review (§10.9). A build error stops the run before ctest, so a stale binary can never pass for a test
+# that no longer compiles.
 #   tools/gate.sh            all three
 #   tools/gate.sh --quick    plain only (pre-push)
 set -euo pipefail
@@ -44,5 +45,25 @@ if [ "$QUICK" = 0 ]; then
     # ASLR off: else TSan may abort at start ("unexpected memory mapping"), which is not a race
     run_suite tsan "${B}_tsan" "setarch -R" -DABSTRACTX_RTL_TESTS=OFF \
         -DCMAKE_CXX_FLAGS="-fsanitize=thread -O1 -g" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+fi
+if [ "$QUICK" = 0 ]; then
+    # Review layers ([SPEC-AUDIT-17] review layers in the gate, AGENTS §10.9)
+    echo "== gate: boundary review"
+    if ! timeout 300 python3 tools/boundary_review.py --check >"${B}_host/gate_boundary.log" 2>&1; then
+        tail -20 "${B}_host/gate_boundary.log"
+        echo "[FAIL] gate: boundary review (full log: ${B}_host/gate_boundary.log)"
+        exit 1
+    fi
+    echo "   $(grep -E 'Shared state' "${B}_host/gate_boundary.log")"
+    echo "== gate: static analysis"
+    if ! command -v clang-tidy >/dev/null 2>&1 && ! ls /usr/bin/clang-tidy-* >/dev/null 2>&1; then
+        echo "   [SKIP] static analysis: clang-tidy not installed"
+    elif ! timeout 900 python3 tools/run_static_analysis.py --build-dir "${B}_host" >"${B}_host/gate_static.log" 2>&1; then
+        tail -20 "${B}_host/gate_static.log"
+        echo "[FAIL] gate: static analysis (full log: ${B}_host/gate_static.log)"
+        exit 1
+    else
+        echo "   $(tail -1 "${B}_host/gate_static.log")"
+    fi
 fi
 echo "[PASS] gate$([ "$QUICK" = 1 ] && echo ' (quick: plain only)')"
