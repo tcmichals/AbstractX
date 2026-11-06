@@ -132,7 +132,16 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
   2b. [x] **ISR cost**: integer-only interrupt entry with FS = Off ([SPEC-E906-CRASH-01]) and FreeRTOS on the same dispatch path ([SPEC-E906-BENCH-03]): soft ISR 223 vs 242, wake 2,779 vs 2,943 cycles, AbstractX ahead (2026-10-31). Remaining: the 1 s stall (2a) and per-pass `step()` cost (2).
   3. Rename "bare metal" to "AbstractX (no RTOS)" in Part 4 together with the new numbers (README already renamed).
 - [x] Part 4 renamed "AbstractX vs FreeRTOS" (`docs/articles/linux-vs-freertos-vs-abstractx/`) and updated with the 2026-10-31 runs after the stall fix.
-- [ ] Part 4 follow-ups: idle accounting in the AbstractX bench build (now `not-instrumented`); measure an idle-only window; set the board clock before evidence runs; add IMU DRDY FreeRTOS vs bare-metal numbers.
+- [ ] Part 4 follow-ups (article §8 "Not measured", restructured 2026-11-06; each fills a *not measured* row):
+  - Linux normal-thread baseline: `cyclictest` without `-p` (SCHED_OTHER), idle and loaded.
+  - Record the Linux setup with every run: CPU governor and frequency, `isolcpus` / IRQ affinity of CPU 2, kernel config.
+  - Per-phase `mcycle` totals inside `step()` in bench `R` (where the 2,040-cycle yield and the ~1,900-cycle timer wake go), before item 2's event-driven `step()`.
+  - Repeated runs: several per row, plus one multi-hour `cyclictest` / `C` run for worst cases; p99 / p99.9 in every table (`cyclictest -h` histogram on Linux).
+  - A load aimed at the shared bus (DMA-heavy, e.g. `dd` to eMMC plus network), to test the claim that A55 load does not reach the E906.
+  - Idle accounting in the AbstractX bench build (now `not-instrumented`); an idle-only window on both firmwares.
+  - IMU DRDY -> data, FreeRTOS vs AbstractX alone.
+  - Set the board clock before evidence runs (1970 timestamps); a one-command bench runner (like `tools/run_e906_board_suite.py`) that does it and records evidence.
+  - The SVG tables (`assets/table*.svg`) are no longer used by the article; delete them or generate them from the evidence.
 - [ ] Part 4 re-measure (article marked partly out of date 2026-11-06): re-run `R`, echo and `C` at the current commit on both firmwares; `C` on the FreeRTOS build in each timer mode (`ABX_FREERTOS_TIMER` = `WAIT`, `XTIMER`, `TICK_HOOK`); `F` (native `vTaskDelayUntil`) for the first time; then replace the "old tick-hook model" row and the `e159de6` sizes in the summary table. Watch `SRAM_FAST`: the FreeRTOS bench is at 99.1 % (1.7 KB free, 2026-11-06).
 - [ ] **Part 4: event on the E906 → data in a Linux app** (owner, 2026-11-06). Today the E906 rows stop when the E906 coroutine runs, and the echo is a round trip started by a Python app; nothing measures one way from an E906 event to the moment a Linux user-space app has the message. That is the number to compare with `cyclictest` for "how fast can Linux react to the E906". Plan, spec first ([SPEC-E906-BENCH-*]):
   1. Common clock: check whether the E906 `mtime` (24 MHz) and the A55 generic timer (`CNTVCT_EL0`, 24 MHz) count the same thing; if not, calibrate the offset with ping-pong (min RTT / 2) before each run.
