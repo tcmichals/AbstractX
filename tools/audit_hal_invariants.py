@@ -52,6 +52,10 @@ DMA_CPU_RMW = re.compile(r"DMA_IRQ_CPU_EN_REG\s*=\s*DMA_IRQ_CPU_EN_REG\s*&")
 E906_OWNED_PORTS = {"PB", "PI"}
 PIN_PORT_RMW = re.compile(r"\b(P[A-Z])_(?:DATA|CFG\d|DRV\d|PULL\d)(?:_REG)?\s*(?:\|=|&=|\^=)")
 
+# 6. A target's I/O engine back end never calls a synchronous bus primitive ([SPEC-ARCH-13] 5,
+# [SPEC-E906-HAL-04] rule 9): its auto channels start from an edge handler with interrupts masked.
+BACKEND_SYNC_CALL = re.compile(r"\.\s*(?:write_read_sync|read_sync|write_sync|transfer_sync|transceive_\w+_sync)\s*\(")
+
 # 4. Peek/Poke without alignment check
 PEEK_POKE_UNCHECKED = re.compile(r"mod_abstractx_(?:peek|poke)\b(?![\s\S]*?is_valid_e906_addr)")
 
@@ -109,6 +113,16 @@ def check_hal_file(path: Path) -> list[str]:
                 f"{path}:{lineno}: [HAL-INVARIANT-VIOLATION] read-modify-write of {m.group(1)} pin registers.\n"
                 f"    Race: that port belongs to Linux ([SPEC-E906-HAL-04] GPIO); the write clobbers its pins.\n"
                 f"    Fix: drive only header pins the E906 owns (Port B SPI1, Port I)."
+            )
+
+    # Check 6: synchronous bus calls in an I/O engine back end
+    if path.name == "io_processor.cpp" and "targets" in path.parts:
+        for m in BACKEND_SYNC_CALL.finditer(text):
+            lineno = text[:m.start()].count("\n") + 1
+            violations.append(
+                f"{path}:{lineno}: [HAL-INVARIANT-VIOLATION] synchronous bus call in an I/O engine back end.\n"
+                f"    Race: auto channels start from the edge handler; a sync wait there blocks with interrupts masked.\n"
+                f"    Fix: submit the request with a completion callback ([SPEC-E906-HAL-04] rule 9)."
             )
 
     # Check 4: Unchecked peek/poke in REPL

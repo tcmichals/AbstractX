@@ -20,6 +20,8 @@
 #include "hal/auto_dma.hpp"
 #include "abstractx/interrupt_lock.hpp"
 
+#include <atomic>
+
 namespace abstractx::target {
 
 // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md
@@ -54,8 +56,9 @@ public:
         return true;
     }
 
-    // SPI: DMA with completion from the DMA ISR. I2C: E906I2c only has blocking calls, so the
-    // transfer completes before returning ([SPEC-ARCH-13] 5; listed in the target spec).
+    // SPI: DMA with completion from the DMA ISR. I2C: async request, completion from the TWI interrupt
+    // with the rule-8 deadline ([SPEC-E906-HAL-04] rule 9): never a sync call, an auto channel starts
+    // from the DRDY edge handler with interrupts masked.
     // SPI always by DMA here, also below DMA_THRESHOLD: the auto read runs from the edge
     // handler and must not keep it busy for the burst ([SPEC-E906-HAL-05]).
     // The E906 owns the sensor bus and Linux sees results ([SPEC-ARCH-14]; built on the E906 only).
@@ -87,6 +90,7 @@ public:
             return true;
         }
         if (x.bus == hal::BusType::I2c) {
+            // @impl [SPEC-E906-HAL-04] targets/allwinner_e906/SPECIFICATION.md (rule 9: async engine I2C)
             const uint8_t idx = x.bus_index & 1U;
             auto& bus = i2c_port(idx);
             if (!i2c_ready_[idx]) {
@@ -95,15 +99,23 @@ public:
                 bus.init(cfg);
                 i2c_ready_[idx] = true;
             }
-            bool ok = true;
-            if (!x.tx.empty() && !x.rx.empty()) ok = bus.write_read_sync(x.device, x.tx, x.rx);
-            else if (!x.rx.empty())             ok = bus.read_sync(x.device, x.rx);
-            else if (!x.tx.empty())             ok = bus.write_sync(x.device, x.tx);
-            hal::IoResult r{};
-            r.ok = ok;
-            r.transferred = ok ? x.rx.size() : 0;
-            r.timestamp_ns = ::hal::Timer::get_time_ns();
-            x.done(r);
+            I2cJob* j = alloc_i2c_job();
+            if (j == nullptr) {                 // every job in flight: refuse, never wait
+                if (in_edge_) ++stats_.busy_drops;
+                return false;
+            }
+            j->done = x.done;
+            hal::I2cRequest req{};
+            req.slave_addr = x.device;
+            req.tx_data = x.tx;                 // engine-owned buffers: live until the completion
+            req.rx_data = x.rx;
+            req.repeated_start = !x.tx.empty() && !x.rx.empty();
+            req.callback = etl::delegate<void(const hal::I2cResult&)>::create<I2cJob, &I2cJob::on_done>(*j);
+            if (!bus.submit_request(req)) {
+                j->in_use.store(false, std::memory_order_release);
+                if (in_edge_) ++stats_.busy_drops;
+                return false;
+            }
             return true;
         }
         return false;
@@ -201,6 +213,32 @@ private:
         spi_done_ = {};
         if (cb.is_valid()) cb(r);
     }
+
+    // One in-flight engine I2C transfer per job; the job holds the engine's completion
+    // ([SPEC-E906-HAL-04] rule 9). shared: start_transfer (main or edge ISR) claims, the TWI completion
+    // releases; atomic in_use.
+    struct I2cJob {
+        std::atomic<bool> in_use{false};
+        etl::delegate<void(const hal::IoResult&)> done{};
+        void on_done(const hal::I2cResult& r) noexcept {
+            hal::IoResult out{};
+            out.ok = r.status == hal::I2cStatus::Ok;
+            out.transferred = out.ok ? r.transferred_bytes : 0;
+            out.timestamp_ns = r.timestamp_us * 1000ULL;
+            auto cb = done;
+            done = {};
+            in_use.store(false, std::memory_order_release);
+            if (cb.is_valid()) cb(out);
+        }
+    };
+    I2cJob* alloc_i2c_job() noexcept {
+        for (auto& j : i2c_jobs_) {
+            bool expected = false;
+            if (j.in_use.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) return &j;
+        }
+        return nullptr;
+    }
+    I2cJob i2c_jobs_[4]{};
 
     static hal::E906I2c& i2c_port(uint8_t idx) noexcept {
         // On the Radxa Cubie A5E, the external sensor header is TWI1 (PB4/PB5).

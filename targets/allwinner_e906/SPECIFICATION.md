@@ -941,6 +941,12 @@ and by `testFreeRTOS` (cubie-a5e, 2026-10-20). Numbers not in this table are not
      TWI, which, under an interrupt guard, ends a late transfer with STOP and completes it with
      `Timeout`. The guard makes the timeout and the completion interrupt mutually exclusive: the
      request completes exactly once, and no interrupt resumes a coroutine.
+  9. **The I/O engine's I2C transfers are async (2026-11-06, full-audit buses review)**: `E906IoBackend`
+     submits every I2C transfer (host bridge and GPIO-edge auto channel) as an `I2cRequest` with a
+     completion callback (rule 8 deadline) and never calls `write_read_sync` / `read_sync` /
+     `write_sync`. An auto channel starts from the DRDY edge handler, where interrupts are masked: a
+     synchronous wait there held the interrupt for up to the 20 ms deadline and could not receive the
+     TWI completion interrupt it waited for. A full job pool refuses the start (`false`), it never waits.
 * **Rules for every port driver** (2026-10-27, after `c5a1eaa`):
   1. Interrupt- or DMA-driven ([SPEC-E906-HAL-01]); `start_hardware_transfer_from_isr` starts the
      transfer and returns. It never waits on a status bit, and no wait anywhere is unbounded.

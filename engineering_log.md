@@ -4091,3 +4091,23 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `tools/audit_hal_invariants.py` check 5: compound write to a pin-port register outside Port B / I in E906 code fails. **Old tree: 16 violations** (pio.hpp, io_processor.cpp); new tree: pass.
 * `sim/test_e906_spi1_ownership.cpp`: CS1 refused with no SPI1 register touched (old code: accepted).
 * **Open**: `set_cs0` is itself a read-modify-write of Port B's data register; Linux keeps UART0 on PB9/PB10 as a pin function (data bits unused), but whether Linux drives any Port B GPIO output is not checked on the board. SPI1's hardware chip select would avoid the GPIO write entirely (needs a board check). The real CS1 / frame-ready pins (PI0, PL13 per the overlay comment) are not confirmed.
+
+## [2026-11-06] - Full-audit buses review: E906 engine ran I2C synchronously inside the DRDY edge interrupt
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/allwinner_e906/src/io_processor.cpp` (`E906IoBackend::start_transfer`)
+* **Category**: `product-bug` (found by an independent read-only review for the full audit's "buses" checklist, then confirmed in code)
+* **Symptoms**: for an I2C channel triggered by a GPIO edge, `on_edge` (GPIO interrupt) -> `IoEngine::on_trigger` -> `start_transfer` -> `write_read_sync`, which waits up to 20 ms in `driver_wait`. Interrupts are masked in the handler, so the wait held the interrupt for the deadline and could not receive the TWI completion interrupt it waited for. The code comment said the gap was "listed in the target spec"; it was not.
+
+### 2. Root Cause & Lesson Learned
+* **Why**: `[SPEC-ARCH-13]` 5 lets a back end with only a synchronous primitive complete inside `start_transfer`; the E906 TWI driver gained an async path later (rule 8) and the back end was never moved. A rule that permits a gap needs a check that the gap is still needed.
+* **Which check should have caught it**: `hal-concurrency-audit` (no rule about sync calls in a back end); no host test compiles the E906 back end; no board test runs an I2C auto channel.
+
+### 3. Specification Update (SSOT Defense)
+* `[SPEC-E906-HAL-04]` rule 9: the engine's I2C transfers are async (request + completion callback, rule-8 deadline); a full job pool refuses, never waits.
+
+### 4. Implementation & Regression Test
+* `E906IoBackend`: 4-job pool, `submit_request` with a callback per job; no `*_sync` call left.
+* `tools/audit_hal_invariants.py` check 6: a synchronous bus call in any `targets/*/src/io_processor.cpp` fails. **Old backend: 3 violations** (lines 99-101); new: pass.
+* Not checked: board run of an I2C auto channel; whether the callback context (TWI interrupt) is the one the engine expects for every channel kind (SPI already completes from the DMA interrupt).
+* The review's other 9 findings are candidates, recorded in `docs/reviews/2026-11-06-full-audit.md`.
