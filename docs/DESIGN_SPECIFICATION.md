@@ -388,6 +388,19 @@ sequenceDiagram
   `board-bringup` (PC sampling shows no software float helpers in the fusion path)
 * **Implementation Target**: `cmake/toolchains/arm-none-eabi.cmake`
 
+### `[SPEC-BUILD-03]` Freestanding Flags Are for Firmware, Not for a Cross-Built Linux Host
+* **Requirement**: `-fno-exceptions`, `-fno-rtti`, `-fno-threadsafe-statics` and `-fno-use-cxa-atexit`
+  MUST apply to every bare-metal target and MUST NOT apply to `ABSTRACTX_TARGET=host`, whether that
+  host is built natively or cross-compiled (a Buildroot AArch64 sysroot). Being a cross-build does
+  not make a target freestanding: a Linux host links libstdc++ and its dependencies (CppUTest,
+  Boost.Asio) and its tests use exceptions, exactly as in the native build.
+* **Rationale (2026-11-06)**: the flags were keyed on `CMAKE_CROSSCOMPILING`. A Buildroot AArch64 build
+  of the host target could not compile CppUTest, `sim/test_coro_failures.cpp` or
+  `examples/serial_packet_parser_coroutine.cpp`, so 9 tests were never built, and
+  `test_host_conformance_asio` failed to link (`boost::throw_exception`).
+* **Verified by**: `host-tests` (`tests/test_toolchain_files.py::test_freestanding_flags_scope`)
+* **Implementation Target**: `CMakeLists.txt`
+
 ### `[SPEC-ARCH-09]` Coroutine Failures Without C++ Exceptions
 * **Goal**: small, deterministic firmware. Storing and rethrowing exceptions (`std::exception_ptr`, `std::current_exception`, `std::rethrow_exception`) and type-erased callbacks (`std::function`) pull the C++ unwinder and RTTI support into every image (measured ~15.6 KB of libgcc unwinder on the E906, out of 192 KB SRAM).
 * **Requirement**: `Task<T>` MUST NOT store or propagate exceptions. An exception that escapes a coroutine body is a firmware bug: `unhandled_exception()` MUST report it through `abstractx::coro::set_unhandled_exception_hook()` (if set) and then stop with `__builtin_trap()`, so the target's trap handler records it (E906: `[SPEC-E906-CRASH-01]`, trace0). Errors that are expected at run time are returned as values (`Result`, status codes), not thrown.

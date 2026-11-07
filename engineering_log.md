@@ -4261,3 +4261,26 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Code Implementation**: `set_line` counts the failure in the no-libgpiod branch. Tagged with `// @impl [SPEC-LINUX-GPIO-02]`
 * **Regression Test**: existing `sim/test_linux_gpio_edges.cpp:100`: `io_errors=2` FAIL on the old code, PASS on the new (no libgpiod). `tools/gate.sh`: plain 128/128, ASan 117/117, TSan 117/117.
 * **Not run**: the libgpiod build (not installed on this PC; its code is unchanged), clang-tidy (not installed, SKIP), `board-bringup`.
+
+## [2026-11-06] - Cross-built Linux host got firmware flags; the board's libgpiod was v1, so the v2 code never compiled
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `CMakeLists.txt`, `targets/linux/include/gpio_gpiod.hpp`, Buildroot `bld.a5e` / `bld.a7a`
+* **Symptoms**: a Buildroot AArch64 build of `ABSTRACTX_TARGET=host` failed in CppUTest, `sim/test_coro_failures.cpp` and `examples/serial_packet_parser_coroutine.cpp` (`exception handling disabled`), so 9 tests were never built; on a7a `test_host_conformance_asio` failed to link (19 undefined `boost::throw_exception`). Separately, CMake reported `libgpiod v2 not found; GPIO edges are simulated`.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened** (`product-bug`): the freestanding flags were keyed on `CMAKE_CROSSCOMPILING`, but being a cross-build does not make a target freestanding.
+* **Why it happened** (`hardware-fact`): both Buildroot configs selected `BR2_PACKAGE_LIBGPIOD` (1.6.5). `libgpiod.so.2.2.3` is that release's ABI number, not libgpiod v2. So on those images the v2 code from f26126a was compiled out: edges simulated, pin I/O only counted errors. Not checked on a running board.
+* **Why it happened** (`tool-bug`): `tools/audit_specs.py` did not scan the root `CMakeLists.txt`, so the `[SPEC-BUILD-03]` tag there was reported `[UNTAGGED]` and `py_test_spec_traceability` failed. Fixed: it now scans that one file.
+* **Miss** (`process-gap`): nothing built the host target with the board's own toolchain and sysroot, so neither problem showed up. The v2 code had never been compiled on this PC. Still no automatic check: a Buildroot cross-build needs a Buildroot output, so it is not in `tools/gate.sh` or CI.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/DESIGN_SPECIFICATION.md`
+* **Requirement Tag Added/Updated**: `[SPEC-BUILD-03]`
+* **Rule Added to Spec**: the freestanding flags apply to every bare-metal target and never to `ABSTRACTX_TARGET=host`, native or cross-compiled.
+
+### 4. Implementation & Verification
+* **Code Implementation**: `CMakeLists.txt` guard is `CMAKE_CROSSCOMPILING AND NOT ABSTRACTX_TARGET STREQUAL "host"`; `gpio_gpiod.hpp:145` casts the event index (`-Wsign-conversion`, seen once the v2 code compiled). Buildroot configs moved to `BR2_PACKAGE_LIBGPIOD2` in cubie-a5e b3b8076, cc8d941.
+* **Regression Test**: `tests/test_toolchain_files.py::test_freestanding_flags_scope`: FAIL on the old `if(CMAKE_CROSSCOMPILING)`, PASS on the new.
+* **Cross-build** (Buildroot GCC 15.1, libgpiod 2.3.1, v2 API enabled, under `qemu-aarch64`): build exit 0 on a5e and a7a, 0 warnings from `gpio_gpiod.hpp`; the previously unbuilt tests, `test_host_conformance_asio` (a7a only; a5e has no Boost) and `test_linux_gpio_edges` pass, a5e 10/10, a7a 11/11.
+* **Not run**: the rest of the suite with v2 enabled (other tests could open the build PC's real `/dev/gpiochip*`), a real GPIO line through v2, any board.

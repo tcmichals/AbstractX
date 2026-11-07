@@ -142,7 +142,7 @@ public:
             int count = ::gpiod_line_request_read_edge_events(request_, event_buf_, 16);
             if (count > 0) {
                 for (int i = 0; i < count; ++i) {
-                    struct gpiod_edge_event* ev = ::gpiod_edge_event_buffer_get_event(event_buf_, i);
+                    struct gpiod_edge_event* ev = ::gpiod_edge_event_buffer_get_event(event_buf_, static_cast<unsigned long>(i));
                     if (ev) {
                         uint64_t ts_ns = ::gpiod_edge_event_get_timestamp_ns(ev);
                         unsigned int line = ::gpiod_edge_event_get_line_offset(ev);

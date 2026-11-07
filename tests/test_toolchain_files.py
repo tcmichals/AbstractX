@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# @verifies [SPEC-BUILD-01] [SPEC-BUILD-02] docs/DESIGN_SPECIFICATION.md
+# @verifies [SPEC-BUILD-01] [SPEC-BUILD-02] [SPEC-BUILD-03] docs/DESIGN_SPECIFICATION.md
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Toolchain files find the compiler on any PC: -D value, env, newest ~/.tools dir, PATH."""
@@ -81,6 +81,22 @@ def test_arm_float_abi():
         assert "-mfloat-abi=softfp" in flags, f"CMAKE_{lang}_FLAGS_INIT has no -mfloat-abi=softfp (GCC defaults to soft float)"
 
 
+def freestanding_flags_condition(text):
+    """The if() that guards the add_compile_options block holding -fno-exceptions."""
+    m = re.search(r"^if\((.*)\)\s*\n\s*add_compile_options\([^)]*-fno-exceptions", text, re.M)
+    assert m, "no if() guarding -fno-exceptions in CMakeLists.txt"
+    return m.group(1)
+
+
+def test_freestanding_flags_scope():
+    """[SPEC-BUILD-03]: bare metal gets the flags; a cross-built Linux host does not."""
+    cond = freestanding_flags_condition((REPO / "CMakeLists.txt").read_text(encoding="utf-8"))
+    assert 'NOT ABSTRACTX_TARGET STREQUAL "host"' in cond, f"host is not excluded: if({cond})"
+    for name in ("riscv-none-elf.cmake", "arm-none-eabi.cmake", "xtensa-esp-elf.cmake"):
+        text = (TC / name).read_text(encoding="utf-8")
+        assert re.search(r'CMAKE_CXX_FLAGS_INIT\s+"[^"]*-fno-exceptions', text), name
+
+
 if __name__ == "__main__":
     if shutil.which("cmake") is None:
         print("SKIP: cmake not on PATH")
@@ -88,4 +104,5 @@ if __name__ == "__main__":
     test_no_absolute_home_paths()
     test_search_order()
     test_arm_float_abi()
+    test_freestanding_flags_scope()
     print("toolchain file tests passed")

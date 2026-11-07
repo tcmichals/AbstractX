@@ -58,7 +58,8 @@ def run_traceability_audit(spec_file=None, root_dir=None):
     # drivers/ and src/ were missing until 2026-10-23: tags in them were silently not counted
     # (engineering_log.md 2026-10-23, [SPEC-ARCH-12]).
     # cmake/ added 2026-11-03: toolchain-file tags ([SPEC-BUILD-02]) were not counted.
-    scan_dirs = ["include", "src", "applib", "targets", "apps", "examples", "sim", "tools", "rtl", "hw", "trace", "cmake"]
+    # "." is the root CMakeLists.txt only, added 2026-11-06: its [SPEC-BUILD-03] tag was not counted.
+    scan_dirs = [".", "include", "src", "applib", "targets", "apps", "examples", "sim", "tools", "rtl", "hw", "trace", "cmake"]
     valid_exts = {
         ".hpp", ".cpp", ".h", ".c", ".S", ".s", ".sv", ".py", ".xdc",
         ".ld", ".dts", ".dtsi", ".dtso", ".yaml", ".yml", ".cmake",
@@ -71,7 +72,8 @@ def run_traceability_audit(spec_file=None, root_dir=None):
         if not dir_path.exists():
             continue
 
-        for root, dirs, files in os.walk(dir_path):
+        walker = [(root_dir, [], ["CMakeLists.txt"])] if s_dir == "." else os.walk(dir_path)
+        for root, dirs, files in walker:
             dirs[:] = [d for d in dirs if d not in skip_dirs]
             for file_name in files:
                 file_path = Path(root) / file_name

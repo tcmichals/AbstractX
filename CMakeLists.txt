@@ -21,7 +21,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-if(CMAKE_CROSSCOMPILING)
+# @impl [SPEC-BUILD-03] docs/DESIGN_SPECIFICATION.md (bare metal only; a cross-built Linux host is hosted)
+if(CMAKE_CROSSCOMPILING AND NOT ABSTRACTX_TARGET STREQUAL "host")
     add_compile_options(
         $<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>
         $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
