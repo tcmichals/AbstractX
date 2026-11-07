@@ -87,11 +87,22 @@ add_subdirectory(hosts)
 add_subdirectory(applib)
 
 
+# Standalone: everything. As a subproject: the runtime, HAL and applib only.
+# @impl [SPEC-BUILD-04] docs/DESIGN_SPECIFICATION.md
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    set(_abx_is_top_level ON)
+else()
+    set(_abx_is_top_level OFF)
+endif()
+option(ABSTRACTX_BUILD_APPS_AND_TESTS "Build AbstractX's apps, examples, simulations and tests" ${_abx_is_top_level})
+
 # 3. Applications & Deployable Binaries
-add_subdirectory(apps)
+if(ABSTRACTX_BUILD_APPS_AND_TESTS)
+    add_subdirectory(apps)
+endif()
 
 # 4. Host Simulation & Examples (Only when building for host)
-if(ABSTRACTX_TARGET STREQUAL "host")
+if(ABSTRACTX_BUILD_APPS_AND_TESTS AND ABSTRACTX_TARGET STREQUAL "host")
     enable_testing()
 
     add_custom_target(test-all

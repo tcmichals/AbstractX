@@ -388,6 +388,15 @@ sequenceDiagram
   `board-bringup` (PC sampling shows no software float helpers in the fusion path)
 * **Implementation Target**: `cmake/toolchains/arm-none-eabi.cmake`
 
+### `[SPEC-BUILD-04]` AbstractX Builds as a Subproject
+* **Requirement**: AbstractX added as a CMake subdirectory of another project MUST configure and build `abstractx_core`, the target HAL and
+  `applib` without AbstractX's apps, examples, simulations and tests. `ABSTRACTX_BUILD_APPS_AND_TESTS` controls this, and defaults to `ON`
+  only when AbstractX is the top-level project, so a standalone build is unchanged. Target and library CMake files name AbstractX's own
+  files through `AbstractX_SOURCE_DIR`, never `CMAKE_SOURCE_DIR`.
+* **Rationale (2026-11-07)**: an application such as a flight stack links the runtime directly. `CMAKE_SOURCE_DIR` points at the application then, so the Linux target could not find AbstractX's headers.
+* **Verified by**: `host-tests`
+* **Implementation Target**: `CMakeLists.txt`, `targets/linux/CMakeLists.txt`, `targets/zynq7000/CMakeLists.txt`
+
 ### `[SPEC-BUILD-03]` Freestanding Flags Are for Firmware, Not for a Cross-Built Linux Host
 * **Requirement**: `-fno-exceptions`, `-fno-rtti`, `-fno-threadsafe-statics` and `-fno-use-cxa-atexit`
   MUST apply to every bare-metal target and MUST NOT apply to `ABSTRACTX_TARGET=host`, whether that

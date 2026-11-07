@@ -244,6 +244,36 @@ def test_device_tree_and_yaml_traceability():
         assert rc == 1 and "[UNTRACED] src/untraced.yaml:1" in out_io.getvalue(), "untraced yaml fails --strict"
 
 
+def test_build_file_tags_count_in_the_matrix():
+    # @verifies [SPEC-AUDIT-07] docs/SPECTRACE.md
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        (root / "CMakeLists.txt").write_text(f"# {IMPL} [SPEC-FIX-01] docs/FIX_SPECIFICATION.md\n")
+        (root / "src" / "Makefile").write_text(f"# {IMPL} [SPEC-FIX-01] docs/FIX_SPECIFICATION.md\n")
+        (root / "src" / "x.cmake").write_text(f"# {IMPL} [SPEC-FIX-02] docs/FIX_SPECIFICATION.md\n")
+        (root / "src" / "y.mk").write_text(f"# {IMPL} [SPEC-FIX-02] docs/FIX_SPECIFICATION.md\n")
+        (root / "default.xml").write_text(f"<!-- {IMPL} [SPEC-FIX-02] docs/FIX_SPECIFICATION.md -->\n")
+        (root / "notes.txt").write_text(f"{IMPL} [SPEC-FIX-02] docs/FIX_SPECIFICATION.md\n")
+        run(["git", "add", "."], root)
+        run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "build files"], root)
+
+        reqs, _, _ = sm.build_matrix(root)
+        files_01 = [file for file, _, _ in reqs["SPEC-FIX-01"].impls]
+        files_02 = [file for file, _, _ in reqs["SPEC-FIX-02"].impls]
+        assert "CMakeLists.txt" in files_01 and "src/Makefile" in files_01, files_01
+        assert {"src/x.cmake", "src/y.mk", "default.xml"} <= set(files_02), files_02
+        assert "notes.txt" not in files_02, "a plain text file is not a build file"
+
+        # Change review stays on code files: a build-file hunk is not untraced.
+        (root / "src" / "Makefile").write_text("all:\n\ttrue\n")
+        run(["git", "add", "src/Makefile"], root)
+        out_io = io.StringIO()
+        with contextlib.redirect_stdout(out_io):
+            rc = sm.review_changes(root, "", False, True, staged=True)
+        assert rc == 0 and "UNTRACED" not in out_io.getvalue(), out_io.getvalue()
+
+
 def test_hierarchy_and_graph_export():
     with tempfile.TemporaryDirectory() as d:
         root = Path(d)
@@ -569,6 +599,7 @@ if __name__ == "__main__":
     test_change_review_maps_hunks_and_flags_untraced()
     test_stale_and_failing_verdicts()
     test_device_tree_and_yaml_traceability()
+    test_build_file_tags_count_in_the_matrix()
     test_hierarchy_and_graph_export()
     test_reqif_export()
     test_skill_layout_shared_by_all_agents()

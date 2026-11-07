@@ -148,6 +148,10 @@ where its evidence goes. SpecTrace connects them: requirement → code
   not exist).
 * **Requirement**: "100%" means every requirement is `VERIFIED`. Tag presence alone
   (`audit_specs.py`) is never reported as completion.
+* **Requirement (build files, 2026-11-07)**: an `@impl` tag in `CMakeLists.txt`, `*.cmake`, a
+  Makefile, `*.mk` or `*.xml` counts as an implementation in the matrix. Change review (`--changes`) still
+  covers code files only, so a build-file hunk is not reported as untraced. Before this, such tags were
+  invisible: requirements implemented by a build file showed `SPEC-ONLY`.
 * **Requirement (VERIFIED means tested at a real commit, 2026-11-04)**: a requirement is `VERIFIED` only
   when it has at least one `@verifies` test (without one, a passing skill run gives at most
   `IMPLEMENTED`), and its evidence records name a full or abbreviated commit hash (7 to 40 hex digits)

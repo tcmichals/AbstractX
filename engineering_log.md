@@ -2,6 +2,25 @@
 
 This log chronicles the development, technical decisions, and architecture milestones for the AbstractX project.
 
+## [2026-11-07] - SpecTrace Matrix Did Not See @impl Tags in Build Files; AbstractX as a CMake Subproject
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/spectrace_matrix.py`, `CMakeLists.txt`, `targets/linux/CMakeLists.txt`, `targets/zynq7000/CMakeLists.txt`
+* **Symptoms**: requirements implemented by a `CMakeLists.txt` showed `SPEC-ONLY` although the file carried `@impl` tags (found from the `tcmichals/flight` repo, whose `Makefile` and `default.xml` tags were invisible). Adding AbstractX with `add_subdirectory` from another project would have pulled in its apps and tests, and `targets/linux` named its headers through `CMAKE_SOURCE_DIR`.
+* **Category**: `tool-bug`
+
+### 2. Root Cause & Lesson Learned
+* **Why did it happen?**: the matrix scanned only `CODE_EXTS`. The CMake files assumed AbstractX is always the top-level project.
+* **Which check should have caught it**: none tested build files. `test_build_file_tags_count_in_the_matrix` failed on the old tool and passes on the new one.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: `docs/SPECTRACE.md`, `docs/DESIGN_SPECIFICATION.md`
+* **Requirement Tag Added / Updated**: `[SPEC-AUDIT-07]` (build files), `[SPEC-BUILD-04]` (new)
+
+### 4. Implementation & Regression Test
+* **Code Changes**: `is_build_file()` in the matrix scan; change review still covers code files only. `ABSTRACTX_BUILD_APPS_AND_TESTS`, `ON` only at top level; `AbstractX_SOURCE_DIR` in the two target files.
+* **Verification**: in the commit message. `py_test_studio_gui_clicks` fails on the untouched parent commit too (`TODO.md`, 2026-11-06).
+
 ## [2026-04-19] - Project Setup & Licensing Model
 
 ### What was done

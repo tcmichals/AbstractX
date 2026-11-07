@@ -134,6 +134,14 @@ def is_code(path: str) -> bool:
     return p.suffix in CODE_EXTS and not (set(p.parts) & EXCLUDED_PARTS)
 
 
+def is_build_file(path: str) -> bool:
+    """Build files can carry @impl tags for the matrix; change review stays on code files."""
+    # @impl [SPEC-AUDIT-07] docs/SPECTRACE.md
+    p = Path(path)
+    named = p.name in {"CMakeLists.txt", "Makefile", "GNUmakefile"} or p.suffix in {".cmake", ".mk", ".xml"}
+    return named and not (set(p.parts) & EXCLUDED_PARTS)
+
+
 TARGET_LINE_RE = re.compile(r"^\s*\*\s*\*\*Implementation Target\*\*:\s*(.*)$")
 NOT_IMPL_RE = re.compile(r"^\s*\*\s*\*\*Not implemented yet\*\*:\s*(.*)$")
 BACKTICK_RE = re.compile(r"`([^`]+)`")
@@ -470,7 +478,7 @@ def scan_anchors(root: Path, files: list[str]) -> dict[str, list[Anchor]]:
     anchors: dict[str, list[Anchor]] = {}
     for rel in files:
         path = root / rel
-        if not is_code(rel) or not path.is_file():
+        if not (is_code(rel) or is_build_file(rel)) or not path.is_file():
             continue
         found = anchors_in_lines(path.read_text(encoding="utf-8", errors="ignore").splitlines())
         if found:

@@ -19,7 +19,7 @@ add_library(abstractx_target_linux STATIC
 
 target_include_directories(abstractx_target_linux PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/include
+    ${AbstractX_SOURCE_DIR}/include
 )
 
 # @impl [SPEC-LINUX-GPIO-01] targets/linux/SPECIFICATION.md (libgpiod v2 detected by the build)
