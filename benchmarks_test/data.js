@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794046424858,
+  "lastUpdate": 1794049490338,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Test Execution Metrics": [
@@ -9955,6 +9955,410 @@ window.BENCHMARK_DATA = {
           {
             "name": "ctest:tsan tests",
             "value": 127,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-asan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "host:ctest-tsan passed",
+            "value": 48,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer passed",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "pytest:visualizer tests",
+            "value": 13,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint critical_warnings",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:lint modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check modules",
+            "value": 14,
+            "unit": "bytes"
+          },
+          {
+            "name": "rtl:synth-check multi_driver_modules",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix broken",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix failing",
+            "value": 3,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix implemented",
+            "value": 78,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix partial",
+            "value": 6,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix spec_only",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix stale",
+            "value": 130,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix total",
+            "value": 244,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "spectrace:matrix verified_pct",
+            "value": 0,
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "a3606bee1bb5af9266bf66e6f1c4b940860506ad",
+          "message": "feat(e906-bench): one command for every Part 4 row, with evidence and the clock set [SPEC-E906-BENCH-08]\n\nThe Part 4 numbers came from hand-typed commands, carry 1970 timestamps and do not record\nthe setup. tools/run_e906_bench_suite.py runs all 34 rows (about 32 min): both firmwares,\nthe FreeRTOS timer modes, one-way C and Python, RT and normal cyclictest, idle and loaded.\nEach run gets a directory with one JSON per row and a manifest (commit, ELF SHA-256,\nkernel, exit codes). A failed or hung row is recorded and the run goes on.\n\nEvidence:\n  tools/gate.sh: plain 130/130, ASan 119/119, TSan 119/119; static analysis SKIP\n    (clang-tidy not installed)\n  tests/test_run_e906_bench_suite.py: PASS, without a board\n  On the A5E (kernel #15, remoteproc probe failing): the runner stops with exit 2 and names\n    the cause; cyclictest -h 20000 with and without -p 95 runs and gives the parsed format\n\nNot run: a complete board run. No row has produced a number, the load wrapper has not run\nstress-ng, and the firmware load path is only tested against a fake.",
+          "timestamp": "2026-11-07T04:58:32-06:00",
+          "tree_id": "c39b3ba498e27c9858918fe29ed4bd363c2603a1",
+          "url": "https://github.com/tcmichals/AbstractX/commit/a3606bee1bb5af9266bf66e6f1c4b940860506ad"
+        },
+        "date": 1794049489902,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "board:e906:repl-system announce_abstractx-repl",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-tlp",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system announce_abstractx-trace",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system idle_no_recipient",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system new_no_recipient",
+            "value": 8,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_bounded",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system no_recipient_idle_silent",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system plane_isolation",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system repl_text",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_64B_all_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlp_payload_sequence",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system tlps_valid",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_ctf_received",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:repl-system trace_datagrams",
+            "value": 10,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors duration_s",
+            "value": 5.22,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_3d_fix_acquired",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors gps_serial_115200_active",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors i2c_compass_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:e906:sensors vector_synthesis_verified",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_received",
+            "value": 64,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_attitude",
+            "value": 16,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_gps",
+            "value": 16,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_tag_mag",
+            "value": 16,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout packets_valid_64b",
+            "value": 64,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout seq_monotonic_rate",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_gps_detected",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "board:system:checkout valid_yaw_detected",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests",
+            "value": 37,
+            "unit": "bytes"
+          },
+          {
+            "name": "cocotb:all tests_failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan passed",
+            "value": 128,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan test_time_s",
+            "value": 8.2,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan tests",
+            "value": 128,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan passed",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan test_time_s",
+            "value": 0.52,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:asan-ubsan tests",
+            "value": 32,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug passed",
+            "value": 128,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug test_time_s",
+            "value": 7.54,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:debug tests",
+            "value": 128,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host passed",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host test_time_s",
+            "value": 1.09,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:host tests",
+            "value": 38,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:plain failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:plain passed",
+            "value": 127,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:plain test_time_s",
+            "value": 5.23,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:plain tests",
+            "value": 127,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan failed",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan passed",
+            "value": 128,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan test_time_s",
+            "value": 8.01,
+            "unit": "bytes"
+          },
+          {
+            "name": "ctest:tsan tests",
+            "value": 128,
             "unit": "bytes"
           },
           {
