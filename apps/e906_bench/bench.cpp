@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * bench.cpp - E906 runtime benchmark shared by bare metal and FreeRTOS builds.
- * @impl [SPEC-E906-BENCH-01] [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-03] [SPEC-E906-BENCH-04] [SPEC-E906-BENCH-05] apps/e906_bench/SPECIFICATION.md
+ * @impl [SPEC-E906-BENCH-01] [SPEC-E906-BENCH-02] [SPEC-E906-BENCH-03] [SPEC-E906-BENCH-04] [SPEC-E906-BENCH-05] [SPEC-E906-BENCH-07] apps/e906_bench/SPECIFICATION.md
  */
 #include "bench.hpp"
 
@@ -134,7 +134,7 @@ struct Stat {
 
 // Text report, one RPMsg message per kPayload bytes. One report at a time, so the
 // buffer is static and stays out of the coroutine frame pool.
-uint8_t s_report_buf[kPayload];
+alignas(8) uint8_t s_report_buf[kPayload];
 
 class Report {
 public:
@@ -339,6 +339,75 @@ abstractx::coro::Task<void> run_cyclic(::hal::IRpmsg &rpmsg, uint32_t host, uint
     report_cyclic(rpmsg, host, profiler ? "abstractx_profiler_on" : "abstractx", done, min_t, max_t, sum_t, over, missed);
 }
 
+// One-way sample, little-endian, read by e906_oneway_reader.c and bench_e906_runtime.py.
+// @impl [SPEC-E906-BENCH-07] apps/e906_bench/SPECIFICATION.md
+struct OneWaySample {
+    uint8_t tag;       // kOneWayTag: not text, so a report message cannot look like a sample
+    uint8_t pad[3];
+    uint32_t seq;
+    uint64_t deadline;
+    uint64_t woke;
+    uint64_t sent;
+};
+static_assert(sizeof(OneWaySample) == 32, "wire format [SPEC-E906-BENCH-07]");
+constexpr uint8_t kOneWayTag = 0x01;
+
+abstractx::coro::Task<void> run_oneway(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count, uint16_t size,
+                                       bool profiler) noexcept {
+    const uint32_t profile_hz = abstractx::events::g_events.sample_hz;
+    abstractx::hal::platform_profile_start(profiler ? profile_hz : 0);  // as 'C' [SPEC-E906-BENCH-06]
+    if (count == 0) count = kCycDefault;
+    if (count > kCycMax) count = kCycMax;
+    if (size < sizeof(OneWaySample)) size = sizeof(OneWaySample);
+    if (size > kPayload) size = kPayload;
+    for (auto &b : s_report_buf) b = 0;
+    auto &sample = *reinterpret_cast<OneWaySample *>(s_report_buf);  // alignas(8) buffer, one run at a time
+    sample.tag = kOneWayTag;
+    ::hal::RpmsgMessage to{};
+    to.src = host;
+    to.dst = ENDPOINT_ADDR;
+    uint64_t min_t = UINT64_MAX, max_t = 0, sum_t = 0;
+    uint32_t sent = 0, tx_fail = 0, missed = 0, woken = 0;
+    Stat send;
+    uint64_t deadline = ::hal::Timer::get_ticks();
+    for (uint32_t i = 0; i < count; ++i) {
+        deadline += ::hal::Timer::TICKS_PER_MS;
+        const uint64_t now = ::hal::Timer::get_ticks();
+        if (now >= deadline) { ++missed; continue; }
+        co_await ::hal::Timer::sleep_ticks_async(deadline - now);
+        const uint64_t woke = ::hal::Timer::get_ticks();
+        const uint64_t late = woke > deadline ? woke - deadline : 0;
+        if (late < min_t) min_t = late;
+        if (late > max_t) max_t = late;
+        sum_t += late;
+        ++woken;
+        sample.seq = i;
+        sample.deadline = deadline;
+        sample.woke = woke;
+        sample.sent = ::hal::Timer::get_ticks();
+        const uint32_t t0 = now32();
+        const bool ok = rpmsg.reply(to, s_report_buf, size);
+        send.add(now32() - t0);
+        if (ok) ++sent; else ++tx_fail;
+    }
+    abstractx::hal::platform_profile_start(profile_hz);  // as it was
+    co_await ::hal::Timer::sleep_ms_async(10);           // the reader drains before the report
+    auto ns = [](uint64_t ticks) -> uint64_t { return ticks * 1000u / ::hal::Timer::TICKS_PER_US; };
+    Report r(rpmsg, host);
+    r.kv("platform", abx_bench_platform_name());
+    r.kv("ow_count", count);
+    r.kv("ow_sent", sent);
+    r.kv("ow_tx_fail", tx_fail);
+    r.kv("ow_missed", missed);
+    r.kv("ow_late_ns_min", woken ? ns(min_t) : 0);
+    r.kv("ow_late_ns_avg", woken ? ns(sum_t / woken) : 0);
+    r.kv("ow_late_ns_max", ns(max_t));
+    r.stat("ow_send_cycles", send);
+    r.kv("dropped_resumes", Dispatcher::dropped_resumes());
+    r.kv("end", static_cast<uint64_t>(1));
+    r.flush();
+}
+
 abstractx::coro::Task<void> run_imu(::hal::IRpmsg &rpmsg, uint32_t host, uint32_t count) noexcept {
     namespace ax = abstractx::hal;
     Report r(rpmsg, host);
@@ -535,18 +604,27 @@ abstractx::coro::Task<void> worker_task(::hal::IRpmsg &rpmsg) noexcept {
         if (cmd == 'E') {
             if (!rpmsg.reply(to, s.data, s.len)) ++s_tx_fail;
             ++s_tail;
+        } else if (cmd == 'T') {  // [SPEC-E906-BENCH-07] clock probe
+            const uint64_t now = ::hal::Timer::get_ticks();
+            uint8_t stamp[9] = {'T'};
+            for (uint32_t i = 0; i < 8; ++i) stamp[1 + i] = static_cast<uint8_t>(now >> (8U * i));
+            if (!rpmsg.reply(to, stamp, sizeof(stamp))) ++s_tx_fail;
+            ++s_tail;
         } else {
             const uint32_t host = s.src;
             uint32_t count = 0;   // 'A' sample count, read before the slot is freed
             for (uint16_t i = 0; i < 4 && 1U + i < s.len; ++i) {
                 count |= static_cast<uint32_t>(s.data[1 + i]) << (8U * i);
             }
-            const uint8_t flags = s.len > 5 ? s.data[5] : 0;  // 'C': bit 0 = keep the profiler on
+            const uint8_t flags = s.len > 5 ? s.data[5] : 0;  // 'C', 'O': bit 0 = keep the profiler on
+            const uint16_t size = s.len > 7 ? static_cast<uint16_t>(s.data[6] | (s.data[7] << 8)) : 0;  // 'O'
             ++s_tail;  // free the slot before a long run
             if (cmd == 'R') {
                 co_await run_suite(rpmsg, host);
             } else if (cmd == 'C') {
                 co_await run_cyclic(rpmsg, host, count, (flags & 1U) != 0);  // [SPEC-E906-BENCH-06]
+            } else if (cmd == 'O') {
+                co_await run_oneway(rpmsg, host, count, size, (flags & 1U) != 0);  // [SPEC-E906-BENCH-07]
             } else if (cmd == 'F') {
                 co_await run_native_cyclic(rpmsg, host, count);  // [SPEC-E906-BENCH-06] native RTOS
             } else if (cmd == 'A') {

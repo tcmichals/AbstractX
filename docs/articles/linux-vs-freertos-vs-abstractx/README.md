@@ -86,11 +86,13 @@ Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_c
 
 Offloading only helps if the Linux side gets the result in time. **The one-way time from an E906 event to a Linux thread is not measured yet.**
 
-The planned test (TODO §2b):
-* The E906 stamps an event and sends it over RPMsg.
-* A Linux reader thread stamps when the data is in the thread.
-* The reader runs as the same thread types as §3: RT (SCHED_FIFO 95) and normal (SCHED_OTHER).
+The test is written and runs off the board against a fake firmware; it has not run on a board yet ([SPEC-E906-BENCH-07]):
+* The E906 sleeps to a 1 ms deadline, stamps the event and sends it over RPMsg.
+* A Linux reader thread stamps when `read()` returns, so the data is in the thread.
+* The reader runs as the same thread types as §3: RT (SCHED_FIFO 95) and normal (SCHED_OTHER), both on CPU 2.
 * It runs with Linux idle and loaded, for both E906 firmwares, with readers written in C and in Python.
+
+**Two clocks.** A one-way time needs one clock on both sides. The manual suggests the E906's `mtime` and the A55's `CNTVCT_EL0` may be the same counter, but nothing has shown that. So each run proves it. Thousands of probes each give `t0 <= e - d <= t1` for the offset `d`, which bounds it. The run then reports `shared` (0 is inside the bounds) or `calibrated`, or stops if the bounds cross. Every result carries `uncertainty_ns`.
 
 What exists today is a round trip:
 1. A normal-priority Python program on Linux sends a message to the E906 over VirtIO RPMsg (endpoint 1030), through `rpmsg_char`.
@@ -240,7 +242,18 @@ done
 # 4. Linux on the A55 cores (cyclictest and stress-ng are in the Buildroot image since cubie-a5e 024f02e)
 ssh root@$ABSTRACTX_BOARD_IP 'cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q'
 ssh root@$ABSTRACTX_BOARD_IP 'stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & sleep 5; cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q; wait'
+# Normal-priority baseline: the same commands without -p.
+ssh root@$ABSTRACTX_BOARD_IP 'cyclictest -m -i 1000 -l 60000 -t1 -a 2 -q'
 # For the E906 rows under load, run step 3 while the same stress-ng command runs.
+
+# 5. One way, E906 event to a Linux thread, with each firmware loaded ([SPEC-E906-BENCH-07]), idle and under stress-ng
+$BUILDROOT_OUT/host/bin/aarch64-linux-gcc -std=c11 -O2 -o e906_oneway_reader apps/e906_repl_app/tests/board/e906_oneway_reader.c
+scp -O e906_oneway_reader root@$ABSTRACTX_BOARD_IP:/root/abstractx_board_bench/
+ssh root@$ABSTRACTX_BOARD_IP 'cd /root/abstractx_board_bench && \
+    python3 bench_e906_runtime.py --oneway 60000 --rt --json /tmp/oneway_c_rt.json; \
+    python3 bench_e906_runtime.py --oneway 60000 --json /tmp/oneway_c_other.json; \
+    python3 bench_e906_runtime.py --oneway 60000 --rt --reader python --json /tmp/oneway_py_rt.json; \
+    python3 bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/oneway_py_other.json'
 ```
 
 There is no one-command runner for this bench yet. `tools/run_e906_board_suite.py` runs the board self-tests, not these benchmarks.

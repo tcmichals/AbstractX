@@ -112,6 +112,70 @@ sequenceDiagram
 * **Verified by**: board bench (`bench_e906_runtime.py --cyclic` / `--native-cyclic`), `e906-build-layout`
 * **Implementation Target**: `apps/e906_bench/bench.cpp`, `apps/e906_bench/bench.hpp`, `apps/e906_freertos_app/src/main.cpp`, `apps/e906_repl_app/tests/board/bench_e906_runtime.py`
 
+### `[SPEC-E906-BENCH-07]` One Way: E906 Event to Data in a Linux Thread (`T`, `O`)
+* **Why**: `C` stops when the E906 coroutine runs and the echo is a round trip started by a Python
+  program, so nothing measures how long a Linux program waits for an E906 event. This run gives that
+  number, with the Linux reader as the same thread types as the `cyclictest` rows, so the two line up.
+
+```mermaid
+sequenceDiagram
+    participant R as Linux reader thread
+    participant E as bench coroutine on the E906
+    R->>E: 'T' x N (clock probe), reader stamps t0 before, t1 after
+    E->>R: 'T' + mtime
+    R->>E: 'O' + count + flags + size
+    loop every 1 ms deadline
+        E->>E: sleep to deadline, stamp woke, stamp sent
+        E->>R: sample (seq, deadline, woke, sent)
+        R->>R: read() returns, stamp in the thread
+    end
+    E->>R: report (key=value ... end)
+    R->>E: 'T' x N (clock probe again)
+```
+
+* **Requirement (clock probe, `T`)**: `T` replies `'T'` + `uint64` little-endian `hal::Timer::get_ticks()`
+  (`mtime`, 24 MHz), stamped immediately before the reply.
+* **Requirement (the clock is proved, not assumed)**: the manual suggests `mtime` and `CNTVCT_EL0` may be
+  one counter (the RISC-V block lists `TIMESTAMP` and `GRAYEN`; the A55 takes a 64-bit count from an
+  external system counter; `T527_User_Manual_V0.94` §2.2, §2.3), but no readback has shown it. Each probe
+  gives `t0 <= e - d <= t1` for the offset `d` (E906 ticks minus Linux ticks), so `N` probes (default 2000)
+  bound it: `lo = max(e - t1)`, `hi = min(e - t0)`.
+  * `lo > hi`: the clocks are not a fixed offset apart. `clock.kind=inconsistent`, the run stops, exit 1.
+  * `lo <= 0 <= hi`: `clock.kind=shared`, `d = 0`.
+  * otherwise `clock.kind=calibrated`, `d = (lo + hi) / 2`.
+  * The probe runs again after the run. `clock.uncertainty_ns` is the largest distance from `d` to any
+    bound of either probe, in every case, and every article number carries it. A `shared` verdict
+    from the first probe that the second contradicts is an error.
+* **Requirement (run, `O`)**: `O` + `uint32` count (default 60000, at most 600000) + `uint8` flags (bit 0 =
+  keep the profiler on, as `C`) + `uint16` size (32-496, default 32), all little-endian. Same 1 ms absolute
+  deadline loop and profiler rule as `C` ([SPEC-E906-BENCH-06]). After each wake it sends one sample through
+  `rpmsg.reply()`, the path the echo uses: 32-byte header, little-endian: tag `0x01` (not text, so a report
+  message cannot be mistaken for a sample), 3 pad bytes, `uint32 seq`, `uint64 deadline`, `uint64 woke`,
+  `uint64 sent` (`mtime`, `sent` stamped immediately before the reply), then padding up to `size`.
+* **Report** (`key=value`, ends with `end`, sent 10 ms after the last sample so the reader has drained):
+  `platform`, `ow_count`, `ow_sent`, `ow_tx_fail` (reply refused), `ow_missed` (deadline already past),
+  `ow_late_ns_{min,avg,max}` (deadline to wake), `ow_send_cycles_{min,avg,max}` (the `reply()` call),
+  `dropped_resumes`, `end`. `ow_sent + ow_tx_fail + ow_missed` equals the count.
+* **Requirement (C reader)**: `tests/board/e906_oneway_reader.c` runs in one thread with a blocking
+  `read()` on `/dev/rpmsgN` and reads `CNTVCT_EL0` right after it returns. `--rt`: `SCHED_FIFO` 95 and
+  `mlockall`, as `cyclictest -m -p 95 -a 2`; without it `SCHED_OTHER`, nice 0. Pinned to CPU 2 either way. No
+  per-sample storage: min / sum / max and 1 us buckets of 0-19,999 us. It never hangs: an alarm ends a
+  run that stalled, with `error` set.
+* **Requirement (Python reader)**: `bench_e906_runtime.py --oneway N --reader python` runs the same steps and
+  reports the same keys, to show what the language costs. Python cannot read `CNTVCT_EL0`, so it uses
+  `CLOCK_MONOTONIC_RAW` plus the difference `e906_oneway_reader --clock-pair` measured just before.
+* **Report (reader)**: `sent_to_read` (`sent` to the stamp after `read()`, the RPMsg send plus Linux) and
+  `event_to_read` (`deadline` to the same stamp, the number to compare with `cyclictest`), each with
+  `n`, `min_ns`, `avg_ns`, `max_ns`, `p50_us`, `p99_us`, `p999_us` (bucket upper edge), `over_20ms`; plus
+  `clock`, `sched`, `cpu`, `received`, `lost` (`ow_sent - received`), `out_of_order`, `negative` (a
+  time below `-uncertainty`, which cannot happen on a correct clock), the firmware report, and `setup`
+  (governor, frequency, RT kernel flag, `/proc/cmdline`).
+* **Requirement (exit)**: 0 only if the report arrived, nothing was lost, reordered or negative, the counts add
+  up and `dropped_resumes` is 0. A failed run still writes its JSON: a load that loses samples is a result.
+* **Verified by**: `host-tests` (`tests/test_e906_oneway_local.py`: both readers against a fake firmware,
+  including the failure cases), `e906-build-layout`, `memory-footprint`, board run (`bench_e906_runtime.py --oneway`)
+* **Implementation Target**: `apps/e906_bench/bench.cpp`, `apps/e906_repl_app/tests/board/e906_oneway_reader.c`, `apps/e906_repl_app/tests/board/bench_e906_runtime.py`
+
 ### `[SPEC-E906-BENCH-05]` IMU DRDY Auto-DMA Run (`A`)
 * **Why**: the sensor comparison (bare metal, FreeRTOS, MicroPython, Linux) is paced by the IMU's
   own data-ready edge, so every runtime does the same work at the same rate and the time from
