@@ -189,7 +189,9 @@ on Linux. They hand each request to `SpiWorker` / `I2cWorker`, whose thread runs
   `Alternate` / `Analog` are not Linux GPIO functions: refused (counted). When the chip or line cannot
   be requested, the operation does nothing, `read_pin` returns `false`, and `io_errors()` counts it;
   levels are kept in memory instead only with `ABSTRACTX_SIM_BUS=1` ([SPEC-LINUX-HAL-01] no silent
-  simulation). Before, every pin call only touched an in-memory array.
+  simulation). Before, every pin call only touched an in-memory array. A build without libgpiod v2 has
+  no line to request and follows the same rule: every `configure_pin`, `write_pin`, `toggle_pin` and
+  `read_pin` is counted (2026-11-06: `write_pin` was not).
 * **Verified by**: `host-tests` (`sim/test_linux_gpio_edges.cpp`: 1000 simulated edges -> 1000 handler
   calls from the edge thread, none while disabled, clean stop; missing chip: pin I/O fails and is counted,
   simulated levels only on request), `thread-sanitizer`, `board-bringup` (a real line: not run)

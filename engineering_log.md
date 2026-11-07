@@ -4240,3 +4240,24 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * `targets/allwinner_e906/src/no_heap.cpp` (INTERFACE source: trapping `operator delete`; `printf`, `iprintf`, `vprintf`, `puts`, `putchar` discard); `FileTraceSink` hosted-only; REPL `MICROPY_HAL_HAS_VT100 = 0` with its own cursor helpers; the E906 post-build hook runs `track_memory_footprint.py --elf` next to the layout check, so a heap symbol fails the build (shown: the first rebuild failed 8 of 8 images, the last passes 8 of 8).
 * `SRAM_FAST` (`analyze_elf_size.sh`): `e906_repl_app` 140.5 -> 133.4 KB (69.5 %); `e906_bench_app` 165.1 KB (86.0 %); `e906_freertos_app` 185.1 KB (96.4 %). All layouts ok.
 * Not run on a board: a discarded `printf` and a trapping `delete` change nothing that was used, but no board run confirms it.
+
+## [2026-11-06] - Mistake & Lesson: LinuxGpioDriver write_pin uncounted without libgpiod; gate blocked the push on a PC without it
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `targets/linux/include/linux_gpio_driver.hpp`
+* **Symptoms**: sim_test_linux_gpio_edges failed every run on a PC with no libgpiod (ABSTRACTX_LIBGPIOD_V2=OFF): io_errors=2, expected >= 3. Found by the pre-push gate while pushing 72 commits.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: Category: product-bug. Without libgpiod set_line never reached request_line, the only place that counted a write failure, so write_pin silently did nothing.
+* **Architectural Lesson**: Miss (process-gap): f26126a added the counting and its test; the test passes with libgpiod because `write_pin` then reaches `request_line`, so that commit's run was probably on a PC with libgpiod (inferred, not confirmed). No local check runs both configurations, and CI could not catch it because these commits were not pushed yet; the workflows do not mention libgpiod. Code behind an optional dependency needs both configurations run. That check is not added yet: the test already fails on the old code and passes on the new without libgpiod, but nothing forces both builds.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`targets/linux/SPECIFICATION.md`](targets/linux/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-LINUX-GPIO-02`
+* **Rule Added to Spec**:
+  > A build without libgpiod v2 has no line to request and follows the same rule: every `configure_pin`, `write_pin`, `toggle_pin` and `read_pin` is counted.
+
+### 4. Implementation & Verification
+* **Code Implementation**: `set_line` counts the failure in the no-libgpiod branch. Tagged with `// @impl [SPEC-LINUX-GPIO-02]`
+* **Regression Test**: existing `sim/test_linux_gpio_edges.cpp:100`: `io_errors=2` FAIL on the old code, PASS on the new (no libgpiod). `tools/gate.sh`: plain 128/128, ASan 117/117, TSan 117/117.
+* **Not run**: the libgpiod build (not installed on this PC; its code is unchanged), clang-tidy (not installed, SKIP), `board-bringup`.

@@ -154,6 +154,9 @@ private:
             return ::gpiod_line_request_set_value(lines_[pin], pin,
                        level ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE) == 0;
         }
+#else
+        // @impl [SPEC-LINUX-GPIO-02] targets/linux/SPECIFICATION.md (no libgpiod: no request_line to count it)
+        if (!linux_bus_sim_allowed()) io_errors_.fetch_add(1, std::memory_order_relaxed);
 #endif
         return linux_bus_sim_allowed();   // simulated level kept in pin_levels_ only on request
     }
