@@ -176,6 +176,26 @@ sequenceDiagram
   including the failure cases), `e906-build-layout`, `memory-footprint`, board run (`bench_e906_runtime.py --oneway`)
 * **Implementation Target**: `apps/e906_bench/bench.cpp`, `apps/e906_repl_app/tests/board/e906_oneway_reader.c`, `apps/e906_repl_app/tests/board/bench_e906_runtime.py`
 
+### `[SPEC-E906-BENCH-08]` One Command for Every Part 4 Row
+* **Why**: the Part 4 numbers came from hand-typed commands, carry 1970 timestamps, and did not record the
+  Linux setup, so a re-run could not be compared row by row.
+* **Requirement**: `tools/run_e906_bench_suite.py` runs every row from the build PC: it checks the board is
+  the A5E, refuses to start (exit 2) if `remoteproc0` or the ELFs or reader are missing, sets the board clock,
+  copies the tools and firmware, and loads each firmware through remoteproc before its rows.
+* **Rows**, each idle and under the article's `stress-ng` load, `--runs` times:
+  * AbstractX alone and FreeRTOS (`WAIT`): `bench` (echo + `R`), `cyclic`, `oneway` with the C and Python
+    readers, each `fifo95` and `other`;
+  * FreeRTOS (`WAIT`) only: `native_cyclic` (`F`);
+  * FreeRTOS (`XTIMER`, `TICK_HOOK`): `cyclic`;
+  * Linux: `cyclictest` with `-p 95` and without `-p`, with `-h 20000`, reported as `n`, `min_us`, `avg_us`,
+    `max_us`, `p50_us`, `p99_us`, `p999_us` (bucket upper edge, as [SPEC-E906-BENCH-07]), `overflows`.
+* **Requirement (evidence)**: one directory per run under `docs/verification/evidence/<YYYY-MM>/`, with a JSON
+  per row and a `manifest.json`: commit, dirty flag, SHA-256 of each ELF, kernel version, `stress-ng`
+  command, and each row's exit code. A failed row does not stop the run and is never left out; the
+  exit code is 1 if any row failed. `--record` adds a `source: board` ledger record.
+* **Verified by**: `host-tests` (`tests/test_run_e906_bench_suite.py`), board run
+* **Implementation Target**: `tools/run_e906_bench_suite.py`
+
 ### `[SPEC-E906-BENCH-05]` IMU DRDY Auto-DMA Run (`A`)
 * **Why**: the sensor comparison (bare metal, FreeRTOS, MicroPython, Linux) is paced by the IMU's
   own data-ready edge, so every runtime does the same work at the same rate and the time from

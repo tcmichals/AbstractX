@@ -161,6 +161,9 @@ if(Python3_Interpreter_FOUND)
     # [SPEC-E906-BENCH-07] one-way readers (C and Python) against a fake firmware
     add_test(NAME py_test_e906_oneway_local
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_e906_oneway_local.py)
+    # [SPEC-E906-BENCH-08] one command for every Part 4 row
+    add_test(NAME py_test_run_e906_bench_suite
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_run_e906_bench_suite.py)
     # [SPEC-E906-REPL-06/16] MicroPython coroutine & channel unit test
     add_test(NAME py_test_abstractx_coro
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_abstractx_coro.py)

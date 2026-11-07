@@ -256,7 +256,11 @@ ssh root@$ABSTRACTX_BOARD_IP 'cd /root/abstractx_board_bench && \
     python3 bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/oneway_py_other.json'
 ```
 
-There is no one-command runner for this bench yet. `tools/run_e906_board_suite.py` runs the board self-tests, not these benchmarks.
+**One command** ([SPEC-E906-BENCH-08]): `tools/run_e906_board_suite.py` runs the board self-tests; this one runs every row above, sets the board clock and saves the evidence:
+
+```bash
+python3 tools/run_e906_bench_suite.py --ip $ABSTRACTX_BOARD_IP --buildroot-out $BUILDROOT_OUT --build --record
+```
 
 ---
 
