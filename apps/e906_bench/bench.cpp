@@ -14,6 +14,7 @@
 #include "abstractx/hal/io_engine.hpp"
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/trace/event_trace.hpp"
+#include "abstractx/trace/step_profile.hpp"
 #include "applib/drivers/imu/icm42688p.hpp"
 #include "hal/auto_dma.hpp"
 #include "hal/gpio_irq.hpp"
@@ -510,6 +511,9 @@ abstractx::coro::Task<void> run_suite(::hal::IRpmsg &rpmsg, uint32_t host) noexc
 
     // 1. One runtime loop pass per yield [SPEC-E906-BENCH-02]
     Stat yield;
+#if ABX_STEP_PROFILE
+    abstractx::stats::g_step_profile.reset();
+#endif
     for (uint32_t i = 0; i < kYieldRuns; ++i) {
         const uint32_t t0 = now32();
         co_await abstractx::yield_to_dispatcher();
@@ -517,6 +521,23 @@ abstractx::coro::Task<void> run_suite(::hal::IRpmsg &rpmsg, uint32_t host) noexc
     }
     r.kv("yield_runs", kYieldRuns);
     r.stat("yield_cycles", yield);
+#if ABX_STEP_PROFILE
+    {   // @impl [SPEC-E906-BENCH-09] apps/e906_bench/SPECIFICATION.md (per-phase cost of step())
+        using abstractx::stats::StepPhase;
+        const auto prof = abstractx::stats::g_step_profile;  // before the report's own passes
+        const uint32_t s0 = static_cast<uint32_t>(abstractx::stats::now_cycles());
+        const uint32_t s1 = static_cast<uint32_t>(abstractx::stats::now_cycles());
+        r.kv("step_passes", prof.passes);
+        r.kv("step_stamp_cycles", s1 - s0);
+        r.kv("step_timer_cycles", prof.total(StepPhase::Timer));
+        r.kv("step_dispatch_cycles", prof.total(StepPhase::Dispatch));
+        r.kv("step_io_cycles", prof.total(StepPhase::Io));
+        r.kv("step_network_cycles", prof.total(StepPhase::Network));
+        r.kv("step_flush_cycles", prof.total(StepPhase::Flush));
+        r.kv("step_tasks_cycles", prof.total(StepPhase::Tasks));
+        r.kv("step_deadline_cycles", prof.total(StepPhase::Deadline));
+    }
+#endif
 
     // 2. Software interrupt -> ISR -> Dispatcher -> coroutine [SPEC-E906-BENCH-03]
     if (!abx_bench_soft_irq_enable()) {

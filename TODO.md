@@ -145,7 +145,7 @@ Goal: the same ICM-42688-P work (1 kHz, DRDY-triggered read, gyro + accel) on ea
 - [ ] Part 4 follow-ups (article §8 "Not measured", restructured 2026-11-06; each fills a *not measured* row):
   - Linux normal-thread baseline: `cyclictest` without `-p` (SCHED_OTHER), idle and loaded.
   - Record the Linux setup with every run: CPU governor and frequency, `isolcpus` / IRQ affinity of CPU 2, kernel config.
-  - Per-phase `mcycle` totals inside `step()` in bench `R` (where the 2,040-cycle yield and the ~1,900-cycle timer wake go), before item 2's event-driven `step()`.
+  - [x] Written 2026-11-07, no board run yet ([SPEC-E906-BENCH-09]): per-phase totals inside `step()` in bench `R` (`-DABX_STEP_PROFILE=ON`, the `*_step_profile` rows), before item 2's event-driven `step()`. Covers the 2,040-cycle yield; the ~1,900-cycle timer wake is still open.
   - Repeated runs: several per row, plus one multi-hour `cyclictest` / `C` run for worst cases; p99 / p99.9 in every table (`cyclictest -h` histogram on Linux).
   - A load aimed at the shared bus (DMA-heavy, e.g. `dd` to eMMC plus network), to test the claim that A55 load does not reach the E906.
   - Idle accounting in the AbstractX bench build (now `not-instrumented`); an idle-only window on both firmwares.

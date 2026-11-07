@@ -12,6 +12,7 @@
 #include "abstractx/trace/sink.hpp"
 #include "abstractx/trace/trace_dispatcher.hpp"
 #include "abstractx/trace/runtime_stats.hpp"
+#include "abstractx/trace/step_profile.hpp"
 #include "abstractx/trace/event_trace.hpp"
 #include <etl/vector.h>
 #include <cstdio>
@@ -343,20 +344,26 @@ uint32_t longest_ready_run(bool reset) noexcept {
 
 // @impl [SPEC-ARCH-06] [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md#spec-arch-06
 uint64_t step() noexcept {
+    // @impl [SPEC-E906-BENCH-09] apps/e906_bench/SPECIFICATION.md (compile to nothing unless ABX_STEP_PROFILE)
+    stats::step_begin();
     // 0. Sleeps the host must poll for ([SPEC-ARCH-15]); a no-op when the timer wakes us itself
     auto& timer = hal::get_timer_driver();
     (void)timer.service_due_us();
+    stats::step_mark(stats::StepPhase::Timer);
 
     // 1. Drain and resume all ready coroutines in the Dispatcher
     if (Dispatcher::has_pending_resumes()) {
         Dispatcher::process();
     }
+    stats::step_mark(stats::StepPhase::Dispatch);
 
     // 2. Step the target I/O processor reactor
     hal::get_target_io_processor().step(0);
+    stats::step_mark(stats::StepPhase::Io);
 
     // 3. Service background network stack
     hal::platform_poll_network();
+    stats::step_mark(stats::StepPhase::Network);
 
     // 4. Snapshot pending work flags (set by task final_suspend or notify_work)
     const uint32_t work = g_pending_work.exchange(0, std::memory_order_acquire);
@@ -374,6 +381,7 @@ uint64_t step() noexcept {
         }
         status_service_at(now_us);
     }
+    stats::step_mark(stats::StepPhase::Flush);
 
     // 6. Clean up finished tasks from the active pool only when a spawned task completed
     if ((work & kWorkTaskDone) != 0 && !g_tasks.empty()) {
@@ -386,8 +394,11 @@ uint64_t step() noexcept {
         }
     }
 
+    stats::step_mark(stats::StepPhase::Tasks);
+
     // 7. When to call again ([SPEC-ARCH-15]); asked again because a coroutine may have just slept
     const uint64_t timer_due = timer.service_due_us();
+    stats::step_mark(stats::StepPhase::Deadline);
     if (Dispatcher::has_pending_resumes()) {
         // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (a host never spins silently)
         if (++g_ready_run > g_ready_run_max) g_ready_run_max = g_ready_run;

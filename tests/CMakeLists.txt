@@ -36,6 +36,12 @@ function(add_abstractx_cpputest TARGET_NAME)
     add_dependencies(test-all ${TARGET_NAME})
 endfunction()
 
+# [SPEC-E906-BENCH-09] cycles per phase of step()
+add_abstractx_cpputest(test_step_profile
+    test_main.cpp
+    test_step_profile.cpp
+)
+
 add_abstractx_cpputest(test_sitl_imu
     test_main.cpp
     test_sitl_imu.cpp

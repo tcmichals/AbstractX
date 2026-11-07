@@ -44,15 +44,18 @@ class Firmware:
     app: str
     mode: str     # FreeRTOS timing build with this timer mode, "" for the default build
     rows: tuple
+    step_profile: bool = False  # [SPEC-E906-BENCH-09] never a timing row
 
     @property
     def build_dir(self) -> Path:
-        return ROOT / (f"build_e906_timer_{self.mode.lower()}" if self.mode else "build_e906")
+        name = f"build_e906_timer_{self.mode.lower()}" if self.mode else "build_e906"
+        return ROOT / (f"{name}_step_profile" if self.step_profile else name)
 
     @property
     def cmake_args(self) -> list:
         # [SPEC-E906-BENCH-06] timing rows on FreeRTOS carry no debug cost
-        return [f"-DABX_FREERTOS_TIMER={self.mode}", "-DABX_FREERTOS_DEBUG=OFF"] if self.mode else []
+        args = [f"-DABX_FREERTOS_TIMER={self.mode}", "-DABX_FREERTOS_DEBUG=OFF"] if self.mode else []
+        return args + (["-DABX_STEP_PROFILE=ON"] if self.step_profile else [])
 
     @property
     def elf(self) -> Path:
@@ -66,6 +69,8 @@ FIRMWARES = (
     Firmware("freertos_xtimer", "e906_freertos_app", "XTIMER", ("cyclic",)),
     Firmware("freertos_tick_hook", "e906_freertos_app", "TICK_HOOK", ("cyclic",)),
     Firmware("freertos_debug", "e906_freertos_app", "", ("bench", "cyclic")),  # the default build: idle numbers, debug cost
+    Firmware("abstractx_step_profile", "e906_bench_app", "", ("bench",), step_profile=True),
+    Firmware("freertos_step_profile", "e906_freertos_app", "WAIT", ("bench",), step_profile=True),
 )
 
 

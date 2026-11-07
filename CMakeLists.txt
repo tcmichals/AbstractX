@@ -63,6 +63,11 @@ target_include_directories(abstractx_core PUBLIC
 )
 target_compile_features(abstractx_core PUBLIC cxx_std_20)
 target_link_libraries(abstractx_core PUBLIC etl)
+# @impl [SPEC-E906-BENCH-09] apps/e906_bench/SPECIFICATION.md (stamps cost cycles: never on for a timing row)
+option(ABX_STEP_PROFILE "Cycles per phase of abstractx::step(), bench builds only" OFF)
+if(ABX_STEP_PROFILE)
+    target_compile_definitions(abstractx_core PUBLIC ABX_STEP_PROFILE=1)
+endif()
 
 if(NOT CMAKE_CROSSCOMPILING)
     find_package(Threads)

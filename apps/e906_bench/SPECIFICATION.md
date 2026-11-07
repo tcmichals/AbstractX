@@ -195,6 +195,8 @@ sequenceDiagram
   * FreeRTOS (`XTIMER`, `TICK_HOOK`): `cyclic`;
   * every FreeRTOS row above with `ABX_FREERTOS_DEBUG=OFF` ([SPEC-E906-BENCH-06]), and `freertos_debug`
     (`WAIT`, debug ON): `bench`, `cyclic`, for the idle numbers and the cost of debug;
+  * `abstractx_step_profile`, `freertos_step_profile`: `bench` with `ABX_STEP_PROFILE=ON`
+    ([SPEC-E906-BENCH-09]), never read as timing rows;
   * Linux: `cyclictest` with `-p 95` and without `-p`, with `-h 20000`, reported as `n`, `min_us`, `avg_us`,
     `max_us`, `p50_us`, `p99_us`, `p999_us` (bucket upper edge, as [SPEC-E906-BENCH-07]), `overflows`.
 * **Requirement (evidence)**: one directory per run under `docs/verification/evidence/<YYYY-MM>/`, with a JSON
@@ -203,6 +205,18 @@ sequenceDiagram
   exit code is 1 if any row failed. `--record` adds a `source: board` ledger record.
 * **Verified by**: `host-tests` (`tests/test_run_e906_bench_suite.py`), board run
 * **Implementation Target**: `tools/run_e906_bench_suite.py`
+
+### `[SPEC-E906-BENCH-09]` Per-Phase Cost of `step()`
+* **Why**: a yield takes about 2,040 cycles on both runtimes, and a wake from sleep runs `step()` too, so `step()` may
+  decide how much of AbstractX alone's advantage (it never swaps tasks) survives. The bench has to show where those cycles go.
+* **Requirement**: a build with `-DABX_STEP_PROFILE=ON` adds to the yield part of `R`: `step_passes`,
+  `step_stamp_cycles` (the cost of one stamp, measured, to subtract) and
+  `step_{timer,dispatch,io,network,flush,tasks,deadline}_cycles` (totals over the yield loop, one per phase of
+  `abstractx::step()`).
+* **Requirement**: the stamps cost cycles, so the option is OFF by default and no timing row uses it: only the
+  `*_step_profile` rows ([SPEC-E906-BENCH-08]). With it OFF the stamps compile to nothing.
+* **Verified by**: `host-tests` (`tests/test_step_profile.cpp`, `tests/test_run_e906_bench_suite.py`), `memory-footprint`, board run
+* **Implementation Target**: `include/abstractx/trace/step_profile.hpp`, `src/runtime.cpp`, `apps/e906_bench/bench.cpp`, `CMakeLists.txt`
 
 ### `[SPEC-E906-BENCH-05]` IMU DRDY Auto-DMA Run (`A`)
 * **Why**: the sensor comparison (bare metal, FreeRTOS, MicroPython, Linux) is paced by the IMU's

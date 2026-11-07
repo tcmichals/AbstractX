@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """tools/run_e906_bench_suite.py without a board: the rows, the commands, cyclictest parsing, and that
 a failed row is recorded and the run goes on."""
-# @verifies [SPEC-E906-BENCH-08] apps/e906_bench/SPECIFICATION.md
+# @verifies [SPEC-E906-BENCH-08] [SPEC-E906-BENCH-09] apps/e906_bench/SPECIFICATION.md
 
 import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -81,6 +82,20 @@ def test_debug_option_gates_every_debug_cost():
     assert "#else" in main[main.index("bool abx_bench_idle_stats"):main.index("void vApplicationIdleHook")]
 
 
+def test_step_stamps_every_phase_in_order_and_the_report_names_them():
+    src = (ROOT / "src/runtime.cpp").read_text()
+    body = src[src.index("uint64_t step() noexcept {"):src.index("void StepAwaiter::await_suspend")]
+    marks = re.findall(r"stats::step_mark\(stats::StepPhase::(\w+)\)", body)
+    assert marks == ["Timer", "Dispatch", "Io", "Network", "Flush", "Tasks", "Deadline"], marks
+    assert body.index("stats::step_begin()") < body.index("service_due_us")
+    # the last mark comes before the early return for ready work, so every pass is fully counted
+    assert body.index("StepPhase::Deadline") < body.index("return kNow")
+    bench = (ROOT / "apps/e906_bench/bench.cpp").read_text()
+    for phase in marks:
+        assert f'"step_{phase.lower()}_cycles", prof.total(StepPhase::{phase})' in bench, phase
+    assert '#if ABX_STEP_PROFILE' in bench and '"step_stamp_cycles"' in bench
+
+
 def test_row_commands():
     rows = {x.name: x for x in r.plan(5000)}
     assert "--cyclic 5000" in rows["abstractx_cyclic_idle"].command
@@ -134,7 +149,13 @@ def test_firmware_modes_build_apart():
         assert "-DABX_FREERTOS_DEBUG=OFF" in by[name].cmake_args, name
     assert by["freertos_debug"].cmake_args == [] and by["abstractx"].cmake_args == []
     assert by["freertos_debug"].app == "e906_freertos_app"
-    assert sum("-DABX_FREERTOS_DEBUG=OFF" in c for c in cmds) == 3, cmds
+    assert sum("-DABX_FREERTOS_DEBUG=OFF" in c for c in cmds) == 4, cmds
+    # [SPEC-E906-BENCH-09] the stamps cost cycles: only the two profile rows carry them, in their own builds
+    profiled = [f for f in r.FIRMWARES if "-DABX_STEP_PROFILE=ON" in f.cmake_args]
+    assert sorted(f.name for f in profiled) == ["abstractx_step_profile", "freertos_step_profile"]
+    assert all(f.rows == ("bench",) for f in profiled)
+    assert len({f.build_dir for f in r.FIRMWARES if f.step_profile}) == 2
+    assert not {f.build_dir for f in profiled} & {f.build_dir for f in r.FIRMWARES if not f.step_profile}
     cmake = (ROOT / "apps/e906_freertos_app/CMakeLists.txt").read_text()
     for f in r.FIRMWARES:
         assert not f.mode or f'"{f.mode}"' in cmake, f.mode
