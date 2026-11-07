@@ -4284,3 +4284,9 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression Test**: `tests/test_toolchain_files.py::test_freestanding_flags_scope`: FAIL on the old `if(CMAKE_CROSSCOMPILING)`, PASS on the new.
 * **Cross-build** (Buildroot GCC 15.1, libgpiod 2.3.1, v2 API enabled, under `qemu-aarch64`): build exit 0 on a5e and a7a, 0 warnings from `gpio_gpiod.hpp`; the previously unbuilt tests, `test_host_conformance_asio` (a7a only; a5e has no Boost) and `test_linux_gpio_edges` pass, a5e 10/10, a7a 11/11.
 * **Not run**: the rest of the suite with v2 enabled (other tests could open the build PC's real `/dev/gpiochip*`), a real GPIO line through v2, any board.
+
+## [2026-11-06] - RTL lint taken out of CI while FPGA work is paused
+
+* **Decision** (owner): comment out the `rtl` job so CI effort goes to E906, Pico 2 W and the Linux article. The report shows `rtl` as NOT RUN. [SPEC-AUDIT-20]
+* **Finding** (`tool-bug`, not fixed): the job linted each `.sv` file alone, so Verilator failed with `PKGNODECL` on `asp_tlp_pkg` (`rtl/spi/asp_spi_frontend.sv:152` and others). It was advisory and never green, so it did not fail the run. This does not show whether the RTL itself has lint problems.
+* **Not checked in CI until restored**: RTL lint. Local `rtl-lint` and `cocotb-regression` are unchanged. Not run for this change.

@@ -524,7 +524,9 @@ python3 tools/run_adversarial_audit.py --all
   firmware size graph was fed only by records someone made by hand.
 * **Requirement (jobs)**: `.github/workflows/ci.yml` has independent jobs that run in parallel and
   fail on their own: `firmware-e906`, `firmware-pico`, `host` (one per build: plain, ASan/UBSan,
-  TSan), `static`, `docs`, `rtl`, and `report`.
+  TSan), `static`, `docs`, and `report`. The `rtl` job is commented out while FPGA work is paused
+  (owner, 2026-11-06), and the report shows it as NOT RUN, never as passed. RTL is not checked in CI
+  until the job is restored; `rtl-lint` and `cocotb-regression` still run locally.
 * **Requirement (every check runs)**: inside a job, each check step runs even when an earlier one
   failed (`if: ${{ !cancelled() }}`); the job fails if any of them failed. A check that is not yet
   triaged is marked advisory (`continue-on-error: true`) with a comment saying what it waits on.

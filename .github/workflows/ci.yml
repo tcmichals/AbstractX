@@ -278,30 +278,33 @@ jobs:
         run: python3 tools/spectrace_matrix.py --matrix
 
   # ---------------------------------------------------------------------------------------------
-  rtl:
-    name: RTL lint
-    runs-on: ubuntu-latest
-    continue-on-error: true  # advisory: rtl-lint never green in CI; distro verilator vs oss-cad-suite
-    steps:
-      - uses: actions/checkout@v4
-        with: { submodules: recursive }
-      - name: Verilator
-        run: sudo apt-get update && sudo apt-get install -y verilator
-      - name: Lint every module
-        run: |
-          rc=0
-          for f in rtl/*.sv rtl/*/*.sv; do
-            [ -f "$f" ] || continue
-            verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
-              -Wno-PINCONNECTEMPTY -Irtl "$f" --top-module "$(basename "$f" .sv)" || rc=1
-          done
-          exit $rc
+  # [SPEC-AUDIT-20] rtl is off while FPGA work is paused (owner, 2026-11-06). To restore: uncomment this
+  # job, add rtl to report's needs and its row. It failed because each file is linted alone, so
+  # verilator cannot find asp_tlp_pkg (PKGNODECL); pass rtl/asp_tlp_pkg.sv first.
+  # rtl:
+  #   name: RTL lint
+  #   runs-on: ubuntu-latest
+  #   continue-on-error: true  # advisory: rtl-lint never green in CI; distro verilator vs oss-cad-suite
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with: { submodules: recursive }
+  #     - name: Verilator
+  #       run: sudo apt-get update && sudo apt-get install -y verilator
+  #     - name: Lint every module
+  #       run: |
+  #         rc=0
+  #         for f in rtl/*.sv rtl/*/*.sv; do
+  #           [ -f "$f" ] || continue
+  #           verilator --lint-only -Wall -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
+  #             -Wno-PINCONNECTEMPTY -Irtl "$f" --top-module "$(basename "$f" .sv)" || rc=1
+  #         done
+  #         exit $rc
 
   # ---------------------------------------------------------------------------------------------
   report:
     name: Report
     runs-on: ubuntu-latest
-    needs: [firmware-e906, firmware-pico, host, static, docs, rtl]
+    needs: [firmware-e906, firmware-pico, host, static, docs]
     if: ${{ always() }}
     steps:
       - uses: actions/checkout@v4
@@ -318,7 +321,7 @@ jobs:
             echo "| host (plain, asan, tsan) | ${{ needs.host.result }} |"
             echo "| static | ${{ needs.static.result }} |"
             echo "| docs | ${{ needs.docs.result }} |"
-            echo "| rtl (advisory) | ${{ needs.rtl.result }} |"
+            echo "| rtl | NOT RUN: disabled while FPGA work is paused |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/download-artifact@v4
