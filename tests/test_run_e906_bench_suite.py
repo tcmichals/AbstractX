@@ -52,7 +52,33 @@ def test_every_article_row_is_planned():
         assert f"abstractx_native_cyclic_{tag}" not in names, "F exists only on FreeRTOS"
         assert f"freertos_xtimer_cyclic_{tag}" in names and f"freertos_tick_hook_cyclic_{tag}" in names
         assert f"linux_cyclictest_rt_{tag}" in names and f"linux_cyclictest_other_{tag}" in names
+        assert f"freertos_debug_cyclic_{tag}" in names and f"freertos_debug_bench_{tag}" in names
     assert len(names) == len(r.plan(60000)), "row names are unique"
+
+
+def config_macros(debug: int) -> dict:
+    """FreeRTOSConfig.h through the real preprocessor."""
+    out = subprocess.run(["cc", "-E", "-dM", f"-DABX_FREERTOS_DEBUG={debug}", "-x", "c",
+                          str(ROOT / "apps/e906_freertos_app/FreeRTOSConfig.h")],
+                         check=True, capture_output=True, text=True).stdout
+    macros = {}
+    for line in out.splitlines():
+        parts = line.split(None, 2)
+        macros[parts[1].split("(")[0]] = parts[2] if len(parts) > 2 else ""
+    return macros
+
+
+def test_debug_option_gates_every_debug_cost():
+    on, off = config_macros(1), config_macros(0)
+    for name in ("configASSERT", "traceTASK_SWITCHED_IN", "traceTASK_SWITCHED_OUT"):
+        assert name in on and name not in off, name
+    assert "2" in on["configCHECK_FOR_STACK_OVERFLOW"]
+    assert "ABX_FREERTOS_DEBUG" in off["configCHECK_FOR_STACK_OVERFLOW"]  # ( 0 ? 2 : 0 )
+    assert on["configUSE_PORT_OPTIMISED_TASK_SELECTION"] == off["configUSE_PORT_OPTIMISED_TASK_SELECTION"] == "1"
+    main = (ROOT / "apps/e906_freertos_app/src/main.cpp").read_text()
+    idle = main[main.index("void vApplicationIdleHook"):main.index("void vApplicationStackOverflowHook")]
+    assert idle.count('"wfi"') == 2, "both builds still sleep in the idle hook"
+    assert "#else" in main[main.index("bool abx_bench_idle_stats"):main.index("void vApplicationIdleHook")]
 
 
 def test_row_commands():
@@ -99,11 +125,16 @@ def test_cyclictest_parse():
 
 def test_firmware_modes_build_apart():
     by = {f.name: f for f in r.FIRMWARES}
-    assert by["freertos_wait"].build_dir.name == "build_e906" and by["abstractx"].build_dir.name == "build_e906"
+    assert by["abstractx"].build_dir.name == by["freertos_debug"].build_dir.name == "build_e906"
     assert by["freertos_xtimer"].build_dir.name == "build_e906_timer_xtimer"
     cmds = [" ".join(c) for c in r.build_commands()]
     assert any("-DABX_FREERTOS_TIMER=TICK_HOOK" in c for c in cmds)
-    assert not any("-DABX_FREERTOS_TIMER=WAIT" in c for c in cmds), "WAIT is the default build"
+    # [SPEC-E906-BENCH-06] every FreeRTOS timing build carries no debug cost; only freertos_debug does
+    for name in ("freertos_wait", "freertos_xtimer", "freertos_tick_hook"):
+        assert "-DABX_FREERTOS_DEBUG=OFF" in by[name].cmake_args, name
+    assert by["freertos_debug"].cmake_args == [] and by["abstractx"].cmake_args == []
+    assert by["freertos_debug"].app == "e906_freertos_app"
+    assert sum("-DABX_FREERTOS_DEBUG=OFF" in c for c in cmds) == 3, cmds
     cmake = (ROOT / "apps/e906_freertos_app/CMakeLists.txt").read_text()
     for f in r.FIRMWARES:
         assert not f.mode or f'"{f.mode}"' in cmake, f.mode

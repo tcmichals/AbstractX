@@ -1,14 +1,20 @@
 /*
  * FreeRTOSConfig.h - FreeRTOS V11.1.0 for AbstractX on the XuanTie E906.
  * @impl [SPEC-E906-RTOS-02] [SPEC-E906-RTOS-03] apps/e906_freertos_app/SPECIFICATION.md
+ * @impl [SPEC-E906-BENCH-06] apps/e906_bench/SPECIFICATION.md (ABX_FREERTOS_DEBUG)
  */
 #ifndef FREERTOS_CONFIG_H
 #define FREERTOS_CONFIG_H
 
 #include <stdint.h>
 
+/* [SPEC-E906-BENCH-06] 0 for timing runs (set by CMake) */
+#ifndef ABX_FREERTOS_DEBUG
+#define ABX_FREERTOS_DEBUG                      1
+#endif
+
 #define configUSE_PREEMPTION                    1
-#define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
+#define configUSE_PORT_OPTIMISED_TASK_SELECTION 1
 #define configUSE_TICKLESS_IDLE                 0
 /* mtime rate (24 MHz oscillator), not the 200 MHz core clock: the RISC-V port
  * derives the tick from it. */
@@ -36,7 +42,7 @@
 #define configSUPPORT_DYNAMIC_ALLOCATION        0
 #define configKERNEL_PROVIDED_STATIC_MEMORY     1
 
-#define configCHECK_FOR_STACK_OVERFLOW          2
+#define configCHECK_FOR_STACK_OVERFLOW          ( ABX_FREERTOS_DEBUG ? 2 : 0 )
 #define configUSE_MALLOC_FAILED_HOOK            0
 /* [SPEC-E906-RTOS-05] idle task sleeps in wfi and counts idle time */
 #define configUSE_IDLE_HOOK                     1
@@ -56,7 +62,9 @@
 #define configMTIMECMP_BASE_ADDRESS             ( 0xE0004000UL )
 #define configISR_STACK_SIZE_WORDS              ( 512 )
 
+#if ABX_FREERTOS_DEBUG
 #define configASSERT( x ) if( ( x ) == 0 ) { taskDISABLE_INTERRUPTS(); for( ;; ) { __asm__ volatile( "wfi" ); } }
+#endif
 
 #define configGENERATE_RUN_TIME_STATS           0
 #define configUSE_TRACE_FACILITY                0
@@ -71,6 +79,7 @@
 #define INCLUDE_xTaskGetSchedulerState          1
 #define INCLUDE_uxTaskGetStackHighWaterMark     1
 
+#if ABX_FREERTOS_DEBUG
 /* [SPEC-E906-RTOS-07] BareCTF / Studio Timeline Trace Integration */
 #ifdef __cplusplus
 extern "C" {
@@ -83,5 +92,6 @@ void abx_trace_task_switched_out(void);
 
 #define traceTASK_SWITCHED_IN()  abx_trace_task_switched_in()
 #define traceTASK_SWITCHED_OUT() abx_trace_task_switched_out()
+#endif
 
 #endif /* FREERTOS_CONFIG_H */

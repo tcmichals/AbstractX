@@ -42,12 +42,17 @@ ECHO_S = 15  # the echo and 'R' suite, roughly
 class Firmware:
     name: str     # names the rows and the file in /lib/firmware
     app: str
-    mode: str     # FreeRTOS timer mode, "" for the default build
+    mode: str     # FreeRTOS timing build with this timer mode, "" for the default build
     rows: tuple
 
     @property
     def build_dir(self) -> Path:
         return ROOT / (f"build_e906_timer_{self.mode.lower()}" if self.mode else "build_e906")
+
+    @property
+    def cmake_args(self) -> list:
+        # [SPEC-E906-BENCH-06] timing rows on FreeRTOS carry no debug cost
+        return [f"-DABX_FREERTOS_TIMER={self.mode}", "-DABX_FREERTOS_DEBUG=OFF"] if self.mode else []
 
     @property
     def elf(self) -> Path:
@@ -57,9 +62,10 @@ class Firmware:
 ONEWAY = ("oneway_c_rt", "oneway_c_other", "oneway_py_rt", "oneway_py_other")
 FIRMWARES = (
     Firmware("abstractx", "e906_bench_app", "", ("bench", "cyclic") + ONEWAY),
-    Firmware("freertos_wait", "e906_freertos_app", "", ("bench", "cyclic", "native_cyclic") + ONEWAY),
+    Firmware("freertos_wait", "e906_freertos_app", "WAIT", ("bench", "cyclic", "native_cyclic") + ONEWAY),
     Firmware("freertos_xtimer", "e906_freertos_app", "XTIMER", ("cyclic",)),
     Firmware("freertos_tick_hook", "e906_freertos_app", "TICK_HOOK", ("cyclic",)),
+    Firmware("freertos_debug", "e906_freertos_app", "", ("bench", "cyclic")),  # the default build: idle numbers, debug cost
 )
 
 
@@ -125,8 +131,7 @@ def load_firmware_command(fw: Firmware) -> str:
 def build_commands(firmwares=FIRMWARES) -> list:
     out = []
     for fw in firmwares:
-        extra = [f"-DABX_FREERTOS_TIMER={fw.mode}"] if fw.mode else []
-        out.append(["cmake", "--preset", "e906", "-B", str(fw.build_dir), *extra])
+        out.append(["cmake", "--preset", "e906", "-B", str(fw.build_dir), *fw.cmake_args])
         out.append(["cmake", "--build", str(fw.build_dir), "--target", fw.app, "-j"])
     return out
 
@@ -222,7 +227,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--ip", default=None)
     ap.add_argument("--buildroot-out", default=os.environ.get("ABSTRACTX_BUILDROOT_OUT"))
-    ap.add_argument("--build", action="store_true", help="configure and build all four firmwares first")
+    ap.add_argument("--build", action="store_true", help="configure and build every firmware first")
     ap.add_argument("--count", type=int, default=60000)
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--only", default="", help="only rows whose name contains this")

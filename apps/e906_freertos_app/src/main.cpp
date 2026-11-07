@@ -127,6 +127,8 @@ bool abx_bench_native_cyclic_poll(AbxNativeCyclic *out) {
 }
 
 // @impl [SPEC-E906-RTOS-07] apps/e906_freertos_app/SPECIFICATION.md
+
+#if ABX_FREERTOS_DEBUG
 static uint64_t s_task_in_cycles = 0;
 
 void abx_trace_task_switched_in(void) {
@@ -142,6 +144,7 @@ void abx_trace_task_switched_out(void) {
         abstractx::events::span(abstractx::events::kResume, taskId, s_task_in_cycles, duration);
     }
 }
+#endif
 
 // @impl [SPEC-E906-BENCH-03] apps/e906_bench/SPECIFICATION.md (same dispatch path as bare metal)
 bool abx_bench_soft_irq_enable(void) {
@@ -149,11 +152,17 @@ bool abx_bench_soft_irq_enable(void) {
 }
 
 bool abx_bench_idle_stats(uint32_t *wakes, uint64_t *idle_cycles) {
+#if ABX_FREERTOS_DEBUG
     taskENTER_CRITICAL();
     *wakes = s_idle_wakes;
     *idle_cycles = s_idle_cycles;
     taskEXIT_CRITICAL();
     return true;
+#else
+    (void)wakes;
+    (void)idle_cycles;
+    return false;  // [SPEC-E906-BENCH-06] R reports idle=not-instrumented
+#endif
 }
 
 // [SPEC-E906-RTOS-04] [SPEC-E906-RTOS-06] integer only; mcause already masked to 0x80000FFF
@@ -193,6 +202,7 @@ void vApplicationTickHook(void) { abstractx::freertos_host::tick_from_isr(); }
 #endif
 
 void vApplicationIdleHook(void) {
+#if ABX_FREERTOS_DEBUG
     const uint64_t t0 = abx_bench_mcycle();
     __asm__ volatile("wfi");
     const uint64_t t1 = abx_bench_mcycle();
@@ -200,6 +210,9 @@ void vApplicationIdleHook(void) {
     s_idle_wakes = s_idle_wakes + 1u;
     s_idle_cycles = s_idle_cycles + (t1 - t0);
     taskEXIT_CRITICAL();
+#else
+    __asm__ volatile("wfi");  // [SPEC-E906-BENCH-06] timing build: sleep only
+#endif
 }
 
 void vApplicationStackOverflowHook(TaskHandle_t, char *) {

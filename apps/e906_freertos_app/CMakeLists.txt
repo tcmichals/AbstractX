@@ -26,6 +26,10 @@ else()
     message(FATAL_ERROR "ABX_FREERTOS_TIMER must be WAIT, XTIMER or TICK_HOOK (got '${ABX_FREERTOS_TIMER}')")
 endif()
 
+# [SPEC-E906-BENCH-06] OFF for timing runs: no asserts, stack check, switch hooks or idle counters
+# @impl [SPEC-E906-BENCH-06] apps/e906_bench/SPECIFICATION.md
+option(ABX_FREERTOS_DEBUG "FreeRTOS debug and trace cost, off for timing runs" ON)
+
 # [SPEC-E906-RTOS-02] no heap_*.c
 add_library(freertos_e906 STATIC
     ${FREERTOS_DIR}/tasks.c
@@ -42,7 +46,8 @@ target_include_directories(freertos_e906 PUBLIC
     ${FREERTOS_DIR}/portable/GCC/RISC-V/chip_specific_extensions/RISCV_MTIME_CLINT_no_extensions
 )
 target_compile_options(freertos_e906 PRIVATE -Wno-unused-parameter)
-target_compile_definitions(freertos_e906 PUBLIC ABX_FREERTOS_TIMER_MODE=${ABX_FREERTOS_TIMER_MODE})
+target_compile_definitions(freertos_e906 PUBLIC ABX_FREERTOS_TIMER_MODE=${ABX_FREERTOS_TIMER_MODE}
+                                                 ABX_FREERTOS_DEBUG=$<BOOL:${ABX_FREERTOS_DEBUG}>)
 
 add_executable(e906_freertos_app
     src/main.cpp

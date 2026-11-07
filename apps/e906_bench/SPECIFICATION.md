@@ -101,6 +101,12 @@ sequenceDiagram
   it), so `C` stops the profiler for the run and restores it after; byte 5 bit 0 = keep it on
   (`cyc_source=abstractx_profiler_on`), to show its cost. Moving the profiler to its own MCU timer
   (MCU Timers 0..5, `CLK_MCU_TIMER0..5`) is TODO: register base and interrupt line not yet known.
+* **Requirement (fair: no debug cost on one side, 2026-11-07)**: AbstractX alone runs `-DNDEBUG` with no
+  per-switch work, so timing rows on FreeRTOS use a build with `-DABX_FREERTOS_DEBUG=OFF`:
+  no `configASSERT`, no stack overflow check, no `traceTASK_SWITCHED_*` hooks, and an idle hook that
+  only sleeps in `wfi` (`R` then reports `idle=not-instrumented`, as AbstractX alone does). Both builds use
+  `configUSE_PORT_OPTIMISED_TASK_SELECTION 1`. The default stays ON, for the Studio Timeline and the
+  idle numbers; the `freertos_debug` rows ([SPEC-E906-BENCH-08]) measure what it costs.
 * **Requirement (native FreeRTOS, `F`)**: `F` [+ `uint32` count] runs the same 1 ms loop as a plain
   FreeRTOS task (highest priority, `vTaskDelayUntil(&last, 1)`), measuring lateness against the
   tick that woke it (`ullNextTime - uxTimerIncrementsForOneTick` of the RISC-V port, read after
@@ -187,6 +193,8 @@ sequenceDiagram
     readers, each `fifo95` and `other`;
   * FreeRTOS (`WAIT`) only: `native_cyclic` (`F`);
   * FreeRTOS (`XTIMER`, `TICK_HOOK`): `cyclic`;
+  * every FreeRTOS row above with `ABX_FREERTOS_DEBUG=OFF` ([SPEC-E906-BENCH-06]), and `freertos_debug`
+    (`WAIT`, debug ON): `bench`, `cyclic`, for the idle numbers and the cost of debug;
   * Linux: `cyclictest` with `-p 95` and without `-p`, with `-h 20000`, reported as `n`, `min_us`, `avg_us`,
     `max_us`, `p50_us`, `p99_us`, `p999_us` (bucket upper edge, as [SPEC-E906-BENCH-07]), `overflows`.
 * **Requirement (evidence)**: one directory per run under `docs/verification/evidence/<YYYY-MM>/`, with a JSON

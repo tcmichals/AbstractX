@@ -114,8 +114,8 @@ flowchart LR
   `abstractx::step()` and blocks until the deadline `step()` returned or a wake. ISRs only post to
   `IsrDispatcher` and notify this task. No other task touches the dispatcher, RPMsg or the
   tracer.
-* **Requirement**: the idle task sleeps in `wfi` (idle hook) and counts wake-ups and idle
-  cycles for `[SPEC-E906-BENCH-02]`.
+* **Requirement**: the idle task sleeps in `wfi` (idle hook). With `ABX_FREERTOS_DEBUG=ON` (the default) it also
+  counts wake-ups and idle cycles for `[SPEC-E906-BENCH-02]`; timing builds use OFF ([SPEC-E906-BENCH-06]).
 * **Rationale**: keeps the AbstractX single-consumer contract (AGENTS §3: one context calls
   `.resume()`), so the same coroutine code runs on bare metal and on FreeRTOS.
 * **Verified by**: `e906-board-selftest`
@@ -133,7 +133,8 @@ flowchart LR
   `traceTASK_SWITCHED_OUT` hooks to emit cycle-accurate timeline spans using
   `abstractx::events::span(...)` over VirtIO RPMsg endpoint 1025 (`abstractx-trace`, CTF Stream 5).
   AbstractX Studio renders FreeRTOS task execution periods, context switch latencies, and
-  kernel tick interruptions on the Timeline tab.
+  kernel tick interruptions on the Timeline tab. Present with `ABX_FREERTOS_DEBUG=ON` (the default) only;
+  timing builds use OFF ([SPEC-E906-BENCH-06]).
 * **Verified by**: `e906-board-selftest`, `host-tests`
 * **Implementation Target**: `apps/e906_freertos_app/FreeRTOSConfig.h`, `apps/e906_freertos_app/src/main.cpp`
 

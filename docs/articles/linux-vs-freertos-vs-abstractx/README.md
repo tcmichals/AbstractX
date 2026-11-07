@@ -256,6 +256,8 @@ ssh root@$ABSTRACTX_BOARD_IP 'cd /root/abstractx_board_bench && \
     python3 bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/oneway_py_other.json'
 ```
 
+**FreeRTOS timing builds** use `-DABX_FREERTOS_DEBUG=OFF`, because AbstractX alone has no asserts, stack check or per-switch hooks ([SPEC-E906-BENCH-06]). Step 1 above builds the default, which has them. The FreeRTOS rows in §3-§5 are from before this change.
+
 **One command** ([SPEC-E906-BENCH-08]): `tools/run_e906_board_suite.py` runs the board self-tests; this one runs every row above, sets the board clock and saves the evidence:
 
 ```bash
