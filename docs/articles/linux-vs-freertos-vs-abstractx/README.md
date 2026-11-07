@@ -154,6 +154,8 @@ The task's wait has changed since the measurements:
   * The likely cause is that `step()` checks every subsystem on each pass, idle or not.
   * Making `step()` skip idle subsystems is open work (TODO §2b item 2). Per-phase cycle counts (§8) will show where the time goes.
 * **Interrupt to coroutine**: AbstractX alone is ~150 cycles (0.8 µs) faster on average. FreeRTOS had the lower worst case in these runs.
+  * **Neither runtime is asleep in this row.** The bench raises the interrupt from inside the running coroutine. Both runtimes save the context, run the ISR and restore that same context.
+  * **A wake from sleep is a different path on each.** AbstractX alone leaves `platform_idle_wait()`, then runs `step()`. FreeRTOS does the same save, ISR and restore, and adds the notify, the scheduler's choice of task, and loading a different task's stack. So the difference between the runtimes while sleeping is not shown here. `C` covers AbstractX alone and `F` native FreeRTOS; `F` has not been run yet (§8).
 * **This is a software interrupt** (`msip`), raised by the bench itself. It is a different event from §3's timer, so do not compare these rows with `cyclictest`.
 
 ### Memory

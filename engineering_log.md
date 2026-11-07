@@ -4299,3 +4299,10 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Finding** (`process-gap`, not explained): the article's `SRAM_FAST` row for `e560d50` says 190.3 KB (99.1 %) on the FreeRTOS bench; a Release build at this commit is 132.9 KB (69.2 %). The re-measure replaces the row.
 * **Board 2026-11-07, one-way run blocked**: the A5E boots last night's DTB and overlay (md5 match) with a kernel from 2026-11-04 (md5 differs). Its driver wants one `sram` region, the DTB has `sram-a3-0` and `sram-a3-1`, so remoteproc fails with `missing sram resource` and there is no `/dev/rpmsg*`. `linux-v4-71` and `bld.a5e/images/Image` have the right code.
 * **Not run**: the firmware `T` / `O` paths, the real clocks, the reader on aarch64 (cross-compile only), `static-analysis` (clang-tidy not installed).
+
+## [2026-11-07] - Soft-IRQ wake row never measured a wake from sleep, on either runtime
+
+* **Miss** (`process-gap`, found by the owner): the article's "soft interrupt -> coroutine resumed" row (2,779 vs 2,943 cycles, [SPEC-E906-BENCH-03]) raises `msip` from inside the running coroutine, and was read as the cost of a wake. Both runtimes save the context, run the ISR and restore that same context there. Neither is asleep: AbstractX alone does not pass through `platform_idle_wait()`, and on FreeRTOS `vTaskNotifyGiveFromISR` wakes nothing, so `portYIELD_FROM_ISR` does not switch. No check looks at which path a benchmark takes. From reading the code; not measured.
+* **My error in reviewing it**: I first wrote this as FreeRTOS alone paying the swaps. The owner corrected it: AbstractX takes the same trap. What FreeRTOS adds on a wake from sleep is the notify, the scheduler's choice and a different task's stack.
+* **Fix**: the article now says so. `C` on AbstractX alone and `F` (`vTaskDelayUntil`, [SPEC-E906-BENCH-06]) on native FreeRTOS wake from sleep; both are in the runner, and `F` has its first board run still open.
+* **Open**: AbstractX on FreeRTOS on the same path. `C` takes it, but its lateness includes the phase between its deadlines and the tick grid, so `C` minus `F` is not the cost of AbstractX.
