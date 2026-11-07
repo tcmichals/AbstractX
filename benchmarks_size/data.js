@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794030111203,
+  "lastUpdate": 1794046423080,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -6166,6 +6166,445 @@ window.BENCHMARK_DATA = {
           {
             "name": "elf:e906/freertos text",
             "value": 91124,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl bss",
+            "value": 47316,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl data",
+            "value": 476,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl outside_budget_bytes",
+            "value": 118430,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl ram_bytes",
+            "value": 114258,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl text",
+            "value": 184896,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback bss",
+            "value": 75256,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback data",
+            "value": 296,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback outside_budget_bytes",
+            "value": 17732,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback ram_bytes",
+            "value": 119698,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback text",
+            "value": 61878,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests bss",
+            "value": 20660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests data",
+            "value": 196,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests outside_budget_bytes",
+            "value": 4992,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests ram_bytes",
+            "value": 46000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests text",
+            "value": 30136,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 172868,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 7180,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 405464,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 180048,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 398284,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback bss",
+            "value": 198968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback data",
+            "value": 6024,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback flash_bytes",
+            "value": 363972,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback ram_bytes",
+            "value": 204992,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback text",
+            "value": 357948,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests bss",
+            "value": 5200,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests data",
+            "value": 9996,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests flash_bytes",
+            "value": 20336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests ram_bytes",
+            "value": 15196,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests text",
+            "value": 10340,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "71a088b6d3e5ffe5ebcc79079932397598c0d690",
+          "message": "feat(e906-bench): one-way E906 event to Linux thread, with the clock proved per run [SPEC-E906-BENCH-07]\n\nPart 4 had no number for how long a Linux program waits for an E906 event. New: bench\ncommands T (clock probe) and O (1 ms deadline, one sample per wake), a C reader with a\nblocking read() (RT SCHED_FIFO 95 or SCHED_OTHER, CPU 2), and the same run from Python\n(bench_e906_runtime.py --oneway).\n\nmtime and CNTVCT_EL0 may be one counter (manual) but no readback shows it, so each run\nbounds the offset from its own probes (t0 <= e - d <= t1), reports shared, calibrated or\ninconsistent, and carries uncertainty_ns.\n\nEvidence:\n  tools/gate.sh: plain 129/129, ASan 118/118, TSan 118/118, boundary review 0 without a\n    note; static analysis SKIP (clang-tidy not installed)\n  tests/test_e906_oneway_local.py: PASS, C and Python readers against a fake firmware\n  mutations of the reader: lo and hi bound conditions, negative check, offset removal,\n    sent/deadline swap, second probe verdict, loss check: each fails a test\n  aarch64-linux-gcc (Buildroot) -Wall -Wextra -Werror: exit 0\n  analyze_elf_size.sh (Release, e906_ddr.ld), DRAM 0.00 MB on both:\n    e906_bench_app     SRAM_FAST 113.0 KB / 192 KB (58.8 %)\n    e906_freertos_app  SRAM_FAST 132.9 KB / 192 KB (69.2 %)\n    top addition: run_oneway 1,930 B\n  check_e906_layout.py: all segments ok; track_memory_footprint.py: no heap symbols\n\nNot run: no board run, so the firmware T and O paths, the real clocks and the reader on\naarch64 are unproven. The A5E's kernel fails remoteproc probe (engineering_log.md). No\nmeasured number is added to the article.",
+          "timestamp": "2026-11-07T04:08:05-06:00",
+          "tree_id": "4b0bc5a8ff0ab5b9f299dffd52a8c7b13416133b",
+          "url": "https://github.com/tcmichals/AbstractX/commit/71a088b6d3e5ffe5ebcc79079932397598c0d690"
+        },
+        "date": 1794046422161,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 45393,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 424,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 outside_budget_bytes",
+            "value": 18010,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 130955,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 103148,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench bss",
+            "value": 45685,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench data",
+            "value": 344,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench outside_budget_bytes",
+            "value": 17954,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench ram_bytes",
+            "value": 115701,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench text",
+            "value": 87626,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos bss",
+            "value": 59557,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos data",
+            "value": 352,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos outside_budget_bytes",
+            "value": 18010,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos ram_bytes",
+            "value": 136039,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos text",
+            "value": 94140,
             "unit": "bytes"
           },
           {
