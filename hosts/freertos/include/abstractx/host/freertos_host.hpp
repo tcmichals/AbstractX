@@ -24,8 +24,15 @@ namespace abstractx::freertos_host {
 // count with the stored deadline and wakes the task; it walks no timer list.
 void tick_from_isr() noexcept;
 
-// XTIMER mode: timer commands that could not be queued (must stay 0).
+// XTIMER mode: timer commands that could not be queued, plus a failed timer creation (must
+// stay 0). After a failure the next wait is bounded, so the command is retried ([SPEC-ARCH-15]).
 uint32_t timer_cmd_failures() noexcept;
+
+// run() is run_start() then run_pass() forever. Exposed for sim/test_freertos_host_xtimer.cpp only.
+namespace detail {
+void run_start() noexcept;  // registers the task and wake hooks; XTIMER: creates the timer
+void run_pass() noexcept;   // one step() and the wait it asks for
+} // namespace detail
 
 } // namespace abstractx::freertos_host
 

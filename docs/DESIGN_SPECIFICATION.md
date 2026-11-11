@@ -194,6 +194,18 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   `TICK_HOOK` (opt-in: the application's `vApplicationTickHook` calls `freertos_host::tick_from_isr()`,
   which only compares the tick count with the stored deadline and wakes; it walks no timer list).
   Build option `ABX_FREERTOS_TIMER`; details per target in `[SPEC-E906-RTOS-03]`.
+* **Requirement (XTIMER failures are bounded, 2026-11-11)**: in `XTIMER` mode a timer command that
+  could not be queued (`xTimerChangePeriod` or `xTimerStop` returns `pdFAIL`, for example a full
+  timer command queue) is counted (`timer_cmd_failures()`) and the task's wait for that pass is
+  bounded, so the retry on the next pass always happens: after a failed `xTimerChangePeriod` the
+  task waits with the deadline as timeout (`WAIT` behaviour for that pass, no wake is lost); after a
+  failed `xTimerStop` it waits at most `kCmdRetryTicks` (1 tick) and retries the stop. Only when the
+  last command succeeded does the task wait without a timeout (`portMAX_DELAY`).
+  `xTimerCreateStatic` with a static buffer cannot return NULL (FreeRTOS `timers.h`), but if it does
+  the host never passes the NULL handle to a timer call: `configASSERT` stops a debug build, and a
+  build without `configASSERT` counts one failure and runs every pass in `WAIT` mode.
+  (Review R2, `docs/reviews/2026-11-11-full-audit.md`: a failed command was counted as "retried on
+  the next pass" but the task then waited with `portMAX_DELAY`, so there might be no next pass.)
 * **Requirement (Boost.Asio host, 2026-11-06)**: `hosts/asio/` (`abstractx::asio_host`) drives AbstractX
   from an `asio::io_context` with completion handlers only: a *pump* handler calls `step()`; `kNow` posts
   the pump again (so other handlers interleave), a deadline arms one `asio::steady_timer` (same
@@ -209,7 +221,10 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   step return values, wake routing from another thread 1000x, `next_period`, longest ready run;
   `sim/test_wake_on_enqueue.cpp`: a host that blocks only on (deadline, wake) receives completions
   posted by Linux worker threads and the I/O engine), `thread-sanitizer`,
-  `e906-build-layout` (`e906_freertos_app` in each `ABX_FREERTOS_TIMER` mode)
+  `e906-build-layout` (`e906_freertos_app` in each `ABX_FREERTOS_TIMER` mode), `host-tests`
+  (`sim/test_freertos_host_xtimer.cpp`: the real `hosts/freertos` host in `XTIMER` mode against a
+  fake FreeRTOS timer API in `sim/fakes/freertos/`: failed change-period / stop / create give a
+  bounded wait and a retry, 1000 passes with no failure growth)
 * **Implementation Target**: `tools/audit_coro_contracts.py`, `include/abstractx/abstractx.hpp`,
   `src/runtime.cpp`, `include/abstractx/hal/timer.hpp`, `hosts/freertos/`
 

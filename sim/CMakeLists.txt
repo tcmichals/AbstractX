@@ -55,6 +55,15 @@ set_tests_properties(sim_test_linux_hal_completion sim_test_linux_drdy_auto sim_
 add_abstractx_sim(test_abstractx_runtime   test_abstractx_runtime.cpp)
 # [SPEC-ARCH-15] the host drives AbstractX: step() deadline, wake route, steady state
 add_abstractx_sim(test_host_drive          test_host_drive.cpp)
+# [SPEC-ARCH-15] the shared FreeRTOS host in XTIMER mode against a fake FreeRTOS API: timer
+# command failures give a bounded wait and a retry (review R2 2026-11-11)
+add_executable(test_freertos_host_xtimer test_freertos_host_xtimer.cpp
+               ${CMAKE_SOURCE_DIR}/hosts/freertos/src/freertos_host.cpp)
+target_include_directories(test_freertos_host_xtimer BEFORE PRIVATE
+               ${CMAKE_CURRENT_SOURCE_DIR}/fakes/freertos ${CMAKE_SOURCE_DIR}/hosts/freertos/include)
+target_compile_definitions(test_freertos_host_xtimer PRIVATE ABX_FREERTOS_TIMER_MODE=1)
+target_link_libraries(test_freertos_host_xtimer PRIVATE abstractx_core abstractx_target_host)
+add_test(NAME sim_test_freertos_host_xtimer COMMAND test_freertos_host_xtimer)
 # [SPEC-HAL-05] sleeps never wait for each other (review 2026-11-04 T-1, T-2)
 add_abstractx_sim(test_timer_concurrency   test_timer_concurrency.cpp)
 # [SPEC-ARCH-15] every enqueue from another context wakes the host (review T-5)

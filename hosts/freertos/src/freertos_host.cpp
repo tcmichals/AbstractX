@@ -51,68 +51,92 @@ std::atomic<uint32_t> s_cmd_failures{0};  // shared: AbstractX task writes, anyo
 #if ABX_FREERTOS_TIMER_MODE == 1
 // shared: AbstractX task arms / stops it; the timer service task runs the callback; kernel-owned
 StaticTimer_t s_timer_buf;
-TimerHandle_t s_timer = nullptr;
-uint64_t s_armed_us = kNever;  // AbstractX task only
+TimerHandle_t s_timer = nullptr;  // still nullptr after run_start() only if creation failed: WAIT mode
+uint64_t s_armed_us = kNever;     // AbstractX task only
+
+// @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (XTIMER failures are bounded)
+constexpr TickType_t kCmdRetryTicks = 1;  // wait after a failed xTimerStop before retrying it
 
 void timer_cb(TimerHandle_t) { wake_task(); }
 
-void arm(uint64_t deadline_us, TickType_t n) noexcept {
+void count_failure() noexcept { s_cmd_failures.fetch_add(1, std::memory_order_relaxed); }
+
+// Arms the one-shot timer for deadline_us (n ticks away) or stops it for kNever. Returns the
+// timeout for this pass's wait: portMAX_DELAY when the timer will wake the task, else bounded.
+TickType_t arm(uint64_t deadline_us, TickType_t n) noexcept {
+    if (s_timer == nullptr) return n;  // no timer: WAIT mode (n is portMAX_DELAY for kNever)
     if (deadline_us == kNever) {
         if (s_armed_us != kNever && xTimerStop(s_timer, 0) != pdPASS) {
-            s_cmd_failures.fetch_add(1, std::memory_order_relaxed);
+            count_failure();
+            return kCmdRetryTicks;  // s_armed_us kept: the stop is retried on the next pass
         }
         s_armed_us = kNever;
-        return;
+        return portMAX_DELAY;
     }
-    if (deadline_us == s_armed_us && xTimerIsTimerActive(s_timer) != pdFALSE) return;
+    if (deadline_us == s_armed_us && xTimerIsTimerActive(s_timer) != pdFALSE) return portMAX_DELAY;
     if (xTimerChangePeriod(s_timer, n, 0) == pdPASS) {
         s_armed_us = deadline_us;
-    } else {
-        s_cmd_failures.fetch_add(1, std::memory_order_relaxed);
-        s_armed_us = kNever;  // retried on the next pass
+        return portMAX_DELAY;
     }
+    count_failure();
+    s_armed_us = kNever;  // state unknown: re-armed on the next pass
+    return n;             // wait until the deadline tick ourselves
 }
 #elif ABX_FREERTOS_TIMER_MODE == 2
 // shared: AbstractX task writes the deadline then sets armed (release); tick hook reads (acquire)
 std::atomic<TickType_t> s_deadline_tick{0};
 std::atomic<bool> s_armed{false};
 
-void arm(uint64_t deadline_us, TickType_t n) noexcept {
+TickType_t arm(uint64_t deadline_us, TickType_t n) noexcept {
+    (void)n;
     if (deadline_us == kNever) {
         s_armed.store(false, std::memory_order_release);
-        return;
+        return portMAX_DELAY;
     }
     s_deadline_tick.store(xTaskGetTickCount() + n, std::memory_order_relaxed);
     s_armed.store(true, std::memory_order_release);
+    return portMAX_DELAY;
 }
 #endif
 
 } // namespace
 
-[[noreturn]] void run() noexcept {
+namespace detail {
+
+void run_start() noexcept {
     s_task = xTaskGetCurrentTaskHandle();
 #if ABX_FREERTOS_TIMER_MODE == 1
+    // @impl [SPEC-ARCH-15] docs/DESIGN_SPECIFICATION.md (a NULL timer handle is never used)
+    s_armed_us = kNever;
     s_timer = xTimerCreateStatic("abx", 1, pdFALSE, nullptr, timer_cb, &s_timer_buf);
-    if (s_timer == nullptr) s_cmd_failures.fetch_add(1, std::memory_order_relaxed);
+    configASSERT(s_timer != nullptr);
+    if (s_timer == nullptr) count_failure();  // without configASSERT: WAIT mode from here on
 #endif
     set_wake({&wake_task, &wake_isr});
-    for (;;) {
-        const uint64_t next = step();
-        if (next == kNow) {
-            // A coroutine is ready: let equal-priority tasks run, then continue (no fixed block,
-            // which would add a tick to every wake). longest_ready_run() exposes a hog.
-            taskYIELD();
-            continue;
-        }
-        const TickType_t n = ticks_until(next);
-        if (n == 0) continue;  // already due
-#if ABX_FREERTOS_TIMER_MODE == 0
-        (void)ulTaskNotifyTake(pdTRUE, n);  // an early wake just loops: step() decides what is due
-#else
-        arm(next, n);
-        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-#endif
+}
+
+void run_pass() noexcept {
+    const uint64_t next = step();
+    if (next == kNow) {
+        // A coroutine is ready: let equal-priority tasks run, then continue (no fixed block,
+        // which would add a tick to every wake). longest_ready_run() exposes a hog.
+        taskYIELD();
+        return;
     }
+    const TickType_t n = ticks_until(next);
+    if (n == 0) return;  // already due
+#if ABX_FREERTOS_TIMER_MODE == 0
+    (void)ulTaskNotifyTake(pdTRUE, n);  // an early wake just loops: step() decides what is due
+#else
+    (void)ulTaskNotifyTake(pdTRUE, arm(next, n));
+#endif
+}
+
+} // namespace detail
+
+[[noreturn]] void run() noexcept {
+    detail::run_start();
+    for (;;) detail::run_pass();
 }
 
 void tick_from_isr() noexcept {

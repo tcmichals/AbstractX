@@ -70,7 +70,7 @@ flowchart LR
   host (`hosts/freertos/`, `[SPEC-ARCH-15]`); the CMake option `ABX_FREERTOS_TIMER` picks the mode:
   `WAIT` (default, `configUSE_TICK_HOOK = 0`, `configUSE_TIMERS = 0`), `XTIMER`
   (`configUSE_TIMERS = 1`, `configTIMER_TASK_PRIORITY = configMAX_PRIORITIES - 1`; failed timer
-  commands are counted) or `TICK_HOOK` (opt-in, `configUSE_TICK_HOOK = 1`; the app's hook calls
+  commands are counted and bound the next wait, `[SPEC-ARCH-15]`) or `TICK_HOOK` (opt-in, `configUSE_TICK_HOOK = 1`; the app's hook calls
   `freertos_host::tick_from_isr()`). In every mode `E906TimerDriver::service_due_us()` serves the
   sleeps in the AbstractX task (interrupts masked while the list is walked) when
   `use_external_tick()` is set; it returns `kNever` on bare metal, where the timer interrupt does it.
