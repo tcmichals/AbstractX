@@ -97,7 +97,7 @@ absolute deadline forward by 1 ms, sleeps until it, and records how late it was 
 | E906, AbstractX on FreeRTOS, `WAIT` mode (coroutine) | 806; 449 (2) | *not measured* (3) |
 | E906, AbstractX on FreeRTOS, `XTIMER` mode | 383; 61 (2) | *not measured* (3) |
 | E906, AbstractX on FreeRTOS, `TICK_HOOK` mode | 856; 554 (2) | *not measured* (3) |
-| E906, FreeRTOS native task (`vTaskDelayUntil`, `F`) | *not measured* (4) | *not measured* |
+| E906, FreeRTOS native task (`vTaskDelayUntil`, `F`) | 4.0 / 23 / 33 / 34.4 (4) | *not measured* (3) |
 
 1. Run by hand with the E906 stopped, without the histogram, so no percentiles. The suite's own row reset the board
    (§8).
@@ -109,8 +109,12 @@ absolute deadline forward by 1 ms, sleeps until it, and records how late it was 
    * The evidence's p99 reads 500 when the lateness is past the 0-499 µs histogram.
 3. Each FreeRTOS row under load reset the board or timed out (§8).
 4. The first `F` run read 0 ns for all 60,000 samples: it took the next tick, not the one that woke the task, as its
-   reference. Fixed after the run, not yet re-run ([SPEC-E906-BENCH-06][spec-bench]).
+   reference ([SPEC-E906-BENCH-06][spec-bench]). Re-run with the fix on 2026-11-11 (`part4_bench_2026-11-11T124613/`): 60,000 samples, 0 missed,
+   min 3.5 µs, 46.7-47.3 °C. One run.
 
+* **Native FreeRTOS task (`F`)**: an earlier average than AbstractX alone (4.0 against 12.3 µs) and a longer tail
+  (max 34.4 against 14.3 µs; p99 23 µs). One idle run; the two are different code paths (a task woken by the tick
+  ISR against a coroutine woken by its own `mtimecmp`), so read it as a budget, not a ranking.
 * **AbstractX alone**: no deadline missed in 180,000. The floor of about 12.1 µs (2,430 cycles) is the timer
   interrupt, the dispatch and the coroutine resume. It was 9.6 µs on 2026-10-31, in firmware built at
   [`e159de6`][c-e159de6]; the yield cost in §5 grew in the same period.
@@ -228,7 +232,7 @@ Evidence: rows `*_oneway_*` and `*_bench_*` in the two run directories of §3.
   * **A wake from sleep is a different path on each.** AbstractX alone leaves `platform_idle_wait()`, then runs
     `step()`. FreeRTOS does the same save, ISR and restore, and adds the notify, the scheduler's choice of task, and
     loading a different task's stack. So the difference between the runtimes while sleeping is not shown here. `C`
-    covers AbstractX alone; `F` (native FreeRTOS) has no valid run yet (§3).
+    covers AbstractX alone; `F` (native FreeRTOS) is measured awake on its tick, not from sleep (§3).
 * **This is a software interrupt** (`msip`), raised by the bench itself. It is a different event from §3's timer, so do
   not compare these rows with `cyclictest`.
 * **FreeRTOS debug cost**: the default build (asserts, stack check, idle-hook statistics) adds about 3 µs to a yield and
@@ -375,7 +379,7 @@ Cause not found ([`part4_load_manual_20261111.json`](../../verification/evidence
 * `linux_cyclictest_rt_load` from the suite (the hand-run row in §3 has no histogram).
 
 **Not measured** (each is a TODO §2b item):
-* `F`, the native FreeRTOS task on `vTaskDelayUntil`: its first run is void (§3, note 4); the fix needs a board run;
+* `F` under load, and a second idle `F` run;
 * AbstractX on FreeRTOS on a wake from sleep, compared with AbstractX alone (`C` on FreeRTOS includes the tick phase);
 * the cycle split of the ~2,430-cycle timer wake (the per-phase build covers `step()` only);
 * why the yield and the echo got slower since 2026-10-31 (firmware, kernel and four cores all changed);

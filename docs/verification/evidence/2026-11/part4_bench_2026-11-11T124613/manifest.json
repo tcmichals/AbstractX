@@ -1,0 +1,30 @@
+{
+ "check": "board:e906:part4",
+ "time": "2026-11-11T12:46:13Z",
+ "commit": "7b8864870e2c",
+ "dirty": true,
+ "kernel": "Linux version 7.1.0 (tcmichals@hp) (aarch64-linux-gcc.br_real (Buildroot 2021.11-18033-g83947c7bb6) 15.1.0, GNU ld (GNU Binutils) 2.44) #2 SMP PREEMPT_RT Sat Nov  7 10:32:50 CST 2026",
+ "linux_setup": {
+  "online": "0-3",
+  "isolated": "",
+  "irq_default_affinity": "7f",
+  "governor": "no-cpufreq",
+  "cmdline": "console=ttyS0,115200 earlycon root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8"
+ },
+ "count": 60000,
+ "stress": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2",
+ "elf_sha256": {
+  "freertos_wait": "2a7eb914ec8cc6fa59af804c74e6ad4b21a5d6acb782d3876190b668ea3d82f5"
+ },
+ "rows": [
+  {
+   "row": "freertos_wait_native_cyclic_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --native-cyclic 60000 --json /tmp/part4/freertos_wait_native_cyclic_idle.json",
+   "temp_mC_before": 47328,
+   "rc": 0,
+   "temp_mC_after": 46736
+  }
+ ]
+}
