@@ -449,3 +449,5 @@ Target execution follows a 3-stage validation progression:
 - [x] **Milestone 3**: Portable Flight Stack & Decoupled PCIe Architecture (2026-08-11)
 - [x] **Milestone 2**: QMTECH Zynq-7020 Bring-up Pivot & Early Bitstreams (2026-08-10)
 - [x] **Milestone 1**: Initial Project Setup, Dual-License Model, and AXIS Pipeline Migration (2026-04-19)
+
+- [ ] **FPGA I/O split (owner decision 2026-11-11):** pio2 only on the Zynq-7020; every other FPGA (Tang Nano 9K / 20K) goes back to the fixed-function cores on Wishbone (`asp_dshot_core`, `asp_uart_core`, `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`; removed 2026-11-05) because pio2's logic size does not fit. README updated; still to do: restore the cores and the Wishbone top for the Tang targets from git history (before the 2026-11-05 removal), update `[SPEC-TLP-07]` and the Tang/hw specs, the accelerator-split SVG (it still shows pio2 on the Tang Nano), the rtl README and the Tang fit/timing.

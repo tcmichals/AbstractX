@@ -31,16 +31,18 @@ the sensor buses entirely ([`[SPEC-ARCH-14]`](docs/DESIGN_SPECIFICATION.md)):
 * **Everything else sees results.** Linux (or the other MCU core) gets fused state, telemetry and
   trace through rings in shared memory (RPMsg, UIO rings, SIO FIFOs), in blocks, never per sample.
   No custom kernel driver.
-* **The FPGA is 100% PIO.** On FPGA targets the accelerator is the [pio2](https://github.com/tcmichals/pio2)
-  tile running RP2040/RP2350 PIO programs (DShot, serial, PWM decode, NeoPixel, SPI sensors) with
-  its own DMA; no other peripheral IP.
+* **FPGA I/O: pio2 on the Zynq, Wishbone cores elsewhere** (decided 2026-11-11). On the Zynq-7020 the
+  accelerator is the [pio2](https://github.com/tcmichals/pio2) tile running RP2040/RP2350 PIO programs
+  (DShot, serial, PWM decode, NeoPixel, SPI sensors) with its own DMA. pio2 is too large for the small
+  FPGAs, so every other FPGA target (Tang Nano 9K / 20K) goes back to fixed-function peripheral cores
+  on a Wishbone bus.
 
-![AbstractX accelerator split: sensors and actuators are driven only by an I/O accelerator per platform (Pico 2 W core 0, an ESP32-P4 core, the XuanTie E906, pio2 on Zynq or Tang Nano), which hands results through rings to Core 1, the app core, Linux or the SPI-link host; only the E906 path is built and measured today](docs/articles/assets/abstractx-accelerator-split.svg)
+![AbstractX accelerator split: sensors and actuators are driven only by an I/O accelerator per platform (Pico 2 W core 0, an ESP32-P4 core, the XuanTie E906, pio2 on the Zynq, Wishbone cores on the Tang Nano), which hands results through rings to Core 1, the app core, Linux or the SPI-link host; only the E906 path is built and measured today](docs/articles/assets/abstractx-accelerator-split.svg)
 
 **Status (2026-10-30)**: the E906 path is built and measured on the Cubie A5E (DRDY edge -> DMA
 started ~6 µs, edge -> consumer coroutine ~31 µs average, 10,000 samples at 1 kHz,
 `docs/verification/evidence/e906_imu_drdy_baremetal.json`). The Pico 2 W core split, the
-ESP32-P4 back end and the pio2 Zynq / Tang paths are specified, not built (`TODO.md`).
+ESP32-P4 back end, the pio2 Zynq path and the Wishbone Tang path are specified, not built (`TODO.md`).
 
 ---
 
@@ -53,7 +55,7 @@ AbstractX replaces both approaches with a unified event-driven coroutine archite
 * **No heap in AbstractX code** (coroutine frames come from a static pool) on a single shared startup stack (8 KB on the E906). Some apps still link `malloc` through libc / the Pico SDK (EL-1027-31, open), so the binaries are not heap-free yet.
 * **Parallel in-flight sensor ingestion** (8 kHz IMU, 100 Hz Mag, 10 Hz GPS) without locks or spinloops.
 * **Bare-metal MicroPython with native DMA** for interactive hardware REPL and rapid bring-up on coprocessors.
-* **FPGA I/O that is 100% PIO** (pio2): bus work runs in PIO programs with DMA, not on a CPU.
+* **FPGA I/O without a CPU on the bus**: PIO programs with DMA (pio2) on the Zynq, fixed-function Wishbone cores on the smaller FPGAs.
 * **AbstractX Studio GUI** to profile exact sub-microsecond timing and test applications with or without hardware.
 
 > 📖 **Looking for the exhaustive technical deep dives, bus switch design, or Zephyr comparison?**  
@@ -135,7 +137,7 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 
 ---
 
-### 4. 🧩 The FPGA Is 100% PIO
+### 4. 🧩 FPGA I/O: pio2 on the Zynq, Wishbone on the Small FPGAs
 * **pio2 (`rtl/pio`, submodule [pio2](https://github.com/tcmichals/pio2))**: a four-state-machine tile
   running the RP2040/RP2350 PIO instruction set in FPGA fabric, plus its own register bus, DMA
   engine, rings and trace. Every FPGA peripheral is a PIO program: bidirectional DShot and ESC
@@ -143,9 +145,12 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 * **On a Zynq** the A9 reaches pio2 through `generic-uio` only: registers over GP0, streams in DDR
   rings written by pio2's own DMA over HP0, one interrupt. No vendor DMA IP, no kernel driver
   ([`[SPEC-ZYNQ-07]`](hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md)).
-* **Removed (2026-11-05)**: the earlier fixed-function cores (`asp_dshot_core`, `asp_uart_core`,
-  `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`, `asp_axi_dma`) and Wishbone are gone; both
-  tops are all-PIO with an AXI4-Lite control plane (`[SPEC-TLP-07]`). The Tang Nano 20K fit is open (`TODO.md`).
+* **Other FPGAs: back to Wishbone (decided 2026-11-11).** pio2's logic size does not fit the small parts, so the
+  Tang Nano 9K / 20K (and any FPGA other than the Zynq) use the fixed-function cores on a Wishbone bus again
+  (`asp_dshot_core`, `asp_uart_core`, `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`). They were
+  removed on 2026-11-05 in favour of all-PIO tops and are being restored for those targets; the Zynq top stays
+  all-PIO with an AXI4-Lite control plane (`[SPEC-TLP-07]`). Specs and RTL still describe the all-PIO plan for
+  every FPGA until they are updated (`TODO.md`).
 * **Nanosecond Hardware Timestamps**: Physical DIO edge triggers latch 64-bit nanosecond hardware timestamps directly into packet headers for end-to-end timing verification.
 
 ---
@@ -242,8 +247,8 @@ Write your application once against `abstractx::` and deploy it across microcont
 | **Raspberry Pi Pico 2 W** | Dual Cortex-M33 @ 150 MHz | Core 0 + PIO + DMA | Core 1 coroutines | core split specified, Core 1 not launched yet |
 | [**Radxa Cubie A5E**](https://github.com/tcmichals/cubie-a5e) | Cortex-A55 + XuanTie E906 | E906 + DMA | Linux over RPMsg | built; DRDY edge -> DMA ~6 µs measured |
 | **Espressif ESP32-P4** | Dual RISC-V @ 400 MHz | one core + GDMA | the other core | stub, no back end yet |
-| **QMTech Zynq-7020** | Cortex-A9 + FPGA | pio2 (100% PIO) + RT A9 core | Linux over UIO rings | specified, not built |
-| **Tang Nano 9K / 20K** | FPGA, external host | pio2 over Dual-SPI link | Pico or E906 host | specified, not built |
+| **QMTech Zynq-7020** | Cortex-A9 + FPGA | pio2 (PIO + DMA) + RT A9 core | Linux over UIO rings | specified, not built |
+| **Tang Nano 9K / 20K** | FPGA, external host | Wishbone fixed-function cores over Dual-SPI link | Pico or E906 host | specified, not built |
 | **Desktop SITL** | Linux x86_64 / AArch64 | simulated buses, epoll reactor | same process | runs the host test suite |
 
 ---
