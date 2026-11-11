@@ -13,10 +13,10 @@
   <text x="32" y="32" class="tag">EXECUTION PATH COMPARISON • HARDWARE IRQ TO COROUTINE RESUME</text>
   <text x="32" y="56" class="title">AbstractX Event Loop vs FreeRTOS Task Notification</text>
   <rect x="32" y="75" width="440" height="415" rx="12" fill="#131e33" stroke="#253b5c" stroke-width="1.5"/>
-  <text x="52" y="104" fill="#6fe3ff" class="box-title">AbstractX Alone (Zero Context Switch)</text>
+  <text x="52" y="104" fill="#6fe3ff" class="box-title">AbstractX Alone (no task switch)</text>
   <rect x="52" y="125" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
   <text x="64" y="145" fill="#f4f7ff" class="box-title">1. Hardware Interrupt (CLIC)</text>
-  <text x="64" y="163" class="box-sub">Level line triggers CPU trap vector in startup.S (15 cycles)</text>
+  <text x="64" y="163" class="box-sub">Line traps to the vector in startup.S; context saved</text>
   <path d="M 252 175 V 185" stroke="#49d9f4" stroke-width="2"/>
   <polygon points="252,189 248,183 256,183" fill="#49d9f4"/>
   <rect x="52" y="187" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
@@ -25,18 +25,18 @@
   <path d="M 252 237 V 247" stroke="#49d9f4" stroke-width="2"/>
   <polygon points="252,251 248,245 256,245" fill="#49d9f4"/>
   <rect x="52" y="249" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
-  <text x="64" y="269" fill="#f4f7ff" class="box-title">3. Dispatcher SPSC Ring</text>
-  <text x="64" y="287" class="box-sub">Lock-free atomic push into g_isr_ring (no scheduler lock)</text>
+  <text x="64" y="269" fill="#f4f7ff" class="box-title">3. Ready queue (SPSC)</text>
+  <text x="64" y="287" class="box-sub">etl::queue_spsc_isr; ISR side unlocked, loop side InterruptLock</text>
   <path d="M 252 299 V 309" stroke="#49d9f4" stroke-width="2"/>
   <polygon points="252,313 248,307 256,307" fill="#49d9f4"/>
   <rect x="52" y="311" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
   <text x="64" y="331" fill="#f4f7ff" class="box-title">4. WFI Idle Wake</text>
-  <text x="64" y="349" class="box-sub">CPU returns from ISR past wfi directly in platform_idle_wait()</text>
+  <text x="64" y="349" class="box-sub">mret restores the context; if asleep, continues past wfi</text>
   <path d="M 252 361 V 371" stroke="#49d9f4" stroke-width="2"/>
   <polygon points="252,375 248,369 256,369" fill="#49d9f4"/>
   <rect x="52" y="373" width="400" height="50" rx="8" fill="#192845" stroke="#314e7a" stroke-width="1"/>
-  <text x="64" y="393" fill="#f4f7ff" class="box-title">5. abstractx::run() Resumes</text>
-  <text x="64" y="411" class="box-sub">Pumps Dispatcher::process(), calls coroutine .resume() directly</text>
+  <text x="64" y="393" fill="#f4f7ff" class="box-title">5. step() resumes the coroutine</text>
+  <text x="64" y="411" class="box-sub">Dispatcher::process() calls .resume(); same stack, no scheduler</text>
   <rect x="508" y="75" width="440" height="415" rx="12" fill="#131e33" stroke="#253b5c" stroke-width="1.5"/>
   <text x="528" y="104" fill="#a78bfa" class="box-title">FreeRTOS + AbstractX (Preemptive Task Notification)</text>
   <rect x="528" y="125" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
@@ -56,10 +56,10 @@
   <polygon points="728,313 724,307 732,307" fill="#a78bfa"/>
   <rect x="528" y="311" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
   <text x="540" y="331" fill="#f4f7ff" class="box-title">4. Context Switch &amp; Scheduler</text>
-  <text x="540" y="349" class="box-sub">Saves task registers, scheduler switches context to abstractx_task</text>
+  <text x="540" y="349" class="box-sub">If the task was blocked: scheduler picks it, loads its stack</text>
   <path d="M 728 361 V 371" stroke="#a78bfa" stroke-width="2"/>
   <polygon points="728,375 724,369 732,369" fill="#a78bfa"/>
   <rect x="528" y="373" width="400" height="50" rx="8" fill="#231e3d" stroke="#5b4886" stroke-width="1"/>
   <text x="540" y="393" fill="#f4f7ff" class="box-title">5. Task Unblocks &amp; Pumps Loop</text>
-  <text x="540" y="411" class="box-sub">ulTaskNotifyTake() returns -&gt; abstractx::step() resumes coroutine</text>
+  <text x="540" y="411" class="box-sub">ulTaskNotifyTake() returns (hosts/freertos) -&gt; step() resumes</text>
 </svg>

@@ -168,19 +168,23 @@ class Proc:
         self.returncode, self.stdout = rc, stdout
 
 
-def fake_board(fail_row="", fail_load="", no_json=""):
-    """Stands in for subprocess.run: fails the named row, or the firmware load, or the JSON fetch."""
+def fake_board(fail_row="", fail_load="", no_json="", temps=None):
+    """Stands in for subprocess.run: fails the named row, or the firmware load, or the JSON fetch.
+    `temps` is the list of hottest-zone readings the board gives, one per read (45 C when it runs out)."""
     calls = []
+    temps = list(temps or [])
 
-    def run(cmd, **_):
+    def run(cmd, **kw):
         calls.append(cmd)
         text = " ".join(cmd)
+        if text.endswith(r.TEMPS):
+            return Proc(0, f"{temps.pop(0) if temps else 45000}\n44000\n")
         if fail_load and f"echo {fail_load}.elf" in text:
             return Proc(1)
-        if cmd[0] == "scp":
+        if cmd[-1].startswith(f"cat {r.REMOTE_RESULTS}/"):  # the JSON fetch over ssh
             if no_json and no_json in text:
                 return Proc(1)
-            Path(cmd[-1]).write_text('{"ok": 1}')
+            kw["stdout"].write(b'{"ok": 1}')
             return Proc()
         if fail_row and fail_row in text:
             return Proc(1)
@@ -197,6 +201,32 @@ def drive(**knobs):
         results = r.run_rows(rows, r.FIRMWARES, "10.0.0.9", Path(d), 1000, run=run)
         files = sorted(os.listdir(d))
     return results, calls, files
+
+
+def test_hot_board_stops_the_run_and_keeps_every_row():
+    # 45 C before row 1, 86 C after it: row 1 is kept, the other three are not run
+    results, calls, files = drive(temps=[45000, 86000])
+    assert [x["rc"] for x in results] == [0, 2, 2, 2], results
+    assert results[0]["temp_mC_after"] == 86000 and "thermal" in results[0]["thermal_stop"]
+    assert all("thermal" in x["error"] for x in results[1:]) and len(files) == 1
+    assert sum("echo start" in " ".join(c) for c in calls) == 1, "nothing loaded once hot"
+    results, _, _ = drive(temps=[90000])
+    assert [x["rc"] for x in results] == [2, 2, 2, 2], "too hot before the first row: nothing runs"
+    assert r.hottest_mc("47000\n85500\n") == 85500 and r.hottest_mc("") is None
+
+
+def test_push_checks_md5_on_the_board():
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "fw.elf"
+        src.write_bytes(b"firmware")
+        good = __import__("hashlib").md5(b"firmware").hexdigest()
+        for answer, ok in ((good, True), ("0" * 32, False)):
+            def run(cmd, answer=answer, **kw):
+                if cmd[-1].startswith("md5sum"):
+                    return Proc(0, f"{answer}  /lib/firmware/fw.elf\n")
+                assert cmd[-1] == "cat > /lib/firmware/fw.elf" and kw["stdin"].read() == b"firmware"
+                return Proc()
+            assert r.push("root@10.0.0.9", src, "/lib/firmware/fw.elf", run) is ok
 
 
 def test_clean_run_loads_each_firmware_once():

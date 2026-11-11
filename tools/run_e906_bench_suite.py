@@ -36,6 +36,12 @@ READER_BIN = ROOT / "build_e906" / "e906_oneway_reader"
 STRESS = "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2"
 HIST_US = 20000
 ECHO_S = 15  # the echo and 'R' suite, roughly
+MAX_TEMP_MC = 85000  # thermal stop: the A5E has no cpufreq and idles at 87 C without its fan
+TEMPS = "cat /sys/class/thermal/thermal_zone*/temp"
+SETUP = ("echo online=$(cat /sys/devices/system/cpu/online); echo isolated=$(cat /sys/devices/system/cpu/isolated); "
+         "echo irq_default_affinity=$(cat /proc/irq/default_smp_affinity); "
+         "echo governor=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo no-cpufreq); "
+         "echo cmdline=$(cat /proc/cmdline)")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -177,6 +183,40 @@ def parse_cyclictest(text: str, loops: int) -> dict:
     return out
 
 
+def hottest_mc(text: str):
+    """Hottest thermal zone in millidegrees from `cat .../thermal_zone*/temp`, None if unreadable."""
+    vals = [int(x) for x in text.split() if x.lstrip("-").isdigit()]
+    return max(vals) if vals else None
+
+
+def read_temp(target: str, run=subprocess.run):
+    try:
+        return hottest_mc(run(["ssh", target, TEMPS], capture_output=True, text=True, timeout=30).stdout or "")
+    except subprocess.TimeoutExpired:
+        return None
+
+
+def parse_setup(text: str) -> dict:
+    return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
+
+
+def push(target: str, src: Path, dst: str, run=subprocess.run) -> bool:
+    """[SPEC-E906-BENCH-08] busybox has no scp/sftp: copy over ssh and compare MD5 on the board."""
+    with open(src, "rb") as f:
+        if run(["ssh", target, f"cat > {dst}"], stdin=f, timeout=120).returncode != 0:
+            return False
+    got = run(["ssh", target, f"md5sum {dst}"], capture_output=True, text=True, timeout=30).stdout or ""
+    return got.split()[:1] == [hashlib.md5(src.read_bytes()).hexdigest()]
+
+
+def fetch(target: str, src: str, dst: Path, run=subprocess.run) -> bool:
+    with open(dst, "wb") as f:
+        ok = run(["ssh", target, f"cat {src}"], stdout=f, timeout=60).returncode == 0
+    if not ok:
+        dst.unlink(missing_ok=True)
+    return ok
+
+
 def git(*args: str) -> str:
     return subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True).stdout.strip()
 
@@ -185,14 +225,24 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def run_rows(rows, firmwares, ip: str, out_dir: Path, count: int, run=subprocess.run) -> list:
-    """Runs and fetches every row. A failure is recorded and the next row still runs."""
+def run_rows(rows, firmwares, ip: str, out_dir: Path, count: int, run=subprocess.run,
+             max_temp_mc: int = MAX_TEMP_MC) -> list:
+    """Runs and fetches every row. A failure is recorded and the next row still runs; too hot stops the run."""
     target = f"root@{ip}"
     by_name = {fw.name: fw for fw in firmwares}
-    results, current = [], None
+    results, current, hot = [], None, None
     for i, row in enumerate(rows, 1):
-        print(f"[{i}/{len(rows)}] {row.name} (~{row.seconds} s)", flush=True)
         res = {"row": row.name, "firmware": row.firmware, "load": row.load, "command": row.command}
+        if hot is None:
+            temp = read_temp(target, run)
+            res["temp_mC_before"] = temp
+            if temp is None or temp > max_temp_mc:
+                hot = f"thermal: hottest zone {temp} mC before {row.name} (limit {max_temp_mc})"
+        if hot is not None:  # [SPEC-E906-BENCH-08] never run hot; the rows not run stay in the record
+            results.append({**res, "rc": 2, "error": hot})
+            print(f"[{i}/{len(rows)}] {row.name} NOT RUN, {hot}", flush=True)
+            continue
+        print(f"[{i}/{len(rows)}] {row.name} (~{row.seconds} s, {temp / 1000:.1f} C)", flush=True)
         try:
             if row.firmware and row.firmware != current:
                 loaded = run(["ssh", target, load_firmware_command(by_name[row.firmware])], timeout=60)
@@ -214,9 +264,15 @@ def run_rows(rows, firmwares, ip: str, out_dir: Path, count: int, run=subprocess
             out.write_text(json.dumps({"check": "board:a55:cyclictest", "command": row.command, **parsed}, indent=1) + "\n")
             if "error" in parsed:
                 res.update(rc=res["rc"] or 1, error=parsed["error"])
-        elif run(["scp", "-O", f"{target}:{REMOTE_RESULTS}/{row.name}.json", str(out)], timeout=60).returncode != 0:
+        elif not fetch(target, f"{REMOTE_RESULTS}/{row.name}.json", out, run):
             res.update(rc=res["rc"] or 1, error="no JSON from the board")
-        print(f"   {'ok' if res['rc'] == 0 else 'FAILED, rc ' + str(res['rc'])}", flush=True)
+        after = read_temp(target, run)
+        res["temp_mC_after"] = after
+        if after is None or after > max_temp_mc:
+            hot = f"thermal: hottest zone {after} mC after {row.name} (limit {max_temp_mc})"
+            res["thermal_stop"] = hot
+        print(f"   {'ok' if res['rc'] == 0 else 'FAILED, rc ' + str(res['rc'])}"
+              f"{'' if after is None else f', {after / 1000:.1f} C'}", flush=True)
         results.append(res)
     return results
 
@@ -238,6 +294,7 @@ def main(argv=None) -> int:
     ap.add_argument("--only", default="", help="only rows whose name contains this")
     ap.add_argument("--record", action="store_true", help="append a board record to the evidence ledger")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--max-temp-mc", type=int, default=MAX_TEMP_MC, help="stop the run above this (millidegrees C)")
     a = ap.parse_args(argv)
     ip = a.ip or board_target.board_ip(default=None)
     if not ip:
@@ -279,18 +336,22 @@ def main(argv=None) -> int:
     stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     subprocess.run(["ssh", target, f"date -u -s '{now:%Y-%m-%d %H:%M:%S}' >/dev/null; "
                     f"mkdir -p {REMOTE_DIR}; rm -rf {REMOTE_RESULTS}; mkdir -p {REMOTE_RESULTS}"], check=True, timeout=30)
-    subprocess.run(["scp", "-O", *[str(ROOT / f) for f in TOOLS], str(READER_BIN), f"{target}:{REMOTE_DIR}/"],
-                   check=True, timeout=120)
-    for fw in firmwares:
-        subprocess.run(["scp", "-O", str(fw.elf), f"{target}:/lib/firmware/{fw.name}.elf"], check=True, timeout=120)
+    sends = [(ROOT / f, f"{REMOTE_DIR}/{Path(f).name}") for f in TOOLS] + [(READER_BIN, f"{REMOTE_DIR}/{READER_BIN.name}")]
+    sends += [(fw.elf, f"/lib/firmware/{fw.name}.elf") for fw in firmwares]
+    for src, dst in sends:
+        if not push(target, src, dst):
+            print(f"could not run: {src} did not reach the board intact ({dst})")
+            return 2
+    subprocess.run(["ssh", target, f"chmod +x {REMOTE_DIR}/{READER_BIN.name}"], check=True, timeout=30)
+    setup = parse_setup(subprocess.run(["ssh", target, SETUP], capture_output=True, text=True, timeout=30).stdout)
 
     out_dir = ROOT / "docs/verification/evidence" / stamp[:7] / f"part4_bench_{stamp[:19].replace(':', '')}"
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"{len(rows)} rows, about {total // 60} min; evidence: {out_dir.relative_to(ROOT)}", flush=True)
-    results = run_rows(rows, firmwares, ip, out_dir, a.count)
+    results = run_rows(rows, firmwares, ip, out_dir, a.count, max_temp_mc=a.max_temp_mc)
     kernel = subprocess.run(["ssh", target, "cat /proc/version"], capture_output=True, text=True, timeout=30).stdout.strip()
     manifest = {"check": "board:e906:part4", "time": stamp, "commit": git("rev-parse", "--short=12", "HEAD"),
-                "dirty": bool(git("status", "--porcelain")), "kernel": kernel, "count": a.count, "stress": STRESS,
+                "dirty": bool(git("status", "--porcelain")), "kernel": kernel, "linux_setup": setup, "count": a.count, "stress": STRESS,
                 "elf_sha256": {fw.name: sha256(fw.elf) for fw in firmwares}, "rows": results}
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     failed = [r["row"] for r in results if r["rc"] != 0]

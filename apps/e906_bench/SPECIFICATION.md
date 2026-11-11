@@ -188,6 +188,15 @@ sequenceDiagram
 * **Requirement**: `tools/run_e906_bench_suite.py` runs every row from the build PC: it checks the board is
   the A5E, refuses to start (exit 2) if `remoteproc0` or the ELFs or reader are missing, sets the board clock,
   copies the tools and firmware, and loads each firmware through remoteproc before its rows.
+* **Requirement (copy)**: files go to and come from the board over `ssh` (`cat > file`, `cat file`), because the
+  A5E's busybox has no `scp` or `sftp` server; every file sent is checked by MD5 on the board, and a mismatch stops
+  the run (exit 2).
+* **Requirement (thermal)**: the A5E has no cpufreq and idles at 87 °C without its fan. Before and after every row
+  the runner reads `/sys/class/thermal/thermal_zone*/temp` and records the hottest zone (`temp_mC_before`,
+  `temp_mC_after`). If a zone is above 85 °C (`--max-temp-mc`, default 85000) before a row, or after one, the run
+  stops: that row and every row not yet run are recorded with `rc` 2 and `error: thermal`.
+* **Requirement (Linux setup)**: the manifest records the board's online CPUs, `isolcpus` (`/sys/devices/system/cpu/isolated`),
+  `/proc/irq/default_smp_affinity`, whether cpufreq exists and its governor, and `/proc/cmdline`.
 * **Rows**, each idle and under the article's `stress-ng` load, `--runs` times:
   * AbstractX alone and FreeRTOS (`WAIT`): `bench` (echo + `R`), `cyclic`, `oneway` with the C and Python
     readers, each `fifo95` and `other`;
