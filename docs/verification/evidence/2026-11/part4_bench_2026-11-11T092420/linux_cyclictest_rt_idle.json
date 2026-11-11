@@ -1,0 +1,12 @@
+{
+ "check": "board:a55:cyclictest",
+ "command": "cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q -h 20000",
+ "n": 60000,
+ "overflows": 0,
+ "min_us": 21,
+ "avg_us": 28,
+ "max_us": 43,
+ "p50_us": 29,
+ "p99_us": 32,
+ "p999_us": 35
+}

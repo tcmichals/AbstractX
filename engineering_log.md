@@ -4332,3 +4332,24 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Miss** (`process-gap`): the A5E has no cpufreq and idles at 87 °C without its fan; the runner put 36 minutes of `stress-ng` on it with no temperature check. Fixed: hottest thermal zone read before and after each row and recorded; above 85 °C the run stops and every row not run is recorded with `rc` 2 (`test_hot_board_stops_the_run_and_keeps_every_row`). Both new tests fail on the old runner (7 of 17 fail) and pass on the new (17 of 17).
 * **Finding** (`hardware-fact`): the 2026-11-07 `missing sram resource` block is gone: the board now runs `7.1.0 #2 SMP PREEMPT_RT Sat Nov 7 10:32:50 CST 2026`, whose driver takes the DT's `reg-names = "cfg", "sram-a3-0", "sram-a3-1", "remap"` (`/sys/firmware/devicetree/base/soc/remoteproc@7130000`). `e906_bench_app` boots and announces `abstractx-bench` (1030), `abstractx-tlp`, `abstractx-trace`. No firmware, DTB or kernel change was needed.
 * **Also**: the manifest records the Linux setup (online CPUs, `isolcpus`, default IRQ affinity, cpufreq governor, cmdline). Part 4's unused table SVGs and the driver-wrapper SVG are deleted (their numbers were typed in, not taken from evidence); the wake-path SVG no longer names `g_isr_ring` (not in the code) or an unsourced "15 cycles".
+
+## [2026-11-11] - Mistake & Lesson: Full audit marked skipped static analysis as PASS
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/full_audit.py`
+* **Symptoms**: The full audit reported static analysis PASS although clang-tidy and cppcheck were both absent and no analyzer ran.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The stage defaulted to PASS and only appended skip details; its final status never changed when all analyzers were missing.
+* **Architectural Lesson**: A quality stage must not be green when its required check did not run; advisory tools do not substitute for the required analyzer.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`docs/SPECTRACE.md`](docs/SPECTRACE.md)
+* **Requirement Tag Added/Updated**: `SPEC-AUDIT-17`
+* **Rule Added to Spec**:
+  > The static stage is PASS only if required clang-tidy ran successfully; otherwise it is SKIPPED, with optional cppcheck results reported separately.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Updated `tools/full_audit.py` so the static stage is `SKIPPED` when required clang-tidy is missing, regardless of optional cppcheck availability; cppcheck results are reported separately.
+* **Regression Test**: `tests/test_full_audit.py` covers missing analyzers and cppcheck-only availability. Both cases reproduced the old false-green before the fix and passed afterward.
+* **Verification**: `python3 -m pytest -q tests/test_full_audit.py tests/test_run_e906_board_suite.py tests/test_run_e906_bench_suite.py` -> 23 passed. The earlier `tools/gate.sh` run -> 132 plain, 121 ASan/UBSan, 121 TSan tests passed. `python3 tools/run_static_analysis.py` -> PASS, 0 known findings and no new findings after configuring `build_host` with `CMAKE_EXPORT_COMPILE_COMMANDS=ON`. `python3 tools/full_audit.py --stages static` -> PASS with clang-tidy run. A later full `python3 tools/full_audit.py` rerun also reported static PASS, but exited 1 because `py_test_studio_gui_clicks` timed out; an isolated retry hung and was terminated. `python3 tools/spec_to_doc.py --target rtl --check` -> passed.

@@ -1,0 +1,12 @@
+{
+ "check": "board:a55:cyclictest",
+ "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; cyclictest -m -i 1000 -l 60000 -t1 -a 2 -q -h 20000; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+ "n": 60000,
+ "overflows": 0,
+ "min_us": 21,
+ "avg_us": 105,
+ "max_us": 18144,
+ "p50_us": 41,
+ "p99_us": 2147,
+ "p999_us": 3202
+}

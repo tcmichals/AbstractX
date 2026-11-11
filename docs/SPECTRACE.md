@@ -453,6 +453,11 @@ python3 tools/run_adversarial_audit.py --all
   no threshold yet), `SKIPPED` (with the reason: tool not installed, no targets yet, no access) or
   `MANUAL` (a checklist the reviewer must answer). A stage that did not run is never `PASS`; the
   script exits 1 on any `FAIL`.
+* **Requirement (static-analysis stage status)**: the full-audit static stage is `PASS` only when
+  its required clang-tidy analysis ran successfully. If clang-tidy is unavailable, the stage is
+  `SKIPPED` even when optional advisory cppcheck runs; report that partial result and any cppcheck
+  findings in the details. If neither analyzer is installed, report `SKIPPED` with the missing-tool
+  reason, never `PASS`.
 * **Requirement (other operating systems)**: the audit covers the OSes AbstractX is meant to run on
   and compete with (FreeRTOS, Zephyr, ChibiOS, Linux with Boost.Asio, bare metal). Automatic: which
   hosts exist (`hosts/<os>`). Manual, per OS: its native event loop and async model, how the host

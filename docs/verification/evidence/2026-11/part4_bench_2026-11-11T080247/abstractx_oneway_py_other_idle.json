@@ -1,0 +1,75 @@
+{
+ "check": "board:e906:oneway",
+ "time": "2026-11-11T08:08:15",
+ "uname": "7.1.0",
+ "setup": {
+  "governor": null,
+  "cur_khz": null,
+  "rt_kernel": null,
+  "cmdline": "console=ttyS0,115200 earlycon root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8"
+ },
+ "oneway": {
+  "reader": "python",
+  "sched": "other",
+  "cpu": 2,
+  "count": 60000,
+  "size": 32,
+  "clock": {
+   "kind": "calibrated",
+   "offset_ticks": -377590690,
+   "uncertainty_ns": 56000,
+   "before": {
+    "lo": -377592024,
+    "hi": -377589356,
+    "min_rtt": 2739,
+    "n": 2000
+   },
+   "after": {
+    "lo": -377591991,
+    "hi": -377589346,
+    "min_rtt": 2665,
+    "n": 2000
+   }
+  },
+  "report": {
+   "platform": "baremetal",
+   "ow_count": 60000,
+   "ow_sent": 60000,
+   "ow_tx_fail": 0,
+   "ow_missed": 0,
+   "ow_late_ns_min": 12291,
+   "ow_late_ns_avg": 12541,
+   "ow_late_ns_max": 19666,
+   "ow_send_cycles_min": 2492,
+   "ow_send_cycles_avg": 2557,
+   "ow_send_cycles_max": 2852,
+   "dropped_resumes": 0,
+   "end": 1
+  },
+  "received": 60000,
+  "lost": 0,
+  "out_of_order": 0,
+  "negative": 0,
+  "sent_to_read": {
+   "n": 60000,
+   "min_ns": 94125,
+   "avg_ns": 111458,
+   "max_ns": 2527958,
+   "p50_us": 112,
+   "p99_us": 118,
+   "p999_us": 140,
+   "over_20ms": 0
+  },
+  "event_to_read": {
+   "n": 60000,
+   "min_ns": 107375,
+   "avg_ns": 124708,
+   "max_ns": 2541166,
+   "p50_us": 126,
+   "p99_us": 132,
+   "p999_us": 153,
+   "over_20ms": 0
+  },
+  "clock_pair_ticks": 84639746
+ }
+}

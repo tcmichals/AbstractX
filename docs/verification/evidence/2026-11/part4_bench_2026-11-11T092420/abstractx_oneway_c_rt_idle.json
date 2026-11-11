@@ -1,0 +1,74 @@
+{
+ "check": "board:e906:oneway",
+ "time": "2026-11-11T09:26:38",
+ "uname": "7.1.0",
+ "setup": {
+  "governor": null,
+  "cur_khz": null,
+  "rt_kernel": null,
+  "cmdline": "console=ttyS0,115200 earlycon root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8"
+ },
+ "oneway": {
+  "reader": "c",
+  "sched": "fifo95",
+  "cpu": 2,
+  "count": 60000,
+  "size": 32,
+  "clock": {
+   "kind": "calibrated",
+   "offset_ticks": -382157415,
+   "uncertainty_ns": 42666,
+   "before": {
+    "lo": -382158438,
+    "hi": -382156391,
+    "min_rtt": 2061,
+    "n": 2000
+   },
+   "after": {
+    "lo": -382158433,
+    "hi": -382156395,
+    "min_rtt": 2045,
+    "n": 2000
+   }
+  },
+  "sent_to_read": {
+   "n": 60000,
+   "min_ns": 85666,
+   "avg_ns": 115916,
+   "max_ns": 136416,
+   "p50_us": 119,
+   "p99_us": 123,
+   "p999_us": 125,
+   "over_20ms": 0
+  },
+  "event_to_read": {
+   "n": 60000,
+   "min_ns": 98916,
+   "avg_ns": 129125,
+   "max_ns": 149583,
+   "p50_us": 132,
+   "p99_us": 136,
+   "p999_us": 138,
+   "over_20ms": 0
+  },
+  "report": {
+   "platform": "baremetal",
+   "ow_count": 60000,
+   "ow_sent": 60000,
+   "ow_tx_fail": 0,
+   "ow_missed": 0,
+   "ow_late_ns_min": 12333,
+   "ow_late_ns_avg": 12500,
+   "ow_late_ns_max": 14458,
+   "ow_send_cycles_min": 2488,
+   "ow_send_cycles_avg": 2551,
+   "ow_send_cycles_max": 2664,
+   "dropped_resumes": 0,
+   "end": 1
+  },
+  "received": 60000,
+  "lost": 0,
+  "out_of_order": 0,
+  "negative": 0
+ }
+}

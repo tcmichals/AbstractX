@@ -1,0 +1,70 @@
+{
+ "check": "board:e906:bench",
+ "time": "2026-11-11T09:29:52",
+ "uname": "7.1.0",
+ "n": 1000,
+ "echo": [
+  {
+   "size": 16,
+   "mismatches": 0,
+   "throughput_Bps": 184600,
+   "n": 1000,
+   "min_us": 142.1,
+   "median_us": 166.0,
+   "p99_us": 211.4,
+   "max_us": 264.8
+  },
+  {
+   "size": 256,
+   "mismatches": 0,
+   "throughput_Bps": 1922583,
+   "n": 1000,
+   "min_us": 228.4,
+   "median_us": 257.5,
+   "p99_us": 298.1,
+   "max_us": 321.3
+  },
+  {
+   "size": 496,
+   "mismatches": 0,
+   "throughput_Bps": 2774969,
+   "n": 1000,
+   "min_us": 340.5,
+   "median_us": 348.6,
+   "p99_us": 378.4,
+   "max_us": 403.3
+  }
+ ],
+ "suite": {
+  "platform": "freertos",
+  "yield_runs": 10000,
+  "yield_cycles_min": 4099,
+  "yield_cycles_avg": 4164,
+  "yield_cycles_max": 4852,
+  "softirq_runs": 1000,
+  "softirq_isr_cycles_min": 249,
+  "softirq_isr_cycles_avg": 262,
+  "softirq_isr_cycles_max": 291,
+  "softirq_wake_cycles_min": 5361,
+  "softirq_wake_cycles_avg": 5428,
+  "softirq_wake_cycles_max": 6045,
+  "idle": "not-instrumented",
+  "dropped_resumes": 0,
+  "coro_pool_high_water": 512,
+  "rx_msgs": 3001,
+  "rx_dropped": 0,
+  "tx_fail": 0,
+  "end": 1
+ },
+ "suite_ns": {
+  "yield_ns_min": 20495.0,
+  "yield_ns_avg": 20820.0,
+  "yield_ns_max": 24260.0,
+  "softirq_isr_ns_min": 1245.0,
+  "softirq_isr_ns_avg": 1310.0,
+  "softirq_isr_ns_max": 1455.0,
+  "softirq_wake_ns_min": 26805.0,
+  "softirq_wake_ns_avg": 27140.0,
+  "softirq_wake_ns_max": 30225.0
+ }
+}

@@ -1,0 +1,79 @@
+{
+ "check": "board:e906:bench",
+ "time": "2026-11-11T08:18:00",
+ "uname": "7.1.0",
+ "n": 1000,
+ "echo": [
+  {
+   "size": 16,
+   "mismatches": 0,
+   "throughput_Bps": 183008,
+   "n": 1000,
+   "min_us": 126.9,
+   "median_us": 166.6,
+   "p99_us": 207.1,
+   "max_us": 288.8
+  },
+  {
+   "size": 256,
+   "mismatches": 0,
+   "throughput_Bps": 1926475,
+   "n": 1000,
+   "min_us": 234.0,
+   "median_us": 256.0,
+   "p99_us": 295.8,
+   "max_us": 323.7
+  },
+  {
+   "size": 496,
+   "mismatches": 0,
+   "throughput_Bps": 2775074,
+   "n": 1000,
+   "min_us": 341.5,
+   "median_us": 347.1,
+   "p99_us": 380.7,
+   "max_us": 425.8
+  }
+ ],
+ "suite": {
+  "platform": "baremetal",
+  "yield_runs": 10000,
+  "yield_cycles_min": 4276,
+  "yield_cycles_avg": 4347,
+  "yield_cycles_max": 5362,
+  "step_passes": 10000,
+  "step_stamp_cycles": 23,
+  "step_timer_cycles": 3240375,
+  "step_dispatch_cycles": 11256562,
+  "step_io_cycles": 1516520,
+  "step_network_cycles": 2168011,
+  "step_flush_cycles": 19876928,
+  "step_tasks_cycles": 463781,
+  "step_deadline_cycles": 3493796,
+  "softirq_runs": 1000,
+  "softirq_isr_cycles_min": 222,
+  "softirq_isr_cycles_avg": 222,
+  "softirq_isr_cycles_max": 246,
+  "softirq_wake_cycles_min": 5221,
+  "softirq_wake_cycles_avg": 5296,
+  "softirq_wake_cycles_max": 6134,
+  "idle": "not-instrumented",
+  "dropped_resumes": 0,
+  "coro_pool_high_water": 576,
+  "rx_msgs": 3001,
+  "rx_dropped": 0,
+  "tx_fail": 0,
+  "end": 1
+ },
+ "suite_ns": {
+  "yield_ns_min": 21380.0,
+  "yield_ns_avg": 21735.0,
+  "yield_ns_max": 26810.0,
+  "softirq_isr_ns_min": 1110.0,
+  "softirq_isr_ns_avg": 1110.0,
+  "softirq_isr_ns_max": 1230.0,
+  "softirq_wake_ns_min": 26105.0,
+  "softirq_wake_ns_avg": 26480.0,
+  "softirq_wake_ns_max": 30670.0
+ }
+}

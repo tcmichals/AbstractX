@@ -1,0 +1,75 @@
+{
+ "check": "board:e906:oneway",
+ "time": "2026-11-11T09:35:07",
+ "uname": "7.1.0",
+ "setup": {
+  "governor": null,
+  "cur_khz": null,
+  "rt_kernel": null,
+  "cmdline": "console=ttyS0,115200 earlycon root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8"
+ },
+ "oneway": {
+  "reader": "python",
+  "sched": "fifo95",
+  "cpu": 2,
+  "count": 60000,
+  "size": 32,
+  "clock": {
+   "kind": "calibrated",
+   "offset_ticks": -382255475,
+   "uncertainty_ns": 56250,
+   "before": {
+    "lo": -382256820,
+    "hi": -382254130,
+    "min_rtt": 2723,
+    "n": 2000
+   },
+   "after": {
+    "lo": -382256825,
+    "hi": -382254126,
+    "min_rtt": 2763,
+    "n": 2000
+   }
+  },
+  "report": {
+   "platform": "freertos",
+   "ow_count": 60000,
+   "ow_sent": 60000,
+   "ow_tx_fail": 0,
+   "ow_missed": 0,
+   "ow_late_ns_min": 569083,
+   "ow_late_ns_avg": 569125,
+   "ow_late_ns_max": 569791,
+   "ow_send_cycles_min": 2448,
+   "ow_send_cycles_avg": 2487,
+   "ow_send_cycles_max": 2788,
+   "dropped_resumes": 0,
+   "end": 1
+  },
+  "received": 60000,
+  "lost": 0,
+  "out_of_order": 0,
+  "negative": 0,
+  "sent_to_read": {
+   "n": 60000,
+   "min_ns": 91083,
+   "avg_ns": 109666,
+   "max_ns": 2471166,
+   "p50_us": 111,
+   "p99_us": 116,
+   "p999_us": 133,
+   "over_20ms": 0
+  },
+  "event_to_read": {
+   "n": 60000,
+   "min_ns": 660791,
+   "avg_ns": 679416,
+   "max_ns": 3040875,
+   "p50_us": 681,
+   "p99_us": 686,
+   "p999_us": 703,
+   "over_20ms": 0
+  },
+  "clock_pair_ticks": 80363384
+ }
+}

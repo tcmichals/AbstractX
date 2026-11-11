@@ -44,11 +44,24 @@ def test_missing_tool_is_skipped_not_passed():
     saved = fa.have
     try:
         fa.have = lambda tool: None
-        for stage in (fa.stage_mutation, fa.stage_coverage, fa.stage_ci):
+        for stage in (fa.stage_static, fa.stage_mutation, fa.stage_coverage, fa.stage_ci):
             r = stage(None)
             assert r.status == fa.SKIPPED and r.summary, (stage.__name__, r)
     finally:
         fa.have = saved
+
+
+def test_static_analysis_is_skipped_when_required_clang_tidy_is_missing():
+    saved_have, saved_sh = fa.have, fa.sh
+    try:
+        fa.have = lambda tool: "/fake/cppcheck" if tool == "cppcheck" else None
+        fa.sh = lambda cmd, timeout, cwd=fa.ROOT: (0, "")
+        r = fa.stage_static(None)
+        assert r.status == fa.SKIPPED
+        assert "clang-tidy not installed" in r.summary
+        assert any("cppcheck (advisory" in detail for detail in r.details)
+    finally:
+        fa.have, fa.sh = saved_have, saved_sh
 
 
 def test_gate_stops_on_build_error_before_ctest():
@@ -92,6 +105,7 @@ if __name__ == "__main__":
     test_failing_stage_fails_the_audit()
     test_timeout_is_not_a_pass()
     test_missing_tool_is_skipped_not_passed()
+    test_static_analysis_is_skipped_when_required_clang_tidy_is_missing()
     test_gate_stops_on_build_error_before_ctest()
     test_coverage_uses_gcov_of_the_compiler_version()
     print("[PASS] full_audit / gate: failures fail, timeouts and missing tools never pass, build error stops ctest")

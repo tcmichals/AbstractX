@@ -1,0 +1,70 @@
+{
+ "check": "board:e906:bench",
+ "time": "2026-11-11T08:03:01",
+ "uname": "7.1.0",
+ "n": 1000,
+ "echo": [
+  {
+   "size": 16,
+   "mismatches": 0,
+   "throughput_Bps": 184133,
+   "n": 1000,
+   "min_us": 137.1,
+   "median_us": 166.1,
+   "p99_us": 209.8,
+   "max_us": 230.7
+  },
+  {
+   "size": 256,
+   "mismatches": 0,
+   "throughput_Bps": 1950274,
+   "n": 1000,
+   "min_us": 225.2,
+   "median_us": 254.5,
+   "p99_us": 286.2,
+   "max_us": 333.5
+  },
+  {
+   "size": 496,
+   "mismatches": 0,
+   "throughput_Bps": 2789872,
+   "n": 1000,
+   "min_us": 339.9,
+   "median_us": 346.8,
+   "p99_us": 384.7,
+   "max_us": 405.7
+  }
+ ],
+ "suite": {
+  "platform": "baremetal",
+  "yield_runs": 10000,
+  "yield_cycles_min": 3866,
+  "yield_cycles_avg": 3931,
+  "yield_cycles_max": 4896,
+  "softirq_runs": 1000,
+  "softirq_isr_cycles_min": 223,
+  "softirq_isr_cycles_avg": 226,
+  "softirq_isr_cycles_max": 241,
+  "softirq_wake_cycles_min": 4724,
+  "softirq_wake_cycles_avg": 4799,
+  "softirq_wake_cycles_max": 5753,
+  "idle": "not-instrumented",
+  "dropped_resumes": 0,
+  "coro_pool_high_water": 512,
+  "rx_msgs": 3001,
+  "rx_dropped": 0,
+  "tx_fail": 0,
+  "end": 1
+ },
+ "suite_ns": {
+  "yield_ns_min": 19330.0,
+  "yield_ns_avg": 19655.0,
+  "yield_ns_max": 24480.0,
+  "softirq_isr_ns_min": 1115.0,
+  "softirq_isr_ns_avg": 1130.0,
+  "softirq_isr_ns_max": 1205.0,
+  "softirq_wake_ns_min": 23620.0,
+  "softirq_wake_ns_avg": 23995.0,
+  "softirq_wake_ns_max": 28765.0
+ }
+}

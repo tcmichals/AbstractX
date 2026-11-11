@@ -1,0 +1,74 @@
+{
+ "check": "board:e906:oneway",
+ "time": "2026-11-11T09:32:59",
+ "uname": "7.1.0",
+ "setup": {
+  "governor": null,
+  "cur_khz": null,
+  "rt_kernel": null,
+  "cmdline": "console=ttyS0,115200 earlycon root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8"
+ },
+ "oneway": {
+  "reader": "c",
+  "sched": "fifo95",
+  "cpu": 2,
+  "count": 60000,
+  "size": 32,
+  "clock": {
+   "kind": "calibrated",
+   "offset_ticks": -382255495,
+   "uncertainty_ns": 45375,
+   "before": {
+    "lo": -382256583,
+    "hi": -382254406,
+    "min_rtt": 2267,
+    "n": 2000
+   },
+   "after": {
+    "lo": -382256548,
+    "hi": -382254414,
+    "min_rtt": 2161,
+    "n": 2000
+   }
+  },
+  "sent_to_read": {
+   "n": 60000,
+   "min_ns": 79000,
+   "avg_ns": 100625,
+   "max_ns": 133750,
+   "p50_us": 99,
+   "p99_us": 122,
+   "p999_us": 124,
+   "over_20ms": 0
+  },
+  "event_to_read": {
+   "n": 60000,
+   "min_ns": 140916,
+   "avg_ns": 162500,
+   "max_ns": 195666,
+   "p50_us": 161,
+   "p99_us": 184,
+   "p999_us": 186,
+   "over_20ms": 0
+  },
+  "report": {
+   "platform": "freertos",
+   "ow_count": 60000,
+   "ow_sent": 60000,
+   "ow_tx_fail": 0,
+   "ow_missed": 0,
+   "ow_late_ns_min": 61208,
+   "ow_late_ns_avg": 61291,
+   "ow_late_ns_max": 62416,
+   "ow_send_cycles_min": 2448,
+   "ow_send_cycles_avg": 2487,
+   "ow_send_cycles_max": 2583,
+   "dropped_resumes": 0,
+   "end": 1
+  },
+  "received": 60000,
+  "lost": 0,
+  "out_of_order": 0,
+  "negative": 0
+ }
+}

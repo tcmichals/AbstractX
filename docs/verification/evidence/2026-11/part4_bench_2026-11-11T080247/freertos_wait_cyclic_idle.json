@@ -1,0 +1,20 @@
+{
+ "check": "board:e906:cyclic",
+ "time": "2026-11-11T08:09:22",
+ "uname": "7.1.0",
+ "count": 60000,
+ "cyclic": {
+  "platform": "freertos",
+  "cyc_source": "abstractx",
+  "cyc_count": 60000,
+  "cyc_period_us": 1000,
+  "cyc_late_ns_min": 805958,
+  "cyc_late_ns_avg": 806000,
+  "cyc_late_ns_max": 807166,
+  "cyc_late_us_p99": 500,
+  "cyc_late_us_p999": 500,
+  "cyc_over_500us": 60000,
+  "cyc_missed": 0,
+  "end": 1
+ }
+}

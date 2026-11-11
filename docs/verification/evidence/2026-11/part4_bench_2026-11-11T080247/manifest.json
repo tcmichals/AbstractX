@@ -1,0 +1,420 @@
+{
+ "check": "board:e906:part4",
+ "time": "2026-11-11T08:02:47Z",
+ "commit": "2af893ba13da",
+ "dirty": true,
+ "kernel": "Linux version 7.1.0 (tcmichals@hp) (aarch64-linux-gcc.br_real (Buildroot 2021.11-18033-g83947c7bb6) 15.1.0, GNU ld (GNU Binutils) 2.44) #2 SMP PREEMPT_RT Sat Nov  7 10:32:50 CST 2026",
+ "linux_setup": {
+  "online": "0-3",
+  "isolated": "",
+  "irq_default_affinity": "7f",
+  "governor": "no-cpufreq",
+  "cmdline": "console=ttyS0,115200 earlycon root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8"
+ },
+ "count": 60000,
+ "stress": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2",
+ "elf_sha256": {
+  "abstractx": "987cdd52c2399f91974da6ee64b7bae99450c412681e0e0b258aecf2e823197a",
+  "freertos_wait": "394b1e2be77a27f1f503643d2301aa0f08a64d865433790962d5a5c996a425ae",
+  "freertos_xtimer": "0249a103578349926f18331059184307502726c4d29924444048ea9a718608ff",
+  "freertos_tick_hook": "d365a32dac0e3e33914c591a78a2868d9290de4e16c5731289885855c0d5cab8",
+  "freertos_debug": "ae6047a1f11d34dca379dcf452fa8cd66a942c350f5429cb9b42e41dc002f9a2",
+  "abstractx_step_profile": "5c498987cdfc9d1dcb25939ba086407ed7496f01b2a4ee0cba8732e5dfb1d14b",
+  "freertos_step_profile": "950d4a79d5ebeda46923df5428b0295006f6b3d752a5cfe04bac818ac9e0a180"
+ },
+ "rows": [
+  {
+   "row": "abstractx_bench_idle",
+   "firmware": "abstractx",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/abstractx_bench_idle.json",
+   "temp_mC_before": 46218,
+   "rc": 0,
+   "temp_mC_after": 46144
+  },
+  {
+   "row": "abstractx_cyclic_idle",
+   "firmware": "abstractx",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/abstractx_cyclic_idle.json",
+   "temp_mC_before": 46144,
+   "rc": 0,
+   "temp_mC_after": 46292
+  },
+  {
+   "row": "abstractx_oneway_c_rt_idle",
+   "firmware": "abstractx",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --rt --json /tmp/part4/abstractx_oneway_c_rt_idle.json",
+   "temp_mC_before": 46292,
+   "rc": 0,
+   "temp_mC_after": 46144
+  },
+  {
+   "row": "abstractx_oneway_c_other_idle",
+   "firmware": "abstractx",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --json /tmp/part4/abstractx_oneway_c_other_idle.json",
+   "temp_mC_before": 46662,
+   "rc": 0,
+   "temp_mC_after": 45774
+  },
+  {
+   "row": "abstractx_oneway_py_rt_idle",
+   "firmware": "abstractx",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --rt --json /tmp/part4/abstractx_oneway_py_rt_idle.json",
+   "temp_mC_before": 45774,
+   "rc": 0,
+   "temp_mC_after": 46070
+  },
+  {
+   "row": "abstractx_oneway_py_other_idle",
+   "firmware": "abstractx",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/part4/abstractx_oneway_py_other_idle.json",
+   "temp_mC_before": 46218,
+   "rc": 0,
+   "temp_mC_after": 45996
+  },
+  {
+   "row": "freertos_wait_bench_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/freertos_wait_bench_idle.json",
+   "temp_mC_before": 45996,
+   "rc": 0,
+   "temp_mC_after": 45848
+  },
+  {
+   "row": "freertos_wait_cyclic_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_wait_cyclic_idle.json",
+   "temp_mC_before": 45848,
+   "rc": 0,
+   "temp_mC_after": 45774
+  },
+  {
+   "row": "freertos_wait_native_cyclic_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --native-cyclic 60000 --json /tmp/part4/freertos_wait_native_cyclic_idle.json",
+   "temp_mC_before": 45774,
+   "rc": 0,
+   "temp_mC_after": 45552
+  },
+  {
+   "row": "freertos_wait_oneway_c_rt_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --rt --json /tmp/part4/freertos_wait_oneway_c_rt_idle.json",
+   "temp_mC_before": 45552,
+   "rc": 0,
+   "temp_mC_after": 46070
+  },
+  {
+   "row": "freertos_wait_oneway_c_other_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --json /tmp/part4/freertos_wait_oneway_c_other_idle.json",
+   "temp_mC_before": 46070,
+   "rc": 0,
+   "temp_mC_after": 45848
+  },
+  {
+   "row": "freertos_wait_oneway_py_rt_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --rt --json /tmp/part4/freertos_wait_oneway_py_rt_idle.json",
+   "temp_mC_before": 45848,
+   "rc": 0,
+   "temp_mC_after": 45552
+  },
+  {
+   "row": "freertos_wait_oneway_py_other_idle",
+   "firmware": "freertos_wait",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/part4/freertos_wait_oneway_py_other_idle.json",
+   "temp_mC_before": 45552,
+   "rc": 0,
+   "temp_mC_after": 45996
+  },
+  {
+   "row": "freertos_xtimer_cyclic_idle",
+   "firmware": "freertos_xtimer",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_xtimer_cyclic_idle.json",
+   "temp_mC_before": 45700,
+   "rc": 0,
+   "temp_mC_after": 45700
+  },
+  {
+   "row": "freertos_tick_hook_cyclic_idle",
+   "firmware": "freertos_tick_hook",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_tick_hook_cyclic_idle.json",
+   "temp_mC_before": 45848,
+   "rc": 0,
+   "temp_mC_after": 45404
+  },
+  {
+   "row": "freertos_debug_bench_idle",
+   "firmware": "freertos_debug",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/freertos_debug_bench_idle.json",
+   "temp_mC_before": 45256,
+   "rc": 0,
+   "temp_mC_after": 45626
+  },
+  {
+   "row": "freertos_debug_cyclic_idle",
+   "firmware": "freertos_debug",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_debug_cyclic_idle.json",
+   "temp_mC_before": 45848,
+   "rc": 0,
+   "temp_mC_after": 46218
+  },
+  {
+   "row": "abstractx_step_profile_bench_idle",
+   "firmware": "abstractx_step_profile",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/abstractx_step_profile_bench_idle.json",
+   "temp_mC_before": 45774,
+   "rc": 0,
+   "temp_mC_after": 45848
+  },
+  {
+   "row": "freertos_step_profile_bench_idle",
+   "firmware": "freertos_step_profile",
+   "load": false,
+   "command": "python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/freertos_step_profile_bench_idle.json",
+   "temp_mC_before": 45848,
+   "rc": 0,
+   "temp_mC_after": 45996
+  },
+  {
+   "row": "linux_cyclictest_rt_idle",
+   "firmware": "",
+   "load": false,
+   "command": "cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q -h 20000",
+   "temp_mC_before": 45996,
+   "rc": 0,
+   "temp_mC_after": 46440
+  },
+  {
+   "row": "linux_cyclictest_other_idle",
+   "firmware": "",
+   "load": false,
+   "command": "cyclictest -m -i 1000 -l 60000 -t1 -a 2 -q -h 20000",
+   "temp_mC_before": 46440,
+   "rc": 0,
+   "temp_mC_after": 45330
+  },
+  {
+   "row": "abstractx_bench_load",
+   "firmware": "abstractx",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/abstractx_bench_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 45330,
+   "rc": 0,
+   "temp_mC_after": 47328
+  },
+  {
+   "row": "abstractx_cyclic_load",
+   "firmware": "abstractx",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/abstractx_cyclic_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 47328,
+   "rc": 1,
+   "error": "timed out"
+  },
+  {
+   "row": "abstractx_oneway_c_rt_load",
+   "firmware": "abstractx",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --rt --json /tmp/part4/abstractx_oneway_c_rt_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 45330,
+   "rc": 2,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48808
+  },
+  {
+   "row": "abstractx_oneway_c_other_load",
+   "firmware": "abstractx",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --json /tmp/part4/abstractx_oneway_c_other_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 49474,
+   "rc": 2,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48882
+  },
+  {
+   "row": "abstractx_oneway_py_rt_load",
+   "firmware": "abstractx",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --rt --json /tmp/part4/abstractx_oneway_py_rt_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48882,
+   "rc": 2,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48882
+  },
+  {
+   "row": "abstractx_oneway_py_other_load",
+   "firmware": "abstractx",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/part4/abstractx_oneway_py_other_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48882,
+   "rc": 2,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48586
+  },
+  {
+   "row": "freertos_wait_bench_load",
+   "firmware": "freertos_wait",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/freertos_wait_bench_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48290,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48586
+  },
+  {
+   "row": "freertos_wait_cyclic_load",
+   "firmware": "freertos_wait",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_wait_cyclic_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48142,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48512
+  },
+  {
+   "row": "freertos_wait_native_cyclic_load",
+   "firmware": "freertos_wait",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --native-cyclic 60000 --json /tmp/part4/freertos_wait_native_cyclic_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48512,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48882
+  },
+  {
+   "row": "freertos_wait_oneway_c_rt_load",
+   "firmware": "freertos_wait",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --rt --json /tmp/part4/freertos_wait_oneway_c_rt_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48882,
+   "rc": 2,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48586
+  },
+  {
+   "row": "freertos_wait_oneway_c_other_load",
+   "firmware": "freertos_wait",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader c --json /tmp/part4/freertos_wait_oneway_c_other_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48586,
+   "rc": 1,
+   "error": "timed out"
+  },
+  {
+   "row": "freertos_wait_oneway_py_rt_load",
+   "firmware": "freertos_wait",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --rt --json /tmp/part4/freertos_wait_oneway_py_rt_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 46366,
+   "rc": 2,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48882
+  },
+  {
+   "row": "freertos_wait_oneway_py_other_load",
+   "firmware": "freertos_wait",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/part4/freertos_wait_oneway_py_other_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48882,
+   "rc": 2,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48216
+  },
+  {
+   "row": "freertos_xtimer_cyclic_load",
+   "firmware": "freertos_xtimer",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_xtimer_cyclic_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48216,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 49992
+  },
+  {
+   "row": "freertos_tick_hook_cyclic_load",
+   "firmware": "freertos_tick_hook",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_tick_hook_cyclic_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 49992,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 48660
+  },
+  {
+   "row": "freertos_debug_bench_load",
+   "firmware": "freertos_debug",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/freertos_debug_bench_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 48290,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 47920
+  },
+  {
+   "row": "freertos_debug_cyclic_load",
+   "firmware": "freertos_debug",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/freertos_debug_cyclic_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 47920,
+   "rc": 1,
+   "error": "timed out"
+  },
+  {
+   "row": "abstractx_step_profile_bench_load",
+   "firmware": "abstractx_step_profile",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/abstractx_step_profile_bench_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 45478,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 47254
+  },
+  {
+   "row": "freertos_step_profile_bench_load",
+   "firmware": "freertos_step_profile",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/part4/freertos_step_profile_bench_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 47254,
+   "rc": 1,
+   "error": "no JSON from the board",
+   "temp_mC_after": 47698
+  },
+  {
+   "row": "linux_cyclictest_rt_load",
+   "firmware": "",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q -h 20000; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 47254,
+   "rc": 1,
+   "error": "timed out"
+  },
+  {
+   "row": "linux_cyclictest_other_load",
+   "firmware": "",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; cyclictest -m -i 1000 -l 60000 -t1 -a 2 -q -h 20000; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 45404,
+   "rc": 0,
+   "temp_mC_after": 48438
+  }
+ ]
+}

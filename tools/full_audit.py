@@ -108,7 +108,9 @@ def stage_trace(args) -> Result:
 
 def stage_static(args) -> Result:
     details, status, parts = [], PASS, []
-    if have("clang-tidy"):
+    clang_tidy = have("clang-tidy")
+    cppcheck = have("cppcheck")
+    if clang_tidy:
         rc, out = sh(["python3", "tools/run_static_analysis.py"], timeout=3600)
         line = (tail(out, 1) or [""])[0]
         details.append(f"clang-tidy (shrink-only baseline): exit {rc}: {line}")
@@ -116,13 +118,16 @@ def stage_static(args) -> Result:
         if rc != 0:
             status = FAIL
     else:
-        details.append("SKIPPED clang-tidy: not installed")
-    if have("cppcheck"):
-        _, out = sh("cppcheck --quiet --enable=warning,performance,portability --std=c++20 "
-                    "--inline-suppr -I include include src hosts 2>&1", timeout=1800)
+        details.append("SKIPPED required clang-tidy analysis: not installed")
+        parts.append("clang-tidy not installed")
+        status = SKIPPED
+    if cppcheck:
+        rc, out = sh([cppcheck, "--quiet", "--enable=warning,performance,portability",
+                      "--std=c++20", "--inline-suppr", "-I", "include",
+                      "include", "src", "hosts"], timeout=1800)
         found = [ln for ln in out.splitlines()
                  if re.search(r":\d+:\d+: (warning|error|performance|portability)", ln)]
-        details.append(f"cppcheck (advisory, no baseline yet): {len(found)} finding(s)")
+        details.append(f"cppcheck (advisory, no baseline yet): exit {rc}, {len(found)} finding(s)")
         details += found[:15]
         parts.append(f"cppcheck {len(found)} (advisory)")
     else:
