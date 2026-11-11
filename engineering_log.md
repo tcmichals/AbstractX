@@ -4354,6 +4354,27 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression Test**: `tests/test_full_audit.py` covers missing analyzers and cppcheck-only availability. Both cases reproduced the old false-green before the fix and passed afterward.
 * **Verification**: `python3 -m pytest -q tests/test_full_audit.py tests/test_run_e906_board_suite.py tests/test_run_e906_bench_suite.py` -> 23 passed. The earlier `tools/gate.sh` run -> 132 plain, 121 ASan/UBSan, 121 TSan tests passed. `python3 tools/run_static_analysis.py` -> PASS, 0 known findings and no new findings after configuring `build_host` with `CMAKE_EXPORT_COMPILE_COMMANDS=ON`. `python3 tools/full_audit.py --stages static` -> PASS with clang-tidy run. A later full `python3 tools/full_audit.py` rerun also reported static PASS, but exited 1 because `py_test_studio_gui_clicks` timed out; an isolated retry hung and was terminated. `python3 tools/spec_to_doc.py --target rtl --check` -> passed.
 
+## [2026-11-11] - Mistake & Lesson: E906 board suite lacked a verified test target
+
+### 1. Mistake / Bug Observed
+* **Target / Subsystem**: `tools/run_e906_board_suite.py`
+* **Symptoms**: The runner only checked the A5E model. The board had device-tree version 1.5 from the generic overlay, `riscv-firmware.elf`, and no RPMsg endpoints. Once corrected to the E906 profile, the first suite attempt also failed because the image has no `timeout` executable.
+
+### 2. Root Cause & Lesson Learned
+* **Why it happened**: The runner treated board identity as sufficient and did not verify the active E906 test overlay or expected REPL image before copying/running tests. Its time limit also depended on an optional BusyBox command that was not installed.
+* **Architectural Lesson**: A correct board model alone is not a valid test fixture. Verify the live DT profile and remoteproc image before transfer, and enforce the test timeout with the standard library instead of assuming board utilities.
+
+### 3. Specification Update (SSOT Defense)
+* **Target Spec File**: [`apps/e906_repl_app/SPECIFICATION.md`](apps/e906_repl_app/SPECIFICATION.md)
+* **Requirement Tag Added/Updated**: `SPEC-E906-REPL-15`
+* **Rule Added to Spec**:
+  > Before copying/running tests, require the live 1.6-e906 device-tree marker and remoteproc0 running e906_repl_app.elf; otherwise exit 2 without changing board state. Enforce the time limit using Python's standard library without requiring a board-side `timeout`.
+
+### 4. Implementation & Verification
+* **Code Implementation**: Tagged with `// @impl [SPEC-E906-REPL-15]`; board runner validates active tree/state/resolved firmware before file transfer and bounds the remote test process with Python `subprocess.run(timeout=...)`. Corrected the README build target from unsupported `allwinner_e906` to `e906`.
+* **Regression Test**: `python3 tests/test_run_e906_board_suite.py` -> PASS; covers valid setup, rejects wrong tree/firmware before any copy, and checks Python-enforced timeout command generation.
+* **Verification**: Built with `cmake -S . -B build_e906 -DABSTRACTX_TARGET=e906 -DRISCV_TOOLCHAIN_PREFIX=$HOME/.tools/xpack-riscv-none-elf-gcc-15.2.0-1/bin/riscv-none-elf- && cmake --build build_e906 --target e906_repl_app -j$(nproc)`; remoteproc layout and zero-heap checks passed. `analyze_elf_size.sh`: SRAM_FAST 111.6 KB / 192 KB (58.1%), SRAM_A3_2 115.7 KB / 128 KB (90.4%), IPC 0, DRAM 0.00 MB; top Space 1 contributors were timeline ring (8,192 B), cold text start (6,878 B), and `mp_execute_bytecode` (3,748 B). Device tree after reboot: `1.6-e906`; remoteproc running the built image via `riscv-firmware.elf -> e906_repl_app.elf`; `abstractx-repl`, `abstractx-tlp`, and `abstractx-trace` announced. Board suite result: 22 PASS, 10 FAIL, 7 SKIP; failures were five UART3/GPS or TWI1/compass checks and five periodic status/profiler/timeline checks. An isolated rerun of `test_status_reports_arrive_once_a_second` also failed (0 reports in 4.5 s). Evidence: `docs/verification/evidence/2026-11/e906_selftest_2026-11-11T121536.json` and `docs/verification/evidence/2026-11/e906_selftest_2026-11-11T122056.json`. The latest `tools/gate.sh` run exited 1 at the plain stage because `py_test_studio_gui_clicks` timed out; ASan/UBSan and TSan stages did not start.
+
 ## [2026-11-11] - Part 4 re-measure: native FreeRTOS row read 0 ns; the A5E resets under load with E906 timer rows
 
 * **Miss** (`product-bug`): `F` ([SPEC-E906-BENCH-06]) took `ullNextTime - uxTimerIncrementsForOneTick` as the tick that woke the task. The RISC-V port's tick handler writes `ullNextTime` to `mtimecmp` and then adds one tick, so after tick N `ullNextTime` is N+2 and the reference was tick N+1, in the future. `now - tick` was always negative, clamped to 0: all 60,000 samples of the first board run (both runs, `2af893b`) read 0 ns. The requirement text had the same error, so review of code against spec could not catch it. Which check should have: a plausibility bound on the bench report (a wake cannot cost 0 cycles; the ISR alone is about 260). Fixed in spec and code (`ullNextTime - 2 * uxTimerIncrementsForOneTick`); built, not yet run on the board. Open: a host or report check that rejects a `min_ns` of 0.
