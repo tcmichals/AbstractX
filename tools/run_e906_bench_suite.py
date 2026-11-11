@@ -4,10 +4,11 @@
 """Run every Part 4 row on the Cubie A5E in one command ([SPEC-E906-BENCH-08]).
 
   python3 tools/run_e906_bench_suite.py --buildroot-out ~/projects/cubie/bld.a5e [--ip IP] [--build]
-          [--count 60000] [--runs 1] [--only SUBSTR] [--record] [--dry-run]
+          [--count 60000] [--runs 1] [--only SUBSTR] [--record] [--dry-run] [--force-lock]
 
 Board from --ip or ABSTRACTX_BOARD_IP; toolchain from --buildroot-out or ABSTRACTX_BUILDROOT_OUT.
-Exit: 0 every row passed, 1 a row failed, 2 could not run.
+Takes the board lock first ([SPEC-AUDIT-13], tools/board_lock.py) and refuses to run if it is held.
+Exit: 0 every row passed, 1 a row failed, 2 could not run (also: board in use).
 """
 # @impl [SPEC-E906-BENCH-08] apps/e906_bench/SPECIFICATION.md
 import argparse
@@ -23,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
+import board_lock  # noqa: E402
 import board_target  # noqa: E402
 from trac_lib import ledger  # noqa: E402
 
@@ -277,6 +279,14 @@ def run_rows(rows, firmwares, ip: str, out_dir: Path, count: int, run=subprocess
     return results
 
 
+def make_manifest(stamp: str, kernel: str, setup: dict, count: int, elf_sha256: dict, results: list,
+                  lock: dict) -> dict:
+    return {"check": "board:e906:part4", "time": stamp, "commit": git("rev-parse", "--short=12", "HEAD"),
+            "dirty": bool(git("status", "--porcelain")), "kernel": kernel, "linux_setup": setup, "count": count,
+            "stress": STRESS, "elf_sha256": elf_sha256, "rows": results,
+            "board_lock": board_lock.manifest_entry(lock)}  # [SPEC-AUDIT-13] who held the board
+
+
 def make_record(manifest: dict, now: str) -> dict:
     failed = sum(1 for r in manifest["rows"] if r["rc"] != 0)
     return {"check": "e906-bench-part4", "commit": manifest["commit"], "dirty": manifest["dirty"], "family": "board",
@@ -295,6 +305,7 @@ def main(argv=None) -> int:
     ap.add_argument("--record", action="store_true", help="append a board record to the evidence ledger")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--max-temp-mc", type=int, default=MAX_TEMP_MC, help="stop the run above this (millidegrees C)")
+    board_lock.add_arguments(ap)
     a = ap.parse_args(argv)
     ip = a.ip or board_target.board_ip(default=None)
     if not ip:
@@ -315,6 +326,18 @@ def main(argv=None) -> int:
     if not a.buildroot_out:
         print("could not run: no toolchain for the reader (--buildroot-out or ABSTRACTX_BUILDROOT_OUT)")
         return 2
+    # [SPEC-AUDIT-13] board lock: before anything touches the board, released on every exit
+    try:
+        with board_lock.hold(ip, "run_e906_bench_suite", a.force_lock, a.lock_stale_min) as lock:
+            print(f"board lock taken: {lock['path']} on {ip}", flush=True)
+            return run_locked(a, ip, rows, firmwares, total, lock)
+    except board_lock.LockHeld as exc:
+        print(f"could not run: {exc}")
+        return 2
+
+
+# @impl [SPEC-AUDIT-13] docs/SPECTRACE.md (board lock: the run happens only while the lock is held)
+def run_locked(a, ip: str, rows: list, firmwares: list, total: int, lock: dict) -> int:
     target = f"root@{ip}"
     board_target.require_a5e(ip)                       # [SPEC-AUDIT-13] right board
     if subprocess.run(["ssh", target, f"test -e {RPROC}/state"], timeout=30).returncode != 0:
@@ -350,9 +373,7 @@ def main(argv=None) -> int:
     print(f"{len(rows)} rows, about {total // 60} min; evidence: {out_dir.relative_to(ROOT)}", flush=True)
     results = run_rows(rows, firmwares, ip, out_dir, a.count, max_temp_mc=a.max_temp_mc)
     kernel = subprocess.run(["ssh", target, "cat /proc/version"], capture_output=True, text=True, timeout=30).stdout.strip()
-    manifest = {"check": "board:e906:part4", "time": stamp, "commit": git("rev-parse", "--short=12", "HEAD"),
-                "dirty": bool(git("status", "--porcelain")), "kernel": kernel, "linux_setup": setup, "count": a.count, "stress": STRESS,
-                "elf_sha256": {fw.name: sha256(fw.elf) for fw in firmwares}, "rows": results}
+    manifest = make_manifest(stamp, kernel, setup, a.count, {fw.name: sha256(fw.elf) for fw in firmwares}, results, lock)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n")
     failed = [r["row"] for r in results if r["rc"] != 0]
     print(f"{len(results) - len(failed)}/{len(results)} rows passed" + (f"; failed: {', '.join(failed)}" if failed else ""))

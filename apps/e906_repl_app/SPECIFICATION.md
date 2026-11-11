@@ -346,7 +346,8 @@ flowchart TD
   and an earlier checkout passed on host-synthesised TLPs (engineering log entry 15). None of
   that is visible to `host-tests`, and pytest is not on the board image.
 * **Requirement (one command, 2026-11-06)**: `tools/run_e906_board_suite.py` runs the suite from the PC:
-  checks the board is the Cubie A5E ([SPEC-AUDIT-13]), copies the suite, runs it under an overall time
+  takes the board lock first ([SPEC-AUDIT-13] board lock; `--force-lock`, `--lock-stale-min`; `board_lock`
+  in the evidence JSON), checks the board is the Cubie A5E ([SPEC-AUDIT-13]), copies the suite, runs it under an overall time
   limit, fetches the JSON into `docs/verification/evidence/<YYYY-MM>/`, and with `--record` appends one
   `source: board` record (commit, dirty flag, firmware, counts) to the evidence ledger, so the matrix
   sees board evidence without hand-copied steps. The time limit is enforced with Python's standard

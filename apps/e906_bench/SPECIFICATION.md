@@ -187,7 +187,8 @@ sequenceDiagram
 ### `[SPEC-E906-BENCH-08]` One Command for Every Part 4 Row
 * **Why**: the Part 4 numbers came from hand-typed commands, carry 1970 timestamps, and did not record the
   Linux setup, so a re-run could not be compared row by row.
-* **Requirement**: `tools/run_e906_bench_suite.py` runs every row from the build PC: it checks the board is
+* **Requirement**: `tools/run_e906_bench_suite.py` runs every row from the build PC: it takes the board lock
+  first ([SPEC-AUDIT-13] board lock; `--force-lock`, `--lock-stale-min`; `board_lock` in the manifest), checks the board is
   the A5E, refuses to start (exit 2) if `remoteproc0` or the ELFs or reader are missing, sets the board clock,
   copies the tools and firmware, and loads each firmware through remoteproc before its rows.
 * **Requirement (copy)**: files go to and come from the board over `ssh` (`cat > file`, `cat file`), because the

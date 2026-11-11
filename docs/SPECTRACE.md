@@ -327,13 +327,28 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Rationale (2026-10-31)**: the A5E moved from Ethernet `192.168.3.3` to Wi-Fi and the Ethernet
   cable moved to the Cubie A7A; three tests and the Studio tools still defaulted to
   `192.168.3.3`, so they would have loaded E906 firmware onto the A7A.
+* **Requirement (board lock, one session drives the board, 2026-11-11)**: a runner that changes board
+  state (`tools/run_e906_bench_suite.py`, `tools/run_e906_board_suite.py`) takes the board lock before it
+  touches the board (`tools/board_lock.py`): `mkdir /run/abstractx-board.lock` over ssh (atomic, also on
+  busybox; `/run` is tmpfs, so a reboot clears it), then one JSON line in `owner` with host, user, pid,
+  tool, start time and a random token. If the directory exists the runner prints the holder and exits 2
+  without changing anything. `--force-lock` breaks a lock only when its start time is older than
+  `--lock-stale-min` (default 180 min, judged with this PC's clock) or its owner file is unreadable, and
+  only if the owner line is still the one it judged. The lock is released on every exit (normal, error,
+  Ctrl-C, SIGTERM / SIGHUP), and only if its token is ours. The evidence (bench `manifest.json`, the
+  board suite's JSON) records the holder and acquire time as `board_lock` (no token). `--dry-run` takes
+  no lock.
+* **Rationale (2026-11-11)**: a VS Code Copilot session ran the board suite (rebooted the A5E, changed
+  `/boot/config.txt`) while a Claude session ran the Part 4 bench on the same board; neither runner knew.
 * **Requirement**: evidence records carry `source` (`host`, `sim`, `board`); a `board` skill's
   evidence without `source: board` does not count.
 * **Rationale**: 84 requirements named `host-tests`, including E906 silicon behaviour; a board
   checkout passed on PC-made TLPs; and `tests/test_board_checkout.py` SSHed to a board that
   another session was flashing because it happened to be reachable.
-* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
-* **Implementation Target**: `tools/spectrace_matrix.py`, `.agents/skills/`, `tests/test_board_checkout.py`, `tests/CMakeLists.txt`
+* **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`; `tests/test_board_lock.py`: the lock
+  script run by a local `sh` in place of ssh: held refused, stale broken, young never broken, release
+  only by token, release on error and Ctrl-C; the two runner tests check lock first and in the evidence)
+* **Implementation Target**: `tools/spectrace_matrix.py`, `.agents/skills/`, `tests/test_board_checkout.py`, `tests/CMakeLists.txt`, `tools/board_lock.py`
 
 ### `[SPEC-AUDIT-14]` Deterministic Interrupt and Polling Checks
 * **Requirement**: `tools/run_adversarial_audit.py` checks AGENTS §3/§4 (ISR/DMA, no polling) by

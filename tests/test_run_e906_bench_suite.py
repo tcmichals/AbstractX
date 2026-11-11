@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # Copyright (C) 2026 Tim Michals
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""tools/run_e906_bench_suite.py without a board: the rows, the commands, cyclictest parsing, and that
-a failed row is recorded and the run goes on."""
+"""tools/run_e906_bench_suite.py without a board: the rows, the commands, cyclictest parsing, that
+a failed row is recorded and the run goes on, and the board lock ([SPEC-AUDIT-13]) is taken first,
+refused when held, released on every exit and named in the manifest."""
 # @verifies [SPEC-E906-BENCH-08] [SPEC-E906-BENCH-09] apps/e906_bench/SPECIFICATION.md
+# @verifies [SPEC-AUDIT-13] docs/SPECTRACE.md (board lock: run_locked, make_manifest, manifest_entry)
 
 import contextlib
 import io
@@ -14,10 +16,13 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import run_e906_bench_suite as r  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+from test_board_lock import local_board  # noqa: E402
 
 # The format of cyclictest on the A5E (-m -p 95 -i 1000 -l 1000 -t1 -a 2 -q -h 20000, 2026-11-07), with
 # counts edited so they add up to 1000 and one overflow added, which the real run did not have.
@@ -295,6 +300,44 @@ def test_dry_run_and_no_board():
     with contextlib.redirect_stdout(io.StringIO()):
         assert r.main([]) == 2, "no board -> could not run"
         assert r.main(["--ip", "10.0.0.9", "--only", "nothing_matches"]) == 2
+
+
+def test_board_lock_first_and_released_when_the_run_stops():
+    with tempfile.TemporaryDirectory() as d:
+        lock = str(Path(d) / "abstractx-board.lock")
+        calls, order = [], []
+        no_rproc = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")  # noqa: E731
+        with patch.object(r.board_lock, "LOCK_PATH", lock), patch.object(
+                r.board_target, "require_a5e", side_effect=lambda ip: order.append(len(calls))), \
+                patch.object(r.subprocess, "run", side_effect=local_board(lock, other=no_rproc, calls=calls)), \
+                contextlib.redirect_stdout(io.StringIO()):
+            assert r.main(["--ip", "10.0.0.9", "--buildroot-out", d, "--only", "cyclictest_rt_idle"]) == 2
+        assert lock in calls[0][-1] and "mkdir" in calls[0][-1], "the lock is the first thing on the board"
+        assert order == [1], "the model check runs after the lock"
+        assert "RELEASED" in calls[-1][-1] and not os.path.exists(lock), "released when the run stops early"
+
+
+def test_held_board_lock_stops_the_run():
+    with tempfile.TemporaryDirectory() as d:
+        lock = str(Path(d) / "abstractx-board.lock")
+        os.mkdir(lock)
+        (Path(lock) / "owner").write_text('{"tool": "run_e906_board_suite", "user": "x", "host": "pc2", "pid": 7}\n')
+        calls, out = [], io.StringIO()
+        with patch.object(r.board_lock, "LOCK_PATH", lock), patch.object(r.board_target, "require_a5e") as model, \
+                patch.object(r.subprocess, "run", side_effect=local_board(lock, calls=calls)), \
+                contextlib.redirect_stdout(out):
+            assert r.main(["--ip", "10.0.0.9", "--buildroot-out", d, "--only", "cyclictest_rt_idle"]) == 2
+        model.assert_not_called()
+        assert len(calls) == 1 and "in use" in out.getvalue() and "run_e906_board_suite" in out.getvalue()
+        assert os.path.isdir(lock), "the holder's lock is untouched"
+
+
+def test_manifest_names_the_lock_holder():
+    info = {"path": "/run/abstractx-board.lock", "host": "pc", "user": "u", "pid": 1, "tool": "run_e906_bench_suite",
+            "acquired": "2026-11-11T12:00:00Z", "start": "2026-11-11T12:00:00Z", "start_epoch": 1, "token": "t"}
+    m = r.make_manifest("2026-11-11T12:00:00Z", "Linux 7.1", {}, 1000, {}, [], info)
+    assert m["board_lock"] == {"path": "/run/abstractx-board.lock", "host": "pc", "user": "u", "pid": 1,
+                               "tool": "run_e906_bench_suite", "acquired": "2026-11-11T12:00:00Z"}
 
 
 if __name__ == "__main__":

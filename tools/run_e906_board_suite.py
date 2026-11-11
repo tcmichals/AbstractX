@@ -3,9 +3,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Run the E906 board suite on the Cubie A5E in one command ([SPEC-E906-REPL-15] one command).
 
-  python3 tools/run_e906_board_suite.py [--ip IP] [-k SUBSTR] [--record] [--timeout S] [--dry-run]
+  python3 tools/run_e906_board_suite.py [--ip IP] [-k SUBSTR] [--record] [--timeout S] [--dry-run] [--force-lock]
 
-Board from --ip or ABSTRACTX_BOARD_IP. Checks the board is the A5E, copies the suite, runs it, fetches
+Board from --ip or ABSTRACTX_BOARD_IP. Takes the board lock first ([SPEC-AUDIT-13], tools/board_lock.py;
+exit 2 if another session holds it), checks the board is the A5E, copies the suite, runs it, fetches
 the JSON into docs/verification/evidence/<YYYY-MM>/, and with --record appends a `source: board`
 record to the evidence ledger. Exit: the suite's (0 pass, 1 a test failed, 2 could not run).
 """
@@ -20,6 +21,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
+import board_lock  # noqa: E402
 import board_target  # noqa: E402
 from trac_lib import ledger  # noqa: E402
 
@@ -115,6 +117,7 @@ def main(argv=None) -> int:
     ap.add_argument("--record", action="store_true", help="append a board record to the evidence ledger")
     ap.add_argument("--timeout", type=int, default=600, help="overall limit for the suite on the board (s)")
     ap.add_argument("--dry-run", action="store_true")
+    board_lock.add_arguments(ap)
     a = ap.parse_args(argv)
     ip = a.ip or board_target.board_ip(default=None)
     if not ip:
@@ -122,9 +125,22 @@ def main(argv=None) -> int:
         return 2
     cmds = commands(ip, a.selector, a.timeout)
     if a.dry_run:
+        print(f"# board lock {board_lock.LOCK_PATH} taken before and released after (not in a dry run)")
         for c in cmds:
             print(" ".join(shlex.quote(x) for x in c))
         return 0
+    # [SPEC-AUDIT-13] board lock: before anything touches the board, released on every exit
+    try:
+        with board_lock.hold(ip, "run_e906_board_suite", a.force_lock, a.lock_stale_min) as lock:
+            print(f"board lock taken: {lock['path']} on {ip}", flush=True)
+            return run_locked(a, ip, cmds, lock)
+    except board_lock.LockHeld as exc:
+        print(f"could not run: {exc}", file=sys.stderr)
+        return 2
+
+
+# @impl [SPEC-AUDIT-13] docs/SPECTRACE.md (board lock: the run happens only while the lock is held)
+def run_locked(a, ip: str, cmds: list, lock: dict) -> int:
     board_target.require_a5e(ip)                       # [SPEC-AUDIT-13] right board
     require_e906_test_setup(ip)
     for c in cmds[:2]:
@@ -137,6 +153,8 @@ def main(argv=None) -> int:
         print("no JSON from the board (the suite could not run)")
         return rc or 2
     result = json.loads(out.read_text())
+    result["board_lock"] = board_lock.manifest_entry(lock)  # [SPEC-AUDIT-13] who held the board
+    out.write_text(json.dumps(result, indent=1) + "\n")
     print(f"evidence: {out.relative_to(ROOT)}")
     if a.record:
         rec = make_record(result, git("rev-parse", "--short=12", "HEAD"), bool(git("status", "--porcelain")), rc, now)

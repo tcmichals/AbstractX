@@ -27,6 +27,12 @@ python3 tools/run_e906_board_suite.py -k uart           # one test
 python3 tools/run_e906_board_suite.py --dry-run         # print the ssh / scp commands only
 ```
 
+Board lock ([SPEC-AUDIT-13]): the runner (and `tools/run_e906_bench_suite.py`) first creates
+`/run/abstractx-board.lock` on the board and exits 2 with the holder's name if another session has it.
+Never remove someone else's lock by hand; wait, or if that session is gone, rerun with `--force-lock`
+(breaks only locks older than `--lock-stale-min`, default 180). Check it with
+`ssh root@$ABSTRACTX_BOARD_IP cat /run/abstractx-board.lock/owner`.
+
 The script ([SPEC-E906-REPL-15] one command) replaces the hand-copied ssh / scp steps; the JSON lands
 in `docs/verification/evidence/<YYYY-MM>/` and `--record` adds a `source: board` ledger record (commit
 the ledger file). Record from a clean tree: a dirty tree never counts as evidence.
