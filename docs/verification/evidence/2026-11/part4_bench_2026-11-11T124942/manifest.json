@@ -1,0 +1,30 @@
+{
+ "check": "board:e906:part4",
+ "time": "2026-11-11T12:49:42Z",
+ "commit": "0ddd69e166ea",
+ "dirty": true,
+ "kernel": "Linux version 7.1.0 (tcmichals@hp) (aarch64-linux-gcc.br_real (Buildroot 2021.11-18033-g83947c7bb6) 15.1.0, GNU ld (GNU Binutils) 2.44) #2 SMP PREEMPT_RT Sat Nov  7 10:32:50 CST 2026",
+ "linux_setup": {
+  "online": "0-3",
+  "isolated": "",
+  "irq_default_affinity": "7f",
+  "governor": "no-cpufreq",
+  "cmdline": "console=ttyS0,115200 earlycon root=/dev/mmcblk0p2 rootwait rw panic=10 loglevel=8"
+ },
+ "count": 60000,
+ "stress": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2",
+ "elf_sha256": {
+  "abstractx": "987cdd52c2399f91974da6ee64b7bae99450c412681e0e0b258aecf2e823197a"
+ },
+ "rows": [
+  {
+   "row": "abstractx_cyclic_load",
+   "firmware": "abstractx",
+   "load": true,
+   "command": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 120s -q & S=$!; sleep 5; python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/part4/abstractx_cyclic_load.json; rc=$?; kill $S 2>/dev/null; wait $S 2>/dev/null; exit $rc",
+   "temp_mC_before": 46958,
+   "rc": 0,
+   "temp_mC_after": 50436
+  }
+ ]
+}
