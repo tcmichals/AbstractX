@@ -73,7 +73,7 @@ void cyclic_task(void *) {
         for (uint32_t i = 0; i < s_cyc_count; ++i) {
             vTaskDelayUntil(&last, 1);
             const uint64_t now = hal::Timer::get_ticks();
-            const uint64_t tick = ullNextTime - uxTimerIncrementsForOneTick;  // the tick that woke us
+            const uint64_t tick = ullNextTime - 2U * uxTimerIncrementsForOneTick;  // tick N; ullNextTime is N+2 here
             const uint64_t late = now > tick ? now - tick : 0;
             if (late < r.min_ticks) r.min_ticks = late;
             if (late > r.max_ticks) r.max_ticks = late;
@@ -107,7 +107,7 @@ extern "C" {
 const char *abx_bench_platform_name(void) { return "freertos"; }
 
 // [SPEC-E906-BENCH-06] native FreeRTOS cyclic run: a plain task on vTaskDelayUntil, lateness
-// against the tick that woke it (the RISC-V port's ullNextTime minus one tick).
+// against the tick that woke it (the RISC-V port's ullNextTime minus two ticks, [SPEC-E906-BENCH-06]).
 
 // @impl [SPEC-E906-BENCH-06] apps/e906_bench/SPECIFICATION.md (native FreeRTOS task)
 bool abx_bench_native_cyclic_start(uint32_t count, uint32_t *hist, uint32_t buckets) {

@@ -109,12 +109,14 @@ sequenceDiagram
   idle numbers; the `freertos_debug` rows ([SPEC-E906-BENCH-08]) measure what it costs.
 * **Requirement (native FreeRTOS, `F`)**: `F` [+ `uint32` count] runs the same 1 ms loop as a plain
   FreeRTOS task (highest priority, `vTaskDelayUntil(&last, 1)`), measuring lateness against the
-  tick that woke it (`ullNextTime - uxTimerIncrementsForOneTick` of the RISC-V port, read after
-  the wake), with the same statistics and report keys plus `cyc_source=freertos_task`. The
+  tick that woke it (`ullNextTime - 2 * uxTimerIncrementsForOneTick` of the RISC-V port, read after
+  the wake: the tick handler writes `ullNextTime` to `mtimecmp` and then adds one tick, so after tick
+  N `ullNextTime` is tick N+2), with the same statistics and report keys plus `cyc_source=freertos_task`. The
   firmware without FreeRTOS reports `cyc_source=unsupported`. Hooks: `abx_bench_native_cyclic_start`
   / `abx_bench_native_cyclic_poll` (weak in `bench.cpp`). A wake later than one tick is
   under-reported (the next tick has already advanced `ullNextTime`); `cyc_over_tick` counts
-  wakes later than 900 µs.
+  wakes later than 900 µs. The first board run (2026-11-11, `2af893b`) subtracted one tick, so every
+  `now - tick` was negative, clamped to 0, and all 60,000 samples read 0 ns: that run is void.
 * **Verified by**: board bench (`bench_e906_runtime.py --cyclic` / `--native-cyclic`), `e906-build-layout`
 * **Implementation Target**: `apps/e906_bench/bench.cpp`, `apps/e906_bench/bench.hpp`, `apps/e906_freertos_app/src/main.cpp`, `apps/e906_repl_app/tests/board/bench_e906_runtime.py`
 

@@ -3,7 +3,9 @@
 ## Part 4 of *Bringing Up Heterogeneous RISC-V on Allwinner SoCs* (Radxa Cubie A5E)
 
 Series index: [`docs/articles/README.md`](../README.md).
-**Measured on hardware 2026-10-31; partly out of date** (what and why: §8).
+**Measured on hardware 2026-11-11, firmware at AbstractX [`2af893b`][c-2af893b].** Linux at idle and the E906 at idle
+are measured twice. Under load, Linux and AbstractX alone are measured once. The FreeRTOS rows under load are not
+measured: the board reset when they ran (§8).
 
 ---
 
@@ -12,8 +14,9 @@ Series index: [`docs/articles/README.md`](../README.md).
 **On the T527, where should time-critical I/O run, and what does it cost to get the result to a Linux thread?**
 
 The Allwinner T527 on the Cubie A5E has two places to run code:
-* eight Cortex-A55 cores running Linux;
-* a 200 MHz XuanTie E906 RISC-V core beside them, with its own 192 KB of on-chip SRAM.
+* eight Cortex-A55 cores running Linux (four online on this board: CPUs 4-7 are offline in its configuration);
+* a 200 MHz XuanTie E906 RISC-V core beside them. It has 256 KB of on-chip SRAM, and the firmware runs in the first
+  192 KB of it (`SRAM_FAST`, [SPEC-E906-MEM-01][spec-e906]).
 
 On the E906 we compare two runtimes running the same application code:
 * **AbstractX alone**: an event loop of C++20 coroutines, no kernel;
@@ -21,13 +24,20 @@ On the E906 we compare two runtimes running the same application code:
 
 The short answer, from the measurements below:
 
-1. **Linux reacts fast but not predictably under load.** A PREEMPT_RT thread at the highest real-time priority wakes 18 µs late on average, 29 µs at most, at idle. Under `stress-ng` its worst case grows 4x, to 122 µs (§3).
-2. **The E906 does not care what Linux is doing.** The same timer event on the E906 is 9.8 µs late with Linux idle or loaded, worst case 10.8 µs (§3). The E906 runs from its own SRAM with its own interrupt controller, so Linux load does not reach it.
-3. **Getting the result back into Linux is not measured yet**, and it is the number that decides whether offloading pays off (§4). The only crossing measured so far is a round trip from a Python program; under load its worst case reached 9.2 ms.
+1. **Linux reacts fast but not predictably under load.** A PREEMPT_RT thread at the highest real-time priority wakes
+   18-28 µs late on average at idle, 43 µs at most. Under `stress-ng` its worst case was 123 µs. A normal thread
+   (SCHED_OTHER) reached 18 ms under the same load (§3).
+2. **CPU and DRAM load on Linux did not change the E906's timing.** The same 1 ms timer on the E906 is 12.3 µs late on
+   average, 14.3 µs at most, with Linux idle or loaded (§3). A load aimed at the shared bus was not tried.
+3. **An E906 event reaches a real-time Linux thread in C in about 0.12 ms.** At idle: 118-129 µs on average, 99.9 %
+   within 155 µs, 250 µs at most. Under load the average held (95 µs), but one message in the minute took 2.7 ms. A
+   normal-priority reader waited up to 13.7 ms under load (§4). The two clocks are not one counter, so every one-way
+   number carries ±43-60 µs.
 4. **AbstractX alone vs on FreeRTOS: close.** AbstractX alone:
-   * wakes a coroutine ~0.8 µs sooner;
-   * uses 12-14 KB less RAM;
-   * can sleep a coroutine for less than a millisecond.
+   * resumes a coroutine after a soft interrupt 3.1 µs sooner (24.0 vs 27.1 µs; neither core is asleep in this test);
+   * uses 13.9 KB less static RAM;
+   * can sleep a coroutine for less than a millisecond. On FreeRTOS a coroutine sleep ends on a kernel tick, so it is
+     late by up to 1 ms.
 
    FreeRTOS adds preemption (§5).
 
@@ -37,86 +47,142 @@ The short answer, from the measurements below:
 
 | | Linux | E906, AbstractX alone | E906, AbstractX on FreeRTOS |
 | :--- | :--- | :--- | :--- |
-| Hardware | Cortex-A55, CPU 2 | XuanTie E906 RV32IMAFC, 200 MHz | same |
-| Software | kernel 7.1.0 PREEMPT_RT, Buildroot (cubie-a5e `024f02e`) | `apps/e906_bench_app` | `apps/e906_freertos_app` (FreeRTOS kernel, 1 kHz tick) |
-| Memory | DRAM, caches on | on-chip SRAM only, I-cache on, D-cache off ([SPEC-E906-CACHE-02]) | same |
+| Hardware | Cortex-A55, CPU 2 (CPUs 0-3 online) | XuanTie E906 RV32IMAFC, 200 MHz | same |
+| Software | kernel `7.1.0 #2 SMP PREEMPT_RT Sat Nov 7 2026`, Buildroot | `apps/e906_bench_app` | `apps/e906_freertos_app` (FreeRTOS kernel, 1 kHz tick) |
+| Memory | DRAM, caches on | on-chip SRAM only, I-cache on, D-cache off ([SPEC-E906-CACHE-02][spec-e906]) | same |
 | What sleeps the core | the kernel | `wfi` in `platform_idle_wait()` until an interrupt or the next deadline | the FreeRTOS idle task (`wfi`) |
 | Measured with | `cyclictest` 2.80 | `mcycle` at 200 MHz | same |
 
-* **Clock check.** `mcycle` was checked against the 24 MHz `mtime`: a 1 s `mcycle`-timed sleep counted 24,000,410 `mtime` ticks (2026-10-21).
-* **Why the D-cache is off.** Everything the E906 touches lives in on-chip SRAM, which is already fast. That covers code, data, stacks, the IPC rings shared with Linux and the DMA buffers. With the D-cache on, every buffer shared with Linux or a DMA engine would need cache maintenance (clean before handing it over, invalidate before reading it). That costs time on every message and is easy to get wrong. A cache would help little and would add timing variation. It is only worth it if the firmware moves data to DRAM ([SPEC-E906-CACHE-02], [SPEC-E906-CACHE-03]).
+* **Linux setup, recorded with each run**: CPUs 0-3 online, no `isolcpus`, default IRQ affinity `7f` (every online CPU,
+  CPU 2 included), no cpufreq driver (so no governor; the cores run at the boot clock), kernel command line without
+  real-time options. The board's fan was on (about 47 °C idle, at most 51.5 °C during the runs).
+* **Clock check.** `mcycle` was checked against the 24 MHz `mtime`: a 1 s `mcycle`-timed sleep counted 24,000,410
+  `mtime` ticks (2026-10-21).
+* **FreeRTOS build for timing**: `-DABX_FREERTOS_DEBUG=OFF` (no asserts, no stack-overflow check, no per-switch hooks),
+  because AbstractX alone has none of them ([SPEC-E906-BENCH-06][spec-bench]). The default debug build is measured too
+  (§5).
+* **Why the D-cache is off.** Everything the E906 touches lives in on-chip SRAM, which is already fast. That covers code,
+  data, stacks, the IPC rings shared with Linux and the DMA buffers. With the D-cache on, every buffer shared with Linux
+  or a DMA engine would need cache maintenance (clean before handing it over, invalidate before reading it). That costs
+  time on every message and is easy to get wrong. It is only worth it if the firmware moves data to DRAM
+  ([SPEC-E906-CACHE-02][spec-e906], [SPEC-E906-CACHE-03][spec-e906]).
 
-**The same benchmark code runs in both E906 firmwares.** [`apps/e906_bench/bench.cpp`](../../../apps/e906_bench/bench.cpp) is compiled unchanged into both. They also share the drivers and the interrupt dispatch (`hal::irq::dispatch`, [SPEC-E906-RTOS-04]). Only what runs underneath differs. Requirements: [`apps/e906_bench/SPECIFICATION.md`](../../../apps/e906_bench/SPECIFICATION.md), [`apps/e906_freertos_app/SPECIFICATION.md`](../../../apps/e906_freertos_app/SPECIFICATION.md).
+**The same benchmark code runs in both E906 firmwares.** [`apps/e906_bench/bench.cpp`](../../../apps/e906_bench/bench.cpp)
+is compiled unchanged into both. They also share the drivers and the interrupt dispatch (`hal::irq::dispatch`,
+[SPEC-E906-RTOS-04][spec-rtos]). Only what runs underneath differs. Requirements:
+[`apps/e906_bench/SPECIFICATION.md`](../../../apps/e906_bench/SPECIFICATION.md),
+[`apps/e906_freertos_app/SPECIFICATION.md`](../../../apps/e906_freertos_app/SPECIFICATION.md).
 
-**Load.** "Loaded" means `stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2` on the A55 cores: every core busy, plus memory traffic and socket traffic.
+**Load.** "Loaded" means `stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2` on the A55 cores: every online core busy,
+plus memory traffic and socket traffic.
 
 **How the wake reaches the code** (details in §5):
 
-![Execution Path Comparison: Hardware IRQ to Coroutine Resume](assets/wake-path-comparison.svg)
-
-**Not recorded for the Linux runs:** the A55 CPU frequency governor, and whether CPU 2 was isolated (`isolcpus`, IRQ affinity). Both change Linux's numbers (§8).
+![Execution path comparison: hardware IRQ to coroutine resume](assets/wake-path-comparison.svg)
 
 ---
 
 ## 3. The Same Event in Three Places: a 1 ms Timer
 
-`cyclictest` is the standard Linux measure: a thread sleeps to an absolute deadline every 1 ms and records how late it woke. The E906 bench command `C` ([SPEC-E906-BENCH-06]) does the same with a coroutine: it moves an absolute deadline forward by 1 ms, sleeps until it, and records how late it was resumed. Each run is 60,000 deadlines (one minute).
+`cyclictest` is the standard Linux measure: a thread sleeps to an absolute deadline every 1 ms and records how late it
+woke. The E906 bench command `C` ([SPEC-E906-BENCH-06][spec-bench]) does the same with a coroutine: it moves an
+absolute deadline forward by 1 ms, sleeps until it, and records how late it was resumed. Each run is 60,000 deadlines
+(one minute). Where there are two runs, both are shown, separated by `;`.
 
-| Timer deadline → code runs, how late (µs) | idle: avg / max | loaded: avg / max |
+| Timer deadline → code runs, how late (µs) | idle: avg / p99 / p99.9 / max | loaded: avg / p99 / p99.9 / max |
 | :--- | ---: | ---: |
-| Linux PREEMPT_RT thread, SCHED_FIFO 95, pinned to CPU 2 (`cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2`) | 18 / 29 | 29 / **122** |
-| Linux normal thread (SCHED_OTHER) | *not measured* | *not measured* |
-| E906, AbstractX alone (coroutine) | 9.8 / 10.8 | 9.8 / **10.1** |
-| E906, AbstractX on FreeRTOS (coroutine; old tick-hook model, firmware `d4c2b8f`) | 815 / 816 | 913 / 914 |
-| E906, FreeRTOS native task (`vTaskDelayUntil`, `F`) | *not measured* | *not measured* |
+| Linux PREEMPT_RT thread, SCHED_FIFO 95, pinned to CPU 2 | 18 / 22 / 25 / 39; 28 / 32 / 35 / 43 | 25 / – / – / **123** (1) |
+| Linux normal thread (SCHED_OTHER), pinned to CPU 2 | 37 / 85 / 90 / 1,794; 62 / 105 / 107 / 143 | 105 / 2,147 / 3,202 / **18,144** |
+| E906, AbstractX alone (coroutine) | 12.3 / 13 / 13 / 14.3 (both runs) | 12.3 / 13 / 13 / **14.3** |
+| E906, AbstractX on FreeRTOS, `WAIT` mode (coroutine) | 806; 449 (2) | *not measured* (3) |
+| E906, AbstractX on FreeRTOS, `XTIMER` mode | 383; 61 (2) | *not measured* (3) |
+| E906, AbstractX on FreeRTOS, `TICK_HOOK` mode | 856; 554 (2) | *not measured* (3) |
+| E906, FreeRTOS native task (`vTaskDelayUntil`, `F`) | *not measured* (4) | *not measured* |
 
-* **AbstractX alone**: no deadline missed in 120,000; p99 10 µs and p99.9 11 µs in both runs. The ~9.6 µs floor (about 1,900 cycles) is the timer interrupt, the dispatch and the coroutine resume. How those cycles split is not measured yet (§8).
-* **AbstractX on FreeRTOS**: the lateness here is the 1 ms tick resolution, not jitter.
-  * The kernel owns the E906's only timer comparator (`mtimecmp`) for its 1 kHz tick ([SPEC-E906-RTOS-03]), so a coroutine sleep ends on the first tick after its deadline.
-  * The deadlines form one 1 ms grid and the ticks another, on the same 24 MHz clock, so every wake is late by the same phase difference: 815 µs in one run, 913 µs in the other, varying by under 0.5 µs.
-  * The evidence's p99 reads 500 because the lateness is past the 0-499 µs histogram.
-* **Why the E906 does not move under load**: its code, data and stacks are in on-chip SRAM (0 bytes in DRAM), and its interrupts come through its own controller (CLIC). So A55 cache and DRAM traffic does not reach it. A load aimed at the shared bus is still to be tried (§8).
-* **Linux**: the worst case depends on what else Linux is doing. One minute is short for a worst case; `cyclictest` results are usually quoted over hours.
+1. Run by hand with the E906 stopped, without the histogram, so no percentiles. The suite's own row reset the board
+   (§8).
+2. The lateness is the 1 ms tick resolution, not jitter:
+   * the kernel owns the E906's only timer comparator (`mtimecmp`) for its 1 kHz tick
+     ([SPEC-E906-RTOS-03][spec-rtos]), so a coroutine sleep ends on the first tick after its deadline;
+   * the deadlines form one 1 ms grid and the ticks another, on the same 24 MHz clock, so every wake in a run is late
+     by the same phase difference, which changes from run to run. Within a run, max minus min is at most 1.2 µs.
+   * The evidence's p99 reads 500 when the lateness is past the 0-499 µs histogram.
+3. Each FreeRTOS row under load reset the board or timed out (§8).
+4. The first `F` run read 0 ns for all 60,000 samples: it took the next tick, not the one that woke the task, as its
+   reference. Fixed after the run, not yet re-run ([SPEC-E906-BENCH-06][spec-bench]).
 
-Evidence: [`linux_cyclictest_20261031.json`](../../verification/evidence/linux_cyclictest_20261031.json), [`e906_cyclic_e906_bench_app_idle_20261031.json`](../../verification/evidence/e906_cyclic_e906_bench_app_idle_20261031.json), [`e906_cyclic_e906_bench_app_load_20261031.json`](../../verification/evidence/e906_cyclic_e906_bench_app_load_20261031.json), [`e906_cyclic_e906_freertos_app_idle_20261031.json`](../../verification/evidence/e906_cyclic_e906_freertos_app_idle_20261031.json), [`e906_cyclic_e906_freertos_app_load_20261031.json`](../../verification/evidence/e906_cyclic_e906_freertos_app_load_20261031.json).
+* **AbstractX alone**: no deadline missed in 180,000. The floor of about 12.1 µs (2,430 cycles) is the timer
+  interrupt, the dispatch and the coroutine resume. It was 9.6 µs on 2026-10-31, in firmware built at
+  [`e159de6`][c-e159de6]; the yield cost in §5 grew in the same period.
+* **CPU and DRAM load did not change the E906's timing**: its code, data and stacks are in on-chip SRAM (0 bytes in
+  DRAM), and its interrupts come through its own controller (CLIC). A load aimed at the shared bus (DMA, eMMC, network)
+  was not tried.
+* **Linux**: the worst case depends on what else Linux is doing. One minute is short for a worst case; `cyclictest`
+  results are usually quoted over hours.
+
+Evidence: run 1 [`part4_bench_2026-11-11T080247/`](../../verification/evidence/2026-11/part4_bench_2026-11-11T080247/),
+run 2 [`part4_bench_2026-11-11T092420/`](../../verification/evidence/2026-11/part4_bench_2026-11-11T092420/) (rows
+`*_cyclic_*` and `linux_cyclictest_*`; each directory has a `manifest.json` with the time, commit, ELF SHA-256, kernel
+and Linux setup), and the hand-run RT row in
+[`part4_load_manual_20261111.json`](../../verification/evidence/2026-11/part4_load_manual_20261111.json).
 
 ---
 
 ## 4. Getting the Result Into Linux
 
-Offloading only helps if the Linux side gets the result in time. **The one-way time from an E906 event to a Linux thread is not measured yet.**
-
-The test is written and runs off the board against a fake firmware; it has not run on a board yet ([SPEC-E906-BENCH-07]):
-* The E906 sleeps to a 1 ms deadline, stamps the event and sends it over RPMsg.
+Offloading only helps if the Linux side gets the result in time. The one-way test ([SPEC-E906-BENCH-07][spec-bench]):
+* The E906 sleeps to a 1 ms deadline, stamps the event and sends 32 bytes over RPMsg.
 * A Linux reader thread stamps when `read()` returns, so the data is in the thread.
-* The reader runs as the same thread types as §3: RT (SCHED_FIFO 95) and normal (SCHED_OTHER), both on CPU 2.
-* It runs with Linux idle and loaded, for both E906 firmwares, with readers written in C and in Python.
+* The reader runs as the same thread types as §3: RT (SCHED_FIFO 95, `mlockall`) and normal (SCHED_OTHER), both on
+  CPU 2, written in C and in Python.
 
-**Two clocks.** A one-way time needs one clock on both sides. The manual suggests the E906's `mtime` and the A55's `CNTVCT_EL0` may be the same counter, but nothing has shown that. So each run proves it. Thousands of probes each give `t0 <= e - d <= t1` for the offset `d`, which bounds it. The run then reports `shared` (0 is inside the bounds) or `calibrated`, or stops if the bounds cross. Every result carries `uncertainty_ns`.
+**Two clocks.** A one-way time needs one clock on both sides. Each run bounds the offset between the E906's `mtime` and
+the A55's `CNTVCT_EL0` with 2,000 probes before and 2,000 after. **The two are not the same counter**: on every run the
+offset is about -377.6 million ticks (about 15.7 s), and the bounds before and after agree. So the runs report
+`calibrated`, and every one-way number carries the offset's uncertainty: ±43-49 µs with the C reader, ±54-60 µs with
+Python (half the shortest probe round trip).
 
-What exists today is a round trip:
-1. A normal-priority Python program on Linux sends a message to the E906 over VirtIO RPMsg (endpoint 1030), through `rpmsg_char`.
-2. The E906 sends it back.
-3. Python times the round trip.
-
-Each size was sent 1,000 times.
-
-| Echo round trip, µs: median / max | AbstractX alone | AbstractX on FreeRTOS |
+| E906 event → data in the Linux thread, µs: avg / p99.9 / max (60,000 per run) | Linux idle (two runs) | Linux loaded (one run) |
 | :--- | ---: | ---: |
-| 16 B, Linux idle | 113.5 / 231 | 101.9 / 219 |
-| 256 B, Linux idle | 238.8 / 302 | 241.6 / 297 |
-| 496 B, Linux idle | 327.9 / 370 | 331.9 / 382 |
-| 16 B, Linux loaded | 145.5 / **3,877** | 154.8 / **4,074** |
-| 256 B, Linux loaded | 265.7 / **7,400** | 266.5 / **9,189** |
-| 496 B, Linux loaded | 362.2 / **8,597** | 356.3 / **3,741** |
+| AbstractX alone, C reader, RT | 118 / 155 / 250; 129 / 138 / 150 | 95 / 141 / **2,713** |
+| AbstractX alone, C reader, normal | 111 / 130 / 2,927; 109 / 117 / 165 | 353 / 5,690 / **13,676** |
+| AbstractX alone, Python reader, RT | 129 / 165 / 1,310; 120 / 144 / 2,410 | *not measured* (1) |
+| AbstractX alone, Python reader, normal | 125 / 153 / 2,541; 124 / 143 / 184 | *not measured* (1) |
+| FreeRTOS `WAIT`, C reader, RT: E906 send → data in the thread (2) | 108 / 127 / 156; 101 / 124 / 134 | *not measured* (1) |
 
-* **Most of a round trip is Linux** (syscalls, `rpmsg_char`, Python), not the E906.
-  * The two E906 runtimes are within noise of each other.
-  * The 16 B median moved by ~10 µs between runs on the same day, on both runtimes.
-* **Under load the worst case reaches 4-9 ms** on both runtimes, while the E906 side of the trip did not change (§3). That delay is Linux scheduling a normal-priority Python process. Whether an RT thread in C removes it is what the planned test will show.
-* **Throughput at 496 B**: 2.97 MB/s (AbstractX alone) vs 2.92 MB/s (on FreeRTOS). No message lost or corrupted on either.
+1. These rows reset the board or timed out (§8).
+2. On FreeRTOS the event-to-thread time includes the tick phase of §3 (12-763 µs, depending on the run), so only the
+   send-to-read part is compared. The same part on AbstractX alone, C, RT: 105 / 142 / 237; 116 / 125 / 136.
 
-Evidence: [`e906_bench_abstractx_stallfix_20261031.json`](../../verification/evidence/e906_bench_abstractx_stallfix_20261031.json), [`e906_bench_freertos_stallfix_20261031.json`](../../verification/evidence/e906_bench_freertos_stallfix_20261031.json), [`e906_bench_abstractx_linuxload_20261031.json`](../../verification/evidence/e906_bench_abstractx_linuxload_20261031.json), [`e906_bench_freertos_linuxload_20261031.json`](../../verification/evidence/e906_bench_freertos_linuxload_20261031.json).
+* **No message lost or reordered** in any run (60,000 of 60,000 received each time). On the E906 side the deadline is
+  12.5 µs late (as §3), and sending takes about 2,550 cycles (12.8 µs) on both runtimes.
+* **About 0.1 ms is the cost of crossing into Linux**: kick, mailbox interrupt, virtio and `rpmsg_char`, and the wake of
+  the reader. At idle, C and Python, RT and normal, all average 109-129 µs: the language and the priority change the
+  worst case, not the average.
+* **Under load the RT reader kept its average but not its worst case**: one message of 60,000 took 2.7 ms, against
+  123 µs for the RT `cyclictest` thread. Where that time goes inside Linux was not measured.
+
+The round trip measured before (2026-10-31) was re-run too. A normal-priority Python program sends a message to the
+E906 over VirtIO RPMsg (endpoint 1030) through `rpmsg_char`, the E906 sends it back, and Python times it. Each size was
+sent 1,000 times per run.
+
+| Echo round trip, µs: median / p99 / max (range over the runs) | AbstractX alone | AbstractX on FreeRTOS (`WAIT`) |
+| :--- | ---: | ---: |
+| 16 B, Linux idle | 165-166 / 210 / 231-258 | 166 / 211-214 / 245-265 |
+| 256 B, Linux idle | 254-255 / 285-286 / 315-334 | 257-258 / 293-298 / 318-321 |
+| 496 B, Linux idle | 347 / 378-385 / 400-406 | 348-349 / 378-382 / 403-409 |
+| 16 B, Linux loaded | 186 / 4,735-5,397 / **9,422-18,261** | *not measured* |
+| 256 B, Linux loaded | 266 / 5,102-5,458 / **12,455-14,372** | *not measured* |
+| 496 B, Linux loaded | 367-370 / 5,591-5,628 / **10,452-10,897** | *not measured* |
+
+* The two E906 runtimes are within 3 µs of each other at idle: most of a round trip is Linux (syscalls,
+  `rpmsg_char`, Python).
+* Throughput at 496 B, idle: 2.79 MB/s (AbstractX alone) vs 2.77 MB/s (on FreeRTOS); loaded, AbstractX alone:
+  1.06-1.08 MB/s. No message corrupted.
+* The 16 B median is 52-64 µs slower than on 2026-10-31 (113.5 / 101.9 µs then). The firmware, the kernel and the board
+  configuration (four cores online) all changed since; which of them caused it was not measured.
+
+Evidence: rows `*_oneway_*` and `*_bench_*` in the two run directories of §3.
 
 ---
 
@@ -126,90 +192,113 @@ Evidence: [`e906_bench_abstractx_stallfix_20261031.json`](../../verification/evi
 
 **AbstractX alone**:
 1. The interrupt handler clears the source.
-2. It posts the waiting coroutine's handle into a lock-free single-producer ring.
+2. It posts the waiting coroutine's handle into the ready queue: an `etl::queue_spsc_isr` with `InterruptLock` as its
+   lock policy. The ISR side pushes without a lock; the event loop masks interrupts around its pop
+   ([`include/abstractx/domain_dispatcher.hpp`](../../../include/abstractx/domain_dispatcher.hpp)).
 3. It returns with `mret`. If the core was in `wfi`, it continues past it.
 4. The event loop takes the handle and resumes the coroutine. No task stack is switched and no scheduler runs.
 
 **AbstractX on FreeRTOS**:
 1. The interrupt handler makes the same post.
 2. It wakes the AbstractX task (`vTaskNotifyGiveFromISR`, `portYIELD_FROM_ISR`).
-3. The scheduler saves the interrupted context and switches to that task.
-4. The task runs `step()`, which resumes the coroutine.
+3. If the task was blocked, the scheduler switches to it and loads its stack.
+4. The task returns from `ulTaskNotifyTake()` in the shared FreeRTOS host (`hosts/freertos`,
+   [SPEC-ARCH-15][spec-arch]), runs `step()`, and `step()` resumes the coroutine. The host waits until the deadline
+   `step()` returns, rounded up to whole ticks.
 
-The task's wait has changed since the measurements:
-* **Today** the task runs the shared FreeRTOS host (`hosts/freertos`, [SPEC-ARCH-15]): it waits until the deadline `step()` returns, rounded up to whole ticks.
-* **In the measured firmware** it waited with no timeout, and sleeps were woken from `vApplicationTickHook`.
+### Measured (µs; 1 µs = 200 cycles; ranges over two runs at idle, one run loaded)
 
-### Measured (µs; 1 µs = 200 cycles)
+| | AbstractX alone | AbstractX on FreeRTOS (`WAIT`) | FreeRTOS debug build |
+| :--- | ---: | ---: | ---: |
+| Yield round trip, `co_await yield_to_dispatcher()`, 10,000 runs: avg / max | 19.7 / 24.3-24.5 | 20.8-20.9 / 24.0-24.3 | 23.7 / 26.8-27.2 |
+| Soft interrupt raised → handler entered, avg | 1.13-1.17 | 1.31-1.33 | 1.43 |
+| Soft interrupt raised → waiting coroutine resumed, Linux idle, 1,000 runs: avg / max | 24.0-24.2 / 28.5-28.8 | 27.1 / 30.2-30.3 | 28.8-29.0 / 31.4-31.9 |
+| Same, Linux loaded: avg / max | 23.8-24.1 / 28.7 | *not measured* | *not measured* |
 
-| | AbstractX alone | AbstractX on FreeRTOS |
-| :--- | ---: | ---: |
-| Yield round trip, `co_await yield_to_dispatcher()`, 10,000 runs: avg / max | 10.20 / 14.4 | 10.22 / 12.7 |
-| Soft interrupt raised → handler entered, avg | 1.18 | 1.27 |
-| Soft interrupt raised → waiting coroutine resumed, Linux idle, 1,000 runs: avg / max | 14.2 / 18.1 | 15.0 / 17.3 |
-| Same, Linux loaded: avg / max | 14.4 / 18.5 | 15.4 / 17.8 |
-
-* **Yield costs the same on both**, because a yield never leaves the event loop.
-  * 10.2 µs (2,040 cycles) is high for a coroutine switch.
-  * The likely cause is that `step()` checks every subsystem on each pass, idle or not.
-  * Making `step()` skip idle subsystems is open work (TODO §2b item 2). Per-phase cycle counts (§8) will show where the time goes.
-* **Interrupt to coroutine**: AbstractX alone is ~150 cycles (0.8 µs) faster on average. FreeRTOS had the lower worst case in these runs.
-  * **Neither runtime is asleep in this row.** The bench raises the interrupt from inside the running coroutine. Both runtimes save the context, run the ISR and restore that same context.
-  * **A wake from sleep is a different path on each.** AbstractX alone leaves `platform_idle_wait()`, then runs `step()`. FreeRTOS does the same save, ISR and restore, and adds the notify, the scheduler's choice of task, and loading a different task's stack. So the difference between the runtimes while sleeping is not shown here. `C` covers AbstractX alone and `F` native FreeRTOS; `F` has not been run yet (§8).
-* **This is a software interrupt** (`msip`), raised by the bench itself. It is a different event from §3's timer, so do not compare these rows with `cyclictest`.
+* **The yield costs about twice what it did on 2026-10-31** (10.2 µs, 2,040 cycles then; 3,931 cycles now) on both
+  runtimes, because a yield never leaves the event loop and `step()` checks every subsystem on each pass. The
+  per-phase build ([SPEC-E906-BENCH-09][spec-bench], `*_step_profile_bench_idle.json`, not a timing row) shows where a
+  pass goes on AbstractX alone: TLP and trace flush 1,988 cycles (47 %), dispatch 1,126, deadline 349, timer 324,
+  network 217, I/O 152, task list 46. FreeRTOS shows the same order of phases. Making `step()` skip idle subsystems is
+  open work (TODO §2b item 2).
+* **Interrupt to coroutine**: AbstractX alone is about 620 cycles (3.1 µs) faster on average, and its worst case is
+  lower too.
+  * **Neither runtime is asleep in this row.** The bench raises the interrupt from inside the running coroutine. Both
+    runtimes save the context, run the ISR and restore that same context.
+  * **A wake from sleep is a different path on each.** AbstractX alone leaves `platform_idle_wait()`, then runs
+    `step()`. FreeRTOS does the same save, ISR and restore, and adds the notify, the scheduler's choice of task, and
+    loading a different task's stack. So the difference between the runtimes while sleeping is not shown here. `C`
+    covers AbstractX alone; `F` (native FreeRTOS) has no valid run yet (§3).
+* **This is a software interrupt** (`msip`), raised by the bench itself. It is a different event from §3's timer, so do
+  not compare these rows with `cyclictest`.
+* **FreeRTOS debug cost**: the default build (asserts, stack check, idle-hook statistics) adds about 3 µs to a yield and
+  2 µs to the soft-interrupt resume.
 
 ### Memory
 
-Both ELFs were built with:
+All three ELFs were built at [`2af893b`][c-2af893b] with:
 * xPack GNU RISC-V GCC 15.2.0, Release (`-O2 -g -DNDEBUG`);
 * freestanding C++20, `-fno-exceptions -fno-rtti`, `newlib-nano`.
 
-Both pass `tools/check_e906_layout.py` and use 0.00 MB of DRAM (`tools/analyze_elf_size.sh`). Sizes are from `riscv-none-elf-size -A`:
+All pass `tools/check_e906_layout.py`, use 0 bytes of DRAM and pass the zero-heap check, which fails the build on any
+heap symbol (`tools/track_memory_footprint.py`, [SPEC-E906-MEM-03][spec-e906]). Sizes are from `riscv-none-elf-size -A`:
 
-| Built from | | AbstractX alone | AbstractX on FreeRTOS | FreeRTOS adds |
-| :--- | :--- | ---: | ---: | ---: |
-| `e159de6` (benchmarked, 2026-10-31) | code (`.text` + `.fastcode`) | 77,516 B | 82,432 B | 4,916 B |
-| | static RAM (`.data` + `.bss`) | 25,984 B | 37,672 B | 11,688 B |
-| `e560d50` (built 2026-11-06, not benchmarked) | code (`.text` + `.fastcode`) | 141,498 B | 148,070 B | 6,572 B |
-| | static RAM (`.data` + `.bss`) | 23,992 B | 37,880 B | 13,888 B |
-| | `SRAM_FAST` used of 192 KB | 170.3 KB (88.7 %) | 190.3 KB (**99.1 %**) | |
+| | AbstractX alone | AbstractX on FreeRTOS (`WAIT`, timing) | FreeRTOS adds | FreeRTOS debug build |
+| :--- | ---: | ---: | ---: | ---: |
+| code (`.text` + `.fastcode`) | 83,208 B | 88,692 B | 5,484 B | 89,772 B |
+| static RAM (`.data` + `.bss`) | 23,557 B | 37,429 B | 13,872 B | 37,437 B |
+| `SRAM_FAST` used of 192 KB (sum of sections, as `tools/analyze_elf_size.sh`) | 113.0 KB (58.8 %) | 131.9 KB (68.7 %) | | 133.0 KB (69.2 %) |
 
 * **What FreeRTOS adds**:
   * the scheduler (`tasks.c`, `list.c`, `queue.c`), the RISC-V port and trap entry;
-  * static task stacks (`configSUPPORT_STATIC_ALLOCATION = 1`, no heap): 8 KB AbstractX task, 2 KB native cyclic task (`F`), 2 KB interrupt stack, 1 KB idle;
+  * static task stacks (`configSUPPORT_STATIC_ALLOCATION = 1`, no heap): 8 KB AbstractX task, 2 KB native cyclic task
+    (`F`), 2 KB interrupt stack, 1 KB idle;
   * 72 B per task control block.
 
-  Both builds also have the same 8 KB startup stack.
-* **Both images roughly doubled since `e159de6`.** The shared bench grew (IMU DRDY test, cyclic tests, the ICM-42688-P driver); neither runtime did. The FreeRTOS build has 1.7 KB of `SRAM_FAST` left.
-* **Heap**: "zero heap" is a property of our code, not yet of the binary.
-  * Neither build compiles a FreeRTOS `heap_*.c`, and no AbstractX code calls `malloc()`.
-  * newlib's `_malloc_r`, `_free_r` and `_sbrk` are still linked into both (`riscv-none-elf-nm`, 2026-11-06; EL-1027-31).
+  Both builds also have the same 8 KB startup stack, and about 3.5 KB of cold code in SRAM Space 1 (`.text_cold`).
+* **Since [`e159de6`][c-e159de6] (2026-10-31)**: code grew 7-8 % on both (77,516 → 83,208 B alone; 82,432 → 88,692 B
+  on FreeRTOS), static RAM shrank on AbstractX alone (25,984 → 23,557 B), and what FreeRTOS adds went from 11.7 KB to
+  13.9 KB. A row for [`e560d50`][c-e560d50] in the previous revision of this article (141,498 B of code, `SRAM_FAST`
+  99.1 % on FreeRTOS) was not reproduced and is withdrawn.
+
+Evidence: [`part4_size_20261111.json`](../../verification/evidence/2026-11/part4_size_20261111.json).
 
 ### Idle
 
-* **AbstractX alone** has no periodic tick: it sleeps in `wfi` until an interrupt or a deadline it set. This firmware does not count idle time (`"idle": "not-instrumented"`).
-* **FreeRTOS**: the idle hook woke 6,366 times in 3.84 s. The core was outside the idle hook for 3.25 % of that window. That is the busy share of the whole benchmark run plus the 1 kHz tick, not the cost of the tick alone. An idle-only window is still to be measured.
+* **AbstractX alone** has no periodic tick: it sleeps in `wfi` until an interrupt or a deadline it set. This firmware
+  does not count idle time (`"idle": "not-instrumented"`).
+* **FreeRTOS** (debug build, the only one that counts it): the idle hook woke 6,606 times in 4.43 s, and the core was
+  outside the idle hook for 6.2 % of that window (run 2: 6,424 in 4.24 s, 6.5 %). That is the busy share of the whole
+  benchmark run plus the 1 kHz tick, not the cost of the tick alone. An idle-only window was not measured.
 
 ---
 
 ## 6. When to Use Each
 
-**Linux on the A55 cores**: anything that needs megabytes, such as vision, planners, storage, networking, UI and Python. It handles soft real time. PREEMPT_RT kept a 1 kHz RT thread under 30 µs at idle and under 125 µs under heavy load here. That suits 100 Hz - 1 kHz control that can take an occasional 0.1 ms delay. It is not for hard deadlines under load.
+**Linux on the A55 cores**: anything that needs megabytes, such as vision, planners, storage, networking, UI and
+Python. It handles soft real time. PREEMPT_RT kept a 1 kHz RT thread under 45 µs at idle and under 125 µs under heavy
+load here. That suits 100 Hz - 1 kHz control that can take an occasional 0.1 ms delay. It is not for hard deadlines
+under load, and a normal-priority thread is not real time at all under load (18 ms).
 
-**The E906, for I/O and timing Linux should not own.** Its timing does not change with Linux load. Close fast loops on the E906 and send Linux only results. How late those results reach a Linux thread is what §4 still has to measure. Until then, do not put a hard deadline on the Linux side of the link.
+**The E906, for I/O and timing Linux should not own.** CPU and DRAM load on Linux did not change its timing. Close fast
+loops on the E906 and send Linux only results. A result reaches an RT Linux thread in C in about 0.1 ms, but under load
+one in 60,000 took 2.7 ms, so a deadline on the Linux side of the link is still a soft one.
 
 **AbstractX alone on the E906** suits:
 * work that moves data between buses and the host;
 * event-driven sensor work;
-* the lowest interrupt-to-code time;
+* a shorter path from an interrupt to the coroutine (3.1 µs on average in the soft-interrupt test; a wake from sleep
+  was not compared);
 * coroutine sleeps shorter than a millisecond;
 * a core that no periodic tick wakes.
 
 **AbstractX on FreeRTOS**: when you need preemption.
 * **Long compute jobs** (FFT, planners) go in a lower-priority task, and the coroutine task preempts them.
-* **Libraries that expect a blocking `read()` or `sleep()`** run in their own task, through the `TaskNotifier` wrappers ([SPEC-E906-RTOS-08]).
+* **Libraries that expect a blocking `read()` or `sleep()`** run in their own task, through the `TaskNotifier`
+  wrappers ([SPEC-E906-RTOS-08][spec-rtos]).
 * **An existing FreeRTOS system** adopts coroutines in one task.
-* **The cost on the E906**: ~0.8 µs per wake, 12-14 KB of RAM, and 1 ms coroutine sleep resolution.
+* **The cost on the E906**: about 3 µs per interrupt-to-coroutine resume, 11-14 KB of RAM (13.9 KB today, 11.7 KB on
+  2026-10-31), and 1 ms coroutine sleep resolution.
 
 The application code is the same in both E906 setups, so this choice can change later.
 
@@ -217,79 +306,99 @@ The application code is the same in both E906 setups, so this choice can change 
 
 ## 7. Reproduce
 
-On a Radxa Cubie A5E:
+On a Radxa Cubie A5E with remoteproc and `rpmsg_char` (the kernel above), from a checkout of AbstractX. Set:
+* `ABSTRACTX_BOARD_IP`: the board's address (root login over SSH with a key);
+* `BUILDROOT_OUT`: the board's Buildroot output directory, for its `host/bin/aarch64-linux-gcc` (the one-way reader is
+  cross-compiled with it).
 
-```bash
-# 1. Cross-compile both firmwares (FreeRTOS timer mode: -DABX_FREERTOS_TIMER=WAIT|XTIMER|TICK_HOOK, default WAIT)
-cmake -S . -B build_e906 -DABSTRACTX_TARGET=e906 \
-      -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/riscv-none-elf.cmake -DCMAKE_BUILD_TYPE=Release
-cmake --build build_e906 --target e906_bench_app e906_freertos_app -j
-
-# 2. Set the board clock (the 2026-10-31 evidence carries 1970 timestamps), copy the bench tools
-ssh root@$ABSTRACTX_BOARD_IP "date -s '$(date -u +%Y-%m-%dT%H:%M:%S)' && mkdir -p /root/abstractx_board_bench"
-scp -O apps/e906_repl_app/tests/board/bench_e906_runtime.py tools/e906_rpmsg_bridge.py tools/abstractx_wire.py \
-    root@$ABSTRACTX_BOARD_IP:/root/abstractx_board_bench/
-
-# 3. For each firmware: load it, then run the suite and the cyclic test from Linux
-for app in e906_bench_app e906_freertos_app; do
-  scp -O build_e906/apps/$app/$app root@$ABSTRACTX_BOARD_IP:/lib/firmware/$app.elf
-  ssh root@$ABSTRACTX_BOARD_IP "R=/sys/class/remoteproc/remoteproc0; echo stop > \$R/state; \
-      echo $app.elf > \$R/firmware; echo start > \$R/state; sleep 2; \
-      python3 /root/abstractx_board_bench/bench_e906_runtime.py --json /tmp/$app.json; \
-      python3 /root/abstractx_board_bench/bench_e906_runtime.py --cyclic 60000 --json /tmp/${app}_cyclic.json"
-done
-# Native FreeRTOS task baseline (e906_freertos_app only):
-#   bench_e906_runtime.py --native-cyclic 60000 --json /tmp/freertos_native_cyclic.json
-
-# 4. Linux on the A55 cores (cyclictest and stress-ng are in the Buildroot image since cubie-a5e 024f02e)
-ssh root@$ABSTRACTX_BOARD_IP 'cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q'
-ssh root@$ABSTRACTX_BOARD_IP 'stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & sleep 5; cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q; wait'
-# Normal-priority baseline: the same commands without -p.
-ssh root@$ABSTRACTX_BOARD_IP 'cyclictest -m -i 1000 -l 60000 -t1 -a 2 -q'
-# For the E906 rows under load, run step 3 while the same stress-ng command runs.
-
-# 5. One way, E906 event to a Linux thread, with each firmware loaded ([SPEC-E906-BENCH-07]), idle and under stress-ng
-$BUILDROOT_OUT/host/bin/aarch64-linux-gcc -std=c11 -O2 -o e906_oneway_reader apps/e906_repl_app/tests/board/e906_oneway_reader.c
-scp -O e906_oneway_reader root@$ABSTRACTX_BOARD_IP:/root/abstractx_board_bench/
-ssh root@$ABSTRACTX_BOARD_IP 'cd /root/abstractx_board_bench && \
-    python3 bench_e906_runtime.py --oneway 60000 --rt --json /tmp/oneway_c_rt.json; \
-    python3 bench_e906_runtime.py --oneway 60000 --json /tmp/oneway_c_other.json; \
-    python3 bench_e906_runtime.py --oneway 60000 --rt --reader python --json /tmp/oneway_py_rt.json; \
-    python3 bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/oneway_py_other.json'
-```
-
-**FreeRTOS timing builds** use `-DABX_FREERTOS_DEBUG=OFF`, because AbstractX alone has no asserts, stack check or per-switch hooks ([SPEC-E906-BENCH-06]). Step 1 above builds the default, which has them. The FreeRTOS rows in §3-§5 are from before this change.
-
-**One command** ([SPEC-E906-BENCH-08]): `tools/run_e906_board_suite.py` runs the board self-tests; this one runs every row above, sets the board clock and saves the evidence:
+**One command** ([SPEC-E906-BENCH-08][spec-bench]) builds every firmware variant, checks the board is the A5E, sets the
+board clock, copies the tools and firmware over SSH (the board's busybox has no `scp`) and checks each by MD5, loads
+each firmware through remoteproc, runs every row of §3-§5 idle and under `stress-ng`, stops if a thermal zone passes
+85 °C, and saves the evidence with a manifest:
 
 ```bash
 python3 tools/run_e906_bench_suite.py --ip $ABSTRACTX_BOARD_IP --buildroot-out $BUILDROOT_OUT --build --record
 ```
 
+It completed every idle row on 2026-11-11 (twice); its E906 rows under load reset the board (§8). By hand, for one
+firmware:
+
+```bash
+# 1. Build (FreeRTOS timing build: no debug cost; timer mode WAIT, XTIMER or TICK_HOOK)
+cmake --preset e906 -B build_e906 && cmake --build build_e906 --target e906_bench_app -j
+cmake --preset e906 -B build_e906_timer_wait -DABX_FREERTOS_TIMER=WAIT -DABX_FREERTOS_DEBUG=OFF
+cmake --build build_e906_timer_wait --target e906_freertos_app -j
+$BUILDROOT_OUT/host/bin/aarch64-linux-gcc -std=c11 -O2 -o build_e906/e906_oneway_reader \
+    apps/e906_repl_app/tests/board/e906_oneway_reader.c
+
+# 2. Copy over SSH (no scp on the board) and compare the MD5 on both sides
+B=root@$ABSTRACTX_BOARD_IP; D=/root/abstractx_board_bench
+ssh $B "date -u -s '$(date -u '+%Y-%m-%d %H:%M:%S')' && mkdir -p $D"
+for f in apps/e906_repl_app/tests/board/bench_e906_runtime.py tools/e906_rpmsg_bridge.py tools/abstractx_wire.py \
+         build_e906/e906_oneway_reader; do ssh $B "cat > $D/$(basename $f)" < $f; done
+ssh $B "chmod +x $D/e906_oneway_reader"
+ssh $B 'cat > /lib/firmware/abstractx.elf' < build_e906/apps/e906_bench_app/e906_bench_app
+md5sum build_e906/apps/e906_bench_app/e906_bench_app; ssh $B md5sum /lib/firmware/abstractx.elf
+
+# 3. Load it and run the rows (watch /sys/class/thermal/thermal_zone*/temp)
+ssh $B "R=/sys/class/remoteproc/remoteproc0; echo stop > \$R/state; echo abstractx.elf > \$R/firmware; \
+        echo start > \$R/state; sleep 2; cd $D; \
+        python3 bench_e906_runtime.py --json /tmp/bench.json; \
+        python3 bench_e906_runtime.py --cyclic 60000 --json /tmp/cyclic.json; \
+        python3 bench_e906_runtime.py --oneway 60000 --rt --json /tmp/oneway_c_rt.json; \
+        python3 bench_e906_runtime.py --oneway 60000 --reader python --json /tmp/oneway_py_other.json"
+#    FreeRTOS firmware only: bench_e906_runtime.py --native-cyclic 60000 --json /tmp/native.json
+
+# 4. Linux on the A55 cores
+ssh $B 'cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q -h 20000'   # RT; drop -p 95 for SCHED_OTHER
+ssh $B 'stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2 --timeout 75s -q & sleep 5; \
+        cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q -h 20000; wait'
+```
+
+For a row under load, run it inside the same `stress-ng` wrapper as the last command.
+
 ---
 
-## 8. Not Measured, and Out of Date
+## 8. Not Measured, and Blocked
 
-**Out of date.** The latency and echo numbers are from firmware built at `e159de6` (2026-10-31); the FreeRTOS cyclic rows are from `d4c2b8f` the same day. Since then:
-* the FreeRTOS firmware runs AbstractX through the shared FreeRTOS host. Its timer mode is `WAIT` by default, with `XTIMER` and `TICK_HOOK` as build options. So the FreeRTOS cyclic row describes the old tick-hook model;
-* the E906 interrupt, UART, SPI, I²C and RPMsg code changed.
-
-Every number in §3-§5 needs a re-run at the current commit. Memory sizes were re-measured on 2026-11-06 (§5).
+**Blocked: the E906 rows under load reset the board.** With the E906 running its 1 ms timer test (`C`, the one-way
+test or the FreeRTOS runs) and `stress-ng` on Linux, the A5E reset within seconds, with no oops, panic or shutdown on
+the console: the next line is U-Boot SPL
+([serial log](../../verification/evidence/2026-11/a5e_reset_serial_20261111.txt)). The hottest thermal zone was
+46-51 °C. `stress-ng` alone with the firmware loaded and idle did not reset it, nor did the RT `cyclictest` under load
+with the E906 stopped. Some rows under load did complete (AbstractX alone: `bench`, `C` and both C readers in run 2), so
+it is intermittent. The same kind of rows ran under load on 2026-10-31, on an earlier kernel and board configuration.
+Cause not found ([`part4_load_manual_20261111.json`](../../verification/evidence/2026-11/part4_load_manual_20261111.json),
+[`engineering_log.md`](../../../engineering_log.md) 2026-11-11). Until it is found, these stay *not measured*:
+* every AbstractX on FreeRTOS row under load (cyclic in each timer mode, echo, soft interrupt, one way);
+* the Python readers under load, and a second loaded run of every row;
+* `linux_cyclictest_rt_load` from the suite (the hand-run row in §3 has no histogram).
 
 **Not measured** (each is a TODO §2b item):
-* E906 event → Linux thread, one way, with an RT and a normal reader (§4);
-* Linux normal-priority `cyclictest` (§3);
-* AbstractX on FreeRTOS cyclic with today's host, in each timer mode, and the native FreeRTOS task (`F`);
-* where the E906's cycles go: per-phase `mcycle` totals inside `step()`;
-* repeated runs (several per row, hours for worst cases), and p99 / p99.9 in every table;
-* the Linux setup, recorded with each run: CPU governor, CPU isolation and IRQ affinity;
+* `F`, the native FreeRTOS task on `vTaskDelayUntil`: its first run is void (§3, note 4); the fix needs a board run;
+* AbstractX on FreeRTOS on a wake from sleep, compared with AbstractX alone (`C` on FreeRTOS includes the tick phase);
+* the cycle split of the ~2,430-cycle timer wake (the per-phase build covers `step()` only);
+* why the yield and the echo got slower since 2026-10-31 (firmware, kernel and four cores all changed);
+* where the 2.7 ms one-way worst case under load is spent inside Linux;
+* long runs (hours) for worst cases; the runs here are one minute each;
 * a load aimed at the shared bus (DMA-heavy, not only CPU and DRAM), to test the E906's isolation;
+* CPU isolation for the Linux reader (`isolcpus`, IRQ affinity away from CPU 2); none was set;
 * idle accounting in the AbstractX firmware, and an idle-only window on both;
-* IMU DRDY → data, FreeRTOS vs AbstractX alone.
+* IMU DRDY → data (Part 6, optional here).
 
 **Related, not covered here**:
-* FreeRTOS task switches in the CTF trace and the AbstractX Studio timeline ([SPEC-E906-RTOS-07]).
-* AbstractX drivers used from FreeRTOS tasks, with no second set of drivers ([SPEC-E906-RTOS-08]).
-* Bugs found while measuring, which caused ~1 s echo stalls before `e159de6` (`engineering_log.md`, 2026-10-31):
-  * a lost RPMsg wakeup ([SPEC-E906-IRQ-04]);
-  * the core going back to sleep with work waiting ([SPEC-E906-IRQ-06]).
+* FreeRTOS task switches in the CTF trace and the AbstractX Studio timeline ([SPEC-E906-RTOS-07][spec-rtos]).
+* AbstractX drivers used from FreeRTOS tasks, with no second set of drivers ([SPEC-E906-RTOS-08][spec-rtos]).
+* Bugs found while measuring, which caused ~1 s echo stalls before [`e159de6`][c-e159de6]
+  ([`engineering_log.md`](../../../engineering_log.md), 2026-10-31):
+  * a lost RPMsg wakeup ([SPEC-E906-IRQ-04][spec-e906]);
+  * the core going back to sleep with work waiting ([SPEC-E906-IRQ-06][spec-e906]).
+* The 2026-10-31 measurements this revision replaces are in `docs/verification/evidence/*_20261031.json`.
+
+[spec-e906]: ../../../targets/allwinner_e906/SPECIFICATION.md
+[spec-bench]: ../../../apps/e906_bench/SPECIFICATION.md
+[spec-rtos]: ../../../apps/e906_freertos_app/SPECIFICATION.md
+[spec-arch]: ../../DESIGN_SPECIFICATION.md
+[c-2af893b]: https://github.com/tcmichals/AbstractX/commit/2af893b
+[c-e159de6]: https://github.com/tcmichals/AbstractX/commit/e159de6
+[c-e560d50]: https://github.com/tcmichals/AbstractX/commit/e560d50

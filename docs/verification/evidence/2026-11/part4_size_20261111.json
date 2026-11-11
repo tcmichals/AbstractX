@@ -1,0 +1,90 @@
+{
+ "check": "e906:part4:size",
+ "time": "2026-11-11T08:03:36Z",
+ "commit": "2af893ba13da",
+ "toolchain": "riscv-none-elf-gcc (xPack GNU RISC-V Embedded GCC x86_64) 15.2.0",
+ "command": "riscv-none-elf-size -A <elf>; sram_fast_used = highest section end in 0x3FFC0000 + 192 KB (padding included); sram_fast_sum_of_sections = tools/analyze_elf_size.sh <elf> targets/allwinner_e906/bsp/e906_sram.ld; zero_heap_rc = tools/track_memory_footprint.py --elf <elf>",
+ "images": {
+  "abstractx": {
+   "elf": "build_e906/apps/e906_bench_app/e906_bench_app",
+   "build": "Release, default",
+   "sections": {
+    ".vectors": 684,
+    ".resource_table": 140,
+    ".trace_buffer": 1024,
+    ".sram_c": 13256,
+    ".text_cold": 3534,
+    ".text": 82508,
+    ".fastcode": 700,
+    ".init_array": 60,
+    ".data": 344,
+    ".bss": 23213,
+    ".stack": 8192,
+    ".dtcm_scratch": 0
+   },
+   "code_text_fastcode": 83208,
+   "code_text_cold_space1": 3534,
+   "static_ram_data_bss": 23557,
+   "sram_fast_used_bytes": 115760,
+   "sram_fast_used_kb": 113.0,
+   "sram_fast_used_pct": 58.9,
+   "sram_fast_sum_of_sections_bytes": 115701,
+   "sram_fast_sum_of_sections_pct": 58.8,
+   "zero_heap_rc": 0
+  },
+  "freertos_wait": {
+   "elf": "build_e906_timer_wait/apps/e906_freertos_app/e906_freertos_app",
+   "build": "Release, -DABX_FREERTOS_TIMER=WAIT -DABX_FREERTOS_DEBUG=OFF (timing build)",
+   "sections": {
+    ".vectors": 686,
+    ".resource_table": 140,
+    ".trace_buffer": 1024,
+    ".sram_c": 13256,
+    ".text_cold": 3590,
+    ".text": 87992,
+    ".fastcode": 700,
+    ".init_array": 64,
+    ".data": 352,
+    ".bss": 37077,
+    ".stack": 8192,
+    ".dtcm_scratch": 0
+   },
+   "code_text_fastcode": 88692,
+   "code_text_cold_space1": 3590,
+   "static_ram_data_bss": 37429,
+   "sram_fast_used_bytes": 135200,
+   "sram_fast_used_kb": 132.0,
+   "sram_fast_used_pct": 68.8,
+   "sram_fast_sum_of_sections_bytes": 135063,
+   "sram_fast_sum_of_sections_pct": 68.7,
+   "zero_heap_rc": 0
+  },
+  "freertos_debug": {
+   "elf": "build_e906/apps/e906_freertos_app/e906_freertos_app",
+   "build": "Release, default (FreeRTOS debug ON)",
+   "sections": {
+    ".vectors": 686,
+    ".resource_table": 140,
+    ".trace_buffer": 1024,
+    ".sram_c": 13256,
+    ".text_cold": 3590,
+    ".text": 89072,
+    ".fastcode": 700,
+    ".init_array": 64,
+    ".data": 352,
+    ".bss": 37085,
+    ".stack": 8192,
+    ".dtcm_scratch": 0
+   },
+   "code_text_fastcode": 89772,
+   "code_text_cold_space1": 3590,
+   "static_ram_data_bss": 37437,
+   "sram_fast_used_bytes": 136288,
+   "sram_fast_used_kb": 133.1,
+   "sram_fast_used_pct": 69.3,
+   "sram_fast_sum_of_sections_bytes": 136151,
+   "sram_fast_sum_of_sections_pct": 69.2,
+   "zero_heap_rc": 0
+  }
+ }
+}

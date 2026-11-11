@@ -1,0 +1,44 @@
+{
+ "check": "board:a5e:part4-load-manual",
+ "date": "2026-11-11",
+ "firmware_commit": "2af893ba13da",
+ "kernel": "Linux 7.1.0 #2 SMP PREEMPT_RT Sat Nov 7 10:32:50 CST 2026",
+ "cpus_online": "0-3 (cpu4-7 offline, owner's 4-core configuration)",
+ "isolcpus": "none",
+ "irq_default_affinity": "7f",
+ "cpufreq": "none (no governor)",
+ "fan": "on",
+ "stress": "stress-ng --cpu 8 --vm 2 --vm-bytes 256M --sock 2",
+ "runs": [
+  {
+   "what": "Linux PREEMPT_RT cyclictest under load, E906 stopped",
+   "time_utc": "2026-11-11T12:10Z",
+   "command": "echo stop > /sys/class/remoteproc/remoteproc0/state; stress-ng ... --timeout 75s -q & sleep 5; cyclictest -m -p 95 -i 1000 -l 60000 -t1 -a 2 -q",
+   "output": "T: 0 (  626) P:95 I:1000 C:  60000 Min:     15 Act:   24 Avg:   25 Max:     123",
+   "min_us": 15,
+   "avg_us": 25,
+   "max_us": 123,
+   "n": 60000,
+   "p99_us": "not measured (run without -h)",
+   "temp_mC_after_max": 51250,
+   "note": "run by hand because the suite row reset the board; another agent (VS Code Copilot) was copying files to the board at the same time"
+  },
+  {
+   "what": "stress-ng alone, 60 s, e906_bench_app loaded and idle",
+   "time_utc": "2026-11-11T12:08Z",
+   "result": "no reset; uptime 173.7 s -> 238.9 s",
+   "temp_mC_max": 51250
+  },
+  {
+   "what": "E906 cyclic (C, 10000) under stress-ng, e906_bench_app",
+   "time_utc": "2026-11-11T12:05Z",
+   "result": "board reset within ~15 s: no oops, panic or shutdown message on the console, next line is U-Boot SPL",
+   "serial": "docs/verification/evidence/2026-11/a5e_reset_serial_20261111.txt",
+   "temp_mC_before": 46588
+  },
+  {
+   "what": "suite run part4_bench_2026-11-11T080247 load rows",
+   "result": "the first E906 timer row under load (abstractx_cyclic_load) timed out and the board reset; later load rows found /tmp/part4 gone (tmpfs) or reset again (timeouts: freertos_wait_oneway_c_other_load, freertos_debug_cyclic_load, linux_cyclictest_rt_load with freertos_step_profile running). Passed under load: abstractx_bench_load, linux_cyclictest_other_load. Hottest zone in the run: 50.3 C"
+  }
+ ]
+}
