@@ -34,8 +34,8 @@ the sensor buses entirely ([`[SPEC-ARCH-14]`](docs/DESIGN_SPECIFICATION.md)):
 * **FPGA I/O: pio2 on the Zynq, Wishbone cores elsewhere** (decided 2026-11-11). On the Zynq-7020 the
   accelerator is the [pio2](https://github.com/tcmichals/pio2) tile running RP2040/RP2350 PIO programs
   (DShot, serial, PWM decode, NeoPixel, SPI sensors) with its own DMA. pio2 is too large for the small
-  FPGAs, so every other FPGA target (Tang Nano 9K / 20K) goes back to fixed-function peripheral cores
-  on a Wishbone bus.
+  FPGAs, so every other FPGA target (Tang Nano 9K / 20K) uses fixed-function peripheral cores on a
+  Wishbone bus, in the separate repository [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga).
 
 ![AbstractX accelerator split: sensors and actuators are driven only by an I/O accelerator per platform (Pico 2 W core 0, an ESP32-P4 core, the XuanTie E906, pio2 on the Zynq, Wishbone cores on the Tang Nano), which hands results through rings to Core 1, the app core, Linux or the SPI-link host; only the E906 path is built and measured today](docs/articles/assets/abstractx-accelerator-split.svg)
 
@@ -145,12 +145,12 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
 * **On a Zynq** the A9 reaches pio2 through `generic-uio` only: registers over GP0, streams in DDR
   rings written by pio2's own DMA over HP0, one interrupt. No vendor DMA IP, no kernel driver
   ([`[SPEC-ZYNQ-07]`](hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md)).
-* **Other FPGAs: back to Wishbone (decided 2026-11-11).** pio2's logic size does not fit the small parts, so the
-  Tang Nano 9K / 20K (and any FPGA other than the Zynq) use the fixed-function cores on a Wishbone bus again
-  (`asp_dshot_core`, `asp_uart_core`, `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`). They were
-  removed on 2026-11-05 in favour of all-PIO tops and are being restored for those targets; the Zynq top stays
-  all-PIO with an AXI4-Lite control plane (`[SPEC-TLP-07]`). Specs and RTL still describe the all-PIO plan for
-  every FPGA until they are updated (`TODO.md`).
+* **Other FPGAs: Wishbone, in [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (decided 2026-11-11).**
+  pio2's logic size does not fit the small parts, so the Tang Nano 9K / 20K (and any FPGA other than the Zynq) use
+  small fixed-function blocks (DShot, IMU auto-DMA, PWM decode, UART, NeoPixel, system registers) behind a 64-byte
+  TLP router and a Wishbone master, reached over SPI. That framework lives in its own repository (simulation only so
+  far). The Zynq top here stays all-PIO with an AXI4-Lite control plane (`[SPEC-TLP-07]`); this repository's specs
+  for the Tang targets still describe the all-PIO plan until they are updated (`TODO.md`).
 * **Nanosecond Hardware Timestamps**: Physical DIO edge triggers latch 64-bit nanosecond hardware timestamps directly into packet headers for end-to-end timing verification.
 
 ---
@@ -248,7 +248,7 @@ Write your application once against `abstractx::` and deploy it across microcont
 | [**Radxa Cubie A5E**](https://github.com/tcmichals/cubie-a5e) | Cortex-A55 + XuanTie E906 | E906 + DMA | Linux over RPMsg | built; DRDY edge -> DMA ~6 µs measured |
 | **Espressif ESP32-P4** | Dual RISC-V @ 400 MHz | one core + GDMA | the other core | stub, no back end yet |
 | **QMTech Zynq-7020** | Cortex-A9 + FPGA | pio2 (PIO + DMA) + RT A9 core | Linux over UIO rings | specified, not built |
-| **Tang Nano 9K / 20K** | FPGA, external host | Wishbone fixed-function cores over Dual-SPI link | Pico or E906 host | specified, not built |
+| **Tang Nano 9K / 20K** | FPGA, external host | Wishbone fixed-function cores ([abstractx-fpga](https://github.com/tcmichals/abstractx-fpga)) over SPI | Pico or E906 host | specified, not built |
 | **Desktop SITL** | Linux x86_64 / AArch64 | simulated buses, epoll reactor | same process | runs the host test suite |
 
 ---
