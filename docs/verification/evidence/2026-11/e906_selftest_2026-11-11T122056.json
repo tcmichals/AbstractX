@@ -1,0 +1,19 @@
+{
+ "check": "board:e906:selftest",
+ "time": "1970-01-02T05:21:26",
+ "uname": "7.1.0",
+ "firmware": "riscv-firmware.elf",
+ "counts": {
+  "PASS": 0,
+  "FAIL": 1,
+  "SKIP": 0
+ },
+ "results": [
+  {
+   "test": "test_e906_trace::test_status_reports_arrive_once_a_second",
+   "status": "FAIL",
+   "detail": "0 status reports in 4.5 s (expected one per second)",
+   "seconds": 9.74
+  }
+ ]
+}

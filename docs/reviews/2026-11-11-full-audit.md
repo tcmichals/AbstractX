@@ -111,6 +111,29 @@ as censored, not as the actual 99th percentile. Load/one-way rows failed with
 `timed out` or `no JSON from the board`, so this run does not establish
 stressed performance or E906-to-Linux delivery latency.
 
+### E906 REPL board self-test
+
+The board initially had `/boot/config.txt` selecting the generic
+`cubie-a5e-flight-stack` overlay; the live device-tree marker was `1.5`, and
+remoteproc ran `riscv-firmware.elf` without RPMsg endpoints. The runner now
+checks the live `1.6-e906` marker and resolved `e906_repl_app.elf` before it
+copies or runs tests. After backing up the old config/firmware, selecting the
+E906 overlay and rebooting, the marker was `1.6-e906`; remoteproc was running
+the new REPL image and announced `abstractx-repl`, `abstractx-tlp`, and
+`abstractx-trace`.
+
+The full suite then reported **22 PASS, 10 FAIL, 7 SKIP**; a focused rerun also
+reproduced the periodic-status failure (0 reports in 4.5 s). The failures are
+five UART3/GPS or TWI1/compass tests and five status/profiler/timeline trace
+tests. The JSON is
+`../verification/evidence/2026-11/e906_selftest_2026-11-11T121536.json`; the
+focused rerun is in
+`../verification/evidence/2026-11/e906_selftest_2026-11-11T122056.json`.
+No root cause for the sensor or status/trace failures is established here.
+The board's own clock was unset (JSON timestamp `1970-01-02`); the evidence
+filename uses the host timestamp. The dirty worktree prevented a ledger
+`--record` run.
+
 ### Improvements, ranked
 
 1. **R1 — RESOLVED.** The audit's static stage now reports
@@ -119,17 +142,18 @@ stressed performance or E906-to-Linux delivery latency.
    The test suite verifies both missing-analyzer and cppcheck-only cases; the
    initial full-audit table above records the pre-fix false-green. Clang-tidy
    was later run successfully as detailed above.
-2. **R2 — Add a FreeRTOS-host runtime/fault test.** The host has no
-   FreeRTOS-specific runtime test in the host suite. In `XTIMER` mode, a failed
-   `xTimerChangePeriod` increments a counter and comments that it will retry,
-   but `run()` subsequently waits on a notification with `portMAX_DELAY`.
-   Unless some unrelated event wakes the task, the retry path is not reached.
-   Treat this as a high-confidence code-review candidate until a queue-full
-   fault-injection test reproduces it. On failure, fall back to a bounded wait
-   or surface a terminal host error; then test timer-command failure and
-   recovery. Evidence: the failure branch and following indefinite notification
-   wait in `hosts/freertos/src/freertos_host.cpp`. Existing regression test:
-   none.
+2. **R2 — Make XTIMER failure handling terminal or recoverable, and test it.**
+   In `XTIMER` mode, `xTimerCreateStatic()` returning null is counted but the
+   null handle is still used by later timer operations, a confirmed conditional
+   failure path (`hosts/freertos/src/freertos_host.cpp:59-72,94-96`; FreeRTOS
+   contract in `third_party/FreeRTOS-Kernel/include/timers.h:433-447,631-632`).
+   Separately, a failed `xTimerChangePeriod` is counted and described as
+   retryable, but the task next waits on a notification with `portMAX_DELAY`;
+   absent another event, it will not reach the retry. Add a FreeRTOS-host
+   runtime/fault test for timer creation and command-queue failure. Do not pass
+   a null timer handle; surface initialization failure or choose a defined
+   fallback, and make command failure recovery bounded. Neither case has an
+   adapter-specific regression test yet.
 3. **R3 — Resolve the driver-wrapper contract.** `[SPEC-E906-RTOS-08]` describes
    blocking wrappers that submit `ISpi`/`IUart`/`II2c` work and await ISR
    completion, but `freertos_driver_wrapper.hpp` currently supplies only a
@@ -137,7 +161,8 @@ stressed performance or E906-to-Linux delivery latency.
    that requirement explicitly future-facing, or implement and test the
    adapter behavior, including timeout/cancellation and notification ownership.
    Evidence: `[SPEC-E906-RTOS-08]` versus
-   `apps/e906_freertos_app/include/freertos_driver_wrapper.hpp`. No
+   `apps/e906_freertos_app/include/freertos_driver_wrapper.hpp:29-54`. The
+   helper has no in-repository driver submission caller. No
    adapter-specific regression test was found.
 4. **R4 — Make benchmark failures and quantiles unambiguous.** The latest
    sweep completed with 17/42 failed rows (9 timeouts, 8 missing JSON); split
@@ -169,6 +194,14 @@ stressed performance or E906-to-Linux delivery latency.
    platforms remain part of the supported portability promise. Existing
    evidence: `spectrace_matrix.py --check-verifies` reports 63 baseline claims
    (65 total); no coverage/mutation/fuzz evidence was produced in this run.
+8. **R8 — Align the synchronous-I2C exception across the HAL contracts.**
+   The HAL contract says public HAL interfaces prohibit synchronous blocking
+   methods, while `II2c` still exposes methods explicitly described as
+   pre-scheduler fallbacks and the E906 target implements them. Decide whether
+   this is a supported exception and align the authoritative contract. Evidence:
+   `docs/tier2_contracts/HAL_INTERFACES.md:9-13`,
+   `include/abstractx/hal/i2c.hpp:514-527`, and
+   `targets/allwinner_e906/src/i2c.cpp:249-300`.
 
 ## Manual checklist answers
 
@@ -176,8 +209,9 @@ stressed performance or E906-to-Linux delivery latency.
 
 Reviewed the FreeRTOS host and app against `[SPEC-ARCH-15]` and
 `[SPEC-E906-RTOS-01..08]`, plus the prior platform and full-audit reviews.
-Findings R1–R7 above are evidence-based recommendations; R2 remains a candidate
-until fault injection. Prior open board checks for E906 SPI/UART/I2C and the
+Findings R1–R8 above are evidence-based recommendations; R2 is conditional on
+FreeRTOS timer creation/command failure and needs fault injection. Prior open
+board checks for E906 SPI/UART/I2C and the
 cross-target driver gaps are not closed by this audit.
 
 ### Concurrency
@@ -238,8 +272,9 @@ before deciding whether that difference can be reduced safely.
 ## Not checked
 
 - No full set of 42 board benchmark rows passed; 17 failed or produced no
-  result. The REPL self-test was not run because no RPMsg endpoints were
-  announced by the board's original firmware.
+  result. The REPL self-test ran after correcting the board profile and reported
+  22 PASS, 10 FAIL, 7 SKIP; sensor wiring and the status/trace failures remain
+  unresolved.
 - No FreeRTOS queue-full fault injection, host-side FreeRTOS runtime test, or
   randomized wake stress/model check.
 - Clang-tidy ran and passed after enabling the host compile database. Cppcheck,

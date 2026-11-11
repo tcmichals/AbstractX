@@ -349,7 +349,14 @@ flowchart TD
   checks the board is the Cubie A5E ([SPEC-AUDIT-13]), copies the suite, runs it under an overall time
   limit, fetches the JSON into `docs/verification/evidence/<YYYY-MM>/`, and with `--record` appends one
   `source: board` record (commit, dirty flag, firmware, counts) to the evidence ledger, so the matrix
-  sees board evidence without hand-copied steps. `--dry-run` prints the commands without a board.
+  sees board evidence without hand-copied steps. The time limit is enforced with Python's standard
+  library so the runner does not depend on a `timeout` executable on the board. `--dry-run` prints
+  the commands without a board.
+* **Requirement (test-target preflight)**: before copying or running tests, the runner verifies that
+  the live device tree reports `cubie-flight-stack-version = "1.6-e906"`, remoteproc0 is `running`,
+  and its resolved firmware is `e906_repl_app.elf`. If any check fails or cannot be read, it exits
+  with status 2 and an explicit reason without changing board state. A board model check alone is
+  insufficient: the wrong overlay or firmware can make a real-board suite skip its E906 checks.
 * **Verified by**: `e906-board-selftest`, `host-tests` (`tests/test_board_suite_local.py`: decoders and runner, off-board; `tests/test_run_e906_board_suite.py`: file list, record, dry run)
 * **Implementation Target**: `tests/board/`, `tools/abstractx_wire.py`, `tools/run_e906_board_suite.py`
 

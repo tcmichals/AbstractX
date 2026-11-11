@@ -25,6 +25,8 @@ from trac_lib import ledger  # noqa: E402
 
 REMOTE_DIR = "/root/abstractx_board_tests"
 REMOTE_JSON = "/tmp/e906_selftest.json"
+EXPECTED_DT_VERSION = "1.6-e906"
+EXPECTED_FIRMWARE = "e906_repl_app.elf"
 # The files the board suite imports (the e906-board-selftest skill's list)
 SUITE_FILES = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests/board").glob("*.py")) + [
     "tools/abstractx_wire.py", "tools/e906_rpmsg_bridge.py", "tools/visualizer/runtime_stats.py",
@@ -37,12 +39,56 @@ SUITE_FILES = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests/board").gl
 # @impl [SPEC-E906-REPL-15] apps/e906_repl_app/SPECIFICATION.md (one command: copy and run)
 def commands(ip: str, selector: str, timeout_s: int) -> list[list[str]]:
     target = f"root@{ip}"
-    run = f"cd {REMOTE_DIR} && timeout {timeout_s} python3 run_board_tests.py --json {REMOTE_JSON}"
+    test_args = ["python3", "run_board_tests.py", "--json", REMOTE_JSON]
     if selector:
-        run += f" -k {shlex.quote(selector)}"
+        test_args += ["-k", selector]
+    python_runner = f"import subprocess,sys; sys.exit(subprocess.run({test_args!r}, timeout={timeout_s}).returncode)"
+    run = f"cd {REMOTE_DIR} && python3 -c {shlex.quote(python_runner)}"
     return [["ssh", target, f"mkdir -p {REMOTE_DIR}"],
             ["scp", "-O", *SUITE_FILES, f"{target}:{REMOTE_DIR}/"],
             ["ssh", target, run]]
+
+
+# @impl [SPEC-E906-REPL-15] apps/e906_repl_app/SPECIFICATION.md (test-target preflight)
+def validate_test_setup(output: str) -> list[str]:
+    values = {}
+    for line in output.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            values[key] = value.strip()
+    errors = []
+    if values.get("tree") != EXPECTED_DT_VERSION:
+        errors.append(f"device tree is {values.get('tree') or 'unreadable'}, expected {EXPECTED_DT_VERSION}")
+    if values.get("state") != "running":
+        errors.append(f"remoteproc0 state is {values.get('state') or 'unreadable'}, expected running")
+    firmware = os.path.basename(values.get("resolved") or values.get("firmware") or "")
+    if firmware != EXPECTED_FIRMWARE:
+        errors.append(f"remoteproc0 firmware resolves to {firmware or 'unreadable'}, expected {EXPECTED_FIRMWARE}")
+    return errors
+
+
+def require_e906_test_setup(ip: str) -> None:
+    probe = (
+        "set -eu; "
+        "tree=$(tr -d '\\000' </proc/device-tree/cubie-flight-stack-version); "
+        "state=$(cat /sys/class/remoteproc/remoteproc0/state); "
+        "firmware=$(cat /sys/class/remoteproc/remoteproc0/firmware); "
+        "resolved=$(readlink -f \"/lib/firmware/$firmware\" || true); "
+        "printf 'tree=%s\\nstate=%s\\nfirmware=%s\\nresolved=%s\\n' "
+        "\"$tree\" \"$state\" \"$firmware\" \"$resolved\""
+    )
+    result = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", f"root@{ip}", probe],
+        capture_output=True, text=True, timeout=15)
+    if result.returncode != 0:
+        reason = result.stderr.strip() or f"remote preflight exited {result.returncode}"
+        print(f"could not run: cannot verify E906 test setup: {reason}", file=sys.stderr)
+        raise SystemExit(2)
+    errors = validate_test_setup(result.stdout)
+    if errors:
+        print("could not run: E906 board setup mismatch: " + "; ".join(errors), file=sys.stderr)
+        print(f"load dtoverlay=cubie-a5e-flight-stack-e906 and {EXPECTED_FIRMWARE}, then reboot", file=sys.stderr)
+        raise SystemExit(2)
 
 
 # @impl [SPEC-E906-REPL-15] apps/e906_repl_app/SPECIFICATION.md (one command: ledger record)
@@ -80,6 +126,7 @@ def main(argv=None) -> int:
             print(" ".join(shlex.quote(x) for x in c))
         return 0
     board_target.require_a5e(ip)                       # [SPEC-AUDIT-13] right board
+    require_e906_test_setup(ip)
     for c in cmds[:2]:
         subprocess.run(c, check=True, timeout=120)
     rc = subprocess.run(cmds[2], timeout=a.timeout + 60).returncode

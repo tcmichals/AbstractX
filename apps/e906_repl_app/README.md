@@ -613,7 +613,7 @@ microcom -p /dev/rpmsg0
 ### A. Build the E906 Firmware Binary
 ```bash
 # Cross-compile for XuanTie E906 coprocessor
-cmake -S . -B build_e906 -DABSTRACTX_TARGET=allwinner_e906
+cmake -S . -B build_e906 -DABSTRACTX_TARGET=e906
 cmake --build build_e906 --target e906_repl_app
 ```
 
