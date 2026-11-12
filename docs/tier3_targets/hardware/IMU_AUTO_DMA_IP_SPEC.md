@@ -2,6 +2,9 @@
 
 > **Retired (2026-11-05)**: `asp_imu_auto_dma` was removed with the other dedicated cores ([SPEC-TLP-07]); the
 > IMU is read by a PIO program (pio2 `src/programs/imu_spi_burst.pio`). Kept as history.
+> **Update (2026-11-11, project owner, flight `[SPEC-FLIGHT-08]`)**: the PIO program applies to the Zynq-7020
+> only. On the Tang Nano and other non-Zynq FPGAs the IMU is read by the IMU auto-DMA core of
+> [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga), whose spec is the current one; this file stays history.
 
 
 This document details the hardware architecture, register map, operational workflow, simulation model, and iNav/Betaflight driver alignment for the **AbstractX IMU SPI Master & Auto-DMA IP Core**.

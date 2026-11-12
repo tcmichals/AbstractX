@@ -75,9 +75,10 @@ Drivers take these from `targets/allwinner_e906/include/hal/ports.hpp` ([SPEC-HA
 ---
 
 ## 5. QMTECH / Gowin / Zynq FPGA (Hardware X-Fabric)
+* **Which FPGA uses what** (owner decision 2026-11-11, flight `[SPEC-FLIGHT-08]`): the rest of this section is the QMTech Zynq-7020 fabric (pio2, AXI4-Lite). Gowin parts (Tang Nano 9K / 20K) and any other non-Zynq FPGA use the Wishbone framework in [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (TLP router, `asp_wishbone_master`, fixed-function cores, SPI front end); its register maps are there.
 
 * **Switch Fabric**: `asp_router.sv` — Full 64-byte TLP crossbar switch routing frames across CPU bus and DIO lines.
 * **Bus Interfaces**:
   * **Data Plane**: AXI-Stream (`tdata[63:0]`, `tvalid`, `tready`, `tlast`).
-  * **Control Plane**: AXI4-Lite (control TLPs -> `asp_tlp_axil_master` -> `axil_crossbar`; system registers `0x400000xx`, PIO tile `0x400007xx`-`0x400008xx`, else DECERR). No Wishbone since 2026-11-05.
+  * **Control Plane**: AXI4-Lite (control TLPs -> `asp_tlp_axil_master` -> `axil_crossbar`; system registers `0x400000xx`, PIO tile `0x400007xx`-`0x400008xx`, else DECERR). No Wishbone in this fabric since 2026-11-05 (the non-Zynq abstractx-fpga fabric is Wishbone).
   * **TLP Framing**: Strict 64-byte framing (`asp_tlp64_t`, `alignas(64)`), exactly 40-byte payload. Header and register values little-endian; sensor / stream data in the sensor's own byte order, PIO FIFO words MSB first (`TLP_BUS_SPECIFICATION.md` §1.0, [SPEC-TLP-01]).

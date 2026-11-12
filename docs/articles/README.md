@@ -12,9 +12,11 @@ drives a sensor bus.** `spidev`, `i2c-dev` and per-sample GPIO interrupts are sl
 processor or fabric dedicated to I/O owns SPI, I2C, UART, DShot and PWM, starts each transfer from the
 sensor's own trigger with DMA, and runs the fast loop where the samples land. Linux (or the other MCU
 core) sees fused state, telemetry and trace through rings in shared memory, in blocks, never per
-sample, with no custom kernel driver. On FPGAs the accelerator is 100% PIO (pio2).
+sample, with no custom kernel driver. On the Zynq-7020 the accelerator is the pio2 PIO tile; on the
+Tang Nano and other small FPGAs it is fixed-function Wishbone cores from
+[abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (owner decision 2026-11-11: pio2 does not fit them).
 
-![AbstractX accelerator split: sensors and actuators are driven only by an I/O accelerator per platform (Pico 2 W core 0, an ESP32-P4 core, the XuanTie E906, pio2 on Zynq or Tang Nano), which hands results through rings to Core 1, the app core, Linux or the SPI-link host; only the E906 path is built and measured today](assets/abstractx-accelerator-split.svg)
+![AbstractX accelerator split: sensors and actuators are driven only by an I/O accelerator per platform (Pico 2 W core 0, an ESP32-P4 core, the XuanTie E906, pio2 on the Zynq, Wishbone cores on the Tang Nano), which hands results through rings to Core 1, the app core, Linux or the SPI-link host; only the E906 path is built and measured today](assets/abstractx-accelerator-split.svg)
 
 Today only the E906 path is built and measured (DRDY edge -> DMA started ~6 µs, edge -> consumer
 coroutine ~31 µs average, Part 6). Where an article uses Linux `spidev`, it is either bring-up

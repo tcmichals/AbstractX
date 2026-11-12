@@ -77,8 +77,8 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
   | Pico 2 W (RP2350) | Core 1 drivers + DMA + IRQs, beside the coroutines (`[SPEC-ARCH-05]`) | Core 1 coroutines; Wi-Fi alone on Core 0 |
   | ESP32-P4 | one HP core dedicated to I/O + GDMA | the other core |
   | Cubie A5E | XuanTie E906 (`[SPEC-E906-HAL-05]`) | Linux over RPMsg |
-  | Zynq-7000 | pio2 in the PL (100% PIO, `[SPEC-ZYNQ-07]`); an RT A9 core polls the IMU ring | Linux over UIO rings |
-  | Tang Nano + external host | pio2 in the FPGA, host = Pico or E906 over the SPI link | that host |
+  | Zynq-7000 | pio2 in the PL (all-PIO, `[SPEC-ZYNQ-07]`); an RT A9 core polls the IMU ring | Linux over UIO rings |
+  | Tang Nano + external host | fixed-function Wishbone cores from [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (2026-11-11, flight `[SPEC-FLIGHT-08]`: pio2 does not fit), host = Pico or E906 over the SPI link | that host |
 
 * **Requirement**: drivers are written for this split: the bus transfer, its DMA and its trigger
   (DRDY edge, timer) run on the I/O side and complete into a ring; the consumer on the other side
@@ -643,6 +643,11 @@ sequenceDiagram
 ### `[SPEC-TLP-04]` Control TLPs to AXI4-Lite, With Bursts (No Wishbone)
 * **Decision (project owner, 2026-11-05)**: there is no Wishbone in AbstractX. Registers are AXI4-Lite,
   data is AXI-Stream; pio2 is AXI-only as well.
+* **Scope (project owner, 2026-11-11, flight `[SPEC-FLIGHT-08]`)**: this applies to the pio2 fabric, which
+  is used only on the QMTech Zynq-7020. The Tang Nano 9K / 20K and every other non-Zynq FPGA use the
+  Wishbone framework in [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (64-byte TLP router,
+  `asp_wishbone_master`, fixed-function cores), because pio2 does not fit the small parts; their control
+  plane is specified there, not here.
 * **Requirement**: `asp_tlp_axil_master` turns a CONTROL TLP into AXI4-Lite transactions on consecutive
   word addresses from `target_address`: `MemWrite` (`0x02`) writes `length_dw = N` words (1..9; 0 is
   treated as 1, above 9 is clipped to 9), `MemRead` (`0x01`) reads N words and answers with one `CplD`
@@ -736,6 +741,15 @@ sequenceDiagram
   `rtl/asp_pio_wrap.sv`
 
 ### `[SPEC-TLP-07]` `asp_top` Is All-PIO: Link, Router, Control, System Registers, PIO Tile
+* **Scope (project owner, 2026-11-11, flight `[SPEC-FLIGHT-08]`)**: all-PIO is the Zynq-7020 design
+  (`top_qmtech_zynq7020.sv` shares `asp_router`, `asp_ctrl_plane`, `asp_pio_wrap` and `asp_pio_pins`).
+  pio2 does not fit the small FPGAs, so the Tang Nano 9K / 20K, Tang Primer 20K, CYC1000 and any other
+  non-Zynq part use the Wishbone framework in
+  [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (DShot, IMU auto-DMA, PWM decode, UART,
+  NeoPixel and system blocks behind its own TLP router and SPI front end; simulation only so far). The
+  SPI-link `asp_top`, `rtl/spi/` and the non-Zynq board tops in `hw/` are superseded by abstractx-fpga and
+  are kept, with their tests, until the owner approves their removal. The removal of the dedicated cores
+  below is final for this repository only; abstractx-fpga carries its own versions.
 * **Decision (project owner, 2026-11-05)**: the dedicated cores are removed from every top:
   `asp_dshot_core`, `asp_pwm_decoder`, `asp_neopixel_core`, `asp_uart_core`, `asp_imu_auto_dma`, and the
   unused `asp_axi_dma` and `asp_ila_trace`. pio2 `[SPEC-PIO-*]` migration rule asks for a PIO program with
@@ -1267,7 +1281,7 @@ requests ([SPEC-HAL-07]) works on every target because it lives in the shared dr
   The ODR is a parameter (`GYRO_CONFIG0`/`ACCEL_CONFIG0` bits [3:0]: `0x3` = 8 kHz, `0x6` = 1 kHz), the same value for gyro and accel.
 * **DRDY interrupt**: `init_async()` checks WHO_AM_I = `0x47` and fails otherwise, then sets `INT_CONFIG` (`0x14`) = `0x03` (INT1 pulsed, push-pull, active high), `INT_CONFIG0` (`0x63`) = `0x20` (DRDY cleared by the sensor data read), `INT_CONFIG1` (`0x64`) = `0x00` below 4 kHz (100 µs pulse, `INT_ASYNC_RESET` = 0) and `0x60` at 4 kHz and above (`INT_TPULSE_DURATION` = 1: 8 µs pulse, `INT_TDEASSERT_DISABLE` = 1; the datasheet requires both for ODR >= 4 kHz, since a 100 µs pulse plus a 100 µs de-assert is longer than the 125 µs period at 8 kHz) and `INT_SOURCE0` (`0x65`) = `0x08` (UI_DRDY to INT1), and returns false if any write fails.
   `0x20` is chosen so the 15-byte burst read (the auto-DMA) clears DRDY and no status read is needed. Measured 2026-10-29 on the Cubie A5E with these settings at 1 kHz: PI8 was high in 15 of 300 Linux `devmem` samples while the E906 read in a loop, and CLIC line 100 pended again after the next sample. The pulse rate and the default (clear-on-status-read) behaviour are not measured yet. 2026-11-03 Pico 2 W at 8 kHz with `0x00`: GP20 never went high (3000 SWD samples, rising-edge latch never set) while register polling worked; whether `0x60` alone fixes it is recorded in `engineering_log.md`.
-* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`). The FPGA auto-read core and its test (was `sim/cocotb/test_asp_imu_auto_dma_cocotb.py`) were removed 2026-11-05 ([SPEC-TLP-07]); on the FPGA a PIO program does the auto-read.
+* **Verified by**: `host-tests` (`tests/test_sitl_imu.cpp`). The FPGA auto-read core and its test (was `sim/cocotb/test_asp_imu_auto_dma_cocotb.py`) were removed 2026-11-05 ([SPEC-TLP-07]); on the Zynq a PIO program does the auto-read, on the Tang Nano / other FPGAs the IMU auto-DMA core in [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (2026-11-11, flight `[SPEC-FLIGHT-08]`).
 * **Implementation Target**: `applib/include/applib/drivers/imu/icm42688p.hpp`
 
 ### `[SPEC-IMU-02]` ICM-42688-P Coroutine Awaiter

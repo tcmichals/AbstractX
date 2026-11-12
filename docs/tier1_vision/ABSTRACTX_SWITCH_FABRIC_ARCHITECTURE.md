@@ -3,6 +3,13 @@
 > **Superseded in part (2026-11-05)**: there is no Wishbone and there are no dedicated peripheral cores in
 > the FPGA any more. Control is AXI4-Lite ([SPEC-TLP-04]), data is AXI-Stream, peripherals are PIO programs
 > ([SPEC-TLP-07]); see `docs/DESIGN_SPECIFICATION.md`. Text below that says otherwise describes the old design.
+>
+> **Update (2026-11-11, project owner, flight `[SPEC-FLIGHT-08]`)**: the note above holds for the QMTech
+> Zynq-7020 only (pio2). pio2 does not fit the small FPGAs, so the Tang Nano 9K / 20K and every other
+> non-Zynq FPGA use Wishbone and fixed-function cores again, in the separate repository
+> [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (TLP router, `asp_wishbone_master`, DShot /
+> IMU auto-DMA / PWM decode / UART / NeoPixel / system blocks, SPI front end; simulation only so far). For
+> those boards the current design is specified there, not here.
 
 
 This document defines the internal hardware architecture for the AbstractX switch fabric operating under the **PCIe-like 64-Byte TLP Profile (`asp-tlp-64b`)**.

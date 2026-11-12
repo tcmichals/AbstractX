@@ -103,6 +103,11 @@ CONTROL TLPs (channel `0x01`) become AXI4-Lite transactions (`asp_tlp_axil_maste
 The dedicated IMU, DShot, PWM, NeoPixel and UART cores were removed ([SPEC-TLP-07]); PIO programs do
 their work, and every non-control channel goes to the PIO tile.
 
+This map is the Zynq-7020 (pio2) fabric. Since 2026-11-11 (project owner, flight `[SPEC-FLIGHT-08]`) the Tang
+Nano 9K / 20K and other non-Zynq FPGAs use the Wishbone fabric of
+[abstractx-fpga](https://github.com/tcmichals/abstractx-fpga), whose register map (with fixed-function
+cores) is defined there; the TLP framing in section 1 is shared.
+
 --- | :--- | :--- |
 | `0x40000000 - 0x40000014` | **System ID & Central Timer** | Device ID (`0xABF10164`), Monotonic 64-bit nanosecond timer. |
 | `0x40000100 - 0x400001FF` | **IMU Auto-DMA Core** | Auto-DMA trigger config, SPI clock divisor, sample buffer. |

@@ -149,8 +149,9 @@ Task<void> imu_acquisition_task(hal::ISpi& spi, hal::ITimer& timer) {
   pio2's logic size does not fit the small parts, so the Tang Nano 9K / 20K (and any FPGA other than the Zynq) use
   small fixed-function blocks (DShot, IMU auto-DMA, PWM decode, UART, NeoPixel, system registers) behind a 64-byte
   TLP router and a Wishbone master, reached over SPI. That framework lives in its own repository (simulation only so
-  far). The Zynq top here stays all-PIO with an AXI4-Lite control plane (`[SPEC-TLP-07]`); this repository's specs
-  for the Tang targets still describe the all-PIO plan until they are updated (`TODO.md`).
+  far). The Zynq top here stays all-PIO with an AXI4-Lite control plane (`[SPEC-TLP-07]`). This repository's
+  SPI-link `asp_top` and Tang / Primer / CYC1000 board tops are marked superseded by abstractx-fpga in their specs
+  and are kept until the owner approves removing them (`TODO.md`).
 * **Nanosecond Hardware Timestamps**: Physical DIO edge triggers latch 64-bit nanosecond hardware timestamps directly into packet headers for end-to-end timing verification.
 
 ---

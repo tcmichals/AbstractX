@@ -43,7 +43,7 @@ Defines the permanent, non-negotiable laws and execution models of the AbstractX
 3. **[`tier1_vision/PORTABLE_FLIGHT_STACK_ARCHITECTURE.md`](tier1_vision/PORTABLE_FLIGHT_STACK_ARCHITECTURE.md)**  
    *Why*: Silicon offloader architecture detailing hardware offload mechanisms across silicon targets.
 4. **[`tier1_vision/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`](tier1_vision/ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md)**  
-   *Why*: Parallel vector router fabric and AXI4-Lite control plane (no Wishbone since 2026-11-05).
+   *Why*: Parallel vector router fabric and AXI4-Lite control plane of the Zynq (pio2) fabric (no Wishbone there since 2026-11-05; the Tang Nano / non-Zynq FPGAs use the Wishbone fabric of [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga), 2026-11-11).
 5. **[`tier1_vision/PROMPT_MARKDOWN_DRIVEN_ARCHITECTURE.md`](tier1_vision/PROMPT_MARKDOWN_DRIVEN_ARCHITECTURE.md)**  
    *Why*: Principles and rules for specification-driven development.
 6. **[`tier1_vision/historical/`](tier1_vision/historical/)**  

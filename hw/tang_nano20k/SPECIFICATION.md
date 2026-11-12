@@ -5,6 +5,16 @@ with the Radxa Cubie A5E on the bench. The **QMTech Zynq-7020 is the full
 AbstractX platform** ([`hw/zynq7000/qmtech_zynq7020/SPECIFICATION.md`](../zynq7000/qmtech_zynq7020/SPECIFICATION.md));
 this target runs the same `asp_top` fabric over a serial link instead of AXI.
 
+> **Superseded (project owner, 2026-11-11, flight `[SPEC-FLIGHT-08]`)**: pio2 is used only on the
+> QMTech Zynq-7020. pio2 does not fit the small FPGAs, so the Tang Nano 9K / 20K (and the Tang Primer
+> 20K, the CYC1000 and any other non-Zynq FPGA) use the Wishbone framework in
+> [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga): 64-byte TLP router,
+> `asp_wishbone_master`, DShot / IMU auto-DMA / PWM decode / UART / NeoPixel / system blocks and its SPI
+> front end (simulation only so far). The FPGA side of this target is specified there. The all-PIO
+> feature set in [SPEC-TN20K-03] and the board tops `hw/tang_nano20k/`, `hw/tang9k/`, `hw/primer20k/`,
+> `hw/cyc1000/` are kept for reference and are pending removal with the owner's approval. Section 1
+> (the A5E side of the link) still applies.
+
 Section 1 is the A5E ↔ FPGA link and does not depend on the FPGA board (it also
 applies to the Trenz CYC1000 in
 [`docs/tier3_targets/hardware/CUBIE_A5E_CYC1000_INTEGRATION.md`](../../docs/tier3_targets/hardware/CUBIE_A5E_CYC1000_INTEGRATION.md)
@@ -103,6 +113,9 @@ not guessed.
 * **Verified by**: `fpga-build`, `rtl-lint`. **Status**: not written.
 
 ### `[SPEC-TN20K-03]` Feature Set and Resource Budget
+* **Superseded 2026-11-11** (see the note at the top): the Tang Nano 20K feature set is the
+  abstractx-fpga one (fixed-function Wishbone cores); the all-PIO table below is the plan of
+  2026-11-05, kept until the owner approves removing it.
 * **Feature set** (decided 2026-10-14, all-PIO since 2026-11-05, [SPEC-TLP-07]):
 
   | Function | Count | Implemented by | Notes |

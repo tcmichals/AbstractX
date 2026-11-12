@@ -236,6 +236,10 @@ configuration:
   (`rtl/pio`, RP2040/RP2350 PIO ISA) and pio2's own interconnect (AXI4-Lite registers, event
   FIFO, DMA engine and rings, trace; `rtl/pio/docs/INTERCONNECT_SPECIFICATION.md`). No other
   peripheral IP: serial, DShot, PWM, NeoPixel and SPI sensors are PIO programs.
+* **Scope (project owner, 2026-11-11, flight `[SPEC-FLIGHT-08]`)**: "the FPGA" here is the Zynq-7020 PL
+  only; this decision stays as it is for the Zynq. pio2 does not fit the small FPGAs, so the Tang Nano
+  9K / 20K and every other non-Zynq FPGA use the Wishbone fixed-function cores of
+  [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) instead.
 * **Decision (2026-10-30)**: traffic is split by shape, not by device.
   * **Small messages** (commands, register reads and writes, one IMU sample) go through pio2
     channel 0 (addressed register access) and the PIO TX/RX FIFOs; A9 -> PL as posted writes over
@@ -272,7 +276,8 @@ configuration:
   for streams (`generic-uio`, uncached carveout). The Xilinx AXI MCDMA plan is dropped. As of pio2
   `89fc1b6` (the submodule pin) `pio2_zynq_adapter` / `pio2_ring_dma` are specified, not yet in RTL.
 * **Done (2026-11-05, `73631b0`)**: the fixed-function cores and `asp_axi_dma.sv` are removed; both tops
-  are all-PIO ([SPEC-TLP-07]).
+  are all-PIO ([SPEC-TLP-07]). (2026-11-11: the SPI-link `asp_top` used by the non-Zynq boards is
+  superseded by abstractx-fpga, which has its own fixed-function cores; see [SPEC-TLP-07] scope.)
 * **Verified by**: `cocotb-regression`, `board-bringup`
 * **Implementation Target**: `rtl/pio/`, `rtl/asp_pio_wrap.sv`, `hw/zynq7000/qmtech_zynq7020/rtl/top_qmtech_zynq7020.sv`, `targets/zynq7000/`
 * **Not implemented yet**: decided 2026-10-30; UART PIO program, DMA path choice and endpoint mapping are open (`TODO.md` section 2a).

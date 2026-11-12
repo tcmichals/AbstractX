@@ -12,6 +12,8 @@ Decisions: the TLP is always little-endian (byte k at bits [8k+7:8k], fields LE)
 (pio2 is already AXI-only); motor failsafe = whatever is easiest (plan: fixed gate on the motor pins);
 commit, do not push. Every sim and build runs under `timeout` (60 s per sim; synthesis only with the
 owner's OK).
+Scope since 2026-11-11 (flight `[SPEC-FLIGHT-08]`): this section is the Zynq-7020 (pio2) fabric; the Tang Nano
+and other non-Zynq FPGAs use Wishbone in abstractx-fpga (see "FPGA I/O split" below).
 
 - [x] **A. Remove the old cores, all-PIO `asp_top`** ([SPEC-TLP-07], done 2026-11-05):
   cores and their tests deleted; router = CONTROL -> registers, every other channel -> PIO tile, egress
@@ -49,7 +51,7 @@ owner's OK).
   registered-read BRAM without a head register). Measure one SM again (< 1 min) before a full fit.
   Note: new pio2 commits stay local (no push), so an AbstractX pin to them does not resolve on a clone until
   pio2 is pushed first.
-- [ ] **E. Tang Nano 20K fit** (`[SPEC-TN20K-03]`): was LUT4 95 %, no placement, with the old cores in;
+- [ ] **E. Tang Nano 20K fit** (`[SPEC-TN20K-03]`; 2026-11-11: superseded for the Tang, which moves to abstractx-fpga, see "FPGA I/O split"): was LUT4 95 %, no placement, with the old cores in;
   re-measure after A-D (`make tang_nano20k_fit`, minutes: owner OK given); Tang 9K / Primer 20K too.
 - [ ] **F. Later (owner decision)**: `pio2_core` with its SPI link / Zynq adapter replaces the TLP path on
   the FPGA (pio2 `[SPEC-ICN-11]`); changes the C++ host side.
@@ -450,4 +452,7 @@ Target execution follows a 3-stage validation progression:
 - [x] **Milestone 2**: QMTECH Zynq-7020 Bring-up Pivot & Early Bitstreams (2026-08-10)
 - [x] **Milestone 1**: Initial Project Setup, Dual-License Model, and AXIS Pipeline Migration (2026-04-19)
 
-- [ ] **FPGA I/O split (owner decision 2026-11-11):** pio2 only on the Zynq-7020; every other FPGA (Tang Nano 9K / 20K) goes back to the fixed-function cores on Wishbone (`asp_dshot_core`, `asp_uart_core`, `asp_imu_auto_dma`, `asp_neopixel_core`, `asp_pwm_decoder`; removed 2026-11-05) because pio2's logic size does not fit. The Wishbone stack lives in the separate repo `abstractx-fpga` (github tcmichals/abstractx-fpga: TLP router, Wishbone master, DShot/IMU-DMA/PWM/UART/NeoPixel/sys blocks, SPI front end; simulation only). README updated; still to do here: point the Tang/hw specs and `[SPEC-TLP-07]` at abstractx-fpga instead of pio2, update the accelerator-split SVG (still shows pio2 on the Tang Nano) and the rtl README; Tang fit/timing is tracked in abstractx-fpga.
+- [ ] **FPGA I/O split (owner decision 2026-11-11, flight `[SPEC-FLIGHT-08]`):** pio2 only on the Zynq-7020 (AXI4-Lite, pio2 DMA over HP0, [SPEC-ZYNQ-07]); every other FPGA (Tang Nano 9K / 20K, Primer 20K, CYC1000) uses the Wishbone framework in [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga) (TLP router, `asp_wishbone_master`, DShot / IMU auto-DMA / PWM decode / UART / NeoPixel / sys blocks, SPI front end; simulation only) because pio2's logic size does not fit.
+  - [x] Docs and specs aligned (2026-11-11, no file deleted): README; `AGENTS.md` section 11 (scope of "No Wishbone", which FPGA uses what) and section 6 item 4; `.agents/rules/silicon-api-atlas.md` section 5; `[SPEC-TLP-04]`, `[SPEC-TLP-07]` scope notes, the `[SPEC-ARCH-14]` platform table and the ICM-42688-P note in `docs/DESIGN_SPECIFICATION.md`; `[SPEC-ZYNQ-07]` scope ("the FPGA" = Zynq PL); `hw/tang_nano20k/SPECIFICATION.md` superseded banner and `[SPEC-TN20K-03]`; `TLP_BUS_SPECIFICATION.md` section 2; the 2026-11-05 "superseded in part" notes in `FCPROTOCOL_SPECIFICATION.md`, `ASP_SPI_TRANSPORT.md`, `ASP_PROTOCOL.md`, `ABSTRACTX_SWITCH_FABRIC_ARCHITECTURE.md`; `IMU_AUTO_DMA_IP_SPEC.md`; `AbstractX.md`; `docs/README.md`; `docs/articles/README.md`; `rtl/README.md` (generator `tools/spec_to_doc.py`); the accelerator-split SVG regenerated from its `.diagram.yaml` (Tang Nano box = Wishbone cores, abstractx-fpga; Zynq box = pio2).
+  - [ ] **Owner decision**: delete the superseded non-Zynq RTL here (`rtl/asp_top.sv`, `rtl/spi/`, `hw/tang9k`, `hw/tang_nano20k`, `hw/primer20k`, `hw/cyc1000`, `hw/common/gowin_synth.tcl`, the Gowin targets in `hw/Makefile`, their cocotb tests such as `test_asp_top_pio_cocotb.py`, and the Tang spec) once abstractx-fpga replaces them. Until then they are kept, marked superseded, and not extended. Items 0.E0 (GPIO width 24 on Tang) and 0.E (Tang Nano 20K fit) no longer apply to the Tang under this decision; Tang fit / timing is tracked in abstractx-fpga.
+  - [ ] Still stale, not part of this pass: Wishbone mentions for the Zynq in `hw/zynq7000/DEVICE_TREE_CONFIGURATION.md` (line 71) and `hw/zynq7000/qmtech_zynq7020/README.md` (Zynq has no Wishbone since 2026-11-05); `rtl/README.md` says an unmapped access returns data 0 while [SPEC-TLP-07] says DECERR.
