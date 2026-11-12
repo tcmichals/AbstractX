@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794441059212,
+  "lastUpdate": 1794442417965,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -13514,6 +13514,445 @@ window.BENCHMARK_DATA = {
           "url": "https://github.com/tcmichals/AbstractX/commit/a9fa68a76712a55d7fe3c3be69e181f78b576778"
         },
         "date": 1794441058223,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 45393,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 424,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 outside_budget_bytes",
+            "value": 18010,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 130955,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 103148,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench bss",
+            "value": 45685,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench data",
+            "value": 344,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench outside_budget_bytes",
+            "value": 17954,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench ram_bytes",
+            "value": 115701,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench text",
+            "value": 87626,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos bss",
+            "value": 59557,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos data",
+            "value": 352,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos outside_budget_bytes",
+            "value": 18010,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos ram_bytes",
+            "value": 136151,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos text",
+            "value": 94252,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl bss",
+            "value": 47316,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl data",
+            "value": 476,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl outside_budget_bytes",
+            "value": 118430,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl ram_bytes",
+            "value": 114258,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl text",
+            "value": 184896,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback bss",
+            "value": 75256,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback data",
+            "value": 296,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback outside_budget_bytes",
+            "value": 17732,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback ram_bytes",
+            "value": 119698,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback text",
+            "value": 61878,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests bss",
+            "value": 20660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests data",
+            "value": 196,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests outside_budget_bytes",
+            "value": 4992,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests ram_bytes",
+            "value": 46000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests text",
+            "value": 30136,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 172868,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 7180,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 405464,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 180048,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 398284,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback bss",
+            "value": 198968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback data",
+            "value": 6024,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback flash_bytes",
+            "value": 363972,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback ram_bytes",
+            "value": 204992,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback text",
+            "value": 357948,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests bss",
+            "value": 5200,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests data",
+            "value": 9996,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests flash_bytes",
+            "value": 20336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests ram_bytes",
+            "value": 15196,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests text",
+            "value": 10340,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "e88f911619158b3402cafcc97865482db0ae98da",
+          "message": "docs: pio2 on the Zynq only, Tang Nano and other FPGAs use abstractx-fpga [SPEC-TLP-07]\n\nOwner decision 2026-11-11 (flight [SPEC-FLIGHT-08], flight 20347da): pio2 is\nused only on the QMTech Zynq-7020 (AXI4-Lite, pio2 DMA over HP0,\n[SPEC-ZYNQ-07]). The Tang Nano 9K / 20K and every other non-Zynq FPGA use the\nWishbone framework in github.com/tcmichals/abstractx-fpga, because pio2 does\nnot fit the small parts.\n\nDocumentation and specs only, nothing deleted, rtl/pio pin unchanged:\n- AGENTS.md section 11: \"No Wishbone\" scoped to this repository's RTL, new\n  \"which FPGA uses what\" rule (superseded non-Zynq RTL kept, not extended);\n  section 6 item 4.\n- [SPEC-TLP-04], [SPEC-TLP-07] scope notes; [SPEC-ARCH-14] platform table;\n  [SPEC-IMU-01] verified-by note; [SPEC-ZYNQ-07] scope (\"the FPGA\" = Zynq PL);\n  [SPEC-TN20K-03] and a superseded banner in hw/tang_nano20k/SPECIFICATION.md.\n- TLP_BUS_SPECIFICATION section 2, the 2026-11-05 notes in FCPROTOCOL,\n  ASP_SPI_TRANSPORT, ASP_PROTOCOL, SWITCH_FABRIC_ARCHITECTURE,\n  IMU_AUTO_DMA_IP_SPEC, AbstractX.md, docs/README, articles/README,\n  silicon-api-atlas rule, README status line.\n- rtl/README.md scope note via its generator tools/spec_to_doc.py.\n- Accelerator-split SVG regenerated from its .diagram.yaml (Tang Nano box:\n  Wishbone cores, abstractx-fpga; Zynq box: pio2).\n- TODO: FPGA I/O split item (done / owner decision to delete / still stale).\n\nChecks run:\n- python3 tools/audit_specs.py: exit 0 (255 requirements, 0 untagged)\n- python3 tools/spec_to_doc.py --target rtl --check: OK\n- python3 tools/render_diagrams.py --check: OK (0 problems); SVG parses as XML\n- python3 tools/spectrace_matrix.py --changes: exit 0, 0 untraced hunks\n- python3 tools/spectrace_matrix.py --check-skills: 27 skills, 0 problems\n- python3 tools/spectrace_matrix.py --check-verifies: 0 new\n- tools/rtl_lint.sh: 14/14 files clean\n- python3 tools/run_cocotb.py: 10/11 at the 60 s limit; sim-test-axil-master\n  timed out at 60 s, passes 4/4 with --only axil-master --timeout 300 (no RTL\n  changed; the target is slower than the 60 s budget on this PC)\n- python3 tools/spectrace.py --review --no-ai-prompt: Stages 1-5 pass, Stage 0\n  flags no Mermaid diagram in FCPROTOCOL_SPECIFICATION.md and\n  hw/tang_nano20k/SPECIFICATION.md (true before this change as well; flagged\n  now because the files were touched)\n\nNot run: fpga-fit (synthesis needs the owner's OK), host-tests / tools/gate.sh\n(no C++ or test changed), board-bringup (no board).",
+          "timestamp": "2026-11-11T18:07:44-06:00",
+          "tree_id": "aa28b591ea60bbcdfbf221dc7ff862f220687b51",
+          "url": "https://github.com/tcmichals/AbstractX/commit/e88f911619158b3402cafcc97865482db0ae98da"
+        },
+        "date": 1794442416933,
         "tool": "customSmallerIsBetter",
         "benches": [
           {
