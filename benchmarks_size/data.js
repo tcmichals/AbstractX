@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794668603603,
+  "lastUpdate": 1794669701021,
   "repoUrl": "https://github.com/tcmichals/AbstractX",
   "entries": {
     "AbstractX Static Size Metrics": [
@@ -15161,6 +15161,445 @@ window.BENCHMARK_DATA = {
           {
             "name": "elf:pico2w/serial_loopback text",
             "value": 357948,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests bss",
+            "value": 5200,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests data",
+            "value": 9996,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests flash_bytes",
+            "value": 20336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests ram_bytes",
+            "value": 15196,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/unit_tests text",
+            "value": 10340,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k alu_used",
+            "value": 1230,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_pct",
+            "value": 0,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bsram_used",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_pct",
+            "value": 4,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k bufg_used",
+            "value": 1,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_pct",
+            "value": 30,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k dff_used",
+            "value": 4759,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_pct",
+            "value": 7,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k iob_used",
+            "value": 27,
+            "unit": "bytes"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_pct",
+            "value": 22,
+            "unit": "%"
+          },
+          {
+            "name": "fpga-fit:tang_nano20k lut4_used",
+            "value": 4747,
+            "unit": "bytes"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "committer": {
+            "email": "tcmichals@gmail.com",
+            "name": "Tim Michals",
+            "username": "tcmichals"
+          },
+          "distinct": true,
+          "id": "001cef1b39379174d01d708fb5ce9ddcc3c121b7",
+          "message": "feat(pico): board and Wi-Fi are build options; pico2 and pico2w-nowifi presets [SPEC-PICO-CFG-01]\n\nabstractx_target_pico2w always linked CYW43 + lwIP and wrapped main, so it could not\nbuild for a Pico 2 and a Pico 2 W without its radio still gave Core 0 to Wi-Fi.\nABSTRACTX_PICO_WIFI (default: the board's PICO_CYW43_SUPPORTED) now selects it.\nWi-Fi off: no CYW43 / lwIP, no --wrap=main, app on Core 0, Core 1 free,\nplatform_init() starts stdio, no trace or telemetry transport. Wi-Fi on a board\nwithout the CYW43 is a configure error. New skill pico-build. SPEC-PICO-CORE-01 and\nSPEC-ARCH-05 are scoped to Wi-Fi on; AGENTS.md section 6 and the silicon atlas follow.\npico_sdk_import.cmake uses $ENV{HOME}, not a fixed home directory.\n\nEvidence (arm-none-eabi-gcc 15.2, Pico SDK 2.2.0):\n- python3 tools/check_pico_build.py -j4 -> 0 problems:\n    pico2w        serial_loopback_app / gps_imu_app: 130 network symbols, __wrap_main, 448912 / 502584 B\n    pico2w-nowifi serial_loopback_app / gps_imu_app: 0 network symbols, no __wrap_main, 124988 / 178420 B\n    pico2         the same as pico2w-nowifi\n    pico2 + ABSTRACTX_PICO_WIFI=ON refused at configure (rc=1)\n  arm-none-eabi-size serial_loopback_app text: 367612 (Wi-Fi on) -> 73680 (off).\n- The same check on the old target files: 6 problems (nowifi images with 130 network\n  symbols and __wrap_main; pico2 build failed; pico2 + Wi-Fi on accepted).\n- python3 tests/test_check_pico_build.py: 6 passed.\n- gate stages (RTL suites not re-run, no RTL change): plain 118/118, ASan/UBSan\n  118/118, TSan 118/118 (setarch -R), boundary review 30 / 0 without a note,\n  static analysis skipped (no clang-tidy).\n- track_memory_footprint.py --allow-missing: PASS; Pico heap is report-only and the\n  Wi-Fi-off image still links _sbrk / free (SDK), as the Wi-Fi-on image does.\n- spectrace_matrix: --check-skills 0 problems; --check-drift 0, 0 unknown tags;\n  --check-verifies 0 new.\n\nNot checked: a board run of a Wi-Fi-off image (board-bringup); the pico2w-debug\npreset; trace or telemetry over USB / UART with Wi-Fi off (not implemented).",
+          "timestamp": "2026-11-14T09:16:05-06:00",
+          "tree_id": "15249570d0fe11f0910ad0c2754e05be8a496e6a",
+          "url": "https://github.com/tcmichals/AbstractX/commit/001cef1b39379174d01d708fb5ce9ddcc3c121b7"
+        },
+        "date": 1794669700126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "elf:e906 bss",
+            "value": 45393,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 data",
+            "value": 424,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 outside_budget_bytes",
+            "value": 18010,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 ram_bytes",
+            "value": 130955,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906 text",
+            "value": 103148,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench bss",
+            "value": 45685,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench data",
+            "value": 344,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench outside_budget_bytes",
+            "value": 17954,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench ram_bytes",
+            "value": 115701,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/bench text",
+            "value": 87626,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug ram_bytes",
+            "value": 79898,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/debug text",
+            "value": 39566,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos bss",
+            "value": 59557,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos data",
+            "value": 352,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos outside_budget_bytes",
+            "value": 18010,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos ram_bytes",
+            "value": 136151,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/freertos text",
+            "value": 94252,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto bss",
+            "value": 41128,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto data",
+            "value": 336,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto ram_bytes",
+            "value": 101596,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/lto text",
+            "value": 60132,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release bss",
+            "value": 40000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release data",
+            "value": 332,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release ram_bytes",
+            "value": 92884,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/release text",
+            "value": 52552,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl bss",
+            "value": 47316,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl data",
+            "value": 476,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl outside_budget_bytes",
+            "value": 118430,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl ram_bytes",
+            "value": 114258,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/repl text",
+            "value": 184896,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback bss",
+            "value": 75256,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback data",
+            "value": 296,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback outside_budget_bytes",
+            "value": 17732,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback ram_bytes",
+            "value": 119698,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/serial_loopback text",
+            "value": 61878,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests bss",
+            "value": 20660,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests data",
+            "value": 196,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests outside_budget_bytes",
+            "value": 4992,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests ram_bytes",
+            "value": 46000,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:e906/unit_tests text",
+            "value": 30136,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host bss",
+            "value": 100796,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host data",
+            "value": 2676,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host flash_bytes",
+            "value": 0,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host ram_bytes",
+            "value": 250985,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:host text",
+            "value": 147513,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w bss",
+            "value": 172868,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w data",
+            "value": 7180,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w flash_bytes",
+            "value": 405472,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w ram_bytes",
+            "value": 180048,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w text",
+            "value": 398292,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback bss",
+            "value": 198968,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback data",
+            "value": 6024,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback flash_bytes",
+            "value": 363980,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback ram_bytes",
+            "value": 204992,
+            "unit": "bytes"
+          },
+          {
+            "name": "elf:pico2w/serial_loopback text",
+            "value": 357956,
             "unit": "bytes"
           },
           {
