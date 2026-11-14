@@ -143,8 +143,8 @@ public:
         return backend_.poll_events(timeout_ms);
     }
 
+    // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md (7: only start() sets running; a stop() before run() is kept)
     void run() override {
-        running_.store(true, std::memory_order_release);
         while (running_.load(std::memory_order_acquire)) {
             drain_egress();
             if (backend_.poll_events(0) == 0) backend_.idle_wait();
@@ -389,10 +389,12 @@ private:
         if (n > s.rx_len) n = s.rx_len;
         const auto data = std::span<const uint8_t>(s.rx, n);
         const uint16_t dur = static_cast<uint16_t>(r.duration_us > 0xFFFFU ? 0xFFFFU : r.duration_us);
-        emit(s.bus == BusType::Spi
-                 ? Tlp64::make_spi_cpl(s.tag, status, data, dur, r.timestamp_ns, s.channel)
-                 : Tlp64::make_i2c_cpl(s.tag, status, data, dur, r.timestamp_ns, s.channel));
-        s.in_use.store(false, std::memory_order_release);
+        // @impl [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md (4: copy, free the slot, then publish)
+        const Tlp64 cpl = s.bus == BusType::Spi
+                              ? Tlp64::make_spi_cpl(s.tag, status, data, dur, r.timestamp_ns, s.channel)
+                              : Tlp64::make_i2c_cpl(s.tag, status, data, dur, r.timestamp_ns, s.channel);
+        s.in_use.store(false, std::memory_order_release);   // s.rx may be reused from here on
+        emit(cpl);
     }
 
     bool bus_locked(BusType bus) const noexcept {

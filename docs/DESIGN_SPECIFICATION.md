@@ -595,19 +595,34 @@ sequenceDiagram
      answers `ASP_STATUS_QUEUE_FULL`. Each completion is matched to the slot or channel that started it.
      A completed auto read is copied into its TLP, then the channel is released (busy cleared), and only
      then is the TLP published (`emit`, which wakes the consumer): a consumer on another thread or core
-     that reacts to the sample must find the channel free for the next edge.
+     that reacts to the sample must find the channel free for the next edge. The same order holds for
+     a bridge slot (2026-11-14): its completion TLP is built, the slot is freed, then the TLP is
+     published, so a host that sends its next requests as soon as it sees a completion finds every
+     slot free. `bridge_done()` published first and freed the slot after; under load a host that
+     answered at once got `ASP_STATUS_QUEUE_FULL` for its eighth request (`sim_test_io_processor`).
   5. **No blocking**: the engine never waits for a transfer. A back end whose bus only has a
      synchronous primitive may complete inside `start_transfer()`; that gap is listed in the target
      spec, not hidden.
   6. Targets where the engine is in hardware (Zynq-7000 / FPGA X-fabric) keep a pass-through
      `IIoProcessor` (rings to BRAM) and do not use `IoEngine`.
+  7. (2026-11-14) `start()` is the only call that sets the processor running. `run()` loops while it
+     is running and never sets it, so a `stop()` from another thread ends `run()` wherever it lands,
+     also before `run()` has started (then `run()` returns at once). The Zynq pass-through already did
+     this; `IoEngine::run()` set the flag itself, so a `stop()` that came first was lost and `run()`
+     never returned.
+  8. (2026-11-14) Tests wait for an event, never for a guessed time: a bridge completion is pushed to
+     the ingress ring on the worker thread and wakes the back end (`notify_host()`), so a test waits
+     with `step(timeout)` until the completion is in the ring, bounded by a deadline that fails the
+     test instead of hanging. A fixed `sleep` before checking the ring failed under parallel load
+     (`sim_test_io_processor`, 10 ms, 2026-11-14).
 * **Rationale (2026-10-28)**: the Pico, E906 and Linux `io_processor.cpp` were copies of one decoder
   and shared its bugs: a 32-byte tx buffer clocked for up to 64 bytes, a host-controlled `tx_len`
   (up to 255) used as the offset into a 64-byte rx buffer, one shared buffer and `active_auto_ch_`
   for all channels, a new trigger restarting a DMA still in flight, config rewritten while the ISR
   read it, and E906 starting every auto channel on any DRDY edge.
 * **Verified by**: `host-tests` (`sim/test_io_engine.cpp`: mock back end, bounds, overrun, lockout,
-  slot pool exhaustion, 1000 rounds flat; `sim/test_io_processor.cpp` on the Linux back end),
+  slot pool exhaustion, 1000 rounds flat; `sim/test_io_processor.cpp` on the Linux back end: waits on
+  completions with a deadline, stop before and during `run()` 200 times),
   `e906-board-selftest` (`tests/board/test_e906_coprocessor_async.py`: live SPI1 DMA, TWI1, UART3 DMA, and Auto-DMA on Cubie A5E),
   `sanitizer-gate`, `thread-sanitizer`, `e906-build-layout`
 * **Implementation Target**: `include/abstractx/hal/io_engine.hpp`, `targets/*/src/io_processor.cpp`

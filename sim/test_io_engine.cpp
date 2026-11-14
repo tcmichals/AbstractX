@@ -119,6 +119,15 @@ Tlp64 dma_cfg(uint8_t cmd, uint8_t ch, uint8_t pin, uint8_t tx_len, uint8_t rx_l
     return t;
 }
 
+// Case 11: what the host would see if it reacted the moment a completion is published.
+IoEngine* g_publish_engine = nullptr;
+size_t g_slots_in_use_at_publish = 0;
+size_t g_publishes = 0;
+void record_slots_at_publish() {
+    g_slots_in_use_at_publish = g_publish_engine->bridge_slots_in_use();
+    ++g_publishes;
+}
+
 size_t drain(MpscTlpRing<>& ring) {
     size_t n = 0;
     Tlp64 t{};
@@ -365,6 +374,38 @@ int main() {
     }
 
     eng.stop();
-    std::printf("[PASS] IoEngine: length clamps, own-pin triggers, overrun drop, bus lockout, slot pool, GPIO bounds, shared bus arbitration, 1000 rounds flat\n");
+
+    // 11. A bridge completion is published only after its slot is free ([SPEC-ARCH-13] 4): with
+    //     every slot in flight, the host that reacts to the first completion must find one free.
+    //     (2026-11-14: the slot was freed after emit(); a host answering at once got QUEUE_FULL.)
+    {
+        MockBackend be2;
+        IoEngine eng2(be2);
+        MpscTlpRing<> to2{}, from2{};
+        IoProcessorSetup setup2{};
+        setup2.egress_tx_ring = &to2;
+        setup2.ingress_rx_ring = &from2;
+        setup2.on_rx_pushed = etl::delegate<void()>::create<&record_slots_at_publish>();
+        assert(eng2.init(setup2));
+        g_publish_engine = &eng2;
+        for (uint8_t i = 0; i < IoEngine::kBridgeSlots; ++i) {
+            assert(to2.push(Tlp64::make_spi_transfer(0, 0, txb, 2, ASP_SPI_FLAG_AUTO_CS, static_cast<uint8_t>(80 + i), Channel::Control)));
+        }
+        eng2.step(0);
+        assert(eng2.bridge_slots_in_use() == IoEngine::kBridgeSlots && g_publishes == 0);
+        be2.complete_one();
+        assert(g_publishes == 1);
+        if (g_slots_in_use_at_publish != IoEngine::kBridgeSlots - 1) {
+            std::fprintf(stderr, "slots in use when the completion was published: %zu (expected %zu)\n",
+                         g_slots_in_use_at_publish, IoEngine::kBridgeSlots - 1);
+        }
+        assert(g_slots_in_use_at_publish == IoEngine::kBridgeSlots - 1 && "completion published before its slot was freed");
+        be2.complete_all();
+        assert(eng2.bridge_slots_in_use() == 0 && drain(from2) == IoEngine::kBridgeSlots);
+        g_publish_engine = nullptr;
+        eng2.stop();
+    }
+
+    std::printf("[PASS] IoEngine: length clamps, own-pin triggers, overrun drop, bus lockout, slot pool, GPIO bounds, shared bus arbitration, 1000 rounds flat, slot freed before publish\n");
     return 0;
 }

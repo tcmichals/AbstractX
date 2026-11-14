@@ -14,11 +14,35 @@
 #include <iostream>
 #include <cassert>
 #include <array>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <thread>
 #include <chrono>
 
 using namespace abstractx;
 using namespace abstractx::hal;
+
+namespace {
+
+// A bridge request runs on the SpiWorker thread; its completion is pushed into the ingress ring
+// from that thread and rings the back end's wake eventfd (notify_host()). pump() is step(20),
+// which blocks in epoll on that eventfd, so this waits for the completion itself, not for a
+// guessed time. The deadline only turns a lost completion into a failure instead of a hang.
+// @verifies [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md (8: tests wait for an event)
+constexpr auto kCplDeadline = std::chrono::seconds(5);
+
+template <typename Pump>
+bool wait_for_cpl(MpscTlpRing<>& ring, Tlp64& out, Pump&& pump) {
+    const auto deadline = std::chrono::steady_clock::now() + kCplDeadline;
+    while (!ring.pop(out)) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        pump();
+    }
+    return true;
+}
+
+} // namespace
 
 int main() {
     std::cout << "[TEST] Starting Sensor HW Fusion API & Bus Lockout Verification..." << std::endl;
@@ -64,12 +88,8 @@ int main() {
     assert(app_to_io_tx_ring.push(spi_req) && "Failed to push SPI request to TX ring");
 
 
-    io_proc.step(20);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    io_proc.step(20);
-
     Tlp64 cpl{};
-    assert(io_to_app_rx_ring.pop(cpl) && "Failed to receive completion TLP");
+    assert(wait_for_cpl(io_to_app_rx_ring, cpl, [&] { io_proc.step(20); }) && "Failed to receive completion TLP");
     assert(cpl.type() == TlpType::Completion && "Expected Completion TLP");
     assert(cpl.wire.payload[0] == ASP_STATUS_OK && "Expected ASP_STATUS_OK in Setup Mode");
     assert(cpl.tag() == 42 && "Tag mismatch");
@@ -113,12 +133,8 @@ int main() {
     Tlp64 allowed_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, ASP_SPI_FLAG_AUTO_CS, 44, Channel::Control);
     assert(app_to_io_tx_ring.push(allowed_req) && "Failed to push SPI request");
 
-    io_proc.step(20);
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    io_proc.step(20);
-
     Tlp64 ok_cpl{};
-    assert(io_to_app_rx_ring.pop(ok_cpl) && "Failed to receive completion");
+    assert(wait_for_cpl(io_to_app_rx_ring, ok_cpl, [&] { io_proc.step(20); }) && "Failed to receive completion");
     assert(ok_cpl.tag() == 44 && "Tag mismatch");
     assert(ok_cpl.wire.payload[0] == ASP_STATUS_OK && "Expected ASP_STATUS_OK after unlocking bus");
     std::cout << "  -> Manual read succeeded again once Auto-DMA was turned off." << std::endl;
@@ -143,13 +159,14 @@ int main() {
     Tlp64 coro_req = Tlp64::make_spi_transfer(0, 0, tx_bytes, 2, ASP_SPI_FLAG_AUTO_CS, 55, Channel::Control);
     assert(app_to_io_tx_ring.push(coro_req) && "Failed to push SPI request for coroutine test");
 
-    // Pump Dispatcher
+    // One Dispatcher pass runs run_coroutine(), which must take the request off the egress ring.
     Dispatcher::process();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    Dispatcher::process();
+    assert(app_to_io_tx_ring.empty() && "run_coroutine() did not take the request");
 
+    // Then wait for the worker's completion (the coroutine keeps polling on each pass).
     Tlp64 coro_cpl{};
-    assert(io_to_app_rx_ring.pop(coro_cpl) && "Failed to receive completion via coroutine");
+    assert(wait_for_cpl(io_to_app_rx_ring, coro_cpl, [&] { Dispatcher::process(); io_proc.step(20); }) &&
+           "Failed to receive completion via coroutine");
     assert(coro_cpl.tag() == 55 && "Tag mismatch");
     assert(coro_cpl.wire.payload[0] == ASP_STATUS_OK && "Expected OK from coroutine execution");
     std::cout << "  -> IIoProcessor::run_coroutine() pumped and serviced TLP request cleanly." << std::endl;
@@ -163,17 +180,17 @@ int main() {
         assert(app_to_io_tx_ring.push(pipe_req) && "Failed to push pipelined SPI request");
     }
 
-    // Step reactor to drain all queued requests into SpiWorker
-    io_proc.step(20);
-    // Allow worker thread to execute
-    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    io_proc.step(20);
-
     for (size_t i = 0; i < NUM_PIPELINED_REQS; ++i) {
         Tlp64 pipe_cpl{};
-        assert(io_to_app_rx_ring.pop(pipe_cpl) && "Missing completion for pipelined SPI request");
+        assert(wait_for_cpl(io_to_app_rx_ring, pipe_cpl, [&] { io_proc.step(20); }) &&
+               "Missing completion for pipelined SPI request");
         assert(pipe_cpl.type() == TlpType::Completion && "Expected Completion TLP");
         uint8_t expected_tag = static_cast<uint8_t>(200 + i);
+        if (pipe_cpl.tag() != expected_tag || pipe_cpl.wire.payload[0] != ASP_STATUS_OK) {
+            std::fprintf(stderr, "pipelined completion %zu: tag %u status 0x%02x (expected tag %u, OK)\n", i,
+                         static_cast<unsigned>(pipe_cpl.tag()), static_cast<unsigned>(pipe_cpl.wire.payload[0]),
+                         static_cast<unsigned>(expected_tag));
+        }
         assert(pipe_cpl.tag() == expected_tag && "Pipelined tag mismatch");
         assert(pipe_cpl.wire.payload[0] == ASP_STATUS_OK && "Expected ASP_STATUS_OK for pipelined request");
         assert(pipe_cpl.wire.payload[sizeof(asp_tlp_spi_cpl_header_t) + 1] == 0x47 && "Expected ICM WHO_AM_I byte 0x47 in payload");
@@ -183,13 +200,31 @@ int main() {
     io_proc.stop();
     assert(!io_proc.is_running() && "Expected is_running() to be false after final stop()");
 
-    // 12. Verify concurrent stop() from another thread while run() is in poll_events()
-    assert(io_proc.start() && "Expected restart to succeed");
-    std::thread runner([&]() { io_proc.run(); });
-    std::this_thread::sleep_for(std::chrono::milliseconds(15));
-    io_proc.stop();
-    runner.join();
-    assert(!io_proc.is_running() && "Expected is_running() to be false after concurrent stop()");
+    // 12. stop() from another thread ends run() wherever it lands: before run() starts, or while
+    // run() waits in poll_events() ([SPEC-ARCH-13] 7). No sleep: both orders happen over the rounds,
+    // and a lost stop is a failure after the deadline, not a hang.
+    // @verifies [SPEC-ARCH-13] docs/DESIGN_SPECIFICATION.md (7: a stop() before run() is kept)
+    constexpr int kStopRounds = 200;
+    for (int round = 0; round < kStopRounds; ++round) {
+        assert(io_proc.start() && "Expected restart to succeed");
+        std::atomic<bool> returned{false};
+        std::thread runner([&]() { io_proc.run(); returned.store(true, std::memory_order_release); });
+        if (round % 2 == 0) {
+            std::this_thread::yield();   // odd rounds stop at once, even rounds give run() a chance to start
+        }
+        io_proc.stop();
+        const auto deadline = std::chrono::steady_clock::now() + kCplDeadline;
+        while (!returned.load(std::memory_order_acquire)) {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                std::fprintf(stderr, "run() did not return after stop() (round %d)\n", round);
+                std::abort();
+            }
+            std::this_thread::yield();
+        }
+        runner.join();
+        assert(!io_proc.is_running() && "Expected is_running() to be false after concurrent stop()");
+    }
+    std::cout << "  -> stop() ended run() in all " << kStopRounds << " rounds (before and during run())." << std::endl;
 
     std::cout << "[SUCCESS] Sensor HW Fusion API & Bus Lockout verified 100% cleanly!" << std::endl;
     return 0;
