@@ -469,6 +469,24 @@ sequenceDiagram
   `tests/test_coro_primitives.cpp`: `DetachNeverStartedTaskFreesFrame`), `sanitizer-gate`
 * **Implementation Target**: `include/asp_coro.hpp`
 
+### `[SPEC-ARCH-17]` A Client Can Turn Off the Top-Level Task Aliases
+* **Requirement**: `include/abstractx/coro.hpp` exports `coro::Task`, `coro::when_all` and
+  `coro::when_any` as `abstractx::Task`, `abstractx::when_all` and `abstractx::when_any`. When the
+  client defines `ABSTRACTX_NO_TASK_ALIASES` (for example with `target_compile_definitions`), those
+  three aliases are not declared; every other export stays. The switch is generic: AbstractX tests
+  for no client's own macros or header guards.
+* **Requirement**: AbstractX's own headers and sources name these as `coro::Task`, `coro::when_all`
+  and `coro::when_any`, never through the top-level alias, so they build the same with the switch on
+  or off.
+* **Why (2026-11-14)**: a client that already declares its own `abstractx::Task` (an older engine kept
+  in its own tree) conflicts with the alias as soon as it includes an AbstractX HAL header. A fix that
+  tested the client's include guard inside `coro.hpp` worked only when the client's header came first
+  and put that client's name in generic code.
+* **Verified by**: `host-tests` (`tests/test_coro_no_task_aliases.cpp`: builds with the switch on next to
+  its own `abstractx::Task`, `when_all` and `when_any`, and runs a `coro::Task` through the
+  `Dispatcher`), `sanitizer-gate`
+* **Implementation Target**: `include/abstractx/coro.hpp`
+
 ### `[SPEC-ARCH-12]` Repository Layout: Generic Core, Device Drivers, Applications
 * **Requirement**: `include/abstractx/` holds only target- and device-independent framework code
   (coroutines, dispatcher, HAL interfaces, trace). Drivers for specific chips live in `applib/`

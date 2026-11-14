@@ -26,14 +26,17 @@
 // @impl [SPEC-ARCH-10] docs/DESIGN_SPECIFICATION.md (only primitives with a waker are exported)
 namespace abstractx {
     // Export standard coroutine primitives to top-level abstractx namespace for clean client usage
+    // @impl [SPEC-ARCH-17] docs/DESIGN_SPECIFICATION.md (client opt-out of the Task aliases)
+#ifndef ABSTRACTX_NO_TASK_ALIASES
     using coro::Task;
+    using coro::when_all;
+    using coro::when_any;
+#endif
     using coro::YieldAwaiter;
     using coro::yield;
     using coro::Event;
     using coro::Semaphore;
     using coro::AsyncQueue;
-    using coro::when_all;
-    using coro::when_any;
     using coro::with_timeout;
 
     // Export ISR Dispatcher

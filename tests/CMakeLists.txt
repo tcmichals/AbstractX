@@ -78,6 +78,11 @@ add_abstractx_cpputest(test_coro_primitives
     test_coro_primitives.cpp
 )
 
+add_abstractx_cpputest(test_coro_no_task_aliases
+    test_main.cpp
+    test_coro_no_task_aliases.cpp
+)
+
 add_abstractx_cpputest(test_reactor
     test_main.cpp
     test_reactor.cpp

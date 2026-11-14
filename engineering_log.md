@@ -4418,3 +4418,12 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Code**: `sim/CMakeLists.txt`: every suite skips when `rtl/pio/src/rtl/third_party.vlt` is missing; the four pio2 suites also need `axil_reg_if.v`.
 * **Shown**: without the submodule, `ctest -L rtl` before: 11 Failed; after: the same 11 Skipped with the reason printed.
 * **Not checked**: no test of `sim/CMakeLists.txt` itself; the check is the ctest result above.
+
+## [2026-11-14] - A client's own abstractx::Task clashed with the coro.hpp aliases
+
+* **Miss** (`product-bug`): a client that keeps its own coroutine engine in `namespace abstractx` (its own `Task`, `when_all`, `when_any`) failed to build against `main` as soon as it included an AbstractX HAL header: `'template<class T> class abstractx::coro::Task' conflicts with a previous declaration`. A side-branch fix tested the client's include guard inside `include/abstractx/coro.hpp`; it worked only when the client's header came first and put one client's name into generic code, so it was not taken to `main`. Which check should have caught it: none; no test built `coro.hpp` next to a client that declares these names.
+* **Spec**: new [SPEC-ARCH-17] (`docs/DESIGN_SPECIFICATION.md`): `ABSTRACTX_NO_TASK_ALIASES` turns off the three top-level aliases; AbstractX's own code names `coro::Task` / `coro::when_all` / `coro::when_any`.
+* **Code**: `include/abstractx/coro.hpp`: the three aliases are inside `#ifndef ABSTRACTX_NO_TASK_ALIASES`.
+* **Regression test**: `tests/test_coro_no_task_aliases.cpp`: declares its own `abstractx::Task`, `when_all`, `when_any` before including AbstractX, checks they are the client's, and runs a `coro::Task` through the `Dispatcher`. Shown to fail on the old `coro.hpp` (the same `conflicts with a previous declaration` error, and `when_all()` ambiguous) and to pass on the new one.
+* **Evidence**: see the commit message.
+* **Not checked**: cross-compiled targets (Pico, E906, ESP32-P4) with the switch on.
