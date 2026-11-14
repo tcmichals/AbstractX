@@ -58,7 +58,7 @@
     },
     {
       "name": "pico2w",
-      "displayName": "Raspberry Pi Pico 2 / Pico 2 W (RP2350)",
+      "displayName": "Raspberry Pi Pico 2 W (RP2350), Wi-Fi on",
       "description": "Build for RP2350 using Pico SDK (Release)",
       "binaryDir": "${sourceDir}/build_pico2w",
       "toolchainFile": "${sourceDir}/cmake/toolchains/arm-none-eabi.cmake",
@@ -67,6 +67,33 @@
         "ABSTRACTX_TARGET": "pico2w",
         "PICO_PLATFORM": "rp2350-arm-s",
         "PICO_BOARD": "pico2_w"
+      }
+    },
+    {
+      "name": "pico2w-nowifi",
+      "displayName": "Raspberry Pi Pico 2 W (RP2350), Wi-Fi off",
+      "description": "Build for RP2350 using Pico SDK (Release); CYW43 unused, no lwIP ([SPEC-PICO-CFG-01])",
+      "binaryDir": "${sourceDir}/build_pico2w_nowifi",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/arm-none-eabi.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ABSTRACTX_TARGET": "pico2w",
+        "PICO_PLATFORM": "rp2350-arm-s",
+        "PICO_BOARD": "pico2_w",
+        "ABSTRACTX_PICO_WIFI": "OFF"
+      }
+    },
+    {
+      "name": "pico2",
+      "displayName": "Raspberry Pi Pico 2 (RP2350), no radio",
+      "description": "Build for RP2350 using Pico SDK (Release); Wi-Fi off ([SPEC-PICO-CFG-01])",
+      "binaryDir": "${sourceDir}/build_pico2",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/arm-none-eabi.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ABSTRACTX_TARGET": "pico2w",
+        "PICO_PLATFORM": "rp2350-arm-s",
+        "PICO_BOARD": "pico2"
       }
     },
     {
@@ -107,6 +134,14 @@
     {
       "name": "pico2w",
       "configurePreset": "pico2w"
+    },
+    {
+      "name": "pico2w-nowifi",
+      "configurePreset": "pico2w-nowifi"
+    },
+    {
+      "name": "pico2",
+      "configurePreset": "pico2"
     },
     {
       "name": "pico2w-debug",

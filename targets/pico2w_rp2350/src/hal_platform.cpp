@@ -4,25 +4,35 @@
  *
  * AbstractX Raspberry Pi Pico 2 W (RP2350) Platform Hooks & Factories
  * --------------------------------------------------------------------
- * Core 1 runs AbstractX; Core 0 runs only Wi-Fi ([SPEC-PICO-CORE-01]).
+ * Wi-Fi on: Core 1 runs AbstractX; Core 0 runs only Wi-Fi ([SPEC-PICO-CORE-01]).
+ * Wi-Fi off: a plain SDK program on Core 0, no CYW43 / lwIP ([SPEC-PICO-CFG-01]).
  */
+
+// @impl [SPEC-PICO-CFG-01] targets/pico2w_rp2350/SPECIFICATION.md (set PUBLIC by CMakeLists.txt)
+#ifndef ABSTRACTX_PICO_WIFI
+#define ABSTRACTX_PICO_WIFI 1
+#endif
 
 #include "abstractx/hal/platform.hpp"
 #include "abstractx/wake.hpp"
 #include "abstractx/trace/tracer.hpp"
 #include "abstractx_pico.hpp"
+#if ABSTRACTX_PICO_WIFI
 #include "hal/frame_ring.hpp"
 #include "hal/wifi_join.hpp"
+#endif
 
 #ifdef PICO_ON_DEVICE
 #include "pico/stdlib.h"
 #include "pico/multicore.h"
-#include "pico/cyw43_arch.h"
 #include "hardware/sync.h"
+#if ABSTRACTX_PICO_WIFI
+#include "pico/cyw43_arch.h"
 #include "lwip/netif.h"
 #include "lwip/ip4_addr.h"
 #include "lwip/udp.h"
 #include "lwip/pbuf.h"
+#endif
 #endif
 
 namespace abstractx::hal {
@@ -65,6 +75,7 @@ ISpi* get_spi_port(uint8_t index) noexcept { return (index == 0 || index == 1) ?
 IUart* get_uart_port(uint8_t index) noexcept { return index == 0 ? &g_pico_uart : nullptr; }
 II2c* get_i2c_port(uint8_t index) noexcept { return index == 0 ? &get_i2c_driver() : nullptr; }
 
+#if ABSTRACTX_PICO_WIFI
 // ---------------------------------------------------------------------------
 // Core 1 -> Core 0 frame rings ([SPEC-PICO-CORE-01])
 // ---------------------------------------------------------------------------
@@ -116,6 +127,15 @@ void platform_send_telemetry(const uint8_t* data, size_t len) noexcept {
         wake_network_core();
     }
 }
+#else
+// No network with Wi-Fi off: trace falls back to the (empty) static pool, telemetry is dropped.
+// @impl [SPEC-PICO-CFG-01] targets/pico2w_rp2350/SPECIFICATION.md
+trace::ITraceTransport* platform_trace_transport() noexcept {
+    return nullptr;
+}
+
+void platform_send_telemetry(const uint8_t* /*data*/, size_t /*len*/) noexcept {}
+#endif
 
 // Core 1: everything Wi-Fi related happens on Core 0 ([SPEC-PICO-CORE-01]).
 // @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md
@@ -129,7 +149,13 @@ static void pico_sev_wake() noexcept {
 void platform_init() noexcept {
     abstractx::set_wake({&pico_sev_wake, &pico_sev_wake});
 #ifdef PICO_ON_DEVICE
+#if ABSTRACTX_PICO_WIFI
     printf("[Pico 2 W] AbstractX on core %u; Wi-Fi on core 0.\n", get_core_num());
+#else
+    // @impl [SPEC-PICO-CFG-01] targets/pico2w_rp2350/SPECIFICATION.md (no __wrap_main: console set up here)
+    stdio_init_all();
+    printf("[Pico 2] AbstractX on core %u; Wi-Fi off.\n", get_core_num());
+#endif
 #endif
 }
 
@@ -169,7 +195,7 @@ uint32_t abstractx_core_id() noexcept {
 }
 } // namespace abstractx
 
-#ifdef PICO_ON_DEVICE
+#if defined(PICO_ON_DEVICE) && ABSTRACTX_PICO_WIFI
 extern "C" int __real_main();  // the application's main(), run on Core 1 (-Wl,--wrap=main)
 
 // ---------------------------------------------------------------------------

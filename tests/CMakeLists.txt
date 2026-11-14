@@ -93,6 +93,9 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_Interpreter_FOUND)
     add_test(NAME py_test_spectrace_matrix
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_spectrace_matrix.py)
+    # [SPEC-PICO-CFG-01] tools/check_pico_build.py symbol checks on fixed nm listings
+    add_test(NAME py_test_check_pico_build
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_check_pico_build.py)
     # [SPEC-AUDIT-13] one board address (ABSTRACTX_BOARD_IP) and the A5E identity check
     add_test(NAME py_test_board_target
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_board_target.py)

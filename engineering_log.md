@@ -4427,3 +4427,12 @@ Each was found on the board, mostly by reading E906 SRAM over `devmem` (`g_e906_
 * **Regression test**: `tests/test_coro_no_task_aliases.cpp`: declares its own `abstractx::Task`, `when_all`, `when_any` before including AbstractX, checks they are the client's, and runs a `coro::Task` through the `Dispatcher`. Shown to fail on the old `coro.hpp` (the same `conflicts with a previous declaration` error, and `when_all()` ambiguous) and to pass on the new one.
 * **Evidence**: see the commit message.
 * **Not checked**: cross-compiled targets (Pico, E906, ESP32-P4) with the switch on.
+
+## [2026-11-14] - The Pico target could not build without Wi-Fi
+
+* **Miss** (`product-bug`): `abstractx_target_pico2w` always linked `pico_cyw43_arch_lwip_poll`, always wrapped `main` and `hal_platform.cpp` always included `pico/cyw43_arch.h`. A project that added AbstractX with `PICO_BOARD=pico2` failed to build this target (it had to use `EXCLUDE_FROM_ALL` and could not use the Pico HAL), and a Pico 2 W used without its radio carried the CYW43 driver, lwIP and a whole core for Wi-Fi. Which check should have caught it: none; only the `pico2w` preset existed, and nothing built any other board or option.
+* **Spec**: new [SPEC-PICO-CFG-01] (`targets/pico2w_rp2350/SPECIFICATION.md`): `PICO_BOARD` and `ABSTRACTX_PICO_WIFI` are build options; Wi-Fi off links no CYW43 / lwIP, no main wrap, app on Core 0, no trace or telemetry transport; Wi-Fi on a board without the CYW43 is a configure error. [SPEC-PICO-CORE-01] and [SPEC-ARCH-05] are scoped to Wi-Fi on. `AGENTS.md` §6 and the silicon atlas say the same.
+* **Code**: `targets/pico2w_rp2350/CMakeLists.txt` (option, check, conditional CYW43 and `--wrap=main`, `ABSTRACTX_PICO_WIFI=0/1`); `src/hal_platform.cpp` (`#if ABSTRACTX_PICO_WIFI` around the frame rings and the Core 0 loop; Wi-Fi off: `stdio_init_all()` in `platform_init()`, `nullptr` trace transport, telemetry dropped); `CMakePresets.json` (`pico2w-nowifi`, `pico2`); `pico_sdk_import.cmake` (`$ENV{HOME}` in place of a fixed home directory, [SPEC-BUILD-01]).
+* **Regression test**: new skill `pico-build`, `tools/check_pico_build.py`, and `tests/test_check_pico_build.py` (the checks themselves). Shown to fail on the old target: 6 problems (`pico2w-nowifi` images with 130 network symbols and `__wrap_main`, `pico2` build failed, `pico2` + Wi-Fi on not refused); 0 on the new.
+* **Evidence**: see the commit message.
+* **Not checked**: a board run of a Wi-Fi-off image (console on UART1, app on Core 0); the `pico2w-debug` preset.

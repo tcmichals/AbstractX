@@ -47,6 +47,9 @@ Each requirement carries a unique **Design ID (`[SPEC-*]`)** that is directly re
 * **Implementation Target**: `targets/allwinner_e906/`, `include/abstractx/domain_dispatcher.hpp`, `apps/gps_imu_app/`
 
 ### `[SPEC-ARCH-05]` Dual-Core Split on Pico 2 W / RP2350: Wi-Fi Alone on Core 0
+* **Scope**: builds with Wi-Fi on. With Wi-Fi off (`ABSTRACTX_PICO_WIFI=OFF`, the Pico 2 or a Pico 2 W with the
+  radio unused) the application is a plain SDK program on Core 0 and Core 1 is free
+  (`[SPEC-PICO-CFG-01]`, `targets/pico2w_rp2350/SPECIFICATION.md`).
 * **Requirement** (decided by the project owner 2026-11-03, from board measurements):
   - **Core 0**: only Wi-Fi. CYW43439 init and polling, the join state machine, lwIP and the UDP
     send of telemetry and trace. Nothing from AbstractX runs there.

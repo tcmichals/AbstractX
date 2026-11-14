@@ -103,7 +103,7 @@ When building applications that ingest multiple sensors running at different rat
 
 ## 6. Multi-Target Silicon Portability (Zero Application `#ifdef`s)
 Applications written against `abstractx::` MUST compile and run identically across all supported platforms without target preprocessor conditionals:
-1. **Raspberry Pi Pico 2 W**: Dual ARM Cortex-M33 @ 150 MHz, hardware single-precision FPU, Core 1 coroutine engine, Core 0 PIO/DMA + Wi-Fi.
+1. **Raspberry Pi Pico 2 / Pico 2 W**: Dual ARM Cortex-M33 @ 150 MHz, hardware single-precision FPU. With Wi-Fi on (Pico 2 W): Core 1 runs AbstractX, Core 0 only Wi-Fi. With Wi-Fi off (Pico 2, or a Pico 2 W with the radio unused): a plain SDK program on Core 0, no CYW43 or lwIP (`ABSTRACTX_PICO_WIFI`, [SPEC-PICO-CFG-01]).
 2. **Espressif ESP32-P4**: Dual RISC-V RV32IMAFDC @ 400 MHz, hardware FPU, Core 1 coroutines, Core 0 GDMA + Wi-Fi 6.
 3. **Allwinner Cubie A5E (Pure Silicon / No FPGA)**: Quad AArch64 @ 1.4 GHz Linux + XuanTie E906 RISC-V coprocessor, shared SRAM rings + `sun6i-msgbox`, driving on-chip SPI1, TWI1, UART3 (the header ports, [SPEC-E906-HAL-04]).
 4. **Allwinner Cubie A5E + FPGA (Hardware X-Fabric)**: Quad AArch64 @ 1.4 GHz + XuanTie E906 + FPGA over the TLP link: a Gowin FPGA (Tang Nano) runs the Wishbone fabric of [abstractx-fpga](https://github.com/tcmichals/abstractx-fpga); the Zynq-7020 runs `asp_router.sv` with pio2 (section 11).

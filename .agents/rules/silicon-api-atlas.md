@@ -49,12 +49,14 @@ Drivers take these from `targets/allwinner_e906/include/hal/ports.hpp` ([SPEC-HA
 
 ---
 
-## 3. Raspberry Pi Pico 2 W (RP2350)
+## 3. Raspberry Pi Pico 2 / Pico 2 W (RP2350)
 
 * **Architecture**: Dual ARM Cortex-M33 @ 150 MHz + Hardware Single-Precision FPU + PIO state machines.
-* **Core Allocation**:
-  * **Core 1**: Dedicated C++20 Flight Engine / Coroutine Event Loop (`abstractx::step()`).
-  * **Core 0**: High-speed PIO state machines, DMA channels, and lwIP Wi-Fi background stack.
+* **Build options** ([SPEC-PICO-CFG-01]): `PICO_BOARD` (`pico2`, `pico2_w`) and `ABSTRACTX_PICO_WIFI` (default: on for `pico2_w`); presets `pico2w`, `pico2w-nowifi`, `pico2`.
+* **Core Allocation** (Wi-Fi on, [SPEC-PICO-CORE-01]; `targets/pico2w_rp2350/SPECIFICATION.md` wins over this list):
+  * **Core 1**: all of AbstractX (application, coroutines, `abstractx::step()`, drivers, their DMA and IRQs).
+  * **Core 0**: only Wi-Fi (CYW43, lwIP, UDP send of trace and telemetry).
+* **Core Allocation** (Wi-Fi off): the application on Core 0, Core 1 free; no CYW43 or lwIP linked.
 * **Peripherals & Drivers**:
   * PIO SPI0 / SPI1 auto-DMA ring buffers.
   * Hardware Spinlocks (SIO `SPINLOCK0`..`SPINLOCK31`) for zero-wait cross-core doorbells.

@@ -12,6 +12,19 @@ if(COMMAND pico_sdk_init)
         target_link_options(bs2_default PRIVATE -Wl,-e,_stage2_boot)
     endif()
 
+    # @impl [SPEC-PICO-CFG-01] targets/pico2w_rp2350/SPECIFICATION.md (board and Wi-Fi are build options)
+    if(PICO_CYW43_SUPPORTED)
+        set(_abx_board_has_cyw43 ON)
+    else()
+        set(_abx_board_has_cyw43 OFF)
+    endif()
+    option(ABSTRACTX_PICO_WIFI "Pico 2 W: run CYW43 Wi-Fi on Core 0 (default: the board has a CYW43)" ${_abx_board_has_cyw43})
+    if(ABSTRACTX_PICO_WIFI AND NOT _abx_board_has_cyw43)
+        message(FATAL_ERROR "ABSTRACTX_PICO_WIFI=ON, but PICO_BOARD '${PICO_BOARD}' has no CYW43 (PICO_CYW43_SUPPORTED is not set). "
+                            "Use PICO_BOARD=pico2_w or -DABSTRACTX_PICO_WIFI=OFF.")
+    endif()
+    message(STATUS "AbstractX Pico target: board ${PICO_BOARD}, Wi-Fi ${ABSTRACTX_PICO_WIFI}")
+
     add_library(abstractx_target_pico2w STATIC
         src/hal_timer.cpp
         src/hal_gpio.cpp
@@ -31,7 +44,6 @@ if(COMMAND pico_sdk_init)
         etl
         pico_stdlib
         pico_multicore
-        pico_cyw43_arch_lwip_poll
         hardware_spi
         hardware_i2c
         hardware_pio
@@ -50,8 +62,15 @@ if(COMMAND pico_sdk_init)
         ABSTRACTX_STATIC_TRACE_PACKETS=0
     )
 
-    # @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md (__wrap_main: Wi-Fi on Core 0, app on Core 1)
-    target_link_options(abstractx_target_pico2w PUBLIC -Wl,--wrap=main)
+    if(ABSTRACTX_PICO_WIFI)
+        target_link_libraries(abstractx_target_pico2w PUBLIC pico_cyw43_arch_lwip_poll)
+        target_compile_definitions(abstractx_target_pico2w PUBLIC ABSTRACTX_PICO_WIFI=1)
+        # @impl [SPEC-PICO-CORE-01] targets/pico2w_rp2350/SPECIFICATION.md (__wrap_main: Wi-Fi on Core 0, app on Core 1)
+        target_link_options(abstractx_target_pico2w PUBLIC -Wl,--wrap=main)
+    else()
+        # @impl [SPEC-PICO-CFG-01] targets/pico2w_rp2350/SPECIFICATION.md (no CYW43 / lwIP, no main wrap)
+        target_compile_definitions(abstractx_target_pico2w PUBLIC ABSTRACTX_PICO_WIFI=0)
+    endif()
 
     # @impl [SPEC-PICO-HAL-03] targets/pico2w_rp2350/SPECIFICATION.md (console on UART1; GPS owns UART0)
     target_compile_definitions(abstractx_target_pico2w PUBLIC
@@ -60,15 +79,19 @@ if(COMMAND pico_sdk_init)
         PICO_DEFAULT_UART_RX_PIN=9
     )
 
-    if(DEFINED WIFI_SSID)
-        target_compile_definitions(abstractx_target_pico2w PUBLIC
-            WIFI_SSID="${WIFI_SSID}"
-        )
-    endif()
-    if(DEFINED WIFI_PASSWORD)
-        target_compile_definitions(abstractx_target_pico2w PUBLIC
-            WIFI_PASSWORD="${WIFI_PASSWORD}"
-        )
+    if(NOT ABSTRACTX_PICO_WIFI AND (DEFINED WIFI_SSID OR DEFINED WIFI_PASSWORD))
+        message(STATUS "AbstractX Pico target: Wi-Fi off, WIFI_SSID / WIFI_PASSWORD ignored")
+    elseif(ABSTRACTX_PICO_WIFI)
+        if(DEFINED WIFI_SSID)
+            target_compile_definitions(abstractx_target_pico2w PUBLIC
+                WIFI_SSID="${WIFI_SSID}"
+            )
+        endif()
+        if(DEFINED WIFI_PASSWORD)
+            target_compile_definitions(abstractx_target_pico2w PUBLIC
+                WIFI_PASSWORD="${WIFI_PASSWORD}"
+            )
+        endif()
     endif()
 else()
     message(STATUS "Pico SDK not found; abstractx_target_pico2w will be disabled.")

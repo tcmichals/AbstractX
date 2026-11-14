@@ -7,7 +7,8 @@ This document is the **authoritative hardware and BSP specification** for the **
 ## 1. Target Overview & Silicon Architecture
 
 * **SoC**: Raspberry Pi RP2350 (Dual ARM Cortex-M33 @ 150 MHz with DSP & FPU)
-* **Wireless**: Infineon CYW43439 (Wi-Fi 4 802.11n + Bluetooth 5.2) connected via internal SPI/PIO
+* **Wireless**: Infineon CYW43439 (Wi-Fi 4 802.11n + Bluetooth 5.2) connected via internal SPI/PIO, on the Pico 2 W only.
+  The same target builds for the Pico 2 (no radio) and for a Pico 2 W with Wi-Fi off (`[SPEC-PICO-CFG-01]`).
 * **SRAM**: 520 KB on-chip SRAM in 10 banked stripes (ideal for lock-free multi-core SPSC rings)
 * **Flash**: 4 MB QSPI Flash
 
@@ -366,6 +367,8 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
 
 ### [SPEC-PICO-CORE-01] Core 1 Runs AbstractX, Core 0 Runs Only Wi-Fi
 * **Why**: see `[SPEC-ARCH-05]` (`docs/DESIGN_SPECIFICATION.md`).
+* **Scope**: builds with Wi-Fi on (`ABSTRACTX_PICO_WIFI=ON`, `[SPEC-PICO-CFG-01]`). With Wi-Fi off there is no
+  network core and none of this section applies.
 * **Boot**: the target links with `-Wl,--wrap=main`. The SDK starts `__wrap_main` on Core 0, which
   calls `stdio_init_all()` (UART1 console, both cores print through the SDK stdout mutex), starts
   Core 1 with `multicore_launch_core1_with_stack()` on a 16 KB static stack, then runs the Wi-Fi
@@ -404,6 +407,43 @@ The Pico side of `[SPEC-HAL-01]` (`docs/DESIGN_SPECIFICATION.md`).
 * **Implementation Target**: `targets/pico2w_rp2350/src/hal_platform.cpp`,
   `targets/pico2w_rp2350/include/hal/frame_ring.hpp`, `targets/pico2w_rp2350/CMakeLists.txt`,
   `targets/pico2w_rp2350/src/io_processor.cpp`
+
+### [SPEC-PICO-CFG-01] Board and Wi-Fi Are Build Options
+* **Why (2026-11-14)**: the target always linked `pico_cyw43_arch_lwip_poll` and wrapped `main`, and
+  `hal_platform.cpp` always included `pico/cyw43_arch.h`. So it could not build for a Pico 2 (no
+  CYW43439), and a Pico 2 W used as an I/O companion with the radio unused still carried the CYW43
+  driver, lwIP and a core given over to Wi-Fi. A project that added AbstractX with `PICO_BOARD=pico2`
+  failed to build this target.
+* **Requirement (options)**: the board is the Pico SDK's `PICO_BOARD` (`pico2` or `pico2_w`). Wi-Fi is
+  the cache option `ABSTRACTX_PICO_WIFI` (BOOL). Its default is the board's `PICO_CYW43_SUPPORTED`:
+  ON for `pico2_w`, OFF for `pico2`. `ABSTRACTX_PICO_WIFI=ON` on a board without the CYW43 stops
+  configuration with an error naming the board. `WIFI_SSID` / `WIFI_PASSWORD` given with Wi-Fi off
+  are not compiled in, and configuration prints that they are ignored. The library keeps its name
+  (`abstractx_target_pico2w`, `ABSTRACTX_TARGET=pico2w`) for every board and option, and carries the
+  choice to C++ as `ABSTRACTX_PICO_WIFI=1` or `0` (PUBLIC). Applications need no `#ifdef`.
+* **Requirement (Wi-Fi on)**: as today: `[SPEC-PICO-CORE-01]`, `[SPEC-PICO-NET-01]`, `[SPEC-PICO-TRACE-01]`.
+* **Requirement (Wi-Fi off)**:
+  * the target links no `pico_cyw43_arch*`, `pico_cyw43_driver` or `pico_lwip*` library, and no file of
+    the target includes a CYW43 or lwIP header. A linked application has no `cyw43_`, `pbuf_`,
+    `udp_` or `netif_` symbol;
+  * no `-Wl,--wrap=main`: the application's `main()` runs on Core 0 as a plain Pico SDK program, its
+    interrupts are enabled on Core 0, and Core 1 is free (`platform_launch_processing_domain()`);
+  * `platform_init()` calls `stdio_init_all()` (the console stays on UART1, `[SPEC-PICO-HAL-03]`) and
+    registers the `__sev()` wake hooks, as with Wi-Fi on;
+  * there is no network: `platform_trace_transport()` returns `nullptr` (the tracer falls back to its
+    static pool, 0 packets on this target, so trace events are dropped) and `platform_send_telemetry()`
+    drops the frame.
+* **Requirement (presets)**: `CMakePresets.json` has `pico2w` (Pico 2 W, Wi-Fi on, as today),
+  `pico2w-nowifi` (Pico 2 W, Wi-Fi off) and `pico2` (Pico 2, Wi-Fi off).
+* **Verified by**: `pico-build` (`tools/check_pico_build.py`: builds the three presets; each ELF exists
+  and is not empty; the Wi-Fi-on image has CYW43 symbols and `__wrap_main`, the two Wi-Fi-off images
+  have none of either; `pico2` with `ABSTRACTX_PICO_WIFI=ON` fails to configure), `host-tests`
+  (`tests/test_check_pico_build.py`: the symbol checks fail on a Wi-Fi-linked symbol list),
+  `board-bringup` (a Pico 2 W running a Wi-Fi-off image: console on UART1, app on Core 0)
+* **Implementation Target**: `targets/pico2w_rp2350/CMakeLists.txt`, `targets/pico2w_rp2350/src/hal_platform.cpp`,
+  `CMakePresets.json`, `tools/check_pico_build.py`
+* **Not implemented yet**: trace and telemetry over USB or UART with Wi-Fi off; the board run
+  (`board-bringup`) of a Wi-Fi-off image.
 
 ### 4.1 IMU Auto-Sample Pipeline
 1. **ICM-42688-P asserts `DRDY` (GP20 / Pin 3)**:
