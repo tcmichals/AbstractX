@@ -136,6 +136,11 @@ where its evidence goes. SpecTrace connects them: requirement → code
 * **Requirement**: a skill file states what it verifies, how to run it, the pass
   criteria and where its evidence is stored. Adding a new kind of check means
   adding a skill, not a one-off command in a commit message.
+* **Requirement (BROKEN fails the skills check, 2026-11-13)**: `python3 tools/spectrace_matrix.py --check-skills`
+  also exits 1 when a requirement's `Verified by` line names a skill that does not exist (the matrix's `BROKEN`),
+  printing the requirement, its file and line, and the unknown names. Rationale: a project's gate ran
+  `--check-skills`, `--check-drift` and `--check-verifies` and passed while `--matrix` showed two `BROKEN`
+  requirements; `BROKEN` was reported only by `--matrix`, which never fails without `--require-complete`.
 * **Verified by**: `host-tests` (`tests/test_spectrace_matrix.py`)
 * **Implementation Target**: `.agents/skills/`, `tools/spectrace_matrix.py`
 
@@ -286,6 +291,13 @@ where its evidence goes. SpecTrace connects them: requirement → code
   implemented requirement's `Implementation Target` or `Verified by` line exists neither from the
   repository root nor from the spec's folder. Globs, placeholders and `(was ...)` history are
   skipped. Before this, requirements pointed at files that had moved and nothing noticed.
+  A path listed on the requirement's `* **Not implemented yet**:` line is planned, not drift (2026-11-13), the
+  same exemption function names already have.
+* **Requirement (tags name real requirements, 2026-11-13)**: `--check-drift` also exits 1 for an `@impl` or
+  `@verifies` tag naming a requirement that no specification in the repository defines, printing the tag and
+  each `file:line`. Before this, a repository whose requirements sat in files the tools do not read reported
+  "0 requirements" and passed, and tags copied from another repository went unnoticed. Test fixtures write
+  such tags so the scan cannot see them (as `tests/test_spectrace_matrix.py` does).
 * **Requirement**: a requirement that names skills but has no evidence that counts is `STALE`,
   never `VERIFIED` (`SPEC-E906-CACHE-02` showed `VERIFIED` with no `e906-disassembly-check` run).
 * **Requirement**: `python3 tools/spectrace_matrix.py --check-tests` exits 1 when a test file is

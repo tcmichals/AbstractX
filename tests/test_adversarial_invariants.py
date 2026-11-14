@@ -332,10 +332,10 @@ def test_build_file_impl_tag_counts(tmp_path):
                     "### `[SPEC-X-03]` Build\n* **Requirement**: toolchain.\n", encoding="utf-8")
     tc = tmp_path / "cmake" / "toolchains" / "t.cmake"
     tc.parent.mkdir(parents=True)
-    tc.write_text("# @impl [SPEC-X-03] apps/x/SPECIFICATION.md\n", encoding="utf-8")
+    tc.write_text("# @" "impl [SPEC-X-03] apps/x/SPECIFICATION.md\n", encoding="utf-8")
     stale = tmp_path / "build_host" / "CMakeLists.txt"   # generated build trees never count
     stale.parent.mkdir(parents=True)
-    stale.write_text("# @impl [SPEC-X-04] apps/x/SPECIFICATION.md\n", encoding="utf-8")
+    stale.write_text("# @" "impl [SPEC-X-04] apps/x/SPECIFICATION.md\n", encoding="utf-8")
     auditor = InvariantAuditor(tmp_path)
     auditor.run_audit([spec])
     rules = [i["rule"] for i in auditor.violations["Stage 0 (Specification Markdown & SSOT)"]]

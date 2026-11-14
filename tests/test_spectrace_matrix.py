@@ -527,6 +527,7 @@ def test_repo_is_honest():
     repo = Path(__file__).resolve().parent.parent
     reqs, _, _ = sm.build_matrix(repo)
     assert sm.check_drift(repo, reqs) == {}, sm.check_drift(repo, reqs)
+    assert sm.unknown_tags(repo, reqs) == {}, sm.unknown_tags(repo, reqs)
     assert sm.check_tests(repo) == [], sm.check_tests(repo)
     # [SPEC-AUDIT-15] @verifies claims: shrink-only baseline (review G-5)
     import re
@@ -593,6 +594,52 @@ def test_requirement_file_not_named_specification():
         assert "[SPEC CHANGED] SPEC-FIX-02" in out, out
 
 
+def test_skills_check_fails_on_broken_requirement():
+    """[SPEC-AUDIT-06] --check-skills fails when a Verified by line names a skill that does not exist."""
+    # @verifies [SPEC-AUDIT-06] docs/SPECTRACE.md
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        problems = "\n".join(sm.check_skills(root))
+        assert "SPEC-FIX-03" in problems and "no-such-skill" in problems, problems
+        assert "SPEC-FIX-01" not in problems, "a requirement naming a real skill is not flagged"
+
+
+def test_drift_flags_tags_naming_no_requirement():
+    """[SPEC-AUDIT-12] an @impl / @verifies tag for a requirement no spec defines is drift."""
+    # @verifies [SPEC-AUDIT-12] docs/SPECTRACE.md
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        (root / "src" / "u.cpp").write_text("// @" "impl [SPEC-NOPE-01] docs/ELSEWHERE.md\nint u() { return 0; }\n")
+        (root / "src" / "u_test.cpp").write_text("// @" "verifies [SPEC-NOPE-02]\nint ut() { return u(); }\n")
+        run(["git", "add", "-A"], root)
+        reqs, _, _ = sm.build_matrix(root)
+        assert sm.unknown_tags(root, reqs) == {"SPEC-NOPE-01": ["src/u.cpp:1"],
+                                               "SPEC-NOPE-02": ["src/u_test.cpp:1"]}
+
+
+def test_planned_paths_are_not_drift():
+    """[SPEC-AUDIT-12] a path listed on 'Not implemented yet' is planned, not drift."""
+    # @verifies [SPEC-AUDIT-12] docs/SPECTRACE.md
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        make_repo(root)
+        spec = root / "docs" / "DRIFT_SPECIFICATION.md"
+        spec.write_text(DRIFT_SPEC.replace("`missing_fn()`", "it").replace("`src/c.cpp`", "`src/c.cpp`, `src/later.hpp`"))
+        (root / "src" / "c.cpp").write_text("// @" "impl [SPEC-DRIFT-01] docs/DRIFT_SPECIFICATION.md\n"
+                                            "void do_thing(int) {}\n")
+        (root / "sim").mkdir(exist_ok=True)
+        (root / "sim" / "x.cpp").write_text("")
+        run(["git", "add", "-A"], root)
+        reqs, _, _ = sm.build_matrix(root)
+        assert sm.check_drift(root, reqs) == {"SPEC-DRIFT-01": ["path src/later.hpp"]}
+        spec.write_text(spec.read_text().replace("* **Verified by**",
+                                                 "* **Not implemented yet**: `src/later.hpp`\n* **Verified by**"))
+        reqs, _, _ = sm.build_matrix(root)
+        assert sm.check_drift(root, reqs) == {}, sm.check_drift(root, reqs)
+
+
 if __name__ == "__main__":
     test_orphan_check_ignores_untracked_files()
     test_matrix_verdicts()
@@ -610,6 +657,9 @@ if __name__ == "__main__":
     test_verified_by_bullet_spans_wrapped_lines()
     test_staged_review_uses_staged_line_numbers()
     test_requirement_file_not_named_specification()
+    test_skills_check_fails_on_broken_requirement()
+    test_drift_flags_tags_naming_no_requirement()
+    test_planned_paths_are_not_drift()
     test_repo_is_honest()
     print("[PASS] spectrace_matrix")
 

@@ -197,8 +197,22 @@ def missing_paths(root: Path, r) -> list[str]:
             if ("/" not in path or not re.search(r"\.\w+$|/$", path)
                     or any(c in path for c in "*<>{}$")):
                 continue  # not a concrete repository path (a glob, a placeholder, a skill name)
+            if path in r.not_implemented:
+                continue  # planned: listed on the 'Not implemented yet' line (2026-11-13)
             if not (root / path).exists() and not (base / path).exists() and f"path {path}" not in out:
                 out.append(f"path {path}")
+    return out
+
+
+def unknown_tags(root: Path, reqs: dict) -> dict[str, list[str]]:
+    """@impl / @verifies tags naming a requirement no specification defines -> 'file:line' ([SPEC-AUDIT-12])."""
+    # @impl [SPEC-AUDIT-12] docs/SPECTRACE.md
+    out: dict[str, list[str]] = {}
+    for rel, anchors in sorted(scan_anchors(root, tracked_files(root)).items()):
+        for a in anchors:
+            for tag in a.tags:
+                if tag not in reqs:
+                    out.setdefault(tag, []).append(f"{rel}:{a.line}")
     return out
 
 
@@ -408,6 +422,13 @@ def check_skills(root: Path) -> list[str]:
     for rule in sorted((root / ".agents" / "rules").glob("*.md")):
         if f"@{rule.relative_to(root)}" not in imports:
             problems.append(f"{rule.relative_to(root)}: not imported by CLAUDE.md")
+    # @impl [SPEC-AUDIT-06] docs/SPECTRACE.md (a Verified by line naming a missing skill is BROKEN)
+    known = set(load_skills(root))
+    for tag, r in sorted(parse_requirements(root).items()):
+        unknown = [sk for sk in r.skills if sk not in known]
+        if unknown:
+            problems.append(f"{tag} ({r.spec}:{r.line}): Verified by names unknown skill(s) "
+                            f"{', '.join(unknown)} (BROKEN)")
     return problems
 
 
@@ -1088,6 +1109,11 @@ def main() -> int:
                           f"no such file; fix the path")
             print(f"Drift: {len(drift)} requirements")
             rc |= bool(drift)
+            unknown = unknown_tags(root, reqs)
+            for tag, where in sorted(unknown.items()):
+                print(f"[DRIFT] tag {tag} at {', '.join(where)}: no specification defines it")
+            print(f"Tags naming no requirement: {len(unknown)}")
+            rc |= bool(unknown)
         if args.check_tests:
             orphans = check_tests(root)
             for p in orphans:

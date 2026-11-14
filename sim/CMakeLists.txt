@@ -207,6 +207,7 @@ find_program(ABX_MAKE NAMES make gmake)
 set(_cocotb_dir ${CMAKE_CURRENT_SOURCE_DIR}/cocotb)
 set(_pio_rtl ${PROJECT_SOURCE_DIR}/rtl/pio/third_party/verilog-axi/rtl/axil_reg_if.v)  # submodule files the RTL needs
 set(_pio_toplevels asp_top asp_pio_wrap asp_sys_regs asp_ctrl_plane)                 # suites that read rtl/pio
+set(_pio_vlt ${PROJECT_SOURCE_DIR}/rtl/pio/src/rtl/third_party.vlt)  # cocotb/Makefile passes it to every suite
 
 macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
     add_custom_target(${TARGET_NAME}
@@ -221,7 +222,7 @@ macro(add_cocotb_test TARGET_NAME TOPLEVEL_MODULE TEST_FILE)
         set(_skip "")
         if(NOT ABX_VERILATOR OR NOT ABX_COCOTB_CONFIG OR NOT ABX_MAKE)
             set(_skip "verilator, cocotb-config or make not found")
-        elseif(TOPLEVEL_MODULE IN_LIST _pio_toplevels AND NOT EXISTS ${_pio_rtl})
+        elseif(NOT EXISTS ${_pio_vlt} OR (TOPLEVEL_MODULE IN_LIST _pio_toplevels AND NOT EXISTS ${_pio_rtl}))
             set(_skip "rtl/pio submodule not checked out: git submodule update --init --recursive rtl/pio")
         endif()
         if(_skip)
